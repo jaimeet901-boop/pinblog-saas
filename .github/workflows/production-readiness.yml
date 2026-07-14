@@ -1,0 +1,72 @@
+name: Production Readiness
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint API
+        run: npm run lint --prefix apps/api
+
+      - name: Lint Web
+        run: npm run lint --prefix apps/web
+
+      - name: Build Web
+        run: npm run build --prefix apps/web
+
+  config-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required env keys exist in template
+        run: |
+          required=(
+            "NODE_ENV"
+            "PORT"
+            "CORS_ORIGIN"
+            "PB_BASE_URL"
+            "PB_SUPERUSER_EMAIL"
+            "PB_SUPERUSER_PASSWORD"
+            "PINTEREST_CLIENT_ID"
+            "PINTEREST_CLIENT_SECRET"
+            "SECRET_ENCRYPTION_KEY"
+          )
+          for key in "${required[@]}"; do
+            grep -q "^${key}=" apps/api/.env.example || (echo "Missing ${key} in apps/api/.env.example" && exit 1)
+          done
+
+      - name: Validate Nginx reverse-proxy config syntax
+        run: |
+          mkdir -p deploy/nginx/certs
+          openssl req -x509 -nodes -days 1 -newkey rsa:2048 \
+            -keyout deploy/nginx/certs/privkey.pem \
+            -out deploy/nginx/certs/fullchain.pem \
+            -subj "/CN=localhost"
+
+          docker run --rm \
+            -v "$PWD/deploy/nginx/reverse-proxy.conf:/etc/nginx/conf.d/default.conf:ro" \
+            -v "$PWD/deploy/nginx/certs:/etc/nginx/certs:ro" \
+            nginx:1.27-alpine nginx -t

@@ -1,0 +1,94 @@
+/*
+  TEMPLATE STYLES: These styles are used as a base template.
+  AI is allowed to modify these styles as needed.
+*/
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: "DM Sans", sans-serif;
+  overflow-x: clip;
+}
+
+.font-display {
+  font-family: "Fraunces", serif;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-14px); }
+}
+.animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-slow { animation: none; }
+}
+
+/*
+  ---break---
+*/
+
+@layer base {
+  :root {
+    --background: 30 40% 98%;
+    --foreground: 20 14% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 14% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 14% 12%;
+    --primary: 18 82% 52%;
+    --primary-foreground: 40 60% 98%;
+    --secondary: 28 30% 94%;
+    --secondary-foreground: 20 14% 16%;
+    --muted: 28 25% 94%;
+    --muted-foreground: 24 8% 44%;
+    --accent: 42 92% 55%;
+    --accent-foreground: 24 30% 12%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 28 20% 88%;
+    --input: 28 20% 88%;
+    --ring: 18 82% 52%;
+    --radius: 0.9rem;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+  .dark {
+    --background: 24 16% 8%;
+    --foreground: 30 20% 94%;
+    --card: 24 14% 11%;
+    --card-foreground: 30 20% 94%;
+    --popover: 24 14% 11%;
+    --popover-foreground: 30 20% 94%;
+    --primary: 18 84% 56%;
+    --primary-foreground: 24 30% 10%;
+    --secondary: 24 10% 18%;
+    --secondary-foreground: 30 20% 94%;
+    --muted: 24 10% 17%;
+    --muted-foreground: 28 10% 60%;
+    --accent: 42 88% 58%;
+    --accent-foreground: 24 30% 10%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 24 10% 20%;
+    --input: 24 10% 20%;
+    --ring: 18 84% 56%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}

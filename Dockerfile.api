@@ -1,0 +1,13 @@
+FROM node:20-bookworm-slim AS base
+
+WORKDIR /app
+COPY package*.json ./
+COPY apps/api/package*.json ./apps/api/
+RUN npm ci --workspace apps/api
+
+COPY apps/api ./apps/api
+WORKDIR /app/apps/api
+
+ENV NODE_ENV=production
+EXPOSE 3001
+CMD ["node", "--env-file=.env", "src/main.js"]

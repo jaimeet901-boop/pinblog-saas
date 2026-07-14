@@ -1,0 +1,92 @@
+import { Router } from 'express';
+import { ContentBlockType, stream, uploadImagesToPocketBase } from '../api/integrated-ai.js';
+import { SystemPrompt } from '../constants/prompts.js';
+import { uploadFiles } from '../middleware/file-upload.js';
+import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
+import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
+
+const router = Router();
+
+function httpError(status, message) {
+	const error = new Error(message);
+	error.status = status;
+	return error;
+}
+
+function parseAndValidateMessage(message) {
+	if (typeof message !== 'string') {
+		throw httpError(400, 'message must be a string');
+	}
+
+	let parsed;
+	try {
+		parsed = JSON.parse(message);
+	} catch {
+		throw httpError(400, 'message must be valid JSON');
+	}
+
+	if (!Array.isArray(parsed) || parsed.length === 0) {
+		throw httpError(422, 'message must be a non-empty array');
+	}
+
+	for (const block of parsed) {
+		if (!block || typeof block !== 'object') {
+			throw httpError(422, 'Each message block must be an object');
+		}
+
+		if (block.type === ContentBlockType.Text && typeof block.text === 'string' && block.text.trim()) {
+			continue;
+		}
+
+		if (block.type === ContentBlockType.Image && typeof block.image === 'string' && block.image.trim()) {
+			continue;
+		}
+
+		throw httpError(422, 'Invalid message block. Expected { type: text, text } or { type: image, image }');
+	}
+
+	return parsed;
+}
+
+router.use(pocketbaseAuth);
+
+router.post('/stream', integratedAiRateLimit, uploadFiles({
+	allowedMimeTypes: [
+		'image/jpeg',
+		'image/png',
+		'image/webp',
+	],
+	fieldName: 'images',
+}), async (req, res) => {
+	const { message } = req.body;
+
+	if (!message) {
+		throw httpError(422, 'message is required');
+	}
+
+	const parsedMessage = parseAndValidateMessage(message);
+
+	if (req.files?.length > 0) {
+		const imageUrls = await uploadImagesToPocketBase({ images: req.files });
+		imageUrls.forEach((url) => {
+			parsedMessage.push({ type: ContentBlockType.Image, image: url });
+		});
+	}
+
+	const sseStream = await stream({
+		userId: req.pocketbaseUserId,
+		systemPrompt: SystemPrompt,
+		userMessage: parsedMessage,
+	});
+
+	res.setHeader('Content-Type', 'text/event-stream');
+	res.setHeader('Cache-Control', 'no-cache');
+	res.setHeader('Connection', 'keep-alive');
+	res.setHeader('X-Accel-Buffering', 'no');
+
+	sseStream.pipe(res, { end: false });
+
+	res.on('close', () => sseStream.destroy());
+});
+
+export default router;
