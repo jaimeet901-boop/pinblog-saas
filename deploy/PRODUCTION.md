@@ -61,3 +61,13 @@ docker compose -f docker-compose.prod.yml up -d
 
 ## 11) Go-live checklist
 - See `deploy/GO_LIVE_CHECKLIST.md` for pre-migration, migration window, validation, monitoring, and rollback sign-off.
+
+## 12) Oracle quick commands
+```bash
+DOMAIN=YOUR_DOMAIN bash deploy/scripts/oracle-go-live.sh
+```
+
+Rollback:
+```bash
+bash deploy/scripts/oracle-rollback.sh
+```

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { CheckCircle2, Link2, Loader2, Pin, RefreshCw, Unlink, Pencil } from 'lucide-react';
+import { Link2, Loader2, Pin, RefreshCw, Unlink, Pencil } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Card, Empty, Input, PageHeader, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
@@ -19,6 +19,7 @@ export default function PinterestPage() {
 	const { toast } = useToast();
 	const navigate = useNavigate();
 	const location = useLocation();
+
 	const [loading, setLoading] = useState(true);
 	const [filter, setFilter] = useState('');
 	const [connecting, setConnecting] = useState(false);
@@ -80,9 +81,15 @@ export default function PinterestPage() {
 		}
 
 		if (connectedParam === '1') {
-			toast({ title: 'Pinterest connected', description: connectedAccountId ? `Account linked: ${connectedAccountId}` : 'Your Pinterest account is now linked successfully.' });
+			toast({
+				title: 'Pinterest connected',
+				description: connectedAccountId
+					? `Account linked: ${connectedAccountId}`
+					: 'Your Pinterest account is now linked successfully.',
+			});
 			load();
 		}
+
 		if (errorParam) {
 			toast({ variant: 'destructive', title: 'Pinterest connection failed', description: decodeURIComponent(errorParam) });
 		}
@@ -112,91 +119,52 @@ export default function PinterestPage() {
 		}
 	};
 
-	const disconnectPinterest = async () => {
-		setDisconnecting(true);
-		try {
-			const response = await apiServerClient.fetch('/pinterest/disconnect', { method: 'POST' });
-			if (!response.ok) {
-				const payload = await response.json().catch(() => ({}));
-				throw new Error(parseErrorMessage(payload, `Failed to disconnect Pinterest (${response.status})`));
-			}
-			setAccount({ connected: false });
-			setBoards([]);
-			toast({ title: 'Pinterest disconnected', description: 'Your tokens and boards were removed safely.' });
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Error', description: error.message });
-		} finally {
-			setDisconnecting(false);
-		}
-	};
-
-	const syncBoards = async () => {
-		setSyncingBoards(true);
-		try {
-			const response = await apiServerClient.fetch('/pinterest/boards/sync', { method: 'POST' });
-			const payload = await response.json().catch(() => []);
-			if (!response.ok) {
-				throw new Error(parseErrorMessage(payload, `Failed to sync boards (${response.status})`));
-			}
-			setBoards(Array.isArray(payload) ? payload : []);
-			toast({ title: 'Boards synced', description: 'Pinterest boards were refreshed successfully.' });
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Error', description: error.message });
-		} finally {
-			setSyncingBoards(false);
-		}
-	};
-
-	const accountStatus = useMemo(() => {
-		if (!connected) {
-			return 'Not connected';
 	const reconnectAccount = async (account) => {
 		setProcessingAccountId(account.id);
-			return `Connected as @${account.username}`;
+		try {
 			const response = await apiServerClient.fetch(`/pinterest/accounts/${account.id}/reconnect`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ label: account.label || '' }),
 			});
 			const payload = await response.json().catch(() => ({}));
-		return 'Connected';
+			if (!response.ok) {
 				throw new Error(parseErrorMessage(payload, `Failed to reconnect account (${response.status})`));
-	return (
+			}
 			if (!payload?.authUrl) {
 				throw new Error('Reconnect URL was not returned by server');
 			}
 			window.location.assign(payload.authUrl);
-				subtitle="Connect your Pinterest account, sync boards, and use publishing tools from AI Pins and Calendar."
-				action={
-					connected ? (
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Error', description: error.message });
 			setProcessingAccountId('');
-							<Button variant="outline" onClick={syncBoards} disabled={syncingBoards || loading}>
-								{syncingBoards ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw size={16} />} Sync Boards
-							</Button>
+		}
+	};
+
 	const syncAccountBoards = async (account) => {
 		setProcessingAccountId(account.id);
-							</Button>
+		try {
 			const response = await apiServerClient.fetch('/pinterest/boards/sync', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ accountId: account.id }),
 			});
 			const payload = await response.json().catch(() => ({}));
-						<Button onClick={connectPinterest} disabled={connecting || loading}>
-							{connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 size={16} />} Connect Pinterest
-						</Button>
+			if (!response.ok) {
+				throw new Error(parseErrorMessage(payload, `Failed to sync boards (${response.status})`));
+			}
 			setBoardsByAccount((prev) => ({
 				...prev,
 				[account.id]: Array.isArray(payload.items) ? payload.items : [],
 			}));
 			toast({ title: 'Boards synced', description: `Boards refreshed for ${account.label || account.username}` });
-			/>
-
-			<Card className="mb-6 flex items-center justify-between gap-3">
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Error', description: error.message });
+		} finally {
 			setProcessingAccountId('');
-					<span className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-500/10 text-red-500"><Pin size={20} /></span>
-					<div>
-						<p className="font-semibold">Pinterest account status</p>
+		}
+	};
+
 	const disconnectAccount = async (account) => {
 		setProcessingAccountId(account.id);
 		try {
@@ -251,15 +219,19 @@ export default function PinterestPage() {
 		}
 		return 'red';
 	};
-				<Empty icon={Pin} title="Pinterest not connected" subtitle="Connect your Pinterest account to load boards and publish scheduled AI pins." />
-			) : boards.length === 0 ? (
-				<Empty icon={Pin} title="No boards found" subtitle="Create Pinterest boards in your account, then click Sync Boards." />
-			) : (
+
+	return (
+		<div>
+			<PageHeader
 				title="Pinterest Accounts"
 				subtitle="Connect and manage multiple Pinterest accounts for publishing and automation."
-				action={<Button onClick={connectPinterest} disabled={connecting || loading}>{connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 size={16} />} Connect New Account</Button>}
-		</div>
-	);
+				action={
+					<Button onClick={connectPinterest} disabled={connecting || loading}>
+						{connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 size={16} />} Connect New Account
+					</Button>
+				}
+			/>
+
 			<div className="mb-4 grid gap-4 md:grid-cols-4">
 				<Card>
 					<p className="text-xs text-muted-foreground">Total Accounts</p>
@@ -373,3 +345,6 @@ export default function PinterestPage() {
 					))}
 				</div>
 			)}
+		</div>
+	);
+}

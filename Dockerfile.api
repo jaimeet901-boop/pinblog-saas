@@ -10,4 +10,4 @@ WORKDIR /app/apps/api
 
 ENV NODE_ENV=production
 EXPOSE 3001
-CMD ["node", "--env-file=.env", "src/main.js"]
+CMD ["node", "src/main.js"]

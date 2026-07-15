@@ -41,4 +41,5 @@ services:
     depends_on:
       - web
       - api
+      - pocketbase
     restart: unless-stopped
