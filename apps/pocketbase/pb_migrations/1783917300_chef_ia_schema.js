@@ -1,5 +1,41 @@
 /// <reference path="../pb_data/types.d.ts" />
 
+const coreNS = typeof core !== "undefined" ? core : {};
+
+function pickCtor(...ctors) {
+	for (const ctor of ctors) {
+		if (typeof ctor === "function") {
+			return ctor;
+		}
+	}
+
+	return null;
+}
+
+function toField(def) {
+	if (!def || typeof def !== "object" || typeof def.type !== "string") {
+		return def;
+	}
+
+	const ctorByType = {
+		text: pickCtor(typeof TextField !== "undefined" ? TextField : null, coreNS.TextField),
+		url: pickCtor(typeof URLField !== "undefined" ? URLField : null, typeof UrlField !== "undefined" ? UrlField : null, coreNS.URLField, coreNS.UrlField),
+		relation: pickCtor(typeof RelationField !== "undefined" ? RelationField : null, coreNS.RelationField),
+		select: pickCtor(typeof SelectField !== "undefined" ? SelectField : null, coreNS.SelectField),
+		json: pickCtor(typeof JSONField !== "undefined" ? JSONField : null, coreNS.JSONField),
+		date: pickCtor(typeof DateField !== "undefined" ? DateField : null, coreNS.DateField),
+		bool: pickCtor(typeof BoolField !== "undefined" ? BoolField : null, coreNS.BoolField),
+		autodate: pickCtor(typeof AutodateField !== "undefined" ? AutodateField : null, coreNS.AutodateField),
+	};
+
+	const Ctor = ctorByType[def.type];
+	if (!Ctor) {
+		throw new Error(`Unsupported migration field type: ${def.type}`);
+	}
+
+	return new Ctor(def);
+}
+
 migrate(
 	(app) => {
 		const users = app.findCollectionByNameOrId("users");
@@ -56,7 +92,7 @@ migrate(
 				ownerField(),
 				{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
-			],
+			].map(toField),
 		});
 		app.save(websites);
 
@@ -79,7 +115,7 @@ migrate(
 				ownerField(),
 				{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
-			],
+			].map(toField),
 		});
 		app.save(articles);
 
@@ -98,7 +134,7 @@ migrate(
 				ownerField(),
 				{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
-			],
+			].map(toField),
 		});
 		app.save(pins);
 
@@ -117,7 +153,7 @@ migrate(
 				ownerField(),
 				{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
-			],
+			].map(toField),
 		});
 		app.save(settings);
 	},

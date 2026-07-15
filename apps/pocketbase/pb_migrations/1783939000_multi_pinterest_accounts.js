@@ -1,5 +1,37 @@
 /// <reference path="../pb_data/types.d.ts" />
 
+const coreNS = typeof core !== "undefined" ? core : {};
+
+function pickCtor(...ctors) {
+	for (const ctor of ctors) {
+		if (typeof ctor === "function") {
+			return ctor;
+		}
+	}
+
+	return null;
+}
+
+function toField(def) {
+	if (!def || typeof def !== "object" || typeof def.type !== "string") {
+		return def;
+	}
+
+	const ctorByType = {
+		text: pickCtor(typeof TextField !== "undefined" ? TextField : null, coreNS.TextField),
+		relation: pickCtor(typeof RelationField !== "undefined" ? RelationField : null, coreNS.RelationField),
+		select: pickCtor(typeof SelectField !== "undefined" ? SelectField : null, coreNS.SelectField),
+		date: pickCtor(typeof DateField !== "undefined" ? DateField : null, coreNS.DateField),
+	};
+
+	const Ctor = ctorByType[def.type];
+	if (!Ctor) {
+		throw new Error(`Unsupported migration field type: ${def.type}`);
+	}
+
+	return new Ctor(def);
+}
+
 migrate(
 	(app) => {
 		const pinterestAccounts = app.findCollectionByNameOrId("pinterest_accounts");
@@ -9,28 +41,28 @@ migrate(
 		const aiPins = app.findCollectionByNameOrId("ai_pins");
 
 		if (!pinterestAccounts.fields.getByName("label")) {
-			pinterestAccounts.fields.add({ name: "label", type: "text", max: 255 });
+			pinterestAccounts.fields.add(toField({ name: "label", type: "text", max: 255 }));
 		}
 		if (!pinterestAccounts.fields.getByName("account_name")) {
-			pinterestAccounts.fields.add({ name: "account_name", type: "text", max: 255 });
+			pinterestAccounts.fields.add(toField({ name: "account_name", type: "text", max: 255 }));
 		}
 		if (!pinterestAccounts.fields.getByName("profile_image_url")) {
-			pinterestAccounts.fields.add({ name: "profile_image_url", type: "text", max: 1000 });
+			pinterestAccounts.fields.add(toField({ name: "profile_image_url", type: "text", max: 1000 }));
 		}
 		if (!pinterestAccounts.fields.getByName("status")) {
-			pinterestAccounts.fields.add({
+			pinterestAccounts.fields.add(toField({
 				name: "status",
 				type: "select",
 				required: true,
 				maxSelect: 1,
 				values: ["connected", "expired", "error"],
-			});
+			}));
 		}
 		if (!pinterestAccounts.fields.getByName("status_error")) {
-			pinterestAccounts.fields.add({ name: "status_error", type: "text", max: 2000 });
+			pinterestAccounts.fields.add(toField({ name: "status_error", type: "text", max: 2000 }));
 		}
 		if (!pinterestAccounts.fields.getByName("connected_at")) {
-			pinterestAccounts.fields.add({ name: "connected_at", type: "date" });
+			pinterestAccounts.fields.add(toField({ name: "connected_at", type: "date" }));
 		}
 
 		pinterestAccounts.indexes = [
@@ -45,28 +77,28 @@ migrate(
 			"CREATE INDEX `idx_pinterest_boards_account` ON `pinterest_boards` (`account`)",
 		];
 		if (!pinterestBoards.fields.getByName("account_label")) {
-			pinterestBoards.fields.add({ name: "account_label", type: "text", max: 255 });
+			pinterestBoards.fields.add(toField({ name: "account_label", type: "text", max: 255 }));
 		}
 		if (!pinterestBoards.fields.getByName("account_username")) {
-			pinterestBoards.fields.add({ name: "account_username", type: "text", max: 255 });
+			pinterestBoards.fields.add(toField({ name: "account_username", type: "text", max: 255 }));
 		}
 		app.save(pinterestBoards);
 
 		if (!publishJobs.fields.getByName("account")) {
-			publishJobs.fields.add({
+			publishJobs.fields.add(toField({
 				name: "account",
 				type: "relation",
 				required: true,
 				maxSelect: 1,
 				collectionId: pinterestAccounts.id,
 				cascadeDelete: false,
-			});
+			}));
 		}
 		if (!publishJobs.fields.getByName("account_label")) {
-			publishJobs.fields.add({ name: "account_label", type: "text", max: 255 });
+			publishJobs.fields.add(toField({ name: "account_label", type: "text", max: 255 }));
 		}
 		if (!publishJobs.fields.getByName("account_username")) {
-			publishJobs.fields.add({ name: "account_username", type: "text", max: 255 });
+			publishJobs.fields.add(toField({ name: "account_username", type: "text", max: 255 }));
 		}
 		publishJobs.indexes = [
 			"CREATE INDEX `idx_pinterest_publish_jobs_status_sched` ON `pinterest_publish_jobs` (`status`, `scheduled_at`)",
@@ -77,18 +109,18 @@ migrate(
 		app.save(publishJobs);
 
 		if (!oauthStates.fields.getByName("account_id")) {
-			oauthStates.fields.add({ name: "account_id", type: "text", max: 80 });
+			oauthStates.fields.add(toField({ name: "account_id", type: "text", max: 80 }));
 		}
 		if (!oauthStates.fields.getByName("requested_label")) {
-			oauthStates.fields.add({ name: "requested_label", type: "text", max: 255 });
+			oauthStates.fields.add(toField({ name: "requested_label", type: "text", max: 255 }));
 		}
 		app.save(oauthStates);
 
 		if (!aiPins.fields.getByName("pinterest_account_id")) {
-			aiPins.fields.add({ name: "pinterest_account_id", type: "text", max: 80 });
+			aiPins.fields.add(toField({ name: "pinterest_account_id", type: "text", max: 80 }));
 		}
 		if (!aiPins.fields.getByName("pinterest_account_label")) {
-			aiPins.fields.add({ name: "pinterest_account_label", type: "text", max: 255 });
+			aiPins.fields.add(toField({ name: "pinterest_account_label", type: "text", max: 255 }));
 		}
 		app.save(aiPins);
 	},

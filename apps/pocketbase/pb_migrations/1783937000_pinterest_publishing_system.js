@@ -1,5 +1,41 @@
 /// <reference path="../pb_data/types.d.ts" />
 
+const coreNS = typeof core !== "undefined" ? core : {};
+
+function pickCtor(...ctors) {
+	for (const ctor of ctors) {
+		if (typeof ctor === "function") {
+			return ctor;
+		}
+	}
+
+	return null;
+}
+
+function toField(def) {
+	if (!def || typeof def !== "object" || typeof def.type !== "string") {
+		return def;
+	}
+
+	const ctorByType = {
+		text: pickCtor(typeof TextField !== "undefined" ? TextField : null, coreNS.TextField),
+		relation: pickCtor(typeof RelationField !== "undefined" ? RelationField : null, coreNS.RelationField),
+		select: pickCtor(typeof SelectField !== "undefined" ? SelectField : null, coreNS.SelectField),
+		json: pickCtor(typeof JSONField !== "undefined" ? JSONField : null, coreNS.JSONField),
+		date: pickCtor(typeof DateField !== "undefined" ? DateField : null, coreNS.DateField),
+		number: pickCtor(typeof NumberField !== "undefined" ? NumberField : null, coreNS.NumberField),
+		bool: pickCtor(typeof BoolField !== "undefined" ? BoolField : null, coreNS.BoolField),
+		autodate: pickCtor(typeof AutodateField !== "undefined" ? AutodateField : null, coreNS.AutodateField),
+	};
+
+	const Ctor = ctorByType[def.type];
+	if (!Ctor) {
+		throw new Error(`Unsupported migration field type: ${def.type}`);
+	}
+
+	return new Ctor(def);
+}
+
 migrate(
 	(app) => {
 		const users = app.findCollectionByNameOrId("users");
@@ -31,37 +67,37 @@ migrate(
 		}
 
 		if (!aiPins.fields.getByName("image_url")) {
-			aiPins.fields.add({ name: "image_url", type: "text", max: 1000 });
+			aiPins.fields.add(toField({ name: "image_url", type: "text", max: 1000 }));
 		}
 		if (!aiPins.fields.getByName("scheduled_at")) {
-			aiPins.fields.add({ name: "scheduled_at", type: "date" });
+			aiPins.fields.add(toField({ name: "scheduled_at", type: "date" }));
 		}
 		if (!aiPins.fields.getByName("scheduled_timezone")) {
-			aiPins.fields.add({ name: "scheduled_timezone", type: "text", max: 80 });
+			aiPins.fields.add(toField({ name: "scheduled_timezone", type: "text", max: 80 }));
 		}
 		if (!aiPins.fields.getByName("pinterest_board_id")) {
-			aiPins.fields.add({ name: "pinterest_board_id", type: "text", max: 120 });
+			aiPins.fields.add(toField({ name: "pinterest_board_id", type: "text", max: 120 }));
 		}
 		if (!aiPins.fields.getByName("pinterest_board_name")) {
-			aiPins.fields.add({ name: "pinterest_board_name", type: "text", max: 300 });
+			aiPins.fields.add(toField({ name: "pinterest_board_name", type: "text", max: 300 }));
 		}
 		if (!aiPins.fields.getByName("pinterest_pin_id")) {
-			aiPins.fields.add({ name: "pinterest_pin_id", type: "text", max: 120 });
+			aiPins.fields.add(toField({ name: "pinterest_pin_id", type: "text", max: 120 }));
 		}
 		if (!aiPins.fields.getByName("pinterest_pin_url")) {
-			aiPins.fields.add({ name: "pinterest_pin_url", type: "text", max: 1000 });
+			aiPins.fields.add(toField({ name: "pinterest_pin_url", type: "text", max: 1000 }));
 		}
 		if (!aiPins.fields.getByName("publish_job_id")) {
-			aiPins.fields.add({ name: "publish_job_id", type: "text", max: 120 });
+			aiPins.fields.add(toField({ name: "publish_job_id", type: "text", max: 120 }));
 		}
 		if (!aiPins.fields.getByName("published_at")) {
-			aiPins.fields.add({ name: "published_at", type: "date" });
+			aiPins.fields.add(toField({ name: "published_at", type: "date" }));
 		}
 		if (!aiPins.fields.getByName("publish_error")) {
-			aiPins.fields.add({ name: "publish_error", type: "text", max: 3000 });
+			aiPins.fields.add(toField({ name: "publish_error", type: "text", max: 3000 }));
 		}
 		if (!aiPins.fields.getByName("performance")) {
-			aiPins.fields.add({ name: "performance", type: "json", maxSize: 100000 });
+			aiPins.fields.add(toField({ name: "performance", type: "json", maxSize: 100000 }));
 		}
 		app.save(aiPins);
 
@@ -85,7 +121,7 @@ migrate(
 				{ name: "last_sync_at", type: "date" },
 				{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
-			],
+			].map(toField),
 		});
 		app.save(pinterestAccounts);
 
@@ -114,7 +150,7 @@ migrate(
 				{ name: "privacy", type: "text", max: 50 },
 				{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
-			],
+			].map(toField),
 		});
 		app.save(pinterestBoards);
 
@@ -166,7 +202,7 @@ migrate(
 				{ name: "performance", type: "json", maxSize: 100000 },
 				{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
-			],
+			].map(toField),
 		});
 		app.save(publishJobs);
 
@@ -193,7 +229,7 @@ migrate(
 				{ name: "payload", type: "json", maxSize: 100000 },
 				{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
-			],
+			].map(toField),
 		});
 		app.save(publishEvents);
 
@@ -212,7 +248,7 @@ migrate(
 				{ name: "used", type: "bool" },
 				{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
-			],
+			].map(toField),
 		});
 		app.save(oauthStates);
 	},
