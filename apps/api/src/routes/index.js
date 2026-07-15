@@ -13,6 +13,11 @@ const router = Router();
 
 export default () => {
     router.get('/health', healthCheck);
+    router.get('/api/health', (req, res) => {
+        res.status(200).json({
+            status: 'ok',
+        });
+    });
     router.use('/integrated-ai', integratedAiRouter);
     router.use('/websites', pocketbaseAuth, websitesRouter);
     router.post('/wordpress/test', pocketbaseAuth, wordpress);
