@@ -5,15 +5,13 @@
 1. Freeze deployment window and notify stakeholders.
 2. Confirm latest commit passed CI workflow checks.
 3. Verify secrets are configured in `apps/api/.env` from the template.
-4. Ensure TLS cert files exist:
-   - `deploy/nginx/certs/fullchain.pem`
-   - `deploy/nginx/certs/privkey.pem`
+4. Confirm CloudPanel site is configured to proxy traffic to `http://127.0.0.1:8080` (or your configured `APP_HTTP_PORT`).
 5. PocketBase runtime binary:
    - No manual binary permission step is needed.
    - Docker Compose downloads the correct Linux PocketBase binary automatically based on CPU architecture.
 6. Backup PocketBase data directory and keep timestamped copy.
 7. Confirm required DNS records point to Oracle VM public IP.
-8. Confirm ports 80 and 443 are open in OCI Security List/NSG.
+8. Confirm ports 80 and 443 are open for CloudPanel nginx in OCI Security List/NSG.
 
 ## B) Migration Window (T0)
 

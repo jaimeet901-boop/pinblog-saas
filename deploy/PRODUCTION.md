@@ -3,7 +3,8 @@
 ## 1) Prepare server
 - Ubuntu 22.04+
 - Install Docker and Docker Compose plugin
-- Open ports: 80, 443
+- CloudPanel nginx remains the public web server on ports 80/443.
+- Docker nginx is bound only to localhost high port (`APP_HTTP_PORT`, default `8080`).
 
 ## 2) Configure environment
 - Copy `apps/api/.env.example` to `apps/api/.env`
@@ -11,14 +12,17 @@
 - Ensure `PB_BASE_URL=http://pocketbase:8090` when using Docker Compose
 
 ## 3) TLS certificates
-- Place cert files in `deploy/nginx/certs/`:
-  - `fullchain.pem`
-  - `privkey.pem`
+- In CloudPanel mode, TLS certificates are managed by CloudPanel nginx.
+- No certificate files are required inside Docker nginx.
 
 ## 4) Build and run
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
 ```
+
+CloudPanel reverse proxy target example:
+- Proxy `https://YOUR_DOMAIN` to `http://127.0.0.1:8080`
+- If you change `APP_HTTP_PORT`, update the CloudPanel proxy target accordingly.
 
 ## 5) Health verification
 - API health: `https://YOUR_DOMAIN/api/health`

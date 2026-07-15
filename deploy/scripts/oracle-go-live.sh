@@ -27,8 +27,6 @@ command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not installed"; exit 
 docker compose version >/dev/null 2>&1 || { echo "ERROR: docker compose plugin not installed"; exit 1; }
 
 require_file "apps/api/.env"
-require_file "deploy/nginx/certs/fullchain.pem"
-require_file "deploy/nginx/certs/privkey.pem"
 require_file "$COMPOSE_FILE"
 
 echo "[2/8] Pull latest images base layers"
