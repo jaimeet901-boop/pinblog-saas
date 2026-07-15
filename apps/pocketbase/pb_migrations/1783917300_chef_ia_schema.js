@@ -79,9 +79,26 @@ migrate(
 		};
 
 		const applyOwnerRules = (collection) => {
-			const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+			let persisted;
+			try {
+				persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+			} catch (_) {
+				return;
+			}
+
+			if (!persisted) {
+				return;
+			}
+
 			if (!persisted.fields.getByName("owner")) {
-				throw new Error(`Owner field not found for collection: ${collection.name}`);
+				// The intended schema for these collections includes owner.
+				// Ensure it exists before applying owner-based rules.
+				persisted.fields.add(toField(ownerField()));
+				app.save(persisted);
+				persisted = app.findCollectionByNameOrId(persisted.id || persisted.name);
+				if (!persisted || !persisted.fields.getByName("owner")) {
+					return;
+				}
 			}
 
 			persisted.listRule = ownerRules.listRule;
