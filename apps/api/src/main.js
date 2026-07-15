@@ -32,7 +32,13 @@ function sanitizeValue(value) {
 }
 
 function sanitizeInput(req, res, next) {
-	req.query = sanitizeValue(req.query);
+	const sanitizedQuery = sanitizeValue(req.query);
+	Object.defineProperty(req, 'query', {
+		value: sanitizedQuery,
+		writable: true,
+		configurable: true,
+		enumerable: true,
+	});
 	req.body = sanitizeValue(req.body);
 	next();
 }
