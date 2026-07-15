@@ -40,8 +40,6 @@ migrate(
 			indexes: [
 				"CREATE INDEX `idx_WPAhfnyyQ7` ON `_integratedAiMessages` (`userId`)"
 			],
-			deleteRule: "@request.auth.id != '' && userId = @request.auth.id",
-			listRule: "@request.auth.id != '' && userId = @request.auth.id",
 			fields: [
 				{
 					autogeneratePattern: "[a-z0-9]{15}",
@@ -114,6 +112,12 @@ migrate(
 			].map(toField),
 		});
 
+		app.save(collection);
+
+		// In PocketBase v0.38 rule validation can run before new fields are persisted.
+		// Apply userId-dependent rules only after the schema is stored.
+		collection.listRule = "@request.auth.id != '' && userId = @request.auth.id";
+		collection.deleteRule = "@request.auth.id != '' && userId = @request.auth.id";
 		app.save(collection);
 	},
 	(app) => {
