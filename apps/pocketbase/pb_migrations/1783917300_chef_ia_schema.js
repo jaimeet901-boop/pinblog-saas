@@ -79,12 +79,17 @@ migrate(
 		};
 
 		const applyOwnerRules = (collection) => {
-			collection.listRule = ownerRules.listRule;
-			collection.viewRule = ownerRules.viewRule;
-			collection.createRule = ownerRules.createRule;
-			collection.updateRule = ownerRules.updateRule;
-			collection.deleteRule = ownerRules.deleteRule;
-			app.save(collection);
+			const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+			if (!persisted.fields.getByName("owner")) {
+				throw new Error(`Owner field not found for collection: ${collection.name}`);
+			}
+
+			persisted.listRule = ownerRules.listRule;
+			persisted.viewRule = ownerRules.viewRule;
+			persisted.createRule = ownerRules.createRule;
+			persisted.updateRule = ownerRules.updateRule;
+			persisted.deleteRule = ownerRules.deleteRule;
+			app.save(persisted);
 		};
 
 		// Websites
