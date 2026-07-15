@@ -8,8 +8,9 @@
 4. Ensure TLS cert files exist:
    - `deploy/nginx/certs/fullchain.pem`
    - `deploy/nginx/certs/privkey.pem`
-5. Verify PocketBase binary execute permission:
-   - `chmod +x apps/pocketbase/pocketbase`
+5. PocketBase runtime binary:
+   - No manual binary permission step is needed.
+   - Docker Compose downloads the correct Linux PocketBase binary automatically based on CPU architecture.
 6. Backup PocketBase data directory and keep timestamped copy.
 7. Confirm required DNS records point to Oracle VM public IP.
 8. Confirm ports 80 and 443 are open in OCI Security List/NSG.

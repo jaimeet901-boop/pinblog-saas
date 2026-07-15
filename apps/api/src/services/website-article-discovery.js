@@ -248,13 +248,13 @@ function extractInternalLinks(html, baseUrl) {
 }
 
 function parseArticleHtml(url, html) {
-	const title = stripHtml(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || getMetaContent(html, ['property=["']og:title["']', 'name=["']title["']']));
-	const metaDescription = getMetaContent(html, ['name=["']description["']', 'property=["']og:description["']']).slice(0, 2000);
-	const featuredImage = absoluteUrl(url, getMetaContent(html, ['property=["']og:image["']', 'name=["']twitter:image["']']));
-	const publishDate = normalizeDate(getMetaContent(html, ['property=["']article:published_time["']', 'name=["']pubdate["']', 'name=["']publish-date["']']));
-	const lastModifiedDate = normalizeDate(getMetaContent(html, ['property=["']article:modified_time["']', 'name=["']lastmod["']', 'name=["']last-modified["']']));
-	const category = getMetaContent(html, ['property=["']article:section["']', 'name=["']category["']']);
-	const author = getMetaContent(html, ['name=["']author["']', 'property=["']article:author["']']);
+	const title = stripHtml(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || getMetaContent(html, ["property=[\"']og:title[\"']", "name=[\"']title[\"']"]));
+	const metaDescription = getMetaContent(html, ["name=[\"']description[\"']", "property=[\"']og:description[\"']"]).slice(0, 2000);
+	const featuredImage = absoluteUrl(url, getMetaContent(html, ["property=[\"']og:image[\"']", "name=[\"']twitter:image[\"']"]));
+	const publishDate = normalizeDate(getMetaContent(html, ["property=[\"']article:published_time[\"']", "name=[\"']pubdate[\"']", "name=[\"']publish-date[\"']"]));
+	const lastModifiedDate = normalizeDate(getMetaContent(html, ["property=[\"']article:modified_time[\"']", "name=[\"']lastmod[\"']", "name=[\"']last-modified[\"']"]));
+	const category = getMetaContent(html, ["property=[\"']article:section[\"']", "name=[\"']category[\"']"]);
+	const author = getMetaContent(html, ["name=[\"']author[\"']", "property=[\"']article:author[\"']"]);
 	const language = (html.match(/<html[^>]+lang=["']([^"']+)["']/i)?.[1] || '').trim();
 
 	return {

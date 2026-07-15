@@ -31,10 +31,6 @@ require_file "deploy/nginx/certs/fullchain.pem"
 require_file "deploy/nginx/certs/privkey.pem"
 require_file "$COMPOSE_FILE"
 
-if [[ -f "apps/pocketbase/pocketbase" ]]; then
-  chmod +x apps/pocketbase/pocketbase
-fi
-
 echo "[2/8] Pull latest images base layers"
 docker compose -f "$COMPOSE_FILE" pull || true
 

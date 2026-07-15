@@ -38,11 +38,9 @@ pm2 start ecosystem.config.cjs
 pm2 save
 ```
 
-## 7) File permissions
-- Ensure execute permission on PocketBase binary:
-```bash
-chmod +x apps/pocketbase/pocketbase
-```
+## 7) PocketBase binary handling
+- Docker Compose now downloads the correct Linux PocketBase binary automatically based on server architecture (`amd64`/`arm64`) using `apps/pocketbase/.pocketbase-version`.
+- Do not commit `apps/pocketbase/pocketbase`; it is generated at runtime inside the mounted project folder.
 
 ## 8) Reverse proxy
 - Main reverse proxy config: `deploy/nginx/reverse-proxy.conf`

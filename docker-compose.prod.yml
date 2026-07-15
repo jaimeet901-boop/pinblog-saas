@@ -4,7 +4,26 @@ services:
   pocketbase:
     image: alpine:3.20
     working_dir: /pb
-    command: ["./pocketbase", "serve", "--http=0.0.0.0:8090"]
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        apk add --no-cache curl unzip ca-certificates >/dev/null
+        PB_VERSION="$$(cat /pb/.pocketbase-version 2>/dev/null || echo 0.38.0)"
+        case "$$(uname -m)" in
+          x86_64|amd64) PB_ARCH="amd64" ;;
+          aarch64|arm64) PB_ARCH="arm64" ;;
+          *) echo "Unsupported PocketBase architecture: $$(uname -m)"; exit 1 ;;
+        esac
+        PB_URL="https://github.com/pocketbase/pocketbase/releases/download/v$${PB_VERSION}/pocketbase_$${PB_VERSION}_linux_$${PB_ARCH}.zip"
+        if ! /pb/pocketbase --version >/dev/null 2>&1; then
+          echo "Downloading PocketBase v$${PB_VERSION} for linux/$${PB_ARCH}"
+          curl -fsSL "$${PB_URL}" -o /tmp/pocketbase.zip
+          unzip -o /tmp/pocketbase.zip pocketbase -d /pb >/dev/null
+          chmod +x /pb/pocketbase
+        fi
+        exec /pb/pocketbase serve --http=0.0.0.0:8090 --dir=/pb/pb_data --migrationsDir=/pb/pb_migrations --hooksDir=/pb/pb_hooks --hooksWatch=false
     volumes:
       - ./apps/pocketbase:/pb
     restart: unless-stopped

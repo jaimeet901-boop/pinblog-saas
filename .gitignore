@@ -8,6 +8,7 @@ apps/api/.env
 apps/web/.env
 apps/pocketbase/pb_data/
 apps/pocketbase/pb_data/storage/
+apps/pocketbase/pocketbase
 deploy/nginx/certs/
 *.log
 *.tmp
