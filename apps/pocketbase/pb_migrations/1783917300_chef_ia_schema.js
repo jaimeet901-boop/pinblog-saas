@@ -71,11 +71,11 @@ migrate(
 		});
 
 		const ownerRules = {
-			listRule: "@request.auth.id != '' && @request.auth.id = owner",
-			viewRule: "@request.auth.id != '' && @request.auth.id = owner",
+			listRule: "@request.auth.id != '' && owner = @request.auth.id",
+			viewRule: "@request.auth.id != '' && owner = @request.auth.id",
 			createRule: "@request.auth.id != ''",
-			updateRule: "@request.auth.id != '' && @request.auth.id = owner",
-			deleteRule: "@request.auth.id != '' && @request.auth.id = owner",
+			updateRule: "@request.auth.id != '' && owner = @request.auth.id",
+			deleteRule: "@request.auth.id != '' && owner = @request.auth.id",
 		};
 
 		const applyOwnerRules = (collection) => {
