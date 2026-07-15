@@ -4,6 +4,8 @@ services:
   pocketbase:
     image: alpine:3.20
     working_dir: /pb
+    env_file:
+      - ./apps/api/.env
     command:
       - /bin/sh
       - -c
