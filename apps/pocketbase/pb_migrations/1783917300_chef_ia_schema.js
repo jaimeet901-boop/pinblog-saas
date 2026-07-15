@@ -78,11 +78,19 @@ migrate(
 			deleteRule: "@request.auth.id != '' && @request.auth.id = owner",
 		};
 
+		const applyOwnerRules = (collection) => {
+			collection.listRule = ownerRules.listRule;
+			collection.viewRule = ownerRules.viewRule;
+			collection.createRule = ownerRules.createRule;
+			collection.updateRule = ownerRules.updateRule;
+			collection.deleteRule = ownerRules.deleteRule;
+			app.save(collection);
+		};
+
 		// Websites
 		const websites = new Collection({
 			type: "base",
 			name: "websites",
-			...ownerRules,
 			fields: [
 				{ name: "name", type: "text", required: true, max: 120 },
 				{ name: "url", type: "url" },
@@ -95,12 +103,12 @@ migrate(
 			].map(toField),
 		});
 		app.save(websites);
+		applyOwnerRules(websites);
 
 		// Articles
 		const articles = new Collection({
 			type: "base",
 			name: "articles",
-			...ownerRules,
 			fields: [
 				{ name: "keyword", type: "text", max: 200 },
 				{ name: "seo_title", type: "text", max: 200 },
@@ -118,12 +126,12 @@ migrate(
 			].map(toField),
 		});
 		app.save(articles);
+		applyOwnerRules(articles);
 
 		// Pins (Pinterest images / scheduled pins)
 		const pins = new Collection({
 			type: "base",
 			name: "pins",
-			...ownerRules,
 			fields: [
 				{ name: "title", type: "text", max: 200 },
 				{ name: "image_url", type: "text", max: 500 },
@@ -137,12 +145,12 @@ migrate(
 			].map(toField),
 		});
 		app.save(pins);
+		applyOwnerRules(pins);
 
 		// Per-user settings (API keys, integrations)
 		const settings = new Collection({
 			type: "base",
 			name: "user_settings",
-			...ownerRules,
 			fields: [
 				{ name: "openai_key", type: "text", max: 300 },
 				{ name: "gemini_key", type: "text", max: 300 },
@@ -156,6 +164,7 @@ migrate(
 			].map(toField),
 		});
 		app.save(settings);
+		applyOwnerRules(settings);
 	},
 	(app) => {
 		for (const name of ["user_settings", "pins", "articles", "websites"]) {
