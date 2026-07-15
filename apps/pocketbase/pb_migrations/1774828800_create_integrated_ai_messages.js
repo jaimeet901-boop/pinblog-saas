@@ -113,12 +113,6 @@ migrate(
 		});
 
 		app.save(collection);
-
-		// In PocketBase v0.38 rule validation can run before new fields are persisted.
-		// Apply userId-dependent rules only after the schema is stored.
-		collection.listRule = "@request.auth.id != '' && userId = @request.auth.id";
-		collection.deleteRule = "@request.auth.id != '' && userId = @request.auth.id";
-		app.save(collection);
 	},
 	(app) => {
 		const collection = app.findCollectionByNameOrId("_integratedAiMessages");
