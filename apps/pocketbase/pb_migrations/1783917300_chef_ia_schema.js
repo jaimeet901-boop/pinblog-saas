@@ -91,14 +91,7 @@ migrate(
 			}
 
 			if (!persisted.fields.getByName("owner")) {
-				// The intended schema for these collections includes owner.
-				// Ensure it exists before applying owner-based rules.
-				persisted.fields.add(toField(ownerField()));
-				app.save(persisted);
-				persisted = app.findCollectionByNameOrId(persisted.id || persisted.name);
-				if (!persisted || !persisted.fields.getByName("owner")) {
-					return;
-				}
+				return;
 			}
 
 			persisted.listRule = ownerRules.listRule;
