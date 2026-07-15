@@ -32,6 +32,22 @@ function toField(def) {
 	return new Ctor(def);
 }
 
+function getFieldNames(collection) {
+	return new Set(collection.fields.map((field) => field.name));
+}
+
+function applyExistingIndexes(app, collection, indexDefs) {
+	const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+	if (!persisted) {
+		return;
+	}
+
+	const fieldNames = getFieldNames(persisted);
+	const validIndexes = indexDefs.filter((indexDef) => indexDef.fields.every((fieldName) => fieldNames.has(fieldName)));
+	persisted.indexes = validIndexes.map((indexDef) => indexDef.sql);
+	app.save(persisted);
+}
+
 migrate(
 	(app) => {
 		const pinterestAccounts = app.findCollectionByNameOrId("pinterest_accounts");
@@ -64,18 +80,25 @@ migrate(
 		if (!pinterestAccounts.fields.getByName("connected_at")) {
 			pinterestAccounts.fields.add(toField({ name: "connected_at", type: "date" }));
 		}
-
-		pinterestAccounts.indexes = [
-			"CREATE UNIQUE INDEX `idx_pinterest_accounts_owner_user_unique` ON `pinterest_accounts` (`owner`, `pinterest_user_id`)",
-			"CREATE INDEX `idx_pinterest_accounts_owner_status` ON `pinterest_accounts` (`owner`, `status`)",
-			"CREATE INDEX `idx_pinterest_accounts_user_id` ON `pinterest_accounts` (`pinterest_user_id`)",
-		];
+		if (!pinterestAccounts.fields.getByName("pinterest_user_id")) {
+			pinterestAccounts.fields.add(toField({ name: "pinterest_user_id", type: "text", max: 120 }));
+		}
 		app.save(pinterestAccounts);
+		applyExistingIndexes(app, pinterestAccounts, [
+			{
+				sql: "CREATE UNIQUE INDEX `idx_pinterest_accounts_owner_user_unique` ON `pinterest_accounts` (`owner`, `pinterest_user_id`)",
+				fields: ["owner", "pinterest_user_id"],
+			},
+			{
+				sql: "CREATE INDEX `idx_pinterest_accounts_owner_status` ON `pinterest_accounts` (`owner`, `status`)",
+				fields: ["owner", "status"],
+			},
+			{
+				sql: "CREATE INDEX `idx_pinterest_accounts_user_id` ON `pinterest_accounts` (`pinterest_user_id`)",
+				fields: ["pinterest_user_id"],
+			},
+		]);
 
-		pinterestBoards.indexes = [
-			"CREATE UNIQUE INDEX `idx_pinterest_boards_owner_account_board` ON `pinterest_boards` (`owner`, `account`, `board_id`)",
-			"CREATE INDEX `idx_pinterest_boards_account` ON `pinterest_boards` (`account`)",
-		];
 		if (!pinterestBoards.fields.getByName("account_label")) {
 			pinterestBoards.fields.add(toField({ name: "account_label", type: "text", max: 255 }));
 		}
@@ -83,6 +106,16 @@ migrate(
 			pinterestBoards.fields.add(toField({ name: "account_username", type: "text", max: 255 }));
 		}
 		app.save(pinterestBoards);
+		applyExistingIndexes(app, pinterestBoards, [
+			{
+				sql: "CREATE UNIQUE INDEX `idx_pinterest_boards_owner_account_board` ON `pinterest_boards` (`owner`, `account`, `board_id`)",
+				fields: ["owner", "account", "board_id"],
+			},
+			{
+				sql: "CREATE INDEX `idx_pinterest_boards_account` ON `pinterest_boards` (`account`)",
+				fields: ["account"],
+			},
+		]);
 
 		if (!publishJobs.fields.getByName("account")) {
 			publishJobs.fields.add(toField({
@@ -100,13 +133,25 @@ migrate(
 		if (!publishJobs.fields.getByName("account_username")) {
 			publishJobs.fields.add(toField({ name: "account_username", type: "text", max: 255 }));
 		}
-		publishJobs.indexes = [
-			"CREATE INDEX `idx_pinterest_publish_jobs_status_sched` ON `pinterest_publish_jobs` (`status`, `scheduled_at`)",
-			"CREATE INDEX `idx_pinterest_publish_jobs_owner_status` ON `pinterest_publish_jobs` (`owner`, `status`)",
-			"CREATE INDEX `idx_pinterest_publish_jobs_next_retry` ON `pinterest_publish_jobs` (`next_retry_at`)",
-			"CREATE INDEX `idx_pinterest_publish_jobs_account_status` ON `pinterest_publish_jobs` (`account`, `status`)",
-		];
 		app.save(publishJobs);
+		applyExistingIndexes(app, publishJobs, [
+			{
+				sql: "CREATE INDEX `idx_pinterest_publish_jobs_status_sched` ON `pinterest_publish_jobs` (`status`, `scheduled_at`)",
+				fields: ["status", "scheduled_at"],
+			},
+			{
+				sql: "CREATE INDEX `idx_pinterest_publish_jobs_owner_status` ON `pinterest_publish_jobs` (`owner`, `status`)",
+				fields: ["owner", "status"],
+			},
+			{
+				sql: "CREATE INDEX `idx_pinterest_publish_jobs_next_retry` ON `pinterest_publish_jobs` (`next_retry_at`)",
+				fields: ["next_retry_at"],
+			},
+			{
+				sql: "CREATE INDEX `idx_pinterest_publish_jobs_account_status` ON `pinterest_publish_jobs` (`account`, `status`)",
+				fields: ["account", "status"],
+			},
+		]);
 
 		if (!oauthStates.fields.getByName("account_id")) {
 			oauthStates.fields.add(toField({ name: "account_id", type: "text", max: 80 }));
@@ -134,30 +179,51 @@ migrate(
 		for (const fieldName of ["label", "account_name", "profile_image_url", "status", "status_error", "connected_at"]) {
 			try { pinterestAccounts.fields.removeByName(fieldName); } catch (_) {}
 		}
-		pinterestAccounts.indexes = [
-			"CREATE UNIQUE INDEX `idx_pinterest_accounts_owner` ON `pinterest_accounts` (`owner`)",
-			"CREATE INDEX `idx_pinterest_accounts_user_id` ON `pinterest_accounts` (`pinterest_user_id`)",
-		];
 		app.save(pinterestAccounts);
+		applyExistingIndexes(app, pinterestAccounts, [
+			{
+				sql: "CREATE UNIQUE INDEX `idx_pinterest_accounts_owner` ON `pinterest_accounts` (`owner`)",
+				fields: ["owner"],
+			},
+			{
+				sql: "CREATE INDEX `idx_pinterest_accounts_user_id` ON `pinterest_accounts` (`pinterest_user_id`)",
+				fields: ["pinterest_user_id"],
+			},
+		]);
 
-		pinterestBoards.indexes = [
-			"CREATE UNIQUE INDEX `idx_pinterest_boards_owner_board` ON `pinterest_boards` (`owner`, `board_id`)",
-			"CREATE INDEX `idx_pinterest_boards_account` ON `pinterest_boards` (`account`)",
-		];
 		for (const fieldName of ["account_label", "account_username"]) {
 			try { pinterestBoards.fields.removeByName(fieldName); } catch (_) {}
 		}
 		app.save(pinterestBoards);
+		applyExistingIndexes(app, pinterestBoards, [
+			{
+				sql: "CREATE UNIQUE INDEX `idx_pinterest_boards_owner_board` ON `pinterest_boards` (`owner`, `board_id`)",
+				fields: ["owner", "board_id"],
+			},
+			{
+				sql: "CREATE INDEX `idx_pinterest_boards_account` ON `pinterest_boards` (`account`)",
+				fields: ["account"],
+			},
+		]);
 
 		for (const fieldName of ["account", "account_label", "account_username"]) {
 			try { publishJobs.fields.removeByName(fieldName); } catch (_) {}
 		}
-		publishJobs.indexes = [
-			"CREATE INDEX `idx_pinterest_publish_jobs_status_sched` ON `pinterest_publish_jobs` (`status`, `scheduled_at`)",
-			"CREATE INDEX `idx_pinterest_publish_jobs_owner_status` ON `pinterest_publish_jobs` (`owner`, `status`)",
-			"CREATE INDEX `idx_pinterest_publish_jobs_next_retry` ON `pinterest_publish_jobs` (`next_retry_at`)",
-		];
 		app.save(publishJobs);
+		applyExistingIndexes(app, publishJobs, [
+			{
+				sql: "CREATE INDEX `idx_pinterest_publish_jobs_status_sched` ON `pinterest_publish_jobs` (`status`, `scheduled_at`)",
+				fields: ["status", "scheduled_at"],
+			},
+			{
+				sql: "CREATE INDEX `idx_pinterest_publish_jobs_owner_status` ON `pinterest_publish_jobs` (`owner`, `status`)",
+				fields: ["owner", "status"],
+			},
+			{
+				sql: "CREATE INDEX `idx_pinterest_publish_jobs_next_retry` ON `pinterest_publish_jobs` (`next_retry_at`)",
+				fields: ["next_retry_at"],
+			},
+		]);
 
 		for (const fieldName of ["account_id", "requested_label"]) {
 			try { oauthStates.fields.removeByName(fieldName); } catch (_) {}
