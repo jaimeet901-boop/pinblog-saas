@@ -16,10 +16,25 @@ services:
           aarch64|arm64) PB_ARCH="arm64" ;;
           *) echo "Unsupported PocketBase architecture: $$(uname -m)"; exit 1 ;;
         esac
-        PB_URL="https://github.com/pocketbase/pocketbase/releases/download/v$${PB_VERSION}/pocketbase_$${PB_VERSION}_linux_$${PB_ARCH}.zip"
+        PB_FILENAME="pocketbase_$${PB_VERSION}_linux_$${PB_ARCH}.zip"
+        PB_URL="https://github.com/pocketbase/pocketbase/releases/download/v$${PB_VERSION}/$${PB_FILENAME}"
+        PB_CHECKSUMS_URL="https://github.com/pocketbase/pocketbase/releases/download/v$${PB_VERSION}/checksums.txt"
         if ! /pb/pocketbase --version >/dev/null 2>&1; then
           echo "Downloading PocketBase v$${PB_VERSION} for linux/$${PB_ARCH}"
           curl -fsSL "$${PB_URL}" -o /tmp/pocketbase.zip
+          curl -fsSL "$${PB_CHECKSUMS_URL}" -o /tmp/checksums.txt
+          EXPECTED_SHA="$$(grep "  $${PB_FILENAME}$$" /tmp/checksums.txt | awk '{print $$1}')"
+          if [ -z "$${EXPECTED_SHA}" ]; then
+            echo "ERROR: checksum entry not found for $${PB_FILENAME}"
+            exit 1
+          fi
+          ACTUAL_SHA="$$(sha256sum /tmp/pocketbase.zip | awk '{print $$1}')"
+          if [ "$${ACTUAL_SHA}" != "$${EXPECTED_SHA}" ]; then
+            echo "ERROR: checksum mismatch for $${PB_FILENAME}"
+            echo "Expected: $${EXPECTED_SHA}"
+            echo "Actual:   $${ACTUAL_SHA}"
+            exit 1
+          fi
           unzip -o /tmp/pocketbase.zip pocketbase -d /pb >/dev/null
           chmod +x /pb/pocketbase
         fi

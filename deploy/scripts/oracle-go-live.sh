@@ -109,7 +109,7 @@ done
 echo "[6/8] Health check endpoint"
 HEALTH_URL="https://${DOMAIN}/api/health"
 if command -v curl >/dev/null 2>&1; then
-  curl -ksS "$HEALTH_URL" | sed -n '1,120p'
+  curl -fsS "$HEALTH_URL" | sed -n '1,120p'
 else
   echo "WARN: curl not found; skipping direct health response output"
 fi

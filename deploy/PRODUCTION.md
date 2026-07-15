@@ -10,6 +10,7 @@
 - Copy `apps/api/.env.example` to `apps/api/.env`
 - Fill all required secrets
 - Ensure `PB_BASE_URL=http://pocketbase:8090` when using Docker Compose
+- Ensure Integrated AI variables are set when that feature is enabled (`INTEGRATED_AI_API_URL`, `INTEGRATED_AI_API_KEY`, `WEBSITE_ID`).
 
 ## 3) TLS certificates
 - In CloudPanel mode, TLS certificates are managed by CloudPanel nginx.
@@ -58,6 +59,7 @@ pm2 save
 
 ## 7) PocketBase binary handling
 - Docker Compose now downloads the correct Linux PocketBase binary automatically based on server architecture (`amd64`/`arm64`) using `apps/pocketbase/.pocketbase-version`.
+- Downloaded PocketBase archives are validated against upstream `checksums.txt` before extraction.
 - Do not commit `apps/pocketbase/pocketbase`; it is generated at runtime inside the mounted project folder.
 
 ## 8) Reverse proxy
