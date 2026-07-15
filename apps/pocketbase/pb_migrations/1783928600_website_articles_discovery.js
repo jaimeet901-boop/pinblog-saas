@@ -47,6 +47,28 @@ migrate(
 			cascadeDelete: true,
 		};
 
+		const ownerRules = {
+			listRule: "@request.auth.id != '' && owner = @request.auth.id",
+			viewRule: "@request.auth.id != '' && owner = @request.auth.id",
+			createRule: "@request.auth.id != '' && owner = @request.auth.id",
+			updateRule: "@request.auth.id != '' && owner = @request.auth.id",
+			deleteRule: "@request.auth.id != '' && owner = @request.auth.id",
+		};
+
+		const applyOwnerRules = (collection) => {
+			const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+			if (!persisted || !persisted.fields.getByName("owner")) {
+				return;
+			}
+
+			persisted.listRule = ownerRules.listRule;
+			persisted.viewRule = ownerRules.viewRule;
+			persisted.createRule = ownerRules.createRule;
+			persisted.updateRule = ownerRules.updateRule;
+			persisted.deleteRule = ownerRules.deleteRule;
+			app.save(persisted);
+		};
+
 		if (!websites.fields.getByName("last_scan_at")) {
 			websites.fields.add(new DateField({ name: "last_scan_at" }));
 		}
@@ -64,11 +86,6 @@ migrate(
 		const websiteArticles = new Collection({
 			type: "base",
 			name: "website_articles",
-			listRule: "@request.auth.id != '' && @request.auth.id = owner",
-			viewRule: "@request.auth.id != '' && @request.auth.id = owner",
-			createRule: "@request.auth.id != '' && @request.auth.id = owner",
-			updateRule: "@request.auth.id != '' && @request.auth.id = owner",
-			deleteRule: "@request.auth.id != '' && @request.auth.id = owner",
 			indexes: [
 				"CREATE UNIQUE INDEX `idx_website_articles_unique_url` ON `website_articles` (`websiteId`, `url`)",
 				"CREATE INDEX `idx_website_articles_owner_website` ON `website_articles` (`owner`, `websiteId`)",
@@ -104,6 +121,7 @@ migrate(
 		});
 
 		app.save(websiteArticles);
+		applyOwnerRules(websiteArticles);
 	},
 	(app) => {
 		try {

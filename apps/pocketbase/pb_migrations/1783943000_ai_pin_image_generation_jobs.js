@@ -42,6 +42,28 @@ migrate(
 		const websites = app.findCollectionByNameOrId("websites");
 		const websiteArticles = app.findCollectionByNameOrId("website_articles");
 
+		const ownerRules = {
+			listRule: "@request.auth.id != '' && owner = @request.auth.id",
+			viewRule: "@request.auth.id != '' && owner = @request.auth.id",
+			createRule: "@request.auth.id != '' && owner = @request.auth.id",
+			updateRule: "@request.auth.id != '' && owner = @request.auth.id",
+			deleteRule: "@request.auth.id != '' && owner = @request.auth.id",
+		};
+
+		const applyOwnerRules = (collection) => {
+			const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+			if (!persisted || !persisted.fields.getByName("owner")) {
+				return;
+			}
+
+			persisted.listRule = ownerRules.listRule;
+			persisted.viewRule = ownerRules.viewRule;
+			persisted.createRule = ownerRules.createRule;
+			persisted.updateRule = ownerRules.updateRule;
+			persisted.deleteRule = ownerRules.deleteRule;
+			app.save(persisted);
+		};
+
 		if (!aiPins.fields.getByName("image_source")) {
 			aiPins.fields.add(toField({
 				name: "image_source",
@@ -69,11 +91,6 @@ migrate(
 		const jobs = new Collection({
 			type: "base",
 			name: "ai_pin_image_jobs",
-			listRule: "@request.auth.id != '' && owner = @request.auth.id",
-			viewRule: "@request.auth.id != '' && owner = @request.auth.id",
-			createRule: "@request.auth.id != '' && owner = @request.auth.id",
-			updateRule: "@request.auth.id != '' && owner = @request.auth.id",
-			deleteRule: "@request.auth.id != '' && owner = @request.auth.id",
 			indexes: [
 				"CREATE INDEX `idx_ai_pin_image_jobs_owner_status` ON `ai_pin_image_jobs` (`owner`, `status`)",
 				"CREATE INDEX `idx_ai_pin_image_jobs_status_retry` ON `ai_pin_image_jobs` (`status`, `next_retry_at`)",
@@ -128,6 +145,7 @@ migrate(
 		});
 
 		app.save(jobs);
+		applyOwnerRules(jobs);
 	},
 	(app) => {
 		try {

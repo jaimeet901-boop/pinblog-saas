@@ -39,14 +39,31 @@ migrate(
 		const websites = app.findCollectionByNameOrId("websites");
 		const websiteArticles = app.findCollectionByNameOrId("website_articles");
 
-		const aiPins = new Collection({
-			type: "base",
-			name: "ai_pins",
+		const ownerRules = {
 			listRule: "@request.auth.id != '' && owner = @request.auth.id",
 			viewRule: "@request.auth.id != '' && owner = @request.auth.id",
 			createRule: "@request.auth.id != '' && owner = @request.auth.id",
 			updateRule: "@request.auth.id != '' && owner = @request.auth.id",
 			deleteRule: "@request.auth.id != '' && owner = @request.auth.id",
+		};
+
+		const applyOwnerRules = (collection) => {
+			const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+			if (!persisted || !persisted.fields.getByName("owner")) {
+				return;
+			}
+
+			persisted.listRule = ownerRules.listRule;
+			persisted.viewRule = ownerRules.viewRule;
+			persisted.createRule = ownerRules.createRule;
+			persisted.updateRule = ownerRules.updateRule;
+			persisted.deleteRule = ownerRules.deleteRule;
+			app.save(persisted);
+		};
+
+		const aiPins = new Collection({
+			type: "base",
+			name: "ai_pins",
 			indexes: [
 				"CREATE INDEX `idx_ai_pins_owner` ON `ai_pins` (`owner`)",
 				"CREATE INDEX `idx_ai_pins_website` ON `ai_pins` (`websiteId`)",
@@ -94,6 +111,7 @@ migrate(
 		});
 
 		app.save(aiPins);
+		applyOwnerRules(aiPins);
 	},
 	(app) => {
 		const collection = app.findCollectionByNameOrId("ai_pins");

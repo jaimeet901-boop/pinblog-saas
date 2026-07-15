@@ -60,6 +60,20 @@ migrate(
 			deleteRule: "@request.auth.id != '' && owner = @request.auth.id",
 		};
 
+		const applyOwnerRules = (collection) => {
+			const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+			if (!persisted || !persisted.fields.getByName("owner")) {
+				return;
+			}
+
+			persisted.listRule = ownerRules.listRule;
+			persisted.viewRule = ownerRules.viewRule;
+			persisted.createRule = ownerRules.createRule;
+			persisted.updateRule = ownerRules.updateRule;
+			persisted.deleteRule = ownerRules.deleteRule;
+			app.save(persisted);
+		};
+
 		const statusField = aiPins.fields.getByName("status");
 		if (statusField) {
 			statusField.values = ["draft", "scheduled", "publishing", "published", "failed"];
@@ -104,7 +118,6 @@ migrate(
 		const pinterestAccounts = new Collection({
 			type: "base",
 			name: "pinterest_accounts",
-			...ownerRules,
 			indexes: [
 				"CREATE UNIQUE INDEX `idx_pinterest_accounts_owner` ON `pinterest_accounts` (`owner`)",
 				"CREATE INDEX `idx_pinterest_accounts_user_id` ON `pinterest_accounts` (`pinterest_user_id`)"
@@ -124,11 +137,11 @@ migrate(
 			].map(toField),
 		});
 		app.save(pinterestAccounts);
+		applyOwnerRules(pinterestAccounts);
 
 		const pinterestBoards = new Collection({
 			type: "base",
 			name: "pinterest_boards",
-			...ownerRules,
 			indexes: [
 				"CREATE UNIQUE INDEX `idx_pinterest_boards_owner_board` ON `pinterest_boards` (`owner`, `board_id`)",
 				"CREATE INDEX `idx_pinterest_boards_account` ON `pinterest_boards` (`account`)"
@@ -153,11 +166,11 @@ migrate(
 			].map(toField),
 		});
 		app.save(pinterestBoards);
+		applyOwnerRules(pinterestBoards);
 
 		const publishJobs = new Collection({
 			type: "base",
 			name: "pinterest_publish_jobs",
-			...ownerRules,
 			indexes: [
 				"CREATE INDEX `idx_pinterest_publish_jobs_status_sched` ON `pinterest_publish_jobs` (`status`, `scheduled_at`)",
 				"CREATE INDEX `idx_pinterest_publish_jobs_owner_status` ON `pinterest_publish_jobs` (`owner`, `status`)",
@@ -205,11 +218,11 @@ migrate(
 			].map(toField),
 		});
 		app.save(publishJobs);
+		applyOwnerRules(publishJobs);
 
 		const publishEvents = new Collection({
 			type: "base",
 			name: "pinterest_publish_events",
-			...ownerRules,
 			indexes: [
 				"CREATE INDEX `idx_pinterest_publish_events_job` ON `pinterest_publish_events` (`job`)",
 				"CREATE INDEX `idx_pinterest_publish_events_owner_created` ON `pinterest_publish_events` (`owner`, `created`)"
@@ -232,11 +245,11 @@ migrate(
 			].map(toField),
 		});
 		app.save(publishEvents);
+		applyOwnerRules(publishEvents);
 
 		const oauthStates = new Collection({
 			type: "base",
 			name: "pinterest_oauth_states",
-			...ownerRules,
 			indexes: [
 				"CREATE UNIQUE INDEX `idx_pinterest_oauth_states_state` ON `pinterest_oauth_states` (`state`)",
 				"CREATE INDEX `idx_pinterest_oauth_states_owner_expires` ON `pinterest_oauth_states` (`owner`, `expires_at`)"
@@ -251,6 +264,7 @@ migrate(
 			].map(toField),
 		});
 		app.save(oauthStates);
+		applyOwnerRules(oauthStates);
 	},
 	(app) => {
 		for (const name of [
