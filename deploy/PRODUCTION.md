@@ -23,6 +23,20 @@ docker compose -f docker-compose.prod.yml up -d --build
 CloudPanel reverse proxy target example:
 - Proxy `https://YOUR_DOMAIN` to `http://127.0.0.1:8080`
 - If you change `APP_HTTP_PORT`, update the CloudPanel proxy target accordingly.
+- No Docker service should bind directly to public `80/443`.
+
+Container verification (Oracle server):
+```bash
+docker compose -f docker-compose.prod.yml ps
+```
+- Ensure `pocketbase`, `api`, `web`, and `nginx` are `Up`.
+- Ensure restart count is `0` for all services:
+```bash
+for s in pocketbase api web nginx; do \
+	cid=$(docker compose -f docker-compose.prod.yml ps -q "$s") && \
+	echo "$s restarts: $(docker inspect -f '{{.RestartCount}}' "$cid")"; \
+done
+```
 
 ## 5) Health verification
 - API health: `https://YOUR_DOMAIN/api/health`
@@ -67,6 +81,11 @@ docker compose -f docker-compose.prod.yml up -d
 ## 12) Oracle quick commands
 ```bash
 DOMAIN=YOUR_DOMAIN bash deploy/scripts/oracle-go-live.sh
+```
+
+One-shot clean-server verification (build + up + stability checks):
+```bash
+DOMAIN=YOUR_DOMAIN bash deploy/scripts/oracle-verify-compose.sh
 ```
 
 Rollback:

@@ -12,6 +12,7 @@
 6. Backup PocketBase data directory and keep timestamped copy.
 7. Confirm required DNS records point to Oracle VM public IP.
 8. Confirm ports 80 and 443 are open for CloudPanel nginx in OCI Security List/NSG.
+9. Confirm Docker stack does not bind public `80/443` (only localhost high port).
 
 ## B) Migration Window (T0)
 
@@ -20,9 +21,14 @@
 3. Build and start production stack:
    - `docker compose -f docker-compose.prod.yml up -d --build`
 4. Wait until all services report healthy startup logs.
-5. Check API health endpoint:
+5. Confirm container status:
+   - `docker compose -f docker-compose.prod.yml ps`
+   - `pocketbase`, `api`, `web`, `nginx` must be `Up`.
+6. Confirm no restart loops:
+   - `for s in pocketbase api web nginx; do cid=$(docker compose -f docker-compose.prod.yml ps -q "$s"); echo "$s $(docker inspect -f '{{.RestartCount}}' "$cid")"; done`
+7. Check API health endpoint:
    - `https://YOUR_DOMAIN/api/health`
-6. Confirm health payload includes:
+8. Confirm health payload includes:
    - `services.database.status = up`
    - `services.queue.active = true`
    - `services.imageQueue.active = true`

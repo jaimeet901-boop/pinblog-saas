@@ -22,6 +22,66 @@ require_file() {
   fi
 }
 
+wait_for_healthy() {
+  local service="$1"
+  local max_wait_seconds="${2:-180}"
+  local elapsed=0
+
+  while (( elapsed < max_wait_seconds )); do
+    local cid
+    cid="$(docker compose -f "$COMPOSE_FILE" ps -q "$service")"
+    if [[ -z "$cid" ]]; then
+      sleep 2
+      elapsed=$((elapsed + 2))
+      continue
+    fi
+
+    local status
+    status="$(docker inspect -f '{{.State.Status}}' "$cid" 2>/dev/null || echo unknown)"
+    if [[ "$status" != "running" ]]; then
+      sleep 2
+      elapsed=$((elapsed + 2))
+      continue
+    fi
+
+    local health
+    health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo unknown)"
+    if [[ "$health" == "healthy" || "$health" == "none" ]]; then
+      return 0
+    fi
+
+    if [[ "$health" == "unhealthy" ]]; then
+      echo "ERROR: service '$service' became unhealthy"
+      return 1
+    fi
+
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+
+  echo "ERROR: timed out waiting for service '$service' to become healthy"
+  return 1
+}
+
+assert_no_restarts() {
+  local service="$1"
+  local cid
+  cid="$(docker compose -f "$COMPOSE_FILE" ps -q "$service")"
+  if [[ -z "$cid" ]]; then
+    echo "ERROR: could not find container for service '$service'"
+    return 1
+  fi
+
+  local restart_count
+  restart_count="$(docker inspect -f '{{.RestartCount}}' "$cid" 2>/dev/null || echo 9999)"
+  if [[ "$restart_count" != "0" ]]; then
+    echo "ERROR: service '$service' restart count is $restart_count (expected 0)"
+    return 1
+  fi
+
+  return 0
+}
+
 echo "[1/8] Preflight checks"
 command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not installed"; exit 1; }
 docker compose version >/dev/null 2>&1 || { echo "ERROR: docker compose plugin not installed"; exit 1; }
@@ -35,11 +95,16 @@ docker compose -f "$COMPOSE_FILE" pull || true
 echo "[3/8] Build and start services"
 docker compose -f "$COMPOSE_FILE" up -d --build
 
-echo "[4/8] Wait for containers"
-sleep 8
+echo "[4/8] Wait for containers to become healthy"
+for service in pocketbase api web nginx; do
+  wait_for_healthy "$service" 240
+done
 
-echo "[5/8] Show service status"
+echo "[5/8] Verify services are running without restarts"
 docker compose -f "$COMPOSE_FILE" ps
+for service in pocketbase api web nginx; do
+  assert_no_restarts "$service"
+done
 
 echo "[6/8] Health check endpoint"
 HEALTH_URL="https://${DOMAIN}/api/health"
