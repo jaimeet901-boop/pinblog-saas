@@ -7,9 +7,16 @@ migrate(
 			return;
 		}
 
-		collection.listRule = "@request.auth.id != '' && userId = @request.auth.id";
-		collection.deleteRule = "@request.auth.id != '' && userId = @request.auth.id";
+		// Persist first, then reload to make sure field metadata is available.
 		app.save(collection);
+		const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+		if (!persisted || !persisted.fields.getByName("userId")) {
+			return;
+		}
+
+		persisted.listRule = "@request.auth.id != '' && userId = @request.auth.id";
+		persisted.deleteRule = "@request.auth.id != '' && userId = @request.auth.id";
+		app.save(persisted);
 	},
 	(app) => {
 		const collection = app.findCollectionByNameOrId("_integratedAiMessages");
@@ -17,8 +24,14 @@ migrate(
 			return;
 		}
 
-		collection.listRule = null;
-		collection.deleteRule = null;
 		app.save(collection);
+		const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+		if (!persisted) {
+			return;
+		}
+
+		persisted.listRule = null;
+		persisted.deleteRule = null;
+		app.save(persisted);
 	},
 );
