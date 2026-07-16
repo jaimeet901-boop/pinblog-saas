@@ -174,17 +174,32 @@ function buildDuePublishJobsFilter(now) {
 	return [
 		pocketbaseClient.filter('status = {:status}', { status: 'scheduled' }),
 		pocketbaseClient.filter('scheduled_at <= {:now}', { now }),
-		`(next_retry_at = null || next_retry_at <= "${now}")`,
 	].join(' && ');
+}
+
+function isRetryDue(job, nowMs) {
+	if (!job?.next_retry_at) {
+		return true;
+	}
+
+	const retryAt = new Date(job.next_retry_at).getTime();
+	if (!Number.isFinite(retryAt)) {
+		return true;
+	}
+
+	return retryAt <= nowMs;
 }
 
 async function getDuePublishJobs(now) {
 	const filter = buildDuePublishJobsFilter(now);
 	try {
-		return await pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
+		const scheduledJobs = await pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
 			sort: 'scheduled_at',
 			filter,
 		});
+
+		const nowMs = new Date(now).getTime();
+		return scheduledJobs.filter((job) => isRetryDue(job, nowMs));
 	} catch (error) {
 		logger.error('Pinterest queue due-jobs query failed', {
 			filter,

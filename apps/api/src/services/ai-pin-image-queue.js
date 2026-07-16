@@ -173,19 +173,33 @@ function nextRetryDate(attemptCount) {
 }
 
 function buildDueJobsFilter(now) {
-	return [
-		'status = "queued"',
-		`(next_retry_at = null || next_retry_at <= "${now}")`,
-	].join(' && ');
+	void now;
+	return 'status = "queued"';
+}
+
+function isRetryDue(job, nowMs) {
+	if (!job?.next_retry_at) {
+		return true;
+	}
+
+	const retryAt = new Date(job.next_retry_at).getTime();
+	if (!Number.isFinite(retryAt)) {
+		return true;
+	}
+
+	return retryAt <= nowMs;
 }
 
 async function getDueImageJobs(now) {
 	const filter = buildDueJobsFilter(now);
 	try {
-		return await pocketbaseClient.collection('ai_pin_image_jobs').getFullList({
+		const queuedJobs = await pocketbaseClient.collection('ai_pin_image_jobs').getFullList({
 			sort: 'created',
 			filter,
 		});
+
+		const nowMs = new Date(now).getTime();
+		return queuedJobs.filter((job) => isRetryDue(job, nowMs));
 	} catch (error) {
 		logger.error('AI image queue due-jobs query failed', {
 			filter,
