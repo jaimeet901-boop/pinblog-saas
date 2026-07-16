@@ -306,6 +306,16 @@ async function getOwnedWebsite({ websiteId, userId }) {
 		finalQuery: ownershipFilter,
 	});
 
+	if (storedOwnerId === userId) {
+		logger.info('Website access granted via fallback owner comparison', {
+			websiteId,
+			authenticatedUserId: userId,
+			storedOwnerId,
+			finalQuery: ownershipFilter,
+		});
+		return siteById;
+	}
+
 	if (!storedOwnerId && userId) {
 		const repaired = await pocketbaseClient
 			.collection('websites')
