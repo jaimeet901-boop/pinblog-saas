@@ -18,8 +18,8 @@ export default function AuthShell({ title, subtitle, children, footer }) {
 					<p className="text-sm text-white/60">Trusted by food bloggers & SEO marketers.</p>
 				</div>
 			</div>
-			<div className="flex items-center justify-center px-5 py-12">
-				<div className="w-full max-w-sm">
+			<div className="flex items-center justify-center px-5 py-12 sm:px-8 lg:px-12">
+				<div className="w-full max-w-md">
 					<Link to="/" className="mb-8 flex items-center gap-2 lg:hidden">
 						<span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground"><Sparkles size={18} /></span>
 						<span className="font-display text-xl font-600">Chef IA</span>
