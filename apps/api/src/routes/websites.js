@@ -23,6 +23,18 @@ const WEBSITE_ARTICLES_STATUS_FIELD_CANDIDATES = ['status', 'article_status', 's
 
 const collectionSchemaCache = new Map();
 
+function sanitizeUrlInput(value) {
+	if (typeof value !== 'string') {
+		return value;
+	}
+
+	// Remove invisible Unicode and replacement chars that can pass app validation
+	// but fail PocketBase URL normalization, resulting in empty stored values.
+	return value
+		.replace(/[\u200B-\u200D\u2060\uFEFF\uFFFD]/g, '')
+		.trim();
+}
+
 function httpError(status, message) {
 	const error = new Error(message);
 	error.status = status;
@@ -38,9 +50,11 @@ function normalizeUrl(value) {
 		throw httpError(422, 'url must be a string');
 	}
 
+	const cleanedValue = sanitizeUrlInput(value);
+
 	let parsed;
 	try {
-		parsed = new URL(value.trim());
+		parsed = new URL(cleanedValue);
 	} catch {
 		throw httpError(422, 'Invalid website URL');
 	}
@@ -50,7 +64,7 @@ function normalizeUrl(value) {
 	}
 
 	parsed.hash = '';
-	return parsed.toString();
+	return parsed.origin;
 }
 
 function safeNormalizeUrl(value) {
@@ -110,7 +124,13 @@ function resolveSchemaField(fields, candidates, fallback) {
 }
 
 async function resolveWebsitesSchema() {
-	const fields = await getCollectionFieldNames('websites');
+	const model = await pocketbaseClient.collections.getOne('websites');
+	const fields = new Set((model?.fields || []).map((field) => field?.name).filter(Boolean));
+	collectionSchemaCache.set('websites', {
+		fields,
+		expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
+	});
+
 	const schema = {
 		ownerField: resolveSchemaField(fields, WEBSITE_OWNER_FIELD_CANDIDATES, 'owner'),
 		urlField: resolveSchemaField(fields, WEBSITE_URL_FIELD_CANDIDATES, 'url'),
@@ -118,13 +138,66 @@ async function resolveWebsitesSchema() {
 		discoveryStatusField: resolveSchemaField(fields, WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES, 'discovery_status'),
 		statusField: resolveSchemaField(fields, WEBSITE_STATUS_FIELD_CANDIDATES, 'status'),
 	};
+	const urlFieldDefinition = (model?.fields || []).find((field) => field?.name === schema.urlField) || null;
 
 	logger.info('Websites schema resolved', {
 		collection: 'websites',
 		schema,
+		urlFieldDefinition,
+		createRule: model?.createRule ?? null,
+		updateRule: model?.updateRule ?? null,
 	});
 
 	return schema;
+}
+
+async function createWebsiteRecord({ payload, urlField, context }) {
+	logger.info('PocketBase createRecord payload', {
+		context,
+		collection: 'websites',
+		urlField,
+		payload,
+		payloadUrl: payload?.[urlField],
+	});
+
+	const record = await pocketbaseClient.collection('websites').create(payload);
+
+	logger.info('PocketBase createRecord response', {
+		context,
+		collection: 'websites',
+		urlField,
+		recordId: record?.id || '',
+		responseUrl: record?.[urlField],
+		hasUrlField: Object.prototype.hasOwnProperty.call(record || {}, urlField),
+		record,
+	});
+
+	return record;
+}
+
+async function updateWebsiteRecord({ id, payload, urlField, context }) {
+	logger.info('PocketBase updateRecord payload', {
+		context,
+		collection: 'websites',
+		recordId: id,
+		urlField,
+		payload,
+		payloadUrl: payload?.[urlField],
+	});
+
+	const record = await pocketbaseClient.collection('websites').update(id, payload);
+
+	logger.info('PocketBase updateRecord response', {
+		context,
+		collection: 'websites',
+		recordId: record?.id || id,
+		urlField,
+		responseUrl: record?.[urlField],
+		hasUrlField: Object.prototype.hasOwnProperty.call(record || {}, urlField),
+		record,
+	});
+
+	return record;
 }
 
 async function resolveWebsiteArticlesSchema() {
@@ -643,7 +716,11 @@ router.post('/', async (req, res) => {
 		},
 	});
 
-	const record = await pocketbaseClient.collection('websites').create(createPayload);
+	const record = await createWebsiteRecord({
+		payload: createPayload,
+		urlField: websitesSchema.urlField,
+		context: 'websites:post:create',
+	});
 	const persistedAfterCreate = await pocketbaseClient.collection('websites').getOne(record.id).catch(() => null);
 
 	logger.info('Website create immediate persistence check', {
@@ -658,7 +735,12 @@ router.post('/', async (req, res) => {
 
 	const needsOwnerFix = getOwnerId(record) !== req.pocketbaseUserId;
 	const savedRecord = needsOwnerFix
-		? await pocketbaseClient.collection('websites').update(record.id, { [websitesSchema.ownerField]: req.pocketbaseUserId }).catch(() => record)
+		? await updateWebsiteRecord({
+			id: record.id,
+			payload: { [websitesSchema.ownerField]: req.pocketbaseUserId },
+			urlField: websitesSchema.urlField,
+			context: 'websites:post:owner-fix',
+		}).catch(() => record)
 		: record;
 
 	if (needsOwnerFix) {
@@ -808,7 +890,8 @@ router.patch('/:websiteId', async (req, res) => {
 		}
 
 		const metadata = await fetchWebsiteMetadata({ url: normalized });
-		updates[websitesSchema.urlField] = metadata.url;
+		const metadataUrl = safeNormalizeUrl(metadata?.url);
+		updates[websitesSchema.urlField] = metadataUrl || normalized;
 		updates[websitesSchema.domainField] = metadata.domain;
 		updates.favicon = metadata.favicon;
 
@@ -848,7 +931,12 @@ router.patch('/:websiteId', async (req, res) => {
 		updates[websitesSchema.discoveryStatusField] = discoveryStatus || 'pending';
 	}
 
-	const updated = await pocketbaseClient.collection('websites').update(site.id, updates);
+	const updated = await updateWebsiteRecord({
+		id: site.id,
+		payload: updates,
+		urlField: websitesSchema.urlField,
+		context: 'websites:patch:update',
+	});
 
 	res.json(mapWebsite(updated));
 });
