@@ -1,6 +1,12 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import logger from '../utils/logger.js';
 import { getDecryptedOpenAIKey } from './user-settings.js';
+import {
+	buildSchemaSafeFilter,
+	safeGetFullList,
+	sanitizeCollectionPayload,
+	verifyCollectionFields,
+} from '../utils/pocketbase-safe-query.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_POLL_MS || '12000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.AI_IMAGE_QUEUE_BATCH || '5', 10);
@@ -105,13 +111,19 @@ async function generateOpenAIImage({ apiKey, prompt }) {
 
 async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' }) {
 	const completedAt = new Date().toISOString();
-	await pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, {
-		status,
-		image_url: imageUrl,
-		last_error: lastError,
-		completed_at: completedAt,
-		next_retry_at: null,
+	const payload = await sanitizeCollectionPayload({
+		collection: 'ai_pin_image_jobs',
+		context: 'ai-image-queue:set-terminal-state',
+		payload: {
+			status,
+			image_url: imageUrl,
+			last_error: lastError,
+			completed_at: completedAt,
+			next_retry_at: null,
+		},
 	});
+
+	await pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, payload);
 
 	if (job.ai_pin) {
 		await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
@@ -172,11 +184,6 @@ function nextRetryDate(attemptCount) {
 	return new Date(Date.now() + ms).toISOString();
 }
 
-function buildDueJobsFilter(now) {
-	void now;
-	return 'status = "queued"';
-}
-
 function isRetryDue(job, nowMs) {
 	if (!job?.next_retry_at) {
 		return true;
@@ -191,11 +198,19 @@ function isRetryDue(job, nowMs) {
 }
 
 async function getDueImageJobs(now) {
-	const filter = buildDueJobsFilter(now);
+	const { filter, fields } = await buildSchemaSafeFilter({
+		collection: 'ai_pin_image_jobs',
+		context: 'ai-image-queue:due-jobs',
+		parts: [{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'queued' }) }],
+	});
+
+	const sort = fields.has('created') ? 'created' : '';
 	try {
-		const queuedJobs = await pocketbaseClient.collection('ai_pin_image_jobs').getFullList({
-			sort: 'created',
+		const queuedJobs = await safeGetFullList({
+			collection: 'ai_pin_image_jobs',
+			context: 'ai-image-queue:due-jobs',
 			filter,
+			sort,
 		});
 
 		const nowMs = new Date(now).getTime();
@@ -225,9 +240,15 @@ async function processDueJobs() {
 		const dueJobs = await getDueImageJobs(now);
 
 		for (const job of dueJobs.slice(0, MAX_JOBS_PER_TICK)) {
-			const locked = await pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, {
-				status: 'processing',
-			}).catch(() => null);
+			const lockPayload = await sanitizeCollectionPayload({
+				collection: 'ai_pin_image_jobs',
+				context: 'ai-image-queue:lock-job',
+				payload: {
+					status: 'processing',
+				},
+			});
+
+			const locked = await pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, lockPayload).catch(() => null);
 
 			if (!locked || locked.status !== 'processing') {
 				continue;
@@ -266,12 +287,18 @@ async function processDueJobs() {
 				}
 
 				const shouldRetry = !exhausted;
-				await pocketbaseClient.collection('ai_pin_image_jobs').update(locked.id, {
-					status: shouldRetry ? 'queued' : 'failed',
-					attempt_count: nextAttempts,
-					last_error: error?.message || 'Image generation failed',
-					next_retry_at: shouldRetry ? nextRetryDate(nextAttempts) : null,
-				}).catch(() => null);
+				const retryPayload = await sanitizeCollectionPayload({
+					collection: 'ai_pin_image_jobs',
+					context: 'ai-image-queue:retry-update',
+					payload: {
+						status: shouldRetry ? 'queued' : 'failed',
+						attempt_count: nextAttempts,
+						last_error: error?.message || 'Image generation failed',
+						next_retry_at: shouldRetry ? nextRetryDate(nextAttempts) : null,
+					},
+				});
+
+				await pocketbaseClient.collection('ai_pin_image_jobs').update(locked.id, retryPayload).catch(() => null);
 
 				if (locked.ai_pin) {
 					await pocketbaseClient.collection('ai_pins').update(locked.ai_pin, {
@@ -295,8 +322,16 @@ async function processDueJobs() {
 }
 
 async function recoverStuckProcessingJobs() {
-	const stuck = await pocketbaseClient.collection('ai_pin_image_jobs').getFullList({
-		filter: 'status = "processing"',
+	const { filter } = await buildSchemaSafeFilter({
+		collection: 'ai_pin_image_jobs',
+		context: 'ai-image-queue:recover-stuck',
+		parts: [{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'processing' }) }],
+	});
+	const stuck = await safeGetFullList({
+		collection: 'ai_pin_image_jobs',
+		context: 'ai-image-queue:recover-stuck',
+		filter,
+		sort: '',
 	});
 
 	if (stuck.length === 0) {
@@ -304,11 +339,19 @@ async function recoverStuckProcessingJobs() {
 	}
 
 	const now = new Date().toISOString();
-	await Promise.all(stuck.map((job) => pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, {
-		status: 'queued',
-		next_retry_at: now,
-		last_error: 'Recovered after worker restart',
-	}).catch(() => null)));
+	await Promise.all(stuck.map(async (job) => {
+		const recoveryPayload = await sanitizeCollectionPayload({
+			collection: 'ai_pin_image_jobs',
+			context: 'ai-image-queue:recover-update',
+			payload: {
+				status: 'queued',
+				next_retry_at: now,
+				last_error: 'Recovered after worker restart',
+			},
+		});
+
+		return pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, recoveryPayload).catch(() => null);
+	}));
 
 	logger.info(`Recovered ${stuck.length} AI image jobs after restart`);
 }
@@ -335,6 +378,18 @@ export function startAIPinImageQueue() {
 	workerTimer = setInterval(() => {
 		processDueJobs();
 	}, POLL_INTERVAL_MS);
+
+	verifyCollectionFields({
+		collection: 'ai_pin_image_jobs',
+		requiredFields: ['status', 'created', 'next_retry_at', 'attempt_count', 'max_attempts', 'last_error'],
+		context: 'ai-image-queue:start-schema-check',
+	}).catch(() => null);
+
+	verifyCollectionFields({
+		collection: 'websites',
+		requiredFields: ['owner', 'url', 'domain', 'discovery_status', 'status'],
+		context: 'websites-schema-check',
+	}).catch(() => null);
 
 	recoverStuckProcessingJobs().finally(() => {
 		processDueJobs();

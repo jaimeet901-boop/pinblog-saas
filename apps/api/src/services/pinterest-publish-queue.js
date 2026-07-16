@@ -10,6 +10,12 @@ import {
 	refreshPinterestAccessToken,
 } from './pinterest-api.js';
 import { decryptSecret } from '../utils/secretCrypto.js';
+import {
+	buildSchemaSafeFilter,
+	safeGetFullList,
+	sanitizeCollectionPayload,
+	verifyCollectionFields,
+} from '../utils/pocketbase-safe-query.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.PINTEREST_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.PINTEREST_QUEUE_BATCH || '10', 10);
@@ -120,22 +126,28 @@ async function processJob(job) {
 	const pinterestPinUrl = getPinterestPinPublicUrl(pinterestPinId);
 	const publishedAt = new Date().toISOString();
 
-	await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, {
-		status: 'published',
-		attempt_count: (job.attempt_count || 0) + 1,
-		published_at: publishedAt,
-		last_error: '',
-		next_retry_at: null,
-		pinterest_pin_id: pinterestPinId,
-		pinterest_pin_url: pinterestPinUrl,
-		performance: {
-			impressions: null,
-			saves: null,
-			outboundClicks: null,
-			closeups: null,
-			readyForAnalyticsSync: true,
+	const publishPayload = await sanitizeCollectionPayload({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest-queue:mark-published',
+		payload: {
+			status: 'published',
+			attempt_count: (job.attempt_count || 0) + 1,
+			published_at: publishedAt,
+			last_error: '',
+			next_retry_at: null,
+			pinterest_pin_id: pinterestPinId,
+			pinterest_pin_url: pinterestPinUrl,
+			performance: {
+				impressions: null,
+				saves: null,
+				outboundClicks: null,
+				closeups: null,
+				readyForAnalyticsSync: true,
+			},
 		},
 	});
+
+	await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, publishPayload);
 
 	await markPinStatus(pin.id, {
 		status: 'published',
@@ -170,13 +182,6 @@ async function processJob(job) {
 	});
 }
 
-function buildDuePublishJobsFilter(now) {
-	return [
-		pocketbaseClient.filter('status = {:status}', { status: 'scheduled' }),
-		pocketbaseClient.filter('scheduled_at <= {:now}', { now }),
-	].join(' && ');
-}
-
 function isRetryDue(job, nowMs) {
 	if (!job?.next_retry_at) {
 		return true;
@@ -191,11 +196,22 @@ function isRetryDue(job, nowMs) {
 }
 
 async function getDuePublishJobs(now) {
-	const filter = buildDuePublishJobsFilter(now);
+	const { filter, fields } = await buildSchemaSafeFilter({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest-queue:due-jobs',
+		parts: [
+			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'scheduled' }) },
+			{ field: 'scheduled_at', expression: pocketbaseClient.filter('scheduled_at <= {:now}', { now }) },
+		],
+	});
+
+	const sort = fields.has('scheduled_at') ? 'scheduled_at' : fields.has('created') ? 'created' : '';
 	try {
-		const scheduledJobs = await pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
-			sort: 'scheduled_at',
+		const scheduledJobs = await safeGetFullList({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest-queue:due-jobs',
 			filter,
+			sort,
 		});
 
 		const nowMs = new Date(now).getTime();
@@ -224,9 +240,15 @@ async function processDueJobs() {
 		const dueJobs = await getDuePublishJobs(now);
 
 		for (const job of dueJobs.slice(0, MAX_JOBS_PER_TICK)) {
-			const locked = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, {
-				status: 'publishing',
-			}).catch(() => null);
+			const lockPayload = await sanitizeCollectionPayload({
+				collection: 'pinterest_publish_jobs',
+				context: 'pinterest-queue:lock-job',
+				payload: {
+					status: 'publishing',
+				},
+			});
+
+			const locked = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, lockPayload).catch(() => null);
 
 			if (!locked || locked.status !== 'publishing') {
 				continue;
@@ -261,12 +283,18 @@ async function processDueJobs() {
 					? nextRetryDate({ retryAfter: normalized.retryAfter || 0, attemptCount: nextAttempts })
 					: null;
 
-				await pocketbaseClient.collection('pinterest_publish_jobs').update(locked.id, {
-					status: shouldRetry ? 'scheduled' : 'failed',
-					attempt_count: nextAttempts,
-					last_error: normalized.message,
-					next_retry_at: nextRetryAt,
+				const retryPayload = await sanitizeCollectionPayload({
+					collection: 'pinterest_publish_jobs',
+					context: 'pinterest-queue:retry-update',
+					payload: {
+						status: shouldRetry ? 'scheduled' : 'failed',
+						attempt_count: nextAttempts,
+						last_error: normalized.message,
+						next_retry_at: nextRetryAt,
+					},
 				});
+
+				await pocketbaseClient.collection('pinterest_publish_jobs').update(locked.id, retryPayload);
 
 				await markPinStatus(locked.ai_pin, {
 					status: shouldRetry ? 'scheduled' : 'failed',
@@ -295,8 +323,16 @@ async function processDueJobs() {
 }
 
 async function recoverStuckPublishingJobs() {
-	const stuck = await pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
-		filter: 'status = "publishing"',
+	const { filter } = await buildSchemaSafeFilter({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest-queue:recover-stuck',
+		parts: [{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'publishing' }) }],
+	});
+	const stuck = await safeGetFullList({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest-queue:recover-stuck',
+		filter,
+		sort: '',
 	});
 
 	if (stuck.length === 0) {
@@ -305,11 +341,17 @@ async function recoverStuckPublishingJobs() {
 
 	const now = new Date().toISOString();
 	await Promise.all(stuck.map(async (job) => {
-		await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, {
-			status: 'scheduled',
-			next_retry_at: now,
-			last_error: 'Recovered after worker restart',
-		}).catch(() => null);
+		const recoveryPayload = await sanitizeCollectionPayload({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest-queue:recover-update',
+			payload: {
+				status: 'scheduled',
+				next_retry_at: now,
+				last_error: 'Recovered after worker restart',
+			},
+		});
+
+		await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, recoveryPayload).catch(() => null);
 
 		await markPinStatus(job.ai_pin, {
 			status: 'scheduled',
@@ -342,6 +384,18 @@ export function startPinterestPublishQueue() {
 	workerTimer = setInterval(() => {
 		processDueJobs();
 	}, POLL_INTERVAL_MS);
+
+	verifyCollectionFields({
+		collection: 'pinterest_publish_jobs',
+		requiredFields: ['status', 'scheduled_at', 'next_retry_at', 'attempt_count', 'max_attempts', 'last_error'],
+		context: 'pinterest-queue:start-schema-check',
+	}).catch(() => null);
+
+	verifyCollectionFields({
+		collection: 'websites',
+		requiredFields: ['owner', 'url', 'domain', 'discovery_status', 'status'],
+		context: 'websites-schema-check',
+	}).catch(() => null);
 
 	recoverStuckPublishingJobs().finally(() => {
 		processDueJobs();

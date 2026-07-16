@@ -20,6 +20,14 @@ import {
 	syncPinterestBoardsForOwner,
 } from '../services/pinterest-api.js';
 import { decryptSecret, encryptSecret } from '../utils/secretCrypto.js';
+import {
+	buildSchemaSafeFilter,
+	safeGetFirstListItem,
+	safeGetFullList,
+	safeGetList,
+	sanitizeCollectionPayload,
+	verifyCollectionFields,
+} from '../utils/pocketbase-safe-query.js';
 
 const router = Router();
 const DEFAULT_PAGE = 1;
@@ -199,12 +207,21 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 	const jobs = [];
 
 	for (const pin of pins) {
-		const existingActiveJob = await pocketbaseClient.collection('pinterest_publish_jobs').getFirstListItem(
-			pocketbaseClient.filter('owner = {:owner} && ai_pin = {:pinId} && (status = "scheduled" || status = "publishing")', {
-				owner,
-				pinId: pin.id,
-			}),
-		).catch(() => null);
+		const existingFilter = await buildSchemaSafeFilter({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest:create-publish-jobs:existing-active',
+			parts: [
+				{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+				{ field: 'ai_pin', expression: pocketbaseClient.filter('ai_pin = {:pinId}', { pinId: pin.id }) },
+				{ field: 'status', expression: '(status = "scheduled" || status = "publishing")' },
+			],
+		});
+
+		const existingActiveJob = await safeGetFirstListItem({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest:create-publish-jobs:existing-active',
+			filter: existingFilter.filter,
+		});
 
 		if (existingActiveJob) {
 			jobs.push(existingActiveJob);
@@ -225,24 +242,30 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 			perPinTargets,
 		});
 
-		const job = await pocketbaseClient.collection('pinterest_publish_jobs').create({
-			owner,
-			account: account.id,
-			account_label: account.label || account.account_name || account.username || '',
-			account_username: account.username || '',
-			ai_pin: pin.id,
-			websiteId: pin.websiteId || '',
-			articleId: pin.articleId || '',
-			board_id: board.board_id,
-			board_name: board.name,
-			scheduled_at: scheduledAt,
-			timezone,
-			status: 'scheduled',
-			attempt_count: 0,
-			max_attempts: 3,
-			next_retry_at: '',
-			last_error: '',
+		const createPayload = await sanitizeCollectionPayload({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest:create-publish-job',
+			payload: {
+				owner,
+				account: account.id,
+				account_label: account.label || account.account_name || account.username || '',
+				account_username: account.username || '',
+				ai_pin: pin.id,
+				websiteId: pin.websiteId || '',
+				articleId: pin.articleId || '',
+				board_id: board.board_id,
+				board_name: board.name,
+				scheduled_at: scheduledAt,
+				timezone,
+				status: 'scheduled',
+				attempt_count: 0,
+				max_attempts: 3,
+				next_retry_at: '',
+				last_error: '',
+			},
 		});
+
+		const job = await pocketbaseClient.collection('pinterest_publish_jobs').create(createPayload);
 
 		await pocketbaseClient.collection('ai_pins').update(pin.id, {
 			status: 'scheduled',
@@ -271,24 +294,33 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 }
 
 async function buildAccountStats(owner) {
+	const ownerPublishedFilter = await buildSchemaSafeFilter({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:account-stats:published',
+		parts: [
+			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'published' }) },
+		],
+	});
+
 	const [accounts, boards, publishedJobsCount] = await Promise.all([
 		getOwnedPinterestAccounts(owner),
 		pocketbaseClient.collection('pinterest_boards').getFullList({
 			filter: pocketbaseClient.filter('owner = {:owner}', { owner }),
 		}),
-		pocketbaseClient.collection('pinterest_publish_jobs').getList(1, 1, {
-			filter: [
-				pocketbaseClient.filter('owner = {:owner}', { owner }),
-				`status = "published"`,
-			].join(' && '),
+		safeGetList({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest:account-stats:published-count',
+			page: 1,
+			perPage: 1,
+			filter: ownerPublishedFilter.filter,
 		}),
 	]);
 
-	const publishedJobs = await pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
-		filter: [
-			pocketbaseClient.filter('owner = {:owner}', { owner }),
-			`status = "published"`,
-		].join(' && '),
+	const publishedJobs = await safeGetFullList({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:account-stats:published-items',
+		filter: ownerPublishedFilter.filter,
 	});
 
 	const boardsByAccount = new Map();
@@ -488,9 +520,27 @@ router.patch('/accounts/:accountId', async (req, res) => {
 	const label = normalizeString(req.body?.label, 'label', { required: true, max: 255 });
 	const updated = await pocketbaseClient.collection('pinterest_accounts').update(account.id, { label });
 
-	await pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
-	}).then((jobs) => Promise.all(jobs.map((job) => pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, { account_label: label }).catch(() => {}))));
+	const jobsFilter = await buildSchemaSafeFilter({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:account-label-sync:list-jobs',
+		parts: [
+			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'account', expression: pocketbaseClient.filter('account = {:account}', { account: account.id }) },
+		],
+	});
+
+	await safeGetFullList({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:account-label-sync:list-jobs',
+		filter: jobsFilter.filter,
+	}).then((jobs) => Promise.all(jobs.map(async (job) => {
+		const payload = await sanitizeCollectionPayload({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest:account-label-sync:update-job',
+			payload: { account_label: label },
+		});
+		return pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, payload).catch(() => {});
+	})));
 
 	res.json(mapAccount(updated));
 });
@@ -665,7 +715,13 @@ router.patch('/jobs/:jobId', async (req, res) => {
 		return res.json(mapJob(job));
 	}
 
-	const updated = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, updates);
+	const sanitizedUpdates = await sanitizeCollectionPayload({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:patch-job:update',
+		payload: updates,
+	});
+
+	const updated = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, sanitizedUpdates);
 	await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
 		...(updates.scheduled_at ? { scheduled_at: updates.scheduled_at } : {}),
 		...(updates.timezone ? { scheduled_timezone: updates.timezone } : {}),
@@ -680,7 +736,7 @@ router.patch('/jobs/:jobId', async (req, res) => {
 		job: updated.id,
 		event_type: 'schedule_updated',
 		message: 'Scheduled job updated',
-		payload: updates,
+		payload: sanitizedUpdates,
 	});
 
 	res.json(mapJob(updated));
@@ -699,10 +755,16 @@ router.post('/jobs/:jobId/cancel', async (req, res) => {
 		throw httpError(422, 'Only scheduled or failed jobs can be cancelled');
 	}
 
-	const updated = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, {
-		status: 'cancelled',
-		next_retry_at: '',
+	const cancelledPayload = await sanitizeCollectionPayload({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:cancel-job:update',
+		payload: {
+			status: 'cancelled',
+			next_retry_at: '',
+		},
 	});
+
+	const updated = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, cancelledPayload);
 
 	await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
 		status: 'draft',
@@ -741,12 +803,18 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
 	await assertPinterestConnected(owner, job.account);
 
 	const now = new Date().toISOString();
-	const updated = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, {
-		status: 'scheduled',
-		scheduled_at: now,
-		next_retry_at: now,
-		last_error: '',
+	const retryPayload = await sanitizeCollectionPayload({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:retry-job:update',
+		payload: {
+			status: 'scheduled',
+			scheduled_at: now,
+			next_retry_at: now,
+			last_error: '',
+		},
 	});
+
+	const updated = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, retryPayload);
 
 	await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
 		status: 'scheduled',
@@ -778,13 +846,17 @@ router.get('/jobs', async (req, res) => {
 		filters.push(pocketbaseClient.filter('status = {:status}', { status }));
 	}
 	if (dateFrom) {
-		filters.push(`scheduled_at >= "${dateFrom.replace(/"/g, '')}"`);
+		filters.push(pocketbaseClient.filter('scheduled_at >= {:dateFrom}', { dateFrom }));
 	}
 	if (dateTo) {
-		filters.push(`scheduled_at <= "${dateTo.replace(/"/g, '')}"`);
+		filters.push(pocketbaseClient.filter('scheduled_at <= {:dateTo}', { dateTo }));
 	}
 
-	const result = await pocketbaseClient.collection('pinterest_publish_jobs').getList(page, perPage, {
+	const result = await safeGetList({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:list-jobs',
+		page,
+		perPage,
 		sort: '-scheduled_at,-created',
 		filter: filters.join(' && '),
 		expand: 'ai_pin,account',
@@ -810,14 +882,22 @@ router.get('/calendar', async (req, res) => {
 	const start = new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), 1));
 	const end = new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth() + 1, 1));
 
-	const result = await pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
+	const calendarFilter = await buildSchemaSafeFilter({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:calendar',
+		parts: [
+			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'scheduled' }) },
+			{ field: 'scheduled_at', expression: pocketbaseClient.filter('scheduled_at >= {:start}', { start: start.toISOString() }) },
+			{ field: 'scheduled_at', expression: pocketbaseClient.filter('scheduled_at < {:end}', { end: end.toISOString() }) },
+		],
+	});
+
+	const result = await safeGetFullList({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:calendar',
 		sort: 'scheduled_at',
-		filter: [
-			pocketbaseClient.filter('owner = {:owner}', { owner }),
-			`status = "scheduled"`,
-			`scheduled_at >= "${start.toISOString()}"`,
-			`scheduled_at < "${end.toISOString()}"`,
-		].join(' && '),
+		filter: calendarFilter.filter,
 		expand: 'ai_pin,account',
 	});
 
@@ -827,18 +907,26 @@ router.get('/calendar', async (req, res) => {
 router.get('/history', async (req, res) => {
 	const owner = req.pocketbaseUserId;
 	const statuses = ['published', 'failed', 'scheduled'];
-	const result = await pocketbaseClient.collection('pinterest_publish_jobs').getList(
-		normalizePositiveInt(req.query.page, DEFAULT_PAGE),
-		normalizePositiveInt(req.query.perPage, DEFAULT_PER_PAGE, 100),
-		{
-			sort: '-updated,-scheduled_at',
-			filter: [
-				pocketbaseClient.filter('owner = {:owner}', { owner }),
-				`(${statuses.map((status) => `status = "${status}"`).join(' || ')})`,
-			].join(' && '),
-			expand: 'ai_pin,account',
-		},
-	);
+	const page = normalizePositiveInt(req.query.page, DEFAULT_PAGE);
+	const perPage = normalizePositiveInt(req.query.perPage, DEFAULT_PER_PAGE, 100);
+	const historyFilter = await buildSchemaSafeFilter({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:history',
+		parts: [
+			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'status', expression: `(${statuses.map((item) => pocketbaseClient.filter('status = {:status}', { status: item })).join(' || ')})` },
+		],
+	});
+
+	const result = await safeGetList({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:history',
+		page,
+		perPage,
+		sort: '-updated,-scheduled_at',
+		filter: historyFilter.filter,
+		expand: 'ai_pin,account',
+	});
 
 	res.json({
 		page: result.page,
@@ -851,26 +939,51 @@ router.get('/history', async (req, res) => {
 
 router.get('/analytics', async (req, res) => {
 	const owner = req.pocketbaseUserId;
+	const publishedFilter = await buildSchemaSafeFilter({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:analytics:published',
+		parts: [
+			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'published' }) },
+		],
+	});
+	const failedFilter = await buildSchemaSafeFilter({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:analytics:failed',
+		parts: [
+			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'failed' }) },
+		],
+	});
+	const scheduledFilter = await buildSchemaSafeFilter({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:analytics:scheduled',
+		parts: [
+			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'scheduled' }) },
+		],
+	});
 	const [published, failedCount, scheduledCount] = await Promise.all([
-		pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
+		safeGetFullList({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest:analytics:published',
 			sort: '-published_at,-updated',
-			filter: [
-				pocketbaseClient.filter('owner = {:owner}', { owner }),
-				`status = "published"`,
-			].join(' && '),
+			filter: publishedFilter.filter,
 			expand: 'ai_pin,account',
 		}),
-		pocketbaseClient.collection('pinterest_publish_jobs').getList(1, 1, {
-			filter: [
-				pocketbaseClient.filter('owner = {:owner}', { owner }),
-				`status = "failed"`,
-			].join(' && '),
+		safeGetList({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest:analytics:failed',
+			page: 1,
+			perPage: 1,
+			filter: failedFilter.filter,
 		}),
-		pocketbaseClient.collection('pinterest_publish_jobs').getList(1, 1, {
-			filter: [
-				pocketbaseClient.filter('owner = {:owner}', { owner }),
-				`status = "scheduled"`,
-			].join(' && '),
+		safeGetList({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest:analytics:scheduled',
+			page: 1,
+			perPage: 1,
+			filter: scheduledFilter.filter,
 		}),
 	]);
 
@@ -902,3 +1015,15 @@ router.post('/token/refresh', async (req, res) => {
 });
 
 export default router;
+
+verifyCollectionFields({
+	collection: 'pinterest_publish_jobs',
+	requiredFields: ['owner', 'ai_pin', 'status', 'scheduled_at', 'next_retry_at', 'created', 'updated'],
+	context: 'pinterest-routes:module-schema-check',
+}).catch(() => null);
+
+verifyCollectionFields({
+	collection: 'websites',
+	requiredFields: ['owner', 'url', 'domain', 'discovery_status', 'status'],
+	context: 'websites-schema-check',
+}).catch(() => null);

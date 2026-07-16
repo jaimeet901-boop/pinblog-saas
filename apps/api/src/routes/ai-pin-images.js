@@ -2,6 +2,12 @@ import { Router } from 'express';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
+import {
+	buildSchemaSafeFilter,
+	safeGetFirstListItem,
+	sanitizeCollectionPayload,
+	verifyCollectionFields,
+} from '../utils/pocketbase-safe-query.js';
 
 const router = Router();
 
@@ -102,12 +108,23 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		const pin = await ensureOwnedPin({ owner, pinId });
 
 		const existingActiveJob = pin
-			? await pocketbaseClient.collection('ai_pin_image_jobs').getFirstListItem(
-				pocketbaseClient.filter('owner = {:owner} && ai_pin = {:pinId} && (status = "queued" || status = "processing")', {
-					owner,
-					pinId: pin.id,
-				}),
-			).catch(() => null)
+			? await (async () => {
+				const { filter } = await buildSchemaSafeFilter({
+					collection: 'ai_pin_image_jobs',
+					context: 'ai-pin-images:create:existing-active-job',
+					parts: [
+						{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+						{ field: 'ai_pin', expression: pocketbaseClient.filter('ai_pin = {:pinId}', { pinId: pin.id }) },
+						{ field: 'status', expression: '(status = "queued" || status = "processing")' },
+					],
+				});
+
+				return safeGetFirstListItem({
+					collection: 'ai_pin_image_jobs',
+					context: 'ai-pin-images:create:existing-active-job',
+					filter,
+				});
+			})()
 			: null;
 		if (existingActiveJob) {
 			jobs.push(existingActiveJob);
@@ -133,7 +150,10 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			imagePrompt ? `Creative direction: ${imagePrompt}` : '',
 		].filter(Boolean).join('\n');
 
-		const job = await pocketbaseClient.collection('ai_pin_image_jobs').create({
+		const createPayload = await sanitizeCollectionPayload({
+			collection: 'ai_pin_image_jobs',
+			context: 'ai-pin-images:create-job',
+			payload: {
 			owner,
 			ai_pin: pin?.id || '',
 			websiteId: article.websiteId || '',
@@ -158,7 +178,10 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			max_attempts: 3,
 			next_retry_at: '',
 			last_error: '',
+			},
 		});
+
+		const job = await pocketbaseClient.collection('ai_pin_image_jobs').create(createPayload);
 
 		if (pin) {
 			await pocketbaseClient.collection('ai_pins').update(pin.id, {
@@ -198,7 +221,10 @@ router.post('/jobs/:jobId/regenerate', integratedAiRateLimit, async (req, res) =
 		throw httpError(404, 'Job not found');
 	}
 
-	const cloned = await pocketbaseClient.collection('ai_pin_image_jobs').create({
+	const clonePayload = await sanitizeCollectionPayload({
+		collection: 'ai_pin_image_jobs',
+		context: 'ai-pin-images:regenerate-job',
+		payload: {
 		owner,
 		ai_pin: sourceJob.ai_pin || '',
 		websiteId: sourceJob.websiteId || '',
@@ -214,9 +240,18 @@ router.post('/jobs/:jobId/regenerate', integratedAiRateLimit, async (req, res) =
 		max_attempts: sourceJob.max_attempts || 3,
 		next_retry_at: '',
 		last_error: '',
+		},
 	});
+
+	const cloned = await pocketbaseClient.collection('ai_pin_image_jobs').create(clonePayload);
 
 	res.status(201).json(mapJob(cloned));
 });
 
 export default router;
+
+verifyCollectionFields({
+	collection: 'ai_pin_image_jobs',
+	requiredFields: ['owner', 'ai_pin', 'status', 'created', 'next_retry_at'],
+	context: 'ai-pin-images:module-schema-check',
+}).catch(() => null);
