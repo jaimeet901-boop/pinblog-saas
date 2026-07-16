@@ -263,17 +263,67 @@ function getOwnerId(site) {
 }
 
 async function getOwnedWebsite({ websiteId, userId }) {
-	const site = await pocketbaseClient.collection('websites').getOne(websiteId).catch(() => null);
+	const ownershipFilter = pocketbaseClient.filter('id = {:websiteId} && owner = {:owner}', {
+		websiteId,
+		owner: userId,
+	});
 
-	if (!site) {
+	logger.info('Website access check started', {
+		websiteId,
+		authenticatedUserId: userId,
+		finalQuery: ownershipFilter,
+	});
+
+	const ownedSite = await pocketbaseClient
+		.collection('websites')
+		.getFirstListItem(ownershipFilter)
+		.catch(() => null);
+
+	if (ownedSite) {
+		logger.info('Website access granted', {
+			websiteId,
+			authenticatedUserId: userId,
+			storedOwnerId: getOwnerId(ownedSite),
+		});
+		return ownedSite;
+	}
+
+	const siteById = await pocketbaseClient.collection('websites').getOne(websiteId).catch(() => null);
+	if (!siteById) {
+		logger.warn('Website access denied - record not found', {
+			websiteId,
+			authenticatedUserId: userId,
+			finalQuery: ownershipFilter,
+		});
 		throw httpError(404, 'Website not found');
 	}
 
-	if (getOwnerId(site) !== userId) {
-		throw httpError(403, 'You do not have access to this website');
+	const storedOwnerId = getOwnerId(siteById);
+	logger.warn('Website access fallback check', {
+		websiteId,
+		authenticatedUserId: userId,
+		storedOwnerId,
+		finalQuery: ownershipFilter,
+	});
+
+	if (!storedOwnerId && userId) {
+		const repaired = await pocketbaseClient
+			.collection('websites')
+			.update(siteById.id, { owner: userId })
+			.catch(() => null);
+
+		if (repaired) {
+			logger.warn('Website owner auto-assigned during access fallback', {
+				websiteId,
+				authenticatedUserId: userId,
+				storedOwnerId: getOwnerId(repaired),
+				finalQuery: ownershipFilter,
+			});
+			return repaired;
+		}
 	}
 
-	return site;
+	throw httpError(403, 'You do not have access to this website');
 }
 
 async function getWebsiteStats(site) {
@@ -372,6 +422,13 @@ router.post('/', async (req, res) => {
 		throw httpError(401, 'You must be signed in to add a website');
 	}
 
+	logger.info('Website create requested', {
+		websiteId: '',
+		authenticatedUserId: req.pocketbaseUserId,
+		storedOwnerId: '',
+		finalQuery: '',
+	});
+
 	const metadata = await fetchWebsiteMetadata({ url });
 	const name = normalizeOptionalString(req.body?.name, 'name', 120) || metadata.name;
 	const favicon = normalizeOptionalString(req.body?.favicon, 'favicon', 500) || metadata.favicon;
@@ -394,6 +451,13 @@ router.post('/', async (req, res) => {
 	const savedRecord = getOwnerId(record) === req.pocketbaseUserId
 		? record
 		: await pocketbaseClient.collection('websites').update(record.id, { owner: req.pocketbaseUserId }).catch(() => record);
+
+	logger.info('Website create completed', {
+		websiteId: savedRecord.id,
+		authenticatedUserId: req.pocketbaseUserId,
+		storedOwnerId: getOwnerId(savedRecord),
+		finalQuery: '',
+	});
 
 	res.status(201).json(mapWebsite(savedRecord));
 });
