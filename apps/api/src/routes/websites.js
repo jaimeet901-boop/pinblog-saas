@@ -242,6 +242,26 @@ function mapWebsite(site) {
 	};
 }
 
+function getOwnerId(site) {
+	if (!site?.owner) {
+		return '';
+	}
+
+	if (typeof site.owner === 'string') {
+		return site.owner;
+	}
+
+	if (Array.isArray(site.owner)) {
+		return typeof site.owner[0] === 'string' ? site.owner[0] : site.owner[0]?.id || '';
+	}
+
+	if (typeof site.owner === 'object') {
+		return site.owner.id || site.owner.value || '';
+	}
+
+	return String(site.owner);
+}
+
 async function getOwnedWebsite({ websiteId, userId }) {
 	const site = await pocketbaseClient.collection('websites').getOne(websiteId).catch(() => null);
 
@@ -249,7 +269,7 @@ async function getOwnedWebsite({ websiteId, userId }) {
 		throw httpError(404, 'Website not found');
 	}
 
-	if (site.owner !== userId) {
+	if (getOwnerId(site) !== userId) {
 		throw httpError(403, 'You do not have access to this website');
 	}
 
@@ -348,6 +368,10 @@ router.post('/', async (req, res) => {
 		throw httpError(422, 'Website URL is required');
 	}
 
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in to add a website');
+	}
+
 	const metadata = await fetchWebsiteMetadata({ url });
 	const name = normalizeOptionalString(req.body?.name, 'name', 120) || metadata.name;
 	const favicon = normalizeOptionalString(req.body?.favicon, 'favicon', 500) || metadata.favicon;
@@ -367,7 +391,11 @@ router.post('/', async (req, res) => {
 		discovery_status: 'pending',
 	});
 
-	res.status(201).json(mapWebsite(record));
+	const savedRecord = getOwnerId(record) === req.pocketbaseUserId
+		? record
+		: await pocketbaseClient.collection('websites').update(record.id, { owner: req.pocketbaseUserId }).catch(() => record);
+
+	res.status(201).json(mapWebsite(savedRecord));
 });
 
 router.post('/:websiteId/scan', async (req, res) => {
