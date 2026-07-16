@@ -40,9 +40,27 @@ function normalizeUrl(value) {
 	return parsed.origin;
 }
 
+function safeNormalizeUrl(value) {
+	try {
+		return normalizeUrl(value);
+	} catch {
+		return '';
+	}
+}
+
 function deriveDomain(url) {
 	const hostname = new URL(url).hostname.toLowerCase();
 	return hostname.replace(/^www\./, '');
+}
+
+function normalizeDomainToUrl(domain) {
+	if (typeof domain !== 'string' || !domain.trim()) {
+		return '';
+	}
+
+	const trimmed = domain.trim();
+	const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+	return safeNormalizeUrl(withProtocol);
 }
 
 function toAbsoluteUrl(baseUrl, maybeRelative) {
@@ -262,6 +280,56 @@ function getOwnerId(site) {
 	return String(site.owner);
 }
 
+async function ensureWebsiteUrlRecord(site) {
+	if (!site?.id) {
+		return site;
+	}
+
+	const normalizedStoredUrl = safeNormalizeUrl(site.url);
+	if (normalizedStoredUrl) {
+		if (site.url !== normalizedStoredUrl) {
+			const normalizedRecord = await pocketbaseClient.collection('websites').update(site.id, {
+				url: normalizedStoredUrl,
+			}).catch(() => null);
+
+			if (normalizedRecord) {
+				logger.info('Website URL normalized from stored value', {
+					websiteId: site.id,
+					previousUrl: site.url || '',
+					normalizedUrl: normalizedStoredUrl,
+				});
+				return normalizedRecord;
+			}
+		}
+
+		return {
+			...site,
+			url: normalizedStoredUrl,
+		};
+	}
+
+	const repairedUrl = normalizeDomainToUrl(site.domain);
+	if (!repairedUrl) {
+		return site;
+	}
+
+	const repairedRecord = await pocketbaseClient.collection('websites').update(site.id, {
+		url: repairedUrl,
+	}).catch(() => null);
+
+	if (!repairedRecord) {
+		return site;
+	}
+
+	logger.warn('Website URL auto-repaired from domain', {
+		websiteId: site.id,
+		domain: site.domain || '',
+		repairedUrl,
+	});
+
+	return repairedRecord;
+}
+
 async function getOwnedWebsite({ websiteId, userId }) {
 	const ownershipFilter = pocketbaseClient.filter('id = {:websiteId} && owner = {:owner}', {
 		websiteId,
@@ -280,12 +348,13 @@ async function getOwnedWebsite({ websiteId, userId }) {
 		.catch(() => null);
 
 	if (ownedSite) {
+		const repairedOwnedSite = await ensureWebsiteUrlRecord(ownedSite);
 		logger.info('Website access granted', {
 			websiteId,
 			authenticatedUserId: userId,
-			storedOwnerId: getOwnerId(ownedSite),
+			storedOwnerId: getOwnerId(repairedOwnedSite),
 		});
-		return ownedSite;
+		return repairedOwnedSite;
 	}
 
 	const siteById = await pocketbaseClient.collection('websites').getOne(websiteId).catch(() => null);
@@ -307,13 +376,14 @@ async function getOwnedWebsite({ websiteId, userId }) {
 	});
 
 	if (storedOwnerId === userId) {
+		const repairedSiteById = await ensureWebsiteUrlRecord(siteById);
 		logger.info('Website access granted via fallback owner comparison', {
 			websiteId,
 			authenticatedUserId: userId,
 			storedOwnerId,
 			finalQuery: ownershipFilter,
 		});
-		return siteById;
+		return repairedSiteById;
 	}
 
 	if (!storedOwnerId && userId) {
@@ -323,13 +393,14 @@ async function getOwnedWebsite({ websiteId, userId }) {
 			.catch(() => null);
 
 		if (repaired) {
+			const repairedWithUrl = await ensureWebsiteUrlRecord(repaired);
 			logger.warn('Website owner auto-assigned during access fallback', {
 				websiteId,
 				authenticatedUserId: userId,
-				storedOwnerId: getOwnerId(repaired),
+				storedOwnerId: getOwnerId(repairedWithUrl),
 				finalQuery: ownershipFilter,
 			});
-			return repaired;
+			return repairedWithUrl;
 		}
 	}
 
@@ -394,7 +465,12 @@ router.get('/', async (req, res) => {
 		filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
 	});
 
-	res.json(websites.map(mapWebsite));
+	const repairedWebsites = [];
+	for (const site of websites) {
+		repairedWebsites.push(await ensureWebsiteUrlRecord(site));
+	}
+
+	res.json(repairedWebsites.map(mapWebsite));
 });
 
 router.get('/:websiteId', async (req, res) => {
@@ -454,8 +530,8 @@ router.post('/metadata', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-	const url = normalizeUrl(req.body?.url);
-	if (!url) {
+	const requestedUrl = normalizeUrl(req.body?.url);
+	if (!requestedUrl) {
 		throw httpError(422, 'Website URL is required');
 	}
 
@@ -470,17 +546,30 @@ router.post('/', async (req, res) => {
 		finalQuery: '',
 	});
 
-	const metadata = await fetchWebsiteMetadata({ url });
+	const metadata = await fetchWebsiteMetadata({ url: requestedUrl });
+	const normalizedWebsiteUrl = safeNormalizeUrl(metadata?.url) || requestedUrl;
+	if (!normalizedWebsiteUrl) {
+		throw httpError(422, 'Website URL is missing or invalid');
+	}
+
 	const name = normalizeOptionalString(req.body?.name, 'name', 120) || metadata.name;
 	const favicon = normalizeOptionalString(req.body?.favicon, 'favicon', 500) || metadata.favicon;
-	const domain = normalizeOptionalString(req.body?.domain, 'domain', 255) || metadata.domain;
+	const domain = normalizeOptionalString(req.body?.domain, 'domain', 255) || metadata.domain || deriveDomain(normalizedWebsiteUrl);
 	const username = normalizeOptionalString(req.body?.wp_username, 'wp_username', 120);
 	const password = normalizeOptionalString(req.body?.wp_app_password, 'wp_app_password', 500);
+
+	logger.info('Website create normalized fields', {
+		authenticatedUserId: req.pocketbaseUserId,
+		requestedUrl,
+		metadataUrl: metadata?.url || '',
+		normalizedWebsiteUrl,
+		domain,
+	});
 
 	const record = await pocketbaseClient.collection('websites').create({
 		owner: req.pocketbaseUserId,
 		name,
-		url: metadata.url,
+		url: normalizedWebsiteUrl,
 		domain,
 		favicon,
 		wp_username: username,
@@ -492,15 +581,19 @@ router.post('/', async (req, res) => {
 	const savedRecord = getOwnerId(record) === req.pocketbaseUserId
 		? record
 		: await pocketbaseClient.collection('websites').update(record.id, { owner: req.pocketbaseUserId }).catch(() => record);
+	const persistedRecord = await pocketbaseClient.collection('websites').getOne(savedRecord.id).catch(() => savedRecord);
+	const repairedPersistedRecord = await ensureWebsiteUrlRecord(persistedRecord);
 
 	logger.info('Website create completed', {
-		websiteId: savedRecord.id,
+		websiteId: repairedPersistedRecord.id,
 		authenticatedUserId: req.pocketbaseUserId,
-		storedOwnerId: getOwnerId(savedRecord),
+		storedOwnerId: getOwnerId(repairedPersistedRecord),
+		storedUrl: repairedPersistedRecord.url || '',
+		storedDomain: repairedPersistedRecord.domain || '',
 		finalQuery: '',
 	});
 
-	res.status(201).json(mapWebsite(savedRecord));
+	res.status(201).json(mapWebsite(repairedPersistedRecord));
 });
 
 router.post('/:websiteId/scan', async (req, res) => {
