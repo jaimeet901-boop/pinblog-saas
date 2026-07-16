@@ -337,21 +337,52 @@ async function getOwnedWebsite({ websiteId, userId }) {
 }
 
 async function getWebsiteStats(site) {
-	const [totalArticles, newArticles] = await Promise.all([
-		pocketbaseClient.collection('website_articles').getList(1, 1, {
-			filter: pocketbaseClient.filter('websiteId = {:websiteId}', { websiteId: site.id }),
-		}),
-		pocketbaseClient.collection('website_articles').getList(1, 1, {
-			filter: [
-				pocketbaseClient.filter('websiteId = {:websiteId}', { websiteId: site.id }),
-				`status = "new"`,
-			].join(' && '),
-		}),
-	]);
+	const collectionName = 'website_articles';
+	const pbBaseUrl = process.env.PB_BASE_URL || 'http://localhost:8090';
+
+	const totalFilter = pocketbaseClient.filter('websiteId = {:websiteId}', { websiteId: site.id });
+	const newFilter = [
+		totalFilter,
+		pocketbaseClient.filter('status = {:status}', { status: 'new' }),
+	].join(' && ');
+
+	const queryStatsList = async ({ filter, sort = '', expand = '' }) => {
+		const query = new URLSearchParams({
+			page: '1',
+			perPage: '1',
+			filter,
+			...(sort ? { sort } : {}),
+			...(expand ? { expand } : {}),
+		});
+		const requestUrl = `${pbBaseUrl}/api/collections/${collectionName}/records?${query.toString()}`;
+
+		try {
+			return await pocketbaseClient.collection(collectionName).getList(1, 1, {
+				filter,
+				...(sort ? { sort } : {}),
+				...(expand ? { expand } : {}),
+			});
+		} catch (error) {
+			logger.error('Website stats query failed', {
+				collection: collectionName,
+				filter,
+				expand,
+				sort,
+				requestUrl,
+				pocketbaseErrorMessage: error?.message,
+				pocketbaseErrorStatus: error?.status,
+				pocketbaseErrorResponse: error?.response?.data || error?.response || null,
+			});
+			return null;
+		}
+	};
+
+	const totalArticles = await queryStatsList({ filter: totalFilter });
+	const newArticles = await queryStatsList({ filter: newFilter });
 
 	return {
-		totalArticles: totalArticles.totalItems,
-		newArticles: newArticles.totalItems,
+		totalArticles: totalArticles?.totalItems || 0,
+		newArticles: newArticles?.totalItems || 0,
 		lastScan: site.last_scan_at || '',
 		nextScheduledScan: site.next_scan_at || '',
 	};
