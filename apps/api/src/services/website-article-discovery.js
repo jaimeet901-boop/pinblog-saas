@@ -274,6 +274,7 @@ function parseArticleHtml(url, html) {
 
 async function discoverSitemapSources(baseUrl, reportProgress, errors) {
 	const candidates = [`${baseUrl}/sitemap.xml`, `${baseUrl}/sitemap_index.xml`];
+	reportProgress(`Generated sitemap URLs: ${candidates.join(', ')}`);
 	const urls = [];
 
 	for (const candidate of candidates) {
@@ -423,8 +424,28 @@ async function discoverByCrawl(baseUrl, reportProgress, errors) {
 	return articleUrls;
 }
 
-async function discoverArticleCandidates({ website, onProgress }) {
-	const baseUrl = website.url;
+async function discoverArticleCandidates({ website, onProgress, logger }) {
+	const rawWebsiteUrl = typeof website?.url === 'string' ? website.url.trim() : '';
+	let baseUrl = '';
+
+	if (rawWebsiteUrl) {
+		try {
+			baseUrl = new URL(rawWebsiteUrl).origin;
+		} catch {
+			baseUrl = '';
+		}
+	}
+
+	logger?.info?.('Scan computed base URL', {
+		websiteId: website?.id || '',
+		websiteUrlField: website?.url,
+		computedBaseUrl: baseUrl,
+	});
+
+	if (!baseUrl) {
+		throw new Error('Website URL is missing or invalid for this record. Please update the website URL and try again.');
+	}
+
 	const errors = [];
 	const reportProgress = (message) => onProgress?.({ type: 'progress', stage: 'discover', message });
 
@@ -449,6 +470,12 @@ async function discoverArticleCandidates({ website, onProgress }) {
 		candidates = await discoverByCrawl(baseUrl, reportProgress, errors);
 		source = 'crawler';
 	}
+
+	logger?.info?.('Generated sitemap URLs for scan', {
+		websiteId: website?.id || '',
+		baseUrl,
+		sitemapUrls: [`${baseUrl}/sitemap.xml`, `${baseUrl}/sitemap_index.xml`],
+	});
 
 	const deduped = [];
 	const seen = new Set();
@@ -539,7 +566,7 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, runId, on
 	};
 
 	onProgress?.({ type: 'progress', stage: 'init', message: 'Preparing website scan' });
-	const { candidates, errors, source } = await discoverArticleCandidates({ website, onProgress });
+	const { candidates, errors, source } = await discoverArticleCandidates({ website, onProgress, logger });
 	summary.source = source;
 	summary.errors.push(...errors);
 	summary.found = candidates.length;

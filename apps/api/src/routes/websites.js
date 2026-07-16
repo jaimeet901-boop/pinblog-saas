@@ -505,6 +505,41 @@ router.post('/', async (req, res) => {
 
 router.post('/:websiteId/scan', async (req, res) => {
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+
+	logger.info('Scan website record loaded from PocketBase', {
+		websiteId: site?.id || req.params.websiteId,
+		owner: getOwnerId(site),
+		name: site?.name || '',
+		url: site?.url || '',
+		domain: site?.domain || '',
+		discovery_status: site?.discovery_status || '',
+	});
+
+	logger.info('Scan website URL field value', {
+		websiteId: site?.id || req.params.websiteId,
+		websiteUrlField: site?.url,
+		websiteUrlFieldType: typeof site?.url,
+	});
+
+	const computedBaseUrl = normalizeUrl(site?.url);
+	logger.info('Scan computed base URL', {
+		websiteId: site?.id || req.params.websiteId,
+		computedBaseUrl,
+	});
+
+	if (!computedBaseUrl) {
+		logger.warn('Scan aborted because website URL is missing or invalid', {
+			websiteId: site?.id || req.params.websiteId,
+			websiteUrlField: site?.url,
+		});
+		throw httpError(422, 'Website URL is missing or invalid for this record. Please update the website URL and try again.');
+	}
+
+	const siteForScan = {
+		...site,
+		url: computedBaseUrl,
+	};
+
 	const runId = `${site.id}-${Date.now()}`;
 
 	res.setHeader('Content-Type', 'text/event-stream');
@@ -522,7 +557,7 @@ router.post('/:websiteId/scan', async (req, res) => {
 	try {
 		const summary = await scanWebsiteArticles({
 			pocketbaseClient,
-			website: site,
+			website: siteForScan,
 			runId,
 			onProgress: pushEvent,
 			logger,
