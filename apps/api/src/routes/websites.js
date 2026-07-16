@@ -10,6 +10,18 @@ const WEBSITE_FETCH_TIMEOUT_MS = 10000;
 const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 10;
 const WEBSITE_METADATA_CACHE_TTL_MS = 5 * 60 * 1000;
+const SCHEMA_CACHE_TTL_MS = 60 * 1000;
+
+const WEBSITE_URL_FIELD_CANDIDATES = ['url', 'website_url', 'site_url', 'websiteUrl'];
+const WEBSITE_DOMAIN_FIELD_CANDIDATES = ['domain', 'website_domain', 'site_domain', 'websiteDomain'];
+const WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES = ['discovery_status', 'discoveryStatus'];
+const WEBSITE_STATUS_FIELD_CANDIDATES = ['status'];
+const WEBSITE_OWNER_FIELD_CANDIDATES = ['owner'];
+
+const WEBSITE_ARTICLES_WEBSITE_FIELD_CANDIDATES = ['websiteId', 'website_id', 'website', 'siteId'];
+const WEBSITE_ARTICLES_STATUS_FIELD_CANDIDATES = ['status', 'article_status', 'state'];
+
+const collectionSchemaCache = new Map();
 
 function httpError(status, message) {
 	const error = new Error(message);
@@ -53,14 +65,80 @@ function deriveDomain(url) {
 	return hostname.replace(/^www\./, '');
 }
 
-function normalizeDomainToUrl(domain) {
-	if (typeof domain !== 'string' || !domain.trim()) {
-		return '';
+function getFieldValue(record, candidates) {
+	for (const field of candidates) {
+		if (record?.[field] != null && record?.[field] !== '') {
+			return record[field];
+		}
 	}
 
-	const trimmed = domain.trim();
-	const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-	return safeNormalizeUrl(withProtocol);
+	for (const field of candidates) {
+		if (field in (record || {})) {
+			return record[field];
+		}
+	}
+
+	return '';
+}
+
+async function getCollectionFieldNames(collectionName) {
+	const cached = collectionSchemaCache.get(collectionName);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.fields;
+	}
+
+	const model = await pocketbaseClient.collections.getOne(collectionName);
+	const fields = new Set((model?.fields || []).map((field) => field?.name).filter(Boolean));
+
+	collectionSchemaCache.set(collectionName, {
+		fields,
+		expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
+	});
+
+	return fields;
+}
+
+function resolveSchemaField(fields, candidates, fallback) {
+	for (const candidate of candidates) {
+		if (fields.has(candidate)) {
+			return candidate;
+		}
+	}
+
+	return fallback;
+}
+
+async function resolveWebsitesSchema() {
+	const fields = await getCollectionFieldNames('websites');
+	const schema = {
+		ownerField: resolveSchemaField(fields, WEBSITE_OWNER_FIELD_CANDIDATES, 'owner'),
+		urlField: resolveSchemaField(fields, WEBSITE_URL_FIELD_CANDIDATES, 'url'),
+		domainField: resolveSchemaField(fields, WEBSITE_DOMAIN_FIELD_CANDIDATES, 'domain'),
+		discoveryStatusField: resolveSchemaField(fields, WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES, 'discovery_status'),
+		statusField: resolveSchemaField(fields, WEBSITE_STATUS_FIELD_CANDIDATES, 'status'),
+	};
+
+	logger.info('Websites schema resolved', {
+		collection: 'websites',
+		schema,
+	});
+
+	return schema;
+}
+
+async function resolveWebsiteArticlesSchema() {
+	const fields = await getCollectionFieldNames('website_articles');
+	const schema = {
+		websiteField: resolveSchemaField(fields, WEBSITE_ARTICLES_WEBSITE_FIELD_CANDIDATES, 'websiteId'),
+		statusField: resolveSchemaField(fields, WEBSITE_ARTICLES_STATUS_FIELD_CANDIDATES, 'status'),
+	};
+
+	logger.info('Website articles schema resolved', {
+		collection: 'website_articles',
+		schema,
+	});
+
+	return schema;
 }
 
 function toAbsoluteUrl(baseUrl, maybeRelative) {
@@ -188,9 +266,9 @@ function escapeFilterValue(value) {
 	return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-function buildArticleFilters({ websiteId, owner, search, status, category, dateFrom, dateTo }) {
+function buildArticleFilters({ websiteId, owner, search, status, category, dateFrom, dateTo, websiteField, statusField }) {
 	const filters = [
-		`websiteId = "${escapeFilterValue(websiteId)}"`,
+		`${websiteField} = "${escapeFilterValue(websiteId)}"`,
 		`owner = "${escapeFilterValue(owner)}"`,
 	];
 
@@ -200,7 +278,7 @@ function buildArticleFilters({ websiteId, owner, search, status, category, dateF
 	}
 
 	if (status) {
-		filters.push(`status = "${escapeFilterValue(status)}"`);
+		filters.push(`${statusField} = "${escapeFilterValue(status)}"`);
 	}
 
 	if (category) {
@@ -221,7 +299,7 @@ function buildArticleFilters({ websiteId, owner, search, status, category, dateF
 function mapArticle(record) {
 	return {
 		id: record.id,
-		websiteId: record.websiteId,
+		websiteId: getFieldValue(record, WEBSITE_ARTICLES_WEBSITE_FIELD_CANDIDATES),
 		url: record.url,
 		slug: record.slug,
 		title: record.title,
@@ -232,24 +310,28 @@ function mapArticle(record) {
 		category: record.category,
 		author: record.author,
 		language: record.language,
-		status: record.status,
+		status: getFieldValue(record, WEBSITE_ARTICLES_STATUS_FIELD_CANDIDATES),
 		createdAt: record.created,
 		updatedAt: record.updated,
 	};
 }
 
 function mapWebsite(site) {
+	const url = getFieldValue(site, WEBSITE_URL_FIELD_CANDIDATES);
+	const domain = getFieldValue(site, WEBSITE_DOMAIN_FIELD_CANDIDATES);
+	const status = getFieldValue(site, WEBSITE_STATUS_FIELD_CANDIDATES);
+	const discoveryStatus = getFieldValue(site, WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES);
 	const hasPassword = typeof site.wp_app_password === 'string' && site.wp_app_password.length > 0;
 
 	return {
 		id: site.id,
 		name: site.name,
-		url: site.url,
-		domain: site.domain,
+		url,
+		domain,
 		favicon: site.favicon,
 		wp_username: site.wp_username,
-		status: site.status,
-		discovery_status: site.discovery_status || 'pending',
+		status,
+		discovery_status: discoveryStatus || 'pending',
 		last_scan_at: site.last_scan_at || '',
 		next_scan_at: site.next_scan_at || '',
 		last_scan_summary: site.last_scan_summary || null,
@@ -280,58 +362,9 @@ function getOwnerId(site) {
 	return String(site.owner);
 }
 
-async function ensureWebsiteUrlRecord(site) {
-	if (!site?.id) {
-		return site;
-	}
-
-	const normalizedStoredUrl = safeNormalizeUrl(site.url);
-	if (normalizedStoredUrl) {
-		if (site.url !== normalizedStoredUrl) {
-			const normalizedRecord = await pocketbaseClient.collection('websites').update(site.id, {
-				url: normalizedStoredUrl,
-			}).catch(() => null);
-
-			if (normalizedRecord) {
-				logger.info('Website URL normalized from stored value', {
-					websiteId: site.id,
-					previousUrl: site.url || '',
-					normalizedUrl: normalizedStoredUrl,
-				});
-				return normalizedRecord;
-			}
-		}
-
-		return {
-			...site,
-			url: normalizedStoredUrl,
-		};
-	}
-
-	const repairedUrl = normalizeDomainToUrl(site.domain);
-	if (!repairedUrl) {
-		return site;
-	}
-
-	const repairedRecord = await pocketbaseClient.collection('websites').update(site.id, {
-		url: repairedUrl,
-	}).catch(() => null);
-
-	if (!repairedRecord) {
-		return site;
-	}
-
-	logger.warn('Website URL auto-repaired from domain', {
-		websiteId: site.id,
-		domain: site.domain || '',
-		repairedUrl,
-	});
-
-	return repairedRecord;
-}
-
 async function getOwnedWebsite({ websiteId, userId }) {
-	const ownershipFilter = pocketbaseClient.filter('id = {:websiteId} && owner = {:owner}', {
+	const websitesSchema = await resolveWebsitesSchema();
+	const ownershipFilter = pocketbaseClient.filter(`id = {:websiteId} && ${websitesSchema.ownerField} = {:owner}`, {
 		websiteId,
 		owner: userId,
 	});
@@ -348,13 +381,12 @@ async function getOwnedWebsite({ websiteId, userId }) {
 		.catch(() => null);
 
 	if (ownedSite) {
-		const repairedOwnedSite = await ensureWebsiteUrlRecord(ownedSite);
 		logger.info('Website access granted', {
 			websiteId,
 			authenticatedUserId: userId,
-			storedOwnerId: getOwnerId(repairedOwnedSite),
+			storedOwnerId: getOwnerId(ownedSite),
 		});
-		return repairedOwnedSite;
+		return ownedSite;
 	}
 
 	const siteById = await pocketbaseClient.collection('websites').getOne(websiteId).catch(() => null);
@@ -376,14 +408,13 @@ async function getOwnedWebsite({ websiteId, userId }) {
 	});
 
 	if (storedOwnerId === userId) {
-		const repairedSiteById = await ensureWebsiteUrlRecord(siteById);
 		logger.info('Website access granted via fallback owner comparison', {
 			websiteId,
 			authenticatedUserId: userId,
 			storedOwnerId,
 			finalQuery: ownershipFilter,
 		});
-		return repairedSiteById;
+		return siteById;
 	}
 
 	if (!storedOwnerId && userId) {
@@ -393,14 +424,13 @@ async function getOwnedWebsite({ websiteId, userId }) {
 			.catch(() => null);
 
 		if (repaired) {
-			const repairedWithUrl = await ensureWebsiteUrlRecord(repaired);
 			logger.warn('Website owner auto-assigned during access fallback', {
 				websiteId,
 				authenticatedUserId: userId,
-				storedOwnerId: getOwnerId(repairedWithUrl),
+				storedOwnerId: getOwnerId(repaired),
 				finalQuery: ownershipFilter,
 			});
-			return repairedWithUrl;
+			return repaired;
 		}
 	}
 
@@ -410,11 +440,12 @@ async function getOwnedWebsite({ websiteId, userId }) {
 async function getWebsiteStats(site) {
 	const collectionName = 'website_articles';
 	const pbBaseUrl = process.env.PB_BASE_URL || 'http://localhost:8090';
+	const articleSchema = await resolveWebsiteArticlesSchema();
 
-	const totalFilter = pocketbaseClient.filter('websiteId = {:websiteId}', { websiteId: site.id });
+	const totalFilter = pocketbaseClient.filter(`${articleSchema.websiteField} = {:websiteId}`, { websiteId: site.id });
 	const newFilter = [
 		totalFilter,
-		pocketbaseClient.filter('status = {:status}', { status: 'new' }),
+		pocketbaseClient.filter(`${articleSchema.statusField} = {:status}`, { status: 'new' }),
 	].join(' && ');
 
 	const queryStatsList = async ({ filter, sort = '', expand = '' }) => {
@@ -460,17 +491,13 @@ async function getWebsiteStats(site) {
 }
 
 router.get('/', async (req, res) => {
+	const websitesSchema = await resolveWebsitesSchema();
 	const websites = await pocketbaseClient.collection('websites').getFullList({
 		sort: '-created',
-		filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
+		filter: pocketbaseClient.filter(`${websitesSchema.ownerField} = {:owner}`, { owner: req.pocketbaseUserId }),
 	});
 
-	const repairedWebsites = [];
-	for (const site of websites) {
-		repairedWebsites.push(await ensureWebsiteUrlRecord(site));
-	}
-
-	res.json(repairedWebsites.map(mapWebsite));
+	res.json(websites.map(mapWebsite));
 });
 
 router.get('/:websiteId', async (req, res) => {
@@ -486,6 +513,7 @@ router.get('/:websiteId/stats', async (req, res) => {
 
 router.get('/:websiteId/articles', async (req, res) => {
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const articleSchema = await resolveWebsiteArticlesSchema();
 	const page = normalizePositiveInt(req.query.page, DEFAULT_PAGE);
 	const perPage = Math.min(normalizePositiveInt(req.query.perPage, DEFAULT_PER_PAGE), 100);
 	const search = normalizeOptionalString(req.query.search, 'search', 200);
@@ -493,7 +521,17 @@ router.get('/:websiteId/articles', async (req, res) => {
 	const category = normalizeOptionalString(req.query.category, 'category', 255);
 	const dateFrom = normalizeOptionalString(req.query.dateFrom, 'dateFrom', 64);
 	const dateTo = normalizeOptionalString(req.query.dateTo, 'dateTo', 64);
-	const filter = buildArticleFilters({ websiteId: site.id, owner: req.pocketbaseUserId, search, status, category, dateFrom, dateTo });
+	const filter = buildArticleFilters({
+		websiteId: site.id,
+		owner: req.pocketbaseUserId,
+		search,
+		status,
+		category,
+		dateFrom,
+		dateTo,
+		websiteField: articleSchema.websiteField,
+		statusField: articleSchema.statusField,
+	});
 
 	const result = await pocketbaseClient.collection('website_articles').getList(page, perPage, {
 		filter,
@@ -501,7 +539,10 @@ router.get('/:websiteId/articles', async (req, res) => {
 	});
 
 	const allArticles = await pocketbaseClient.collection('website_articles').getFullList({
-		filter: pocketbaseClient.filter('websiteId = {:websiteId} && owner = {:owner}', { websiteId: site.id, owner: req.pocketbaseUserId }),
+		filter: [
+			pocketbaseClient.filter(`${articleSchema.websiteField} = {:websiteId}`, { websiteId: site.id }),
+			pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
+		].join(' && '),
 		fields: 'id,category',
 	});
 	const categories = [...new Set(allArticles.map((article) => article.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -530,6 +571,7 @@ router.post('/metadata', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
+	const websitesSchema = await resolveWebsitesSchema();
 	const requestedUrl = normalizeUrl(req.body?.url);
 	if (!requestedUrl) {
 		throw httpError(422, 'Website URL is required');
@@ -564,57 +606,80 @@ router.post('/', async (req, res) => {
 		metadataUrl: metadata?.url || '',
 		normalizedWebsiteUrl,
 		domain,
+		urlField: websitesSchema.urlField,
+		domainField: websitesSchema.domainField,
 	});
 
-	const record = await pocketbaseClient.collection('websites').create({
-		owner: req.pocketbaseUserId,
+	const createPayload = {
+		[websitesSchema.ownerField]: req.pocketbaseUserId,
 		name,
-		url: normalizedWebsiteUrl,
-		domain,
+		[websitesSchema.urlField]: normalizedWebsiteUrl,
+		[websitesSchema.domainField]: domain,
 		favicon,
 		wp_username: username,
 		...(password ? { wp_app_password: encryptSecret(password) } : {}),
-		status: 'active',
-		discovery_status: 'pending',
-	});
+		[websitesSchema.statusField]: 'active',
+		[websitesSchema.discoveryStatusField]: 'pending',
+	};
+
+	const record = await pocketbaseClient.collection('websites').create(createPayload);
 
 	const savedRecord = getOwnerId(record) === req.pocketbaseUserId
 		? record
-		: await pocketbaseClient.collection('websites').update(record.id, { owner: req.pocketbaseUserId }).catch(() => record);
+		: await pocketbaseClient.collection('websites').update(record.id, { [websitesSchema.ownerField]: req.pocketbaseUserId }).catch(() => record);
 	const persistedRecord = await pocketbaseClient.collection('websites').getOne(savedRecord.id).catch(() => savedRecord);
-	const repairedPersistedRecord = await ensureWebsiteUrlRecord(persistedRecord);
+
+	const storedUrl = getFieldValue(persistedRecord, WEBSITE_URL_FIELD_CANDIDATES);
+	const storedDomain = getFieldValue(persistedRecord, WEBSITE_DOMAIN_FIELD_CANDIDATES);
+	const storedStatus = getFieldValue(persistedRecord, WEBSITE_STATUS_FIELD_CANDIDATES);
+	const storedDiscoveryStatus = getFieldValue(persistedRecord, WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES);
 
 	logger.info('Website create completed', {
-		websiteId: repairedPersistedRecord.id,
+		websiteId: persistedRecord.id,
 		authenticatedUserId: req.pocketbaseUserId,
-		storedOwnerId: getOwnerId(repairedPersistedRecord),
-		storedUrl: repairedPersistedRecord.url || '',
-		storedDomain: repairedPersistedRecord.domain || '',
+		storedOwnerId: getOwnerId(persistedRecord),
+		payloadSent: {
+			[websitesSchema.urlField]: normalizedWebsiteUrl,
+			[websitesSchema.domainField]: domain,
+			[websitesSchema.statusField]: 'active',
+			[websitesSchema.discoveryStatusField]: 'pending',
+		},
+		recordStored: {
+			[websitesSchema.urlField]: storedUrl,
+			[websitesSchema.domainField]: storedDomain,
+			[websitesSchema.statusField]: storedStatus,
+			[websitesSchema.discoveryStatusField]: storedDiscoveryStatus,
+		},
+		storedUrl,
+		storedDomain,
 		finalQuery: '',
 	});
 
-	res.status(201).json(mapWebsite(repairedPersistedRecord));
+	res.status(201).json(mapWebsite(persistedRecord));
 });
 
 router.post('/:websiteId/scan', async (req, res) => {
+	const websitesSchema = await resolveWebsitesSchema();
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const storedUrlRaw = getFieldValue(site, WEBSITE_URL_FIELD_CANDIDATES);
 
 	logger.info('Scan website record loaded from PocketBase', {
 		websiteId: site?.id || req.params.websiteId,
 		owner: getOwnerId(site),
 		name: site?.name || '',
-		url: site?.url || '',
-		domain: site?.domain || '',
-		discovery_status: site?.discovery_status || '',
+		url: storedUrlRaw || '',
+		domain: getFieldValue(site, WEBSITE_DOMAIN_FIELD_CANDIDATES) || '',
+		discovery_status: getFieldValue(site, WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES) || '',
+		urlField: websitesSchema.urlField,
 	});
 
 	logger.info('Scan website URL field value', {
 		websiteId: site?.id || req.params.websiteId,
-		websiteUrlField: site?.url,
-		websiteUrlFieldType: typeof site?.url,
+		websiteUrlField: storedUrlRaw,
+		websiteUrlFieldType: typeof storedUrlRaw,
 	});
 
-	const computedBaseUrl = normalizeUrl(site?.url);
+	const computedBaseUrl = normalizeUrl(storedUrlRaw);
 	logger.info('Scan computed base URL', {
 		websiteId: site?.id || req.params.websiteId,
 		computedBaseUrl,
@@ -623,13 +688,15 @@ router.post('/:websiteId/scan', async (req, res) => {
 	if (!computedBaseUrl) {
 		logger.warn('Scan aborted because website URL is missing or invalid', {
 			websiteId: site?.id || req.params.websiteId,
-			websiteUrlField: site?.url,
+			websiteUrlField: storedUrlRaw,
+			urlField: websitesSchema.urlField,
 		});
 		throw httpError(422, 'Website URL is missing or invalid for this record. Please update the website URL and try again.');
 	}
 
 	const siteForScan = {
 		...site,
+		[websitesSchema.urlField]: computedBaseUrl,
 		url: computedBaseUrl,
 	};
 
@@ -644,7 +711,7 @@ router.post('/:websiteId/scan', async (req, res) => {
 		res.write(`data: ${JSON.stringify(event)}\n\n`);
 	};
 
-	await pocketbaseClient.collection('websites').update(site.id, { discovery_status: 'running' }).catch(() => {});
+	await pocketbaseClient.collection('websites').update(site.id, { [websitesSchema.discoveryStatusField]: 'running' }).catch(() => {});
 	pushEvent({ type: 'progress', stage: 'init', message: 'Website scan started' });
 
 	try {
@@ -659,7 +726,7 @@ router.post('/:websiteId/scan', async (req, res) => {
 		pushEvent({ type: 'completed', summary });
 	} catch (error) {
 		await pocketbaseClient.collection('websites').update(site.id, {
-			discovery_status: 'failed',
+			[websitesSchema.discoveryStatusField]: 'failed',
 			last_scan_summary: {
 				found: 0,
 				newArticles: 0,
@@ -676,6 +743,7 @@ router.post('/:websiteId/scan', async (req, res) => {
 });
 
 router.patch('/:websiteId', async (req, res) => {
+	const websitesSchema = await resolveWebsitesSchema();
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
 
 	const updates = {};
@@ -695,8 +763,8 @@ router.patch('/:websiteId', async (req, res) => {
 		}
 
 		const metadata = await fetchWebsiteMetadata({ url: normalized });
-		updates.url = metadata.url;
-		updates.domain = metadata.domain;
+		updates[websitesSchema.urlField] = metadata.url;
+		updates[websitesSchema.domainField] = metadata.domain;
 		updates.favicon = metadata.favicon;
 
 		if (!('name' in (req.body ?? {}))) {
@@ -705,7 +773,7 @@ router.patch('/:websiteId', async (req, res) => {
 	}
 
 	if ('domain' in (req.body ?? {})) {
-		updates.domain = normalizeOptionalString(req.body?.domain, 'domain', 255);
+		updates[websitesSchema.domainField] = normalizeOptionalString(req.body?.domain, 'domain', 255);
 	}
 
 	if ('favicon' in (req.body ?? {})) {
@@ -727,12 +795,12 @@ router.patch('/:websiteId', async (req, res) => {
 
 	if ('status' in (req.body ?? {})) {
 		const status = normalizeOptionalString(req.body?.status, 'status', 32).toLowerCase();
-		updates.status = status || 'active';
+		updates[websitesSchema.statusField] = status || 'active';
 	}
 
 	if ('discovery_status' in (req.body ?? {})) {
 		const discoveryStatus = normalizeOptionalString(req.body?.discovery_status, 'discovery_status', 32).toLowerCase();
-		updates.discovery_status = discoveryStatus || 'pending';
+		updates[websitesSchema.discoveryStatusField] = discoveryStatus || 'pending';
 	}
 
 	const updated = await pocketbaseClient.collection('websites').update(site.id, updates);

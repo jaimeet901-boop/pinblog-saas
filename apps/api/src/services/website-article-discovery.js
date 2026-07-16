@@ -3,6 +3,54 @@ const MAX_ARTICLE_FETCHES = 50;
 const MAX_CRAWL_PAGES = 40;
 const REQUEST_TIMEOUT_MS = 12000;
 const NEXT_SCAN_DELAY_MS = 24 * 60 * 60 * 1000;
+const SCHEMA_CACHE_TTL_MS = 60 * 1000;
+
+const WEBSITE_ARTICLES_WEBSITE_FIELD_CANDIDATES = ['websiteId', 'website_id', 'website', 'siteId'];
+const WEBSITE_ARTICLES_STATUS_FIELD_CANDIDATES = ['status', 'article_status', 'state'];
+
+const collectionSchemaCache = new Map();
+
+function resolveSchemaField(fields, candidates, fallback) {
+	for (const candidate of candidates) {
+		if (fields.has(candidate)) {
+			return candidate;
+		}
+	}
+
+	return fallback;
+}
+
+async function getCollectionFieldNames({ collection, pocketbaseClient }) {
+	const cached = collectionSchemaCache.get(collection);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.fields;
+	}
+
+	const model = await pocketbaseClient.collections.getOne(collection);
+	const fields = new Set((model?.fields || []).map((field) => field?.name).filter(Boolean));
+
+	collectionSchemaCache.set(collection, {
+		fields,
+		expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
+	});
+
+	return fields;
+}
+
+async function resolveWebsiteArticlesSchema({ pocketbaseClient, logger }) {
+	const fields = await getCollectionFieldNames({ collection: 'website_articles', pocketbaseClient });
+	const schema = {
+		websiteField: resolveSchemaField(fields, WEBSITE_ARTICLES_WEBSITE_FIELD_CANDIDATES, 'websiteId'),
+		statusField: resolveSchemaField(fields, WEBSITE_ARTICLES_STATUS_FIELD_CANDIDATES, 'status'),
+	};
+
+	logger?.info?.('Website articles schema resolved for scanner', {
+		collection: 'website_articles',
+		schema,
+	});
+
+	return schema;
+}
 
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -566,6 +614,7 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, runId, on
 	};
 
 	onProgress?.({ type: 'progress', stage: 'init', message: 'Preparing website scan' });
+	const articlesSchema = await resolveWebsiteArticlesSchema({ pocketbaseClient, logger });
 	const { candidates, errors, source } = await discoverArticleCandidates({ website, onProgress, logger });
 	summary.source = source;
 	summary.errors.push(...errors);
@@ -575,14 +624,14 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, runId, on
 	const articles = await enrichCandidates(candidates, onProgress);
 
 	const existingRecords = await pocketbaseClient.collection('website_articles').getFullList({
-		filter: pocketbaseClient.filter('websiteId = {:websiteId}', { websiteId: website.id }),
+		filter: pocketbaseClient.filter(`${articlesSchema.websiteField} = {:websiteId}`, { websiteId: website.id }),
 		sort: '-updated',
 	});
 	const existingByUrl = new Map(existingRecords.map((record) => [record.url, record]));
 
 	for (const article of articles) {
 		const payload = {
-			websiteId: website.id,
+			[articlesSchema.websiteField]: website.id,
 			owner: website.owner,
 			url: article.url,
 			slug: article.slug || deriveSlug(article.url),
@@ -594,7 +643,7 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, runId, on
 			category: article.category || '',
 			author: article.author || '',
 			language: article.language || '',
-			status: existingByUrl.get(article.url)?.status || 'new',
+			[articlesSchema.statusField]: existingByUrl.get(article.url)?.[articlesSchema.statusField] || existingByUrl.get(article.url)?.status || 'new',
 			source: article.source || source,
 			scan_run_id: runId,
 		};
