@@ -125,7 +125,7 @@ async function processJob(job) {
 		attempt_count: (job.attempt_count || 0) + 1,
 		published_at: publishedAt,
 		last_error: '',
-		next_retry_at: '',
+		next_retry_at: null,
 		pinterest_pin_id: pinterestPinId,
 		pinterest_pin_url: pinterestPinUrl,
 		performance: {
@@ -170,6 +170,33 @@ async function processJob(job) {
 	});
 }
 
+function buildDuePublishJobsFilter(now) {
+	return [
+		pocketbaseClient.filter('status = {:status}', { status: 'scheduled' }),
+		pocketbaseClient.filter('scheduled_at <= {:now}', { now }),
+		`(next_retry_at = null || next_retry_at <= "${now}")`,
+	].join(' && ');
+}
+
+async function getDuePublishJobs(now) {
+	const filter = buildDuePublishJobsFilter(now);
+	try {
+		return await pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
+			sort: 'scheduled_at',
+			filter,
+		});
+	} catch (error) {
+		logger.error('Pinterest queue due-jobs query failed', {
+			filter,
+			now,
+			status: error?.status,
+			message: error?.message,
+			response: error?.response?.data || error?.response || null,
+		});
+		throw error;
+	}
+}
+
 async function processDueJobs() {
 	if (running) {
 		return;
@@ -179,14 +206,7 @@ async function processDueJobs() {
 	lastRunAt = new Date().toISOString();
 	try {
 		const now = new Date().toISOString();
-		const dueJobs = await pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
-			sort: 'scheduled_at',
-			filter: [
-				pocketbaseClient.filter('status = {:status}', { status: 'scheduled' }),
-				pocketbaseClient.filter('scheduled_at <= {:now}', { now }),
-				`(next_retry_at = '' || next_retry_at <= "${now}")`,
-			].join(' && '),
-		});
+		const dueJobs = await getDuePublishJobs(now);
 
 		for (const job of dueJobs.slice(0, MAX_JOBS_PER_TICK)) {
 			const locked = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, {
@@ -224,7 +244,7 @@ async function processDueJobs() {
 				const shouldRetry = !exhausted;
 				const nextRetryAt = shouldRetry
 					? nextRetryDate({ retryAfter: normalized.retryAfter || 0, attemptCount: nextAttempts })
-					: '';
+					: null;
 
 				await pocketbaseClient.collection('pinterest_publish_jobs').update(locked.id, {
 					status: shouldRetry ? 'scheduled' : 'failed',

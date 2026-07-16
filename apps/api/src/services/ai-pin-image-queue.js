@@ -110,7 +110,7 @@ async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' 
 		image_url: imageUrl,
 		last_error: lastError,
 		completed_at: completedAt,
-		next_retry_at: '',
+		next_retry_at: null,
 	});
 
 	if (job.ai_pin) {
@@ -172,6 +172,32 @@ function nextRetryDate(attemptCount) {
 	return new Date(Date.now() + ms).toISOString();
 }
 
+function buildDueJobsFilter(now) {
+	return [
+		'status = "queued"',
+		`(next_retry_at = null || next_retry_at <= "${now}")`,
+	].join(' && ');
+}
+
+async function getDueImageJobs(now) {
+	const filter = buildDueJobsFilter(now);
+	try {
+		return await pocketbaseClient.collection('ai_pin_image_jobs').getFullList({
+			sort: 'created',
+			filter,
+		});
+	} catch (error) {
+		logger.error('AI image queue due-jobs query failed', {
+			filter,
+			now,
+			status: error?.status,
+			message: error?.message,
+			response: error?.response?.data || error?.response || null,
+		});
+		throw error;
+	}
+}
+
 async function processDueJobs() {
 	if (running) {
 		return;
@@ -182,13 +208,7 @@ async function processDueJobs() {
 
 	try {
 		const now = new Date().toISOString();
-		const dueJobs = await pocketbaseClient.collection('ai_pin_image_jobs').getFullList({
-			sort: 'created',
-			filter: [
-				'status = "queued"',
-				`(next_retry_at = '' || next_retry_at <= "${now}")`,
-			].join(' && '),
-		});
+		const dueJobs = await getDueImageJobs(now);
 
 		for (const job of dueJobs.slice(0, MAX_JOBS_PER_TICK)) {
 			const locked = await pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, {
@@ -236,7 +256,7 @@ async function processDueJobs() {
 					status: shouldRetry ? 'queued' : 'failed',
 					attempt_count: nextAttempts,
 					last_error: error?.message || 'Image generation failed',
-					next_retry_at: shouldRetry ? nextRetryDate(nextAttempts) : '',
+					next_retry_at: shouldRetry ? nextRetryDate(nextAttempts) : null,
 				}).catch(() => null);
 
 				if (locked.ai_pin) {
