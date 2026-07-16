@@ -49,7 +49,8 @@ function normalizeUrl(value) {
 		throw httpError(422, 'Please enter a valid website URL starting with http:// or https://');
 	}
 
-	return parsed.origin;
+	parsed.hash = '';
+	return parsed.toString();
 }
 
 function safeNormalizeUrl(value) {
@@ -589,7 +590,8 @@ router.post('/', async (req, res) => {
 	});
 
 	const metadata = await fetchWebsiteMetadata({ url: requestedUrl });
-	const normalizedWebsiteUrl = safeNormalizeUrl(metadata?.url) || requestedUrl;
+	const metadataUrl = safeNormalizeUrl(metadata?.url);
+	const normalizedWebsiteUrl = metadataUrl || requestedUrl;
 	if (!normalizedWebsiteUrl) {
 		throw httpError(422, 'Website URL is missing or invalid');
 	}
@@ -604,6 +606,7 @@ router.post('/', async (req, res) => {
 		authenticatedUserId: req.pocketbaseUserId,
 		requestedUrl,
 		metadataUrl: metadata?.url || '',
+		normalizedMetadataUrl: metadataUrl,
 		normalizedWebsiteUrl,
 		domain,
 		urlField: websitesSchema.urlField,
@@ -622,11 +625,53 @@ router.post('/', async (req, res) => {
 		[websitesSchema.discoveryStatusField]: 'pending',
 	};
 
-	const record = await pocketbaseClient.collection('websites').create(createPayload);
+	logger.info('Website create payload to PocketBase', {
+		authenticatedUserId: req.pocketbaseUserId,
+		collection: 'websites',
+		urlField: websitesSchema.urlField,
+		domainField: websitesSchema.domainField,
+		payload: {
+			[websitesSchema.ownerField]: createPayload[websitesSchema.ownerField],
+			name: createPayload.name,
+			[websitesSchema.urlField]: createPayload[websitesSchema.urlField],
+			[websitesSchema.domainField]: createPayload[websitesSchema.domainField],
+			[websitesSchema.statusField]: createPayload[websitesSchema.statusField],
+			[websitesSchema.discoveryStatusField]: createPayload[websitesSchema.discoveryStatusField],
+			favicon: createPayload.favicon || '',
+			wp_username: createPayload.wp_username || '',
+			has_wp_app_password: Boolean(createPayload.wp_app_password),
+		},
+	});
 
-	const savedRecord = getOwnerId(record) === req.pocketbaseUserId
-		? record
-		: await pocketbaseClient.collection('websites').update(record.id, { [websitesSchema.ownerField]: req.pocketbaseUserId }).catch(() => record);
+	const record = await pocketbaseClient.collection('websites').create(createPayload);
+	const persistedAfterCreate = await pocketbaseClient.collection('websites').getOne(record.id).catch(() => null);
+
+	logger.info('Website create immediate persistence check', {
+		websiteId: record.id,
+		urlField: websitesSchema.urlField,
+		payloadUrl: createPayload[websitesSchema.urlField],
+		createResponseUrl: record?.[websitesSchema.urlField],
+		createResponseHasUrlField: Object.prototype.hasOwnProperty.call(record || {}, websitesSchema.urlField),
+		storedUrlAfterCreate: persistedAfterCreate?.[websitesSchema.urlField],
+		storedRecordHasUrlFieldAfterCreate: Object.prototype.hasOwnProperty.call(persistedAfterCreate || {}, websitesSchema.urlField),
+	});
+
+	const needsOwnerFix = getOwnerId(record) !== req.pocketbaseUserId;
+	const savedRecord = needsOwnerFix
+		? await pocketbaseClient.collection('websites').update(record.id, { [websitesSchema.ownerField]: req.pocketbaseUserId }).catch(() => record)
+		: record;
+
+	if (needsOwnerFix) {
+		const persistedAfterOwnerFix = await pocketbaseClient.collection('websites').getOne(savedRecord.id).catch(() => null);
+		logger.warn('Website owner correction executed after create', {
+			websiteId: savedRecord.id,
+			urlField: websitesSchema.urlField,
+			payloadUrl: createPayload[websitesSchema.urlField],
+			storedUrlAfterOwnerFix: persistedAfterOwnerFix?.[websitesSchema.urlField],
+			storedRecordHasUrlFieldAfterOwnerFix: Object.prototype.hasOwnProperty.call(persistedAfterOwnerFix || {}, websitesSchema.urlField),
+		});
+	}
+
 	const persistedRecord = await pocketbaseClient.collection('websites').getOne(savedRecord.id).catch(() => savedRecord);
 
 	const storedUrl = getFieldValue(persistedRecord, WEBSITE_URL_FIELD_CANDIDATES);
