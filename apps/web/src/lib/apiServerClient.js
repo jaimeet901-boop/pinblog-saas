@@ -1,25 +1,15 @@
 export const API_SERVER_URL = '/hcgi/api';
-
-function getPocketbaseToken() {
-    const pocketbaseToken = localStorage.getItem('pocketbase_auth');
-
-    if (pocketbaseToken) {
-        const bytes = new TextEncoder().encode(pocketbaseToken);
-        const binary = String.fromCharCode(...bytes);
-
-        return btoa(binary);
-    }
-}
+import { getPocketbaseAuthHeader } from './pocketbaseClient.js';
 
 const apiServerClient = {
     fetch: async (url, options = {}) => {
-        const pocketbaseToken = getPocketbaseToken();
+		const authorization = getPocketbaseAuthHeader();
 
         return await window.fetch(API_SERVER_URL + url, {
             ...options,
             headers: {
                 ...options.headers,
-                ...(pocketbaseToken && { Authorization: `Bearer ${pocketbaseToken}` }),
+				    ...(authorization && { Authorization: authorization }),
             },
         });
     }

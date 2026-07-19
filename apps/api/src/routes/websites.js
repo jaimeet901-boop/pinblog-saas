@@ -565,13 +565,44 @@ async function getWebsiteStats(site) {
 }
 
 router.get('/', async (req, res) => {
+	const collectionName = 'websites';
+	const pbBaseUrl = process.env.PB_BASE_URL || 'http://localhost:8090';
 	const websitesSchema = await resolveWebsitesSchema();
-	const websites = await pocketbaseClient.collection('websites').getFullList({
+	const listFilter = pocketbaseClient.filter(`${websitesSchema.ownerField} = {:owner}`, { owner: req.pocketbaseUserId });
+	const query = new URLSearchParams({
+		filter: listFilter,
 		sort: '-created',
-		filter: pocketbaseClient.filter(`${websitesSchema.ownerField} = {:owner}`, { owner: req.pocketbaseUserId }),
 	});
+	const requestUrl = `${pbBaseUrl}/api/collections/${collectionName}/records?${query.toString()}`;
 
-	res.json(websites.map(mapWebsite));
+	try {
+		const websites = await pocketbaseClient.collection(collectionName).getFullList({
+			filter: listFilter,
+		});
+
+		res.json(websites.map(mapWebsite));
+	} catch (error) {
+		logger.error('Websites list query failed', {
+			stack: error?.stack || null,
+			message: error?.message || null,
+			pocketbaseRequestUrl: requestUrl,
+			collectionName,
+			filter: listFilter,
+			httpStatus: error?.status || error?.response?.status || null,
+			responseBody: error?.response?.data || error?.response || null,
+			validationErrors: error?.response?.data?.data || null,
+			requestParameters: {
+				method: req.method,
+				originalUrl: req.originalUrl,
+				params: req.params,
+				query: req.query,
+				body: req.body,
+				pocketbaseUserId: req.pocketbaseUserId || '',
+			},
+		});
+
+		throw error;
+	}
 });
 
 router.get('/:websiteId', async (req, res) => {
