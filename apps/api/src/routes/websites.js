@@ -838,6 +838,11 @@ router.post('/:websiteId/scan', async (req, res) => {
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
 	const fallbackUrlFields = WEBSITE_URL_FIELD_CANDIDATES.filter((field) => field !== websitesSchema.urlField);
 	const storedUrlRaw = getFieldValue(site, [websitesSchema.urlField, ...fallbackUrlFields]);
+	const fallbackDomainFields = WEBSITE_DOMAIN_FIELD_CANDIDATES.filter((field) => field !== websitesSchema.domainField);
+	const storedDomainRaw = getFieldValue(site, [websitesSchema.domainField, ...fallbackDomainFields]);
+	const domainUrlCandidate = typeof storedDomainRaw === 'string' && storedDomainRaw.trim()
+		? `https://${storedDomainRaw.trim().replace(/^https?:\/\//i, '')}`
+		: '';
 
 	logger.info('Scan website record loaded from PocketBase', {
 		websiteId: site?.id || req.params.websiteId,
@@ -853,21 +858,32 @@ router.post('/:websiteId/scan', async (req, res) => {
 		websiteId: site?.id || req.params.websiteId,
 		websiteUrlField: storedUrlRaw,
 		websiteUrlFieldType: typeof storedUrlRaw,
+		domainFallback: storedDomainRaw || '',
 	});
 
-	const computedBaseUrl = normalizeUrl(storedUrlRaw);
+	const normalizedStoredUrl = normalizeUrl(storedUrlRaw);
+	const normalizedDomainUrl = domainUrlCandidate ? normalizeUrl(domainUrlCandidate) : '';
+	const computedBaseUrl = normalizedStoredUrl || normalizedDomainUrl;
 	logger.info('Scan computed base URL', {
 		websiteId: site?.id || req.params.websiteId,
 		computedBaseUrl,
+		usedDomainFallback: !normalizedStoredUrl && Boolean(normalizedDomainUrl),
 	});
 
 	if (!computedBaseUrl) {
 		logger.warn('Scan aborted because website URL is missing or invalid', {
 			websiteId: site?.id || req.params.websiteId,
 			websiteUrlField: storedUrlRaw,
+			domainFallback: storedDomainRaw || '',
 			urlField: websitesSchema.urlField,
 		});
 		throw httpError(422, 'Website URL is missing or invalid for this record. Please update the website URL and try again.');
+	}
+
+	if (!normalizedStoredUrl && computedBaseUrl) {
+		await pocketbaseClient.collection('websites').update(site.id, {
+			[websitesSchema.urlField]: computedBaseUrl,
+		}).catch(() => null);
 	}
 
 	const siteForScan = {
