@@ -12,7 +12,7 @@ const DEFAULT_PER_PAGE = 10;
 const WEBSITE_METADATA_CACHE_TTL_MS = 5 * 60 * 1000;
 const SCHEMA_CACHE_TTL_MS = 60 * 1000;
 
-const WEBSITE_URL_FIELD_CANDIDATES = ['url', 'website_url', 'site_url', 'websiteUrl'];
+const WEBSITE_URL_FIELD_CANDIDATES = ['url', 'website_url', 'site_url', 'websiteUrl', 'siteUrl'];
 const WEBSITE_DOMAIN_FIELD_CANDIDATES = ['domain', 'website_domain', 'site_domain', 'websiteDomain'];
 const WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES = ['discovery_status', 'discoveryStatus'];
 const WEBSITE_STATUS_FIELD_CANDIDATES = ['status'];
@@ -83,12 +83,6 @@ function deriveDomain(url) {
 function getFieldValue(record, candidates) {
 	for (const field of candidates) {
 		if (record?.[field] != null && record?.[field] !== '') {
-			return record[field];
-		}
-	}
-
-	for (const field of candidates) {
-		if (field in (record || {})) {
 			return record[field];
 		}
 	}
@@ -606,9 +600,32 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/:websiteId', async (req, res) => {
+	const websitesSchema = await resolveWebsitesSchema();
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
-	const stats = await getWebsiteStats(site);
-	res.json({ ...mapWebsite(site), stats });
+	const normalizedUrl = getFieldValue(site, [websitesSchema.urlField, ...WEBSITE_URL_FIELD_CANDIDATES]);
+	const normalizedSite = {
+		...site,
+		[websitesSchema.urlField]: normalizedUrl,
+	};
+
+	let stats = {
+		totalArticles: 0,
+		newArticles: 0,
+		lastScan: normalizedSite.last_scan_at || '',
+		nextScheduledScan: normalizedSite.next_scan_at || '',
+	};
+
+	try {
+		stats = await getWebsiteStats(normalizedSite);
+	} catch (error) {
+		logger.error('Website detail stats query failed', {
+			websiteId: normalizedSite.id,
+			message: error?.message || null,
+			stack: error?.stack || null,
+		});
+	}
+
+	res.json({ ...mapWebsite(normalizedSite), stats });
 });
 
 router.get('/:websiteId/stats', async (req, res) => {
@@ -787,7 +804,7 @@ router.post('/', async (req, res) => {
 
 	const persistedRecord = await pocketbaseClient.collection('websites').getOne(savedRecord.id).catch(() => savedRecord);
 
-	const storedUrl = getFieldValue(persistedRecord, WEBSITE_URL_FIELD_CANDIDATES);
+	const storedUrl = getFieldValue(persistedRecord, [websitesSchema.urlField, ...WEBSITE_URL_FIELD_CANDIDATES]);
 	const storedDomain = getFieldValue(persistedRecord, WEBSITE_DOMAIN_FIELD_CANDIDATES);
 	const storedStatus = getFieldValue(persistedRecord, WEBSITE_STATUS_FIELD_CANDIDATES);
 	const storedDiscoveryStatus = getFieldValue(persistedRecord, WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES);
@@ -819,7 +836,7 @@ router.post('/', async (req, res) => {
 router.post('/:websiteId/scan', async (req, res) => {
 	const websitesSchema = await resolveWebsitesSchema();
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
-	const storedUrlRaw = getFieldValue(site, WEBSITE_URL_FIELD_CANDIDATES);
+	const storedUrlRaw = getFieldValue(site, [websitesSchema.urlField, ...WEBSITE_URL_FIELD_CANDIDATES]);
 
 	logger.info('Scan website record loaded from PocketBase', {
 		websiteId: site?.id || req.params.websiteId,
