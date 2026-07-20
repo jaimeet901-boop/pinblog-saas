@@ -836,7 +836,8 @@ router.post('/', async (req, res) => {
 router.post('/:websiteId/scan', async (req, res) => {
 	const websitesSchema = await resolveWebsitesSchema();
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
-	const storedUrlRaw = getFieldValue(site, [websitesSchema.urlField, ...WEBSITE_URL_FIELD_CANDIDATES]);
+	const fallbackUrlFields = WEBSITE_URL_FIELD_CANDIDATES.filter((field) => field !== websitesSchema.urlField);
+	const storedUrlRaw = getFieldValue(site, [websitesSchema.urlField, ...fallbackUrlFields]);
 
 	logger.info('Scan website record loaded from PocketBase', {
 		websiteId: site?.id || req.params.websiteId,
