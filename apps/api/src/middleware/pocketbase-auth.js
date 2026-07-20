@@ -44,6 +44,10 @@ function unauthorizedError(message) {
 }
 
 export async function pocketbaseAuth(req, res, next) {
+	if (req.method === 'POST' && req.path === '/metadata') {
+		return next();
+	}
+
 	const bearerToken = parseBearerToken(req.headers.authorization);
 
 	// Auth is enforced by default. To allow public (anonymous) access, remove this
