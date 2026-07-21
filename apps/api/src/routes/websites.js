@@ -558,6 +558,20 @@ async function getWebsiteStats(site) {
 	};
 }
 
+// Static routes MUST be registered before "/:websiteId" or Express will treat
+// "metadata" as a website id for some method/path combinations.
+router.post('/metadata', async (req, res) => {
+	const url = normalizeUrl(req.body?.url);
+
+	if (!url) {
+		throw httpError(422, 'Website URL is required');
+	}
+
+	const metadata = await fetchWebsiteMetadata({ url });
+
+	res.json(metadata);
+});
+
 router.get('/', async (req, res) => {
 	const collectionName = 'websites';
 	const pbBaseUrl = process.env.PB_BASE_URL || 'http://localhost:8090';
@@ -572,6 +586,7 @@ router.get('/', async (req, res) => {
 	try {
 		const websites = await pocketbaseClient.collection(collectionName).getFullList({
 			filter: listFilter,
+			sort: '-created',
 		});
 
 		res.json(websites.map(mapWebsite));
@@ -680,18 +695,6 @@ router.get('/:websiteId/articles', async (req, res) => {
 	});
 });
 
-router.post('/metadata', async (req, res) => {
-	const url = normalizeUrl(req.body?.url);
-
-	if (!url) {
-		throw httpError(422, 'Website URL is required');
-	}
-
-	const metadata = await fetchWebsiteMetadata({ url });
-
-	res.json(metadata);
-});
-
 router.post('/', async (req, res) => {
 	const websitesSchema = await resolveWebsitesSchema();
 	const requestedUrl = normalizeUrl(req.body?.url);
@@ -710,15 +713,31 @@ router.post('/', async (req, res) => {
 		finalQuery: '',
 	});
 
-	const metadata = await fetchWebsiteMetadata({ url: requestedUrl });
+	let metadata = {
+		name: deriveDomain(requestedUrl),
+		url: requestedUrl,
+		domain: deriveDomain(requestedUrl),
+		favicon: `${requestedUrl}/favicon.ico`,
+	};
+
+	try {
+		metadata = await fetchWebsiteMetadata({ url: requestedUrl });
+	} catch (error) {
+		logger.warn('Website create metadata fetch failed; using URL-derived fallback', {
+			requestedUrl,
+			message: error?.message || null,
+			status: error?.status || null,
+		});
+	}
+
 	const metadataUrl = safeNormalizeUrl(metadata?.url);
 	const normalizedWebsiteUrl = metadataUrl || requestedUrl;
 	if (!normalizedWebsiteUrl) {
 		throw httpError(422, 'Website URL is missing or invalid');
 	}
 
-	const name = normalizeOptionalString(req.body?.name, 'name', 120) || metadata.name;
-	const favicon = normalizeOptionalString(req.body?.favicon, 'favicon', 500) || metadata.favicon;
+	const name = normalizeOptionalString(req.body?.name, 'name', 120) || metadata.name || deriveDomain(normalizedWebsiteUrl);
+	const favicon = normalizeOptionalString(req.body?.favicon, 'favicon', 500) || metadata.favicon || `${normalizedWebsiteUrl}/favicon.ico`;
 	const domain = normalizeOptionalString(req.body?.domain, 'domain', 255) || metadata.domain || deriveDomain(normalizedWebsiteUrl);
 	const username = normalizeOptionalString(req.body?.wp_username, 'wp_username', 120);
 	const password = normalizeOptionalString(req.body?.wp_app_password, 'wp_app_password', 500);
@@ -954,14 +973,30 @@ router.patch('/:websiteId', async (req, res) => {
 			throw httpError(422, 'Website URL is required');
 		}
 
-		const metadata = await fetchWebsiteMetadata({ url: normalized });
+		let metadata = {
+			name: deriveDomain(normalized),
+			url: normalized,
+			domain: deriveDomain(normalized),
+			favicon: `${normalized}/favicon.ico`,
+		};
+
+		try {
+			metadata = await fetchWebsiteMetadata({ url: normalized });
+		} catch (error) {
+			logger.warn('Website patch metadata fetch failed; using URL-derived fallback', {
+				websiteId: site.id,
+				normalizedUrl: normalized,
+				message: error?.message || null,
+			});
+		}
+
 		const metadataUrl = safeNormalizeUrl(metadata?.url);
 		updates[websitesSchema.urlField] = metadataUrl || normalized;
-		updates[websitesSchema.domainField] = metadata.domain;
-		updates.favicon = metadata.favicon;
+		updates[websitesSchema.domainField] = metadata.domain || deriveDomain(normalized);
+		updates.favicon = metadata.favicon || `${normalized}/favicon.ico`;
 
 		if (!('name' in (req.body ?? {}))) {
-			updates.name = metadata.name;
+			updates.name = metadata.name || deriveDomain(normalized);
 		}
 	}
 

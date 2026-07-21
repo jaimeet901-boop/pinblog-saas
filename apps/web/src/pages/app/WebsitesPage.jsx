@@ -37,11 +37,41 @@ function formatDate(value) {
 	}
 }
 
+function deriveFallbackMetadata(rawUrl) {
+	try {
+		const parsed = new URL(rawUrl);
+		const domain = parsed.hostname.replace(/^www\./, '');
+		return {
+			name: domain,
+			url: parsed.origin,
+			domain,
+			favicon: `${parsed.origin}/favicon.ico`,
+		};
+	} catch {
+		return {
+			name: '',
+			url: rawUrl,
+			domain: '',
+			favicon: '',
+		};
+	}
+}
+
+async function readErrorMessage(res, fallback) {
+	try {
+		const parsed = await res.json();
+		return parsed?.message || parsed?.error || fallback;
+	} catch {
+		return fallback;
+	}
+}
+
 export default function WebsitesPage() {
 	const { toast } = useToast();
 	const navigate = useNavigate();
 	const [sites, setSites] = useState([]);
 	const [loading, setLoading] = useState(true);
+	const [loadError, setLoadError] = useState('');
 	const [modal, setModal] = useState(null); // {mode, data}
 	const [testing, setTesting] = useState(null);
 	const [saving, setSaving] = useState(false);
@@ -50,24 +80,34 @@ export default function WebsitesPage() {
 	const [lastMetadataUrl, setLastMetadataUrl] = useState('');
 
 	const load = async () => {
+		setLoadError('');
 		try {
 			const res = await apiServerClient.fetch('/websites', { method: 'GET' });
 
 			if (!res.ok) {
-				const errorBody = await res.text();
-				throw new Error(errorBody || `Failed to load websites (${res.status})`);
+				const message = await readErrorMessage(res, `Failed to load websites (${res.status})`);
+				throw new Error(message);
 			}
 
-			setSites(await res.json());
-		} catch (_) { /* ignore */ } finally { setLoading(false); }
+			const payload = await res.json();
+			setSites(Array.isArray(payload) ? payload : []);
+		} catch (err) {
+			setSites([]);
+			setLoadError(err?.message || 'Failed to load websites.');
+		} finally {
+			setLoading(false);
+		}
 	};
-	useEffect(() => { load(); }, []);
+
+	useEffect(() => {
+		load();
+	}, []);
 
 	const setModalData = (patch) => {
 		setModal((m) => ({ ...m, data: { ...m.data, ...patch } }));
 	};
 
-	const fetchWebsiteMetadata = async (rawUrl) => {
+	const fetchWebsiteMetadata = async (rawUrl, { allowFallback = false } = {}) => {
 		const normalizedUrl = rawUrl?.trim() || '';
 
 		if (!normalizedUrl) {
@@ -108,6 +148,18 @@ export default function WebsitesPage() {
 
 			return data;
 		} catch (err) {
+			if (allowFallback) {
+				const fallback = deriveFallbackMetadata(normalizedUrl);
+				setModalData({
+					...fallback,
+					status: 'active',
+					discovery_status: 'pending',
+				});
+				setLastMetadataUrl(fallback.url || normalizedUrl);
+				setUrlError('Could not auto-fetch site details. You can still save with the URL and name.');
+				return fallback;
+			}
+
 			setUrlError(err?.message || 'Unable to fetch website details. Please check the URL.');
 			return null;
 		} finally {
@@ -120,27 +172,47 @@ export default function WebsitesPage() {
 		const { data, mode } = modal;
 		setSaving(true);
 		try {
+			let working = data;
+
 			if (mode === 'new') {
-				const metadata = await fetchWebsiteMetadata(data.url);
+				if (!isValidHttpUrl(data.url?.trim() || '')) {
+					setUrlError('Please enter a valid URL starting with http:// or https://');
+					return;
+				}
+
+				// Prefer live metadata, but never block save if the remote site is unreachable.
+				const metadata = await fetchWebsiteMetadata(data.url, { allowFallback: true });
 				if (!metadata) {
 					return;
 				}
+				working = {
+					...data,
+					name: data.name?.trim() ? data.name : metadata.name,
+					url: metadata.url || data.url,
+					domain: metadata.domain || data.domain,
+					favicon: metadata.favicon || data.favicon,
+				};
+			}
+
+			if (!working.name?.trim()) {
+				toast({ variant: 'destructive', title: 'Error', description: 'Website name is required.' });
+				return;
 			}
 
 			const payload = {
-				name: data.name,
-				url: data.url,
-				domain: data.domain,
-				favicon: data.favicon,
-				status: data.status || 'active',
-				discovery_status: data.discovery_status || 'pending',
-				wp_username: data.wp_username,
-				wp_app_password: data.wp_app_password,
+				name: working.name.trim(),
+				url: working.url,
+				domain: working.domain,
+				favicon: working.favicon,
+				status: working.status || 'active',
+				discovery_status: working.discovery_status || 'pending',
+				wp_username: working.wp_username,
+				wp_app_password: working.wp_app_password,
 			};
 
 			let res;
 			if (mode === 'edit') {
-				res = await apiServerClient.fetch(`/websites/${data.id}`, {
+				res = await apiServerClient.fetch(`/websites/${working.id}`, {
 					method: 'PATCH',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify(payload),
@@ -154,14 +226,7 @@ export default function WebsitesPage() {
 			}
 
 			if (!res.ok) {
-				let message = `Failed to save website (${res.status})`;
-				try {
-					const parsed = await res.json();
-					message = parsed?.message || parsed?.error || message;
-				} catch {
-					// use fallback message
-				}
-				throw new Error(message);
+				throw new Error(await readErrorMessage(res, `Failed to save website (${res.status})`));
 			}
 
 			const savedSite = await res.json();
@@ -195,10 +260,11 @@ export default function WebsitesPage() {
 			const res = await apiServerClient.fetch(`/websites/${id}`, { method: 'DELETE' });
 
 			if (!res.ok) {
-				throw new Error(`Failed to delete website (${res.status})`);
+				throw new Error(await readErrorMessage(res, `Failed to delete website (${res.status})`));
 			}
 
-			load();
+			setSites((prev) => prev.filter((site) => site.id !== id));
+			toast({ title: 'Deleted', description: 'Website removed.' });
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Error', description: err?.message || 'Failed to delete website.' });
 		}
@@ -212,7 +278,7 @@ export default function WebsitesPage() {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ siteId: site.id }),
 			});
-			const data = await res.json();
+			const data = await res.json().catch(() => ({}));
 
 			if (!res.ok) {
 				throw new Error(data?.message || `Connection failed (${res.status})`);
@@ -222,30 +288,41 @@ export default function WebsitesPage() {
 			load();
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Error', description: err?.message });
-		} finally { setTesting(null); }
+		} finally {
+			setTesting(null);
+		}
+	};
+
+	const openNewModal = () => {
+		setModal({ mode: 'new', data: { ...blank } });
+		setUrlError('');
+		setLastMetadataUrl('');
 	};
 
 	return (
 		<div>
 			<PageHeader
 				title="Website Manager"
-				subtitle="Connect unlimited WordPress sites and publish directly."
-				action={<Button onClick={() => {
-					setModal({ mode: 'new', data: { ...blank } });
-					setUrlError('');
-					setLastMetadataUrl('');
-				}}><Plus size={16} /> Add website</Button>}
+				subtitle="Add your sites, validate the URL, save to PocketBase, then scan to discover articles."
+				action={<Button onClick={openNewModal}><Plus size={16} /> Add website</Button>}
 			/>
 
 			{loading ? (
 				<div className="flex justify-center py-16"><Spinner className="text-primary" /></div>
+			) : loadError ? (
+				<Empty
+					icon={Globe}
+					title="Unable to load websites"
+					subtitle={loadError}
+					action={<Button onClick={() => { setLoading(true); load(); }}>Retry</Button>}
+				/>
 			) : sites.length === 0 ? (
-				<Empty icon={Globe} title="No websites yet" subtitle="Add your first WordPress site to start publishing."
-					action={<Button onClick={() => {
-						setModal({ mode: 'new', data: { ...blank } });
-						setUrlError('');
-						setLastMetadataUrl('');
-					}}><Plus size={16} /> Add website</Button>} />
+				<Empty
+					icon={Globe}
+					title="No websites yet"
+					subtitle="Add your first site to start scanning and discovering articles."
+					action={<Button onClick={openNewModal}><Plus size={16} /> Add website</Button>}
+				/>
 			) : (
 				<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
 					{sites.map((s) => (
@@ -256,14 +333,14 @@ export default function WebsitesPage() {
 								) : (
 									<span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><Globe size={19} /></span>
 								)}
-								<Badge tone={s.status === 'active' ? 'green' : s.status === 'failed' ? 'red' : 'default'}>{s.status || 'active'}</Badge>
+								<Badge tone={s.status === 'active' || s.status === 'connected' ? 'green' : s.status === 'failed' ? 'red' : 'default'}>{s.status || 'active'}</Badge>
 							</div>
 							<h3 className="mt-3 truncate font-semibold">{s.name}</h3>
-							<a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-muted-foreground hover:text-primary">{s.url}</a>
+							<a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-muted-foreground hover:text-primary">{s.url || '—'}</a>
 							<p className="mt-1 text-xs text-muted-foreground">Domain: {s.domain || '—'}</p>
 							<p className="mt-1 text-xs text-muted-foreground">Discovery: {s.discovery_status || 'pending'}</p>
 							<p className="mt-1 text-xs text-muted-foreground">Created: {formatDate(s.created)}</p>
-							<div className="mt-4 flex gap-2">
+							<div className="mt-4 flex flex-wrap gap-2">
 								<Button size="sm" onClick={() => navigate(`/app/websites/${s.id}`)}>Dashboard</Button>
 								<Button size="sm" variant="outline" onClick={() => navigate(`/app/websites/${s.id}/articles`)}>Articles</Button>
 								<Button size="sm" variant="outline" onClick={() => test(s)} disabled={testing === s.id}>
@@ -283,11 +360,11 @@ export default function WebsitesPage() {
 
 			{modal && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
-					<Card className="w-full max-w-md" >
+					<Card className="w-full max-w-md">
 						<div onClick={(e) => e.stopPropagation()}>
 							<div className="mb-4 flex items-center justify-between">
-								<h3 className="font-display text-lg font-600">{modal.mode === 'edit' ? 'Edit website' : 'Add website'}</h3>
-								<button onClick={() => setModal(null)}><X size={18} /></button>
+								<h3 className="font-display text-lg font-semibold">{modal.mode === 'edit' ? 'Edit website' : 'Add website'}</h3>
+								<button type="button" onClick={() => setModal(null)} aria-label="Close"><X size={18} /></button>
 							</div>
 							<form onSubmit={save} className="space-y-3">
 								<Input
@@ -312,7 +389,7 @@ export default function WebsitesPage() {
 											return;
 										}
 
-										await fetchWebsiteMetadata(trimmed);
+										await fetchWebsiteMetadata(trimmed, { allowFallback: true });
 									}}
 									placeholder="https://myblog.com"
 								/>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Globe, Newspaper, RefreshCw, ScanSearch } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Card, Empty, PageHeader, Spinner } from '@/components/kit';
@@ -44,6 +44,7 @@ export default function WebsiteDashboardPage() {
 			setWebsite(data);
 			setScanSummary(data.last_scan_summary || null);
 		} catch (error) {
+			setWebsite(null);
 			toast({ variant: 'destructive', title: 'Error', description: error.message });
 		} finally {
 			setLoading(false);
@@ -58,6 +59,8 @@ export default function WebsiteDashboardPage() {
 		setScanning(true);
 		setScanMessages(['Starting website scan...']);
 		setScanSummary(null);
+		let completed = false;
+		let failedMessage = '';
 
 		try {
 			const response = await apiServerClient.fetch(`/websites/${websiteId}/scan`, {
@@ -94,7 +97,12 @@ export default function WebsiteDashboardPage() {
 						continue;
 					}
 
-					const payload = JSON.parse(dataLine.slice(6));
+					let payload;
+					try {
+						payload = JSON.parse(dataLine.slice(6));
+					} catch {
+						continue;
+					}
 
 					if (payload.type === 'progress') {
 						setScanMessages((prev) => [...prev.slice(-7), payload.message]);
@@ -102,18 +110,28 @@ export default function WebsiteDashboardPage() {
 
 					if (payload.type === 'summary' || payload.type === 'completed') {
 						setScanSummary(payload.summary);
+						completed = true;
 					}
 
 					if (payload.type === 'error') {
-						throw new Error(payload.message || 'Website scan failed');
+						failedMessage = payload.message || 'Website scan failed';
 					}
 				}
+			}
+
+			if (failedMessage) {
+				throw new Error(failedMessage);
+			}
+
+			if (!completed) {
+				throw new Error('Scan ended without a completion event. Please try again.');
 			}
 
 			toast({ title: 'Scan complete', description: 'Website articles were discovered successfully.' });
 			await loadWebsite();
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Scan failed', description: error.message });
+			await loadWebsite();
 		} finally {
 			setScanning(false);
 		}
@@ -145,10 +163,10 @@ export default function WebsiteDashboardPage() {
 
 			<div className="grid gap-4 lg:grid-cols-4">
 				{[
-					{ label: 'Total Articles', value: stats.totalArticles, tone: 'blue' },
-					{ label: 'New Articles', value: stats.newArticles, tone: 'amber' },
-					{ label: 'Last Scan', value: formatDateTime(stats.lastScan), tone: 'default' },
-					{ label: 'Next Scheduled Scan', value: formatDateTime(stats.nextScheduledScan), tone: 'default' },
+					{ label: 'Total Articles', value: stats.totalArticles },
+					{ label: 'New Articles', value: stats.newArticles },
+					{ label: 'Last Scan', value: formatDateTime(stats.lastScan) },
+					{ label: 'Next Scheduled Scan', value: formatDateTime(stats.nextScheduledScan) },
 				].map((item) => (
 					<Card key={item.label}>
 						<p className="text-sm text-muted-foreground">{item.label}</p>
@@ -167,10 +185,10 @@ export default function WebsiteDashboardPage() {
 						</div>
 					</div>
 					<div className="mt-4 space-y-2 text-sm">
-						<p><span className="text-muted-foreground">Status:</span> <Badge tone={website.status === 'active' ? 'green' : 'default'}>{website.status}</Badge></p>
+						<p><span className="text-muted-foreground">Status:</span> <Badge tone={website.status === 'active' || website.status === 'connected' ? 'green' : 'default'}>{website.status}</Badge></p>
 						<p><span className="text-muted-foreground">Discovery:</span> <Badge tone={website.discovery_status === 'ready' ? 'green' : website.discovery_status === 'running' ? 'blue' : website.discovery_status === 'failed' ? 'red' : 'amber'}>{website.discovery_status}</Badge></p>
 						<p><span className="text-muted-foreground">Created:</span> {formatDateTime(website.created)}</p>
-						<p><span className="text-muted-foreground">URL:</span> <a href={website.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">Open website</a></p>
+						<p><span className="text-muted-foreground">URL:</span> {website.url ? <a href={website.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">Open website</a> : '—'}</p>
 					</div>
 				</Card>
 
