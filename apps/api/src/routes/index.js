@@ -8,6 +8,7 @@ import wordpressPublish from './wordpress-publish.js';
 import pinterestRouter from './pinterest.js';
 import settingsRouter from './settings.js';
 import aiPinImagesRouter from './ai-pin-images.js';
+import aiPinsRouter from './ai-pins.js';
 
 const router = Router();
 
@@ -25,6 +26,7 @@ export default () => {
     router.use('/pinterest', pinterestRouter);
     router.use('/settings', settingsRouter);
     router.use('/ai-pin-images', aiPinImagesRouter);
+    router.use('/ai-pins', pocketbaseAuth, aiPinsRouter);
 
     return router;
 };

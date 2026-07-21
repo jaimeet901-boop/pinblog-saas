@@ -7,6 +7,9 @@ import { generateText, extractJson } from '@/lib/aiGenerate';
 import { Badge, Button, Card, Empty, Input, PageHeader, Select, Spinner, Textarea } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import TemplatePreviewCard from '@/components/ai-pins/TemplatePreviewCard';
+import ArticlePicker from '@/components/ai-pins/ArticlePicker';
+import ArticlePreviewDrawer from '@/components/ai-pins/ArticlePreviewDrawer';
+import ManualArticleForm from '@/components/ai-pins/ManualArticleForm';
 import { createDefaultTemplateConfig, normalizeTemplateConfig } from '@/lib/pinTemplates';
 
 const PIN_COUNTS = [1, 3, 5, 10];
@@ -151,7 +154,15 @@ export default function AIPinsPage() {
 	const [websites, setWebsites] = useState([]);
 	const [websiteId, setWebsiteId] = useState('');
 	const [articles, setArticles] = useState([]);
+	const [articleCategories, setArticleCategories] = useState([]);
 	const [articleSearch, setArticleSearch] = useState('');
+	const [articleStatus, setArticleStatus] = useState('');
+	const [articleCategory, setArticleCategory] = useState('');
+	const [articlePage, setArticlePage] = useState(1);
+	const [articleTotalPages, setArticleTotalPages] = useState(1);
+	const [previewArticle, setPreviewArticle] = useState(null);
+	const [manualOpen, setManualOpen] = useState(false);
+	const [savingManual, setSavingManual] = useState(false);
 	const [activeArticleId, setActiveArticleId] = useState('');
 	const [selectedArticleIds, setSelectedArticleIds] = useState(new Set());
 	const [loadingWebsites, setLoadingWebsites] = useState(true);
@@ -235,21 +246,29 @@ export default function AIPinsPage() {
 	const loadArticles = async () => {
 		if (!websiteId) {
 			setArticles([]);
+			setArticleCategories([]);
+			setArticleTotalPages(1);
 			return;
 		}
 
 		setLoadingArticles(true);
 		try {
 			const query = new URLSearchParams({
-				page: '1',
-				perPage: '100',
-				status: 'imported',
+				websiteId,
+				page: String(articlePage),
+				perPage: '20',
 			});
 			if (articleSearch.trim()) {
 				query.set('search', articleSearch.trim());
 			}
+			if (articleStatus) {
+				query.set('status', articleStatus);
+			}
+			if (articleCategory) {
+				query.set('category', articleCategory);
+			}
 
-			const response = await apiServerClient.fetch(`/websites/${websiteId}/articles?${query.toString()}`, { method: 'GET' });
+			const response = await apiServerClient.fetch(`/ai-pins/articles?${query.toString()}`, { method: 'GET' });
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to load articles (${response.status})`);
@@ -257,6 +276,8 @@ export default function AIPinsPage() {
 
 			const mapped = (payload.items || []).map(mapArticleFromApi);
 			setArticles(mapped);
+			setArticleCategories(Array.isArray(payload.categories) ? payload.categories : []);
+			setArticleTotalPages(payload.totalPages || 1);
 			setActiveArticleId((prev) => (mapped.some((item) => item.id === prev) ? prev : mapped[0]?.id || ''));
 			setSelectedArticleIds((prev) => {
 				const next = new Set();
@@ -271,6 +292,31 @@ export default function AIPinsPage() {
 			toast({ variant: 'destructive', title: 'Error', description: error.message });
 		} finally {
 			setLoadingArticles(false);
+		}
+	};
+
+	const saveManualArticle = async (payload) => {
+		setSavingManual(true);
+		try {
+			const response = await apiServerClient.fetch('/ai-pins/manual-articles', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ ...payload, websiteId }),
+			});
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(data?.message || `Failed to save article (${response.status})`);
+			}
+			const mapped = mapArticleFromApi(data);
+			setManualOpen(false);
+			setArticleStatus('imported');
+			setArticlePage(1);
+			toast({ title: 'Article added', description: 'Manual article is ready for pin generation.' });
+			setSelectedArticleIds((prev) => new Set(prev).add(mapped.id));
+			setActiveArticleId(mapped.id);
+			await loadArticles();
+		} finally {
+			setSavingManual(false);
 		}
 	};
 
@@ -397,6 +443,7 @@ export default function AIPinsPage() {
 	}, [selectedAccountId]);
 
 	useEffect(() => {
+		setArticlePage(1);
 		loadArticles();
 		loadPins();
 	}, [websiteId]);
@@ -414,7 +461,12 @@ export default function AIPinsPage() {
 	}, [websiteId]);
 
 	useEffect(() => {
+		loadArticles();
+	}, [articlePage, articleStatus, articleCategory]);
+
+	useEffect(() => {
 		const timeout = setTimeout(() => {
+			setArticlePage(1);
 			loadArticles();
 		}, 250);
 
@@ -918,53 +970,35 @@ export default function AIPinsPage() {
 		<div>
 			<PageHeader
 				title="AI Pins"
-				subtitle="Generate, preview, and store Pinterest pin drafts from imported website articles."
+				subtitle="Select website or manual articles, then generate, preview, and store Pinterest pin drafts."
 				action={<div className="flex gap-2"><Link to="/app/ai-pins/templates"><Button variant="outline">Templates</Button></Link><Button onClick={handleGenerate} disabled={generating || loadingArticles || loadingPins}><Wand2 size={16} /> {generating ? 'Generating...' : 'Generate Pins'}</Button></div>}
 			/>
 
 			<div className="grid gap-4 lg:grid-cols-3">
 				<Card className="lg:col-span-2">
-					<div className="grid gap-3 md:grid-cols-3">
-						<Select label="Website" value={websiteId} onChange={(e) => setWebsiteId(e.target.value)}>
-							<option value="">Select website</option>
-							{websites.map((website) => (
-								<option key={website.id} value={website.id}>{website.name}</option>
-							))}
-						</Select>
-						<div className="md:col-span-2">
-							<Input label="Search Articles" value={articleSearch} onChange={(e) => setArticleSearch(e.target.value)} placeholder="Search by title or URL" />
-						</div>
-					</div>
-
-					<div className="mt-4 max-h-72 overflow-auto rounded-xl border border-border">
-						{loadingWebsites || loadingArticles ? (
-							<div className="flex items-center justify-center py-10 text-muted-foreground"><Spinner className="mr-2 h-4 w-4" /> Loading articles...</div>
-						) : articles.length === 0 ? (
-							<div className="p-6">
-								<Empty icon={FileText} title="No imported articles" subtitle="Import articles first from Website scan, then generate AI pins." />
-							</div>
-						) : (
-							<ul className="divide-y divide-border">
-								{articles.map((article) => {
-									const checked = selectedArticleIds.has(article.id);
-									const active = activeArticleId === article.id;
-									return (
-										<li key={article.id} className={`flex items-start gap-3 p-3 ${active ? 'bg-secondary/40' : ''}`}>
-											<input type="checkbox" checked={checked} onChange={() => toggleArticleSelection(article.id)} className="mt-1" />
-											<button type="button" className="min-w-0 flex-1 text-left" onClick={() => setActiveArticleId(article.id)}>
-												<p className="truncate text-sm font-medium">{article.title || article.slug}</p>
-												<p className="truncate text-xs text-muted-foreground">{article.url}</p>
-												<div className="mt-1 flex items-center gap-2">
-													<Badge tone="blue">{article.status}</Badge>
-													{article.category ? <Badge tone="default">{article.category}</Badge> : null}
-												</div>
-											</button>
-										</li>
-									);
-								})}
-							</ul>
-						)}
-					</div>
+					<ArticlePicker
+						websites={websites}
+						websiteId={websiteId}
+						onWebsiteChange={setWebsiteId}
+						articles={articles}
+						loading={loadingWebsites || loadingArticles}
+						search={articleSearch}
+						onSearchChange={setArticleSearch}
+						status={articleStatus}
+						onStatusChange={(value) => { setArticleStatus(value); setArticlePage(1); }}
+						category={articleCategory}
+						onCategoryChange={(value) => { setArticleCategory(value); setArticlePage(1); }}
+						categories={articleCategories}
+						page={articlePage}
+						totalPages={articleTotalPages}
+						onPageChange={setArticlePage}
+						selectedIds={selectedArticleIds}
+						activeId={activeArticleId}
+						onToggleSelect={toggleArticleSelection}
+						onSelectActive={setActiveArticleId}
+						onPreview={setPreviewArticle}
+						onOpenManual={() => setManualOpen(true)}
+					/>
 				</Card>
 
 				<Card>
@@ -1173,6 +1207,18 @@ export default function AIPinsPage() {
 					</div>
 				)}
 			</div>
+
+			<ArticlePreviewDrawer
+				article={previewArticle}
+				open={Boolean(previewArticle)}
+				onClose={() => setPreviewArticle(null)}
+			/>
+			<ManualArticleForm
+				open={manualOpen}
+				onClose={() => setManualOpen(false)}
+				onSubmit={saveManualArticle}
+				saving={savingManual}
+			/>
 		</div>
 	);
 }
