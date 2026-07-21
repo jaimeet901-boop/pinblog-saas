@@ -22,7 +22,7 @@ import {
 	setDefaultPinterestBoard,
 	syncPinterestBoardsForOwner,
 } from '../services/pinterest-api.js';
-import { decryptSecret, encryptSecret } from '../utils/secretCrypto.js';
+import { decryptAccountAccessToken, upsertPinterestAccountSecrets } from '../services/pinterest-secrets.js';
 import {
 	buildSchemaSafeFilter,
 	safeGetFirstListItem,
@@ -31,20 +31,12 @@ import {
 	sanitizeCollectionPayload,
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
-import { listPublishProviders, setPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
+import { resolveScheduledAtUtc } from '../utils/timezone.js';
+import { listPublishProviders, setPublishProvider, getPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
 
 const router = Router();
 const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 20;
-
-setPublishProvider(new PinterestPublishProvider({
-	createJobs: async ({ pins, mode, ...options }) => ({
-		provider: 'pinterest',
-		mode,
-		pins,
-		options,
-	}),
-}));
 
 function httpError(status, message, extras = {}) {
 	const error = new Error(message);
@@ -314,6 +306,24 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 	return jobs;
 }
 
+setPublishProvider(new PinterestPublishProvider({
+	createJobs: async ({ mode, owner, pinIds, pins, defaultTarget, perPinTargets, scheduledAt, timezone }) => {
+		const jobs = await createPublishJobs({
+			owner,
+			pinIds: pinIds || pins,
+			defaultTarget,
+			perPinTargets,
+			scheduledAt,
+			timezone,
+		});
+		return {
+			provider: 'pinterest',
+			mode,
+			jobs: jobs.map((job) => mapJob(job)),
+		};
+	},
+}));
+
 async function buildAccountStats(owner) {
 	const ownerPublishedFilter = await buildSchemaSafeFilter({
 		collection: 'pinterest_publish_jobs',
@@ -444,8 +454,8 @@ router.get('/oauth/callback', async (req, res) => {
 			username: normalizeString(profile?.username || profile?.profile_username || '', 'username', { max: 255 }),
 			account_name: accountName,
 			profile_image_url: profileImageUrl,
-			access_token: encryptSecret(accessToken),
-			refresh_token: encryptSecret(refreshToken),
+			access_token: '',
+			refresh_token: '',
 			token_expires_at: expiresAt,
 			scope,
 			connected: true,
@@ -460,6 +470,14 @@ router.get('/oauth/callback', async (req, res) => {
 		const account = targetAccount
 			? await pocketbaseClient.collection('pinterest_accounts').update(targetAccount.id, payload)
 			: await pocketbaseClient.collection('pinterest_accounts').create(payload);
+
+		await upsertPinterestAccountSecrets({
+			owner: stateRecord.owner,
+			accountId: account.id,
+			accessToken,
+			refreshToken,
+			preserveRefreshToken: false,
+		});
 
 		// Mark state used immediately after credentials are stored to prevent replay.
 		await pocketbaseClient.collection('pinterest_oauth_states').update(stateRecord.id, { used: true });
@@ -789,19 +807,30 @@ router.post('/publish', async (req, res) => {
 		throw httpError(422, 'boardId is required when perPinTargets are not provided');
 	}
 
-	const jobs = await createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, scheduledAt, timezone });
-	res.status(201).json({ jobs: jobs.map((job) => mapJob(job)) });
+	const result = await getPublishProvider().publish(pinIds, {
+		owner,
+		pinIds,
+		defaultTarget,
+		perPinTargets,
+		scheduledAt,
+		timezone,
+		mode: 'publish',
+	});
+	res.status(201).json({ jobs: result.jobs || [] });
 });
 
 router.post('/schedule', async (req, res) => {
 	const owner = req.pocketbaseUserId;
 
 	const pinIds = normalizePinIds(req.body?.pinIds);
-	const scheduledAt = normalizeDateTime(req.body?.scheduledAt, 'scheduledAt');
+	const timezone = normalizeString(req.body?.timezone, 'timezone', { required: true, max: 80 });
+	const scheduledAt = resolveScheduledAtUtc({
+		scheduledAt: req.body?.scheduledAt,
+		timezone,
+	});
 	if (new Date(scheduledAt).getTime() <= Date.now() + 30 * 1000) {
 		throw httpError(422, 'scheduledAt must be at least 30 seconds in the future');
 	}
-	const timezone = normalizeString(req.body?.timezone, 'timezone', { required: true, max: 80 });
 	const defaultTarget = {
 		accountId: normalizeString(req.body?.accountId, 'accountId', { max: 80 }),
 		boardId: normalizeString(req.body?.boardId, 'boardId', { max: 120 }),
@@ -812,8 +841,16 @@ router.post('/schedule', async (req, res) => {
 		throw httpError(422, 'boardId is required when perPinTargets are not provided');
 	}
 
-	const jobs = await createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, scheduledAt, timezone });
-	res.status(201).json({ jobs: jobs.map((job) => mapJob(job)) });
+	const result = await getPublishProvider().schedule(pinIds, {
+		owner,
+		pinIds,
+		defaultTarget,
+		perPinTargets,
+		scheduledAt,
+		timezone,
+		mode: 'schedule',
+	});
+	res.status(201).json({ jobs: result.jobs || [] });
 });
 
 router.patch('/jobs/:jobId', async (req, res) => {
@@ -834,11 +871,18 @@ router.patch('/jobs/:jobId', async (req, res) => {
 	const nextAccountId = normalizeString(body.accountId, 'accountId', { max: 80 }) || job.account;
 	const nextBoardId = normalizeString(body.boardId, 'boardId', { max: 120 }) || job.board_id;
 
-	if ('scheduledAt' in body) {
-		updates.scheduled_at = normalizeDateTime(body.scheduledAt, 'scheduledAt');
-	}
-	if ('timezone' in body) {
-		updates.timezone = normalizeString(body.timezone, 'timezone', { required: true, max: 80 });
+	if ('scheduledAt' in body || 'timezone' in body) {
+		const nextTimezone = ('timezone' in body)
+			? normalizeString(body.timezone, 'timezone', { required: true, max: 80 })
+			: (job.timezone || 'UTC');
+		const nextScheduledAt = ('scheduledAt' in body)
+			? body.scheduledAt
+			: job.scheduled_at;
+		updates.timezone = nextTimezone;
+		updates.scheduled_at = resolveScheduledAtUtc({
+			scheduledAt: nextScheduledAt,
+			timezone: nextTimezone,
+		});
 	}
 
 	if ('accountId' in body || 'boardId' in body) {
@@ -1155,7 +1199,7 @@ router.post('/token/refresh', async (req, res) => {
 
 	try {
 		const tokenState = await ensureValidPinterestAccessToken({ account });
-		const accessToken = decryptSecret(tokenState.account.access_token || '');
+		const accessToken = decryptAccountAccessToken(tokenState.account);
 		if (!accessToken) {
 			throw httpError(401, 'Unable to refresh Pinterest token. Please reconnect your account.');
 		}

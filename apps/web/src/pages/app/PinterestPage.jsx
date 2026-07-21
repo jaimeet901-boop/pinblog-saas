@@ -390,7 +390,7 @@ export default function PinterestPage() {
 									<p className="text-xs text-muted-foreground">No boards loaded.</p>
 								) : (
 									<div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-										{(boardsByAccount[account.id] || []).slice(0, 9).map((board) => (
+										{(boardsByAccount[account.id] || []).map((board) => (
 											<div key={board.id} className="rounded-xl border border-border p-2">
 												<div className="flex items-start justify-between gap-2">
 													<div className="min-w-0">
@@ -413,6 +413,11 @@ export default function PinterestPage() {
 											</div>
 										))}
 									</div>
+									{(boardsByAccount[account.id] || []).length > 0 ? (
+										<p className="mt-2 text-xs text-muted-foreground">
+											{(boardsByAccount[account.id] || []).length} boards
+										</p>
+									) : null}
 								)}
 							</div>
 						</Card>

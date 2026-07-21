@@ -1,6 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
-import { decryptSecret, encryptSecret } from '../utils/secretCrypto.js';
+import {
+	decryptAccountAccessToken,
+	decryptAccountRefreshToken,
+	hydratePinterestAccountSecrets,
+	upsertPinterestAccountSecrets,
+} from './pinterest-secrets.js';
 
 const PINTEREST_API_BASE = 'https://api.pinterest.com/v5';
 const PINTEREST_AUTH_BASE = 'https://www.pinterest.com/oauth';
@@ -107,10 +112,11 @@ export async function getOwnedPinterestAccount(owner) {
 
 	const preferredDefault = accounts.find((account) => account.is_default && isUsable(account));
 	if (preferredDefault) {
-		return preferredDefault;
+		return hydratePinterestAccountSecrets(preferredDefault);
 	}
 	const connected = accounts.find((account) => isUsable(account));
-	return connected || accounts.find((account) => account.is_default) || accounts[0] || null;
+	const selected = connected || accounts.find((account) => account.is_default) || accounts[0] || null;
+	return selected ? hydratePinterestAccountSecrets(selected) : null;
 }
 
 export async function getDefaultPinterestBoard({ owner, accountId }) {
@@ -178,7 +184,7 @@ export async function getOwnedPinterestAccountById({ owner, accountId }) {
 	if (record.owner !== owner) {
 		return null;
 	}
-	return record;
+	return hydratePinterestAccountSecrets(record);
 }
 
 export async function getOwnedPinterestAccountByPinterestUserId({ owner, pinterestUserId }) {
@@ -186,9 +192,11 @@ export async function getOwnedPinterestAccountByPinterestUserId({ owner, pintere
 		return null;
 	}
 
-	return pocketbaseClient.collection('pinterest_accounts').getFirstListItem(
+	const record = await pocketbaseClient.collection('pinterest_accounts').getFirstListItem(
 		pocketbaseClient.filter('owner = {:owner} && pinterest_user_id = {:pinterestUserId}', { owner, pinterestUserId }),
 	).catch(() => null);
+
+	return record ? hydratePinterestAccountSecrets(record) : null;
 }
 
 export async function getOwnedPinterestBoard({ owner, boardId, accountId = '' }) {
@@ -308,7 +316,10 @@ export async function exchangeOAuthCodeForTokens({ code, redirectUri }) {
 }
 
 export async function refreshPinterestAccessToken({ account }) {
-	const refreshToken = decryptSecret(account.refresh_token || '');
+	const hydrated = account?.access_token || account?.refresh_token
+		? account
+		: await hydratePinterestAccountSecrets(account);
+	const refreshToken = decryptAccountRefreshToken(hydrated);
 	if (!refreshToken) {
 		await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: 'Refresh token missing' });
 		throw httpError(401, 'Pinterest refresh token is missing. Please reconnect your account.');
@@ -330,15 +341,23 @@ export async function refreshPinterestAccessToken({ account }) {
 		: account.token_expires_at || '';
 
 	const updated = await pocketbaseClient.collection('pinterest_accounts').update(account.id, {
-		access_token: encryptSecret(nextAccessToken),
-		refresh_token: payload.refresh_token ? encryptSecret(payload.refresh_token) : account.refresh_token,
 		token_expires_at: expiresAt,
 		connected: true,
 		status: 'connected',
 		status_error: '',
+		access_token: '',
+		refresh_token: '',
 	});
 
-	return updated;
+	await upsertPinterestAccountSecrets({
+		owner: account.owner,
+		accountId: account.id,
+		accessToken: nextAccessToken,
+		refreshToken: payload.refresh_token || '',
+		preserveRefreshToken: true,
+	});
+
+	return hydratePinterestAccountSecrets(updated);
 }
 
 export async function ensureValidPinterestAccessToken({ account }) {
@@ -346,30 +365,44 @@ export async function ensureValidPinterestAccessToken({ account }) {
 		throw httpError(401, 'Pinterest account is not connected');
 	}
 
-	const expiresAt = account.token_expires_at ? new Date(account.token_expires_at).getTime() : 0;
+	const hydrated = await hydratePinterestAccountSecrets(account);
+	const expiresAt = hydrated.token_expires_at ? new Date(hydrated.token_expires_at).getTime() : 0;
 	const withinOneMinute = expiresAt > 0 && expiresAt <= Date.now() + 60 * 1000;
 
 	if (withinOneMinute) {
 		let refreshed;
 		try {
-			refreshed = await refreshPinterestAccessToken({ account });
+			refreshed = await refreshPinterestAccessToken({ account: hydrated });
 		} catch (error) {
-			await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: error?.message || 'Token refresh failed' });
+			await markPinterestAccountStatus({ accountId: hydrated.id, status: 'expired', statusError: error?.message || 'Token refresh failed' });
 			throw error;
 		}
 		return {
 			account: refreshed,
-			accessToken: decryptSecret(refreshed.access_token || ''),
+			accessToken: decryptAccountAccessToken(refreshed),
 		};
 	}
 
-	const accessToken = decryptSecret(account.access_token || '');
+	const accessToken = decryptAccountAccessToken(hydrated);
 	if (!accessToken) {
-		await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: 'Access token missing' });
+		await markPinterestAccountStatus({ accountId: hydrated.id, status: 'expired', statusError: 'Access token missing' });
 		throw httpError(401, 'Pinterest access token is missing. Please reconnect your account.');
 	}
 
-	return { account, accessToken };
+	return { account: hydrated, accessToken };
+}
+
+export async function fetchPinterestPinAnalytics({ accessToken, pinId, startDate, endDate }) {
+	const query = new URLSearchParams({
+		start_date: startDate,
+		end_date: endDate,
+		metric_types: 'IMPRESSION,SAVE,PIN_CLICK,OUTBOUND_CLICK',
+	});
+
+	return pinterestRequest({
+		path: `/pins/${encodeURIComponent(pinId)}/analytics?${query.toString()}`,
+		accessToken,
+	});
 }
 
 export async function fetchPinterestProfile({ accessToken }) {

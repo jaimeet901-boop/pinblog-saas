@@ -981,7 +981,7 @@ export default function AIPinsPage() {
 				boardId: selectedBoardId,
 				timezone,
 				...(Object.keys(perPinTargets).length > 0 ? { perPinTargets } : {}),
-				...(type === 'schedule' ? { scheduledAt: new Date(scheduleAt).toISOString() } : {}),
+				...(type === 'schedule' ? { scheduledAt: scheduleAt } : {}),
 			};
 
 			const response = await apiServerClient.fetch(endpoint, {

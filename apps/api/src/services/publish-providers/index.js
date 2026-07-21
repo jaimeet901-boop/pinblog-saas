@@ -85,7 +85,7 @@ export function listPublishProviders() {
 			id: 'pinterest',
 			label: 'Pinterest',
 			status: 'active',
-			notes: 'Uses the existing Pinterest OAuth + publish queue.',
+			notes: 'Wired to createPublishJobs + the Pinterest OAuth/publish queue.',
 		},
 	];
 }

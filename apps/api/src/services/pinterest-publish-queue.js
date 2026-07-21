@@ -1,5 +1,6 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import logger from '../utils/logger.js';
+import { randomBytes } from 'node:crypto';
 import {
 	createPinterestPin,
 	ensureValidPinterestAccessToken,
@@ -9,7 +10,7 @@ import {
 	normalizePinterestError,
 	refreshPinterestAccessToken,
 } from './pinterest-api.js';
-import { decryptSecret } from '../utils/secretCrypto.js';
+import { decryptAccountAccessToken } from './pinterest-secrets.js';
 import {
 	buildSchemaSafeFilter,
 	safeGetFullList,
@@ -62,18 +63,20 @@ function extractPinImageUrl(pin) {
 }
 
 async function claimScheduledJob(jobId) {
-	// Soft lock: re-read and only transition scheduled -> publishing.
-	// PocketBase has no conditional update; this reduces (does not eliminate) multi-worker races.
 	const current = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(jobId).catch(() => null);
 	if (!current || current.status !== 'scheduled') {
 		return null;
 	}
 
+	const claimToken = randomBytes(16).toString('hex');
+	const nextVersion = Number(current.claim_version || 0) + 1;
 	const lockPayload = await sanitizeCollectionPayload({
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest-queue:lock-job',
 		payload: {
 			status: 'publishing',
+			claim_token: claimToken,
+			claim_version: nextVersion,
 		},
 	});
 
@@ -82,9 +85,9 @@ async function claimScheduledJob(jobId) {
 		return null;
 	}
 
-	// Detect lost race: another worker may have flipped away or already published.
+	// Optimistic ownership check for multi-instance workers.
 	const verified = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(jobId).catch(() => null);
-	if (!verified || verified.status !== 'publishing') {
+	if (!verified || verified.status !== 'publishing' || verified.claim_token !== claimToken) {
 		return null;
 	}
 
@@ -172,7 +175,7 @@ async function processJob(job) {
 		if (error?.status === 401 || error?.pinterestStatus === 401) {
 			await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: 'Access token expired' });
 			const refreshed = await refreshPinterestAccessToken({ account: tokenState.account });
-			const refreshedToken = decryptSecret(refreshed.access_token || '');
+			const refreshedToken = decryptAccountAccessToken(refreshed);
 			if (!refreshedToken) {
 				throw httpError(401, 'Pinterest access token refresh failed');
 			}

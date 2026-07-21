@@ -11,6 +11,7 @@ import { BodyLimit } from './constants/common.js';
 import { startPinterestPublishQueue, stopPinterestPublishQueue } from './services/pinterest-publish-queue.js';
 import { validateServerEnv } from './utils/env.js';
 import { startAIPinImageQueue, stopAIPinImageQueue } from './services/ai-pin-image-queue.js';
+import { startPinterestAnalyticsSync, stopPinterestAnalyticsSync } from './services/pinterest-analytics-sync.js';
 
 const app = express();
 
@@ -58,6 +59,7 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('SIGINT', async () => {
 	logger.info('Interrupted');
 	stopPinterestPublishQueue();
+	stopPinterestAnalyticsSync();
 	stopAIPinImageQueue();
 	process.exit(0);
 });
@@ -65,6 +67,7 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
 	logger.info('SIGTERM signal received');
 	stopPinterestPublishQueue();
+	stopPinterestAnalyticsSync();
 	stopAIPinImageQueue();
 
 	await new Promise(resolve => setTimeout(resolve, 3000));
@@ -106,6 +109,7 @@ const port = process.env.PORT || 3001;
 app.listen(port, () => {
 	logger.info(`🚀 API Server running on http://localhost:${port}`);
 	startPinterestPublishQueue();
+	startPinterestAnalyticsSync();
 	startAIPinImageQueue();
 });
 
