@@ -389,35 +389,35 @@ export default function PinterestPage() {
 								{(boardsByAccount[account.id] || []).length === 0 ? (
 									<p className="text-xs text-muted-foreground">No boards loaded.</p>
 								) : (
-									<div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-										{(boardsByAccount[account.id] || []).map((board) => (
-											<div key={board.id} className="rounded-xl border border-border p-2">
-												<div className="flex items-start justify-between gap-2">
-													<div className="min-w-0">
-														<p className="truncate text-sm font-medium">{board.name}</p>
-														<p className="truncate text-xs text-muted-foreground">{board.boardId}</p>
+									<>
+										<div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+											{(boardsByAccount[account.id] || []).map((board) => (
+												<div key={board.id} className="rounded-xl border border-border p-2">
+													<div className="flex items-start justify-between gap-2">
+														<div className="min-w-0">
+															<p className="truncate text-sm font-medium">{board.name}</p>
+															<p className="truncate text-xs text-muted-foreground">{board.boardId}</p>
+														</div>
+														{board.isDefault ? (
+															<Badge tone="blue">Default</Badge>
+														) : (
+															<Button
+																size="sm"
+																variant="outline"
+																disabled={processingAccountId === account.id}
+																onClick={() => setDefaultBoard(account, board)}
+															>
+																<Star size={12} /> Default
+															</Button>
+														)}
 													</div>
-													{board.isDefault ? (
-														<Badge tone="blue">Default</Badge>
-													) : (
-														<Button
-															size="sm"
-															variant="outline"
-															disabled={processingAccountId === account.id}
-															onClick={() => setDefaultBoard(account, board)}
-														>
-															<Star size={12} /> Default
-														</Button>
-													)}
 												</div>
-											</div>
-										))}
-									</div>
-									{(boardsByAccount[account.id] || []).length > 0 ? (
+											))}
+										</div>
 										<p className="mt-2 text-xs text-muted-foreground">
 											{(boardsByAccount[account.id] || []).length} boards
 										</p>
-									) : null}
+									</>
 								)}
 							</div>
 						</Card>
