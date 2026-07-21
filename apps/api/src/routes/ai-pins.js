@@ -445,9 +445,11 @@ router.get('/brand-kits', async (req, res) => {
 	try {
 		const items = await pocketbaseClient.collection('brand_kits').getFullList({
 			filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
-			sort: '-is_default,-updated',
+			sort: '-updated',
 		});
-		res.json(items.map(mapBrandKit));
+		res.json(items
+			.sort((a, b) => Number(Boolean(b.is_default)) - Number(Boolean(a.is_default)))
+			.map(mapBrandKit));
 	} catch {
 		res.json([]);
 	}

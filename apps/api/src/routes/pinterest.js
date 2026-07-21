@@ -747,11 +747,13 @@ router.get('/boards', async (req, res) => {
 		}
 
 		const allBoards = await pocketbaseClient.collection('pinterest_boards').getFullList({
-			sort: '-is_default,name',
+			sort: 'name',
 			filter: pocketbaseClient.filter('owner = {:owner}', { owner }),
 		});
 
-		return res.json(allBoards.map(mapBoard));
+		return res.json(allBoards
+			.sort((a, b) => Number(Boolean(b.is_default)) - Number(Boolean(a.is_default)))
+			.map(mapBoard));
 	}
 
 	const account = await assertPinterestConnected(owner, accountId);
@@ -762,11 +764,13 @@ router.get('/boards', async (req, res) => {
 	}
 
 	const boards = await pocketbaseClient.collection('pinterest_boards').getFullList({
-		sort: '-is_default,name',
+		sort: 'name',
 		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
 	});
 
-	res.json(boards.map(mapBoard));
+	res.json(boards
+		.sort((a, b) => Number(Boolean(b.is_default)) - Number(Boolean(a.is_default)))
+		.map(mapBoard));
 });
 
 router.post('/boards/sync', async (req, res) => {

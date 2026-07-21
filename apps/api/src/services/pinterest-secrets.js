@@ -12,9 +12,14 @@ export async function getPinterestAccountSecretRecord(accountId) {
 		return null;
 	}
 
-	return pocketbaseClient.collection('pinterest_account_secrets').getFirstListItem(
-		pocketbaseClient.filter('account = {:accountId}', { accountId }),
-	).catch(() => null);
+	try {
+		return await pocketbaseClient.collection('pinterest_account_secrets').getFirstListItem(
+			pocketbaseClient.filter('account = {:accountId}', { accountId }),
+		);
+	} catch (error) {
+		// Missing collection / missing row / locked rules must never break account listing.
+		return null;
+	}
 }
 
 export async function hydratePinterestAccountSecrets(account) {

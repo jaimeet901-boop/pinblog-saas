@@ -208,11 +208,15 @@ function useIntegratedAi() {
 
 				setMessages(chatMessages);
 			} catch (err) {
-				toast({
-					variant: 'destructive',
-					title: 'Error',
-					description: err.message,
-				});
+				const message = String(err?.message || err || '');
+				// Locked collection rules are noisy during setup; avoid blocking AI Pins UX.
+				if (!/superusers/i.test(message)) {
+					toast({
+						variant: 'destructive',
+						title: 'Error',
+						description: message || 'Failed to load chat history',
+					});
+				}
 			} finally {
 				setIsLoadingHistory(false);
 			}

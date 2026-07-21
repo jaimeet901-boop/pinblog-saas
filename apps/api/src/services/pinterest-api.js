@@ -94,10 +94,13 @@ export function mapAccount(record) {
 }
 
 export async function getOwnedPinterestAccounts(owner) {
-	return pocketbaseClient.collection('pinterest_accounts').getFullList({
-		sort: '-is_default,-created',
+	const accounts = await pocketbaseClient.collection('pinterest_accounts').getFullList({
+		sort: '-created',
 		filter: pocketbaseClient.filter('owner = {:owner}', { owner }),
 	});
+
+	// Prefer defaults in-memory so missing is_default schema never breaks the API.
+	return accounts.sort((a, b) => Number(Boolean(b.is_default)) - Number(Boolean(a.is_default)));
 }
 
 export async function getOwnedPinterestAccount(owner) {
@@ -125,7 +128,7 @@ export async function getDefaultPinterestBoard({ owner, accountId }) {
 	}
 
 	const boards = await pocketbaseClient.collection('pinterest_boards').getFullList({
-		sort: '-is_default,name',
+		sort: 'name',
 		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: accountId }),
 	});
 
@@ -505,7 +508,7 @@ export async function syncPinterestBoardsForOwner({ owner, account }) {
 	});
 
 	const refreshedBoards = await pocketbaseClient.collection('pinterest_boards').getFullList({
-		sort: '-is_default,name',
+		sort: 'name',
 		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
 	});
 
@@ -517,6 +520,8 @@ export async function syncPinterestBoardsForOwner({ owner, account }) {
 		}).catch(() => null);
 		refreshedBoards[0].is_default = true;
 	}
+
+	refreshedBoards.sort((a, b) => Number(Boolean(b.is_default)) - Number(Boolean(a.is_default)));
 
 	return refreshedBoards.map(mapBoard);
 }
