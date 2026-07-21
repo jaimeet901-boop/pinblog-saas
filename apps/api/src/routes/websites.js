@@ -5,6 +5,7 @@ import logger from '../utils/logger.js';
 import { scanWebsiteArticles, countWebsiteArticles, listWebsiteArticles, repairOrphanWebsiteArticles } from '../services/website-article-discovery.js';
 import { getCache, setCache } from '../utils/cache.js';
 import { safeGetFullList, extractCollectionFieldNames } from '../utils/pocketbase-safe-query.js';
+import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
 
 const router = Router();
 const WEBSITE_FETCH_TIMEOUT_MS = 10000;
@@ -196,15 +197,21 @@ async function updateWebsiteRecord({ id, payload, urlField, context }) {
 }
 
 async function resolveWebsiteArticlesSchema() {
-	const fields = await getCollectionFieldNames('website_articles');
+	const ensured = await ensureWebsiteArticlesSchema(pocketbaseClient);
+	collectionSchemaCache.set('website_articles', {
+		fields: ensured.fields,
+		expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
+	});
+
 	const schema = {
-		websiteField: resolveSchemaField(fields, WEBSITE_ARTICLES_WEBSITE_FIELD_CANDIDATES, 'websiteId'),
-		statusField: resolveSchemaField(fields, WEBSITE_ARTICLES_STATUS_FIELD_CANDIDATES, 'status'),
+		websiteField: ensured.websiteField,
+		statusField: ensured.statusField,
 	};
 
 	logger.info('Website articles schema resolved', {
 		collection: 'website_articles',
 		schema,
+		fields: [...ensured.fields],
 	});
 
 	return schema;

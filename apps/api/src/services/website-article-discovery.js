@@ -1,4 +1,5 @@
 import { sanitizeCollectionPayload, safeGetFullList, safeGetList, extractCollectionFieldNames } from '../utils/pocketbase-safe-query.js';
+import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
 
 const MAX_SOURCE_URLS = 250;
 const MAX_ARTICLE_FETCHES = 50;
@@ -87,18 +88,37 @@ async function getCollectionFieldNames({ collection, pocketbaseClient }) {
 }
 
 async function resolveWebsiteArticlesSchema({ pocketbaseClient, logger }) {
-	const fields = await getCollectionFieldNames({ collection: 'website_articles', pocketbaseClient });
+	const ensured = await ensureWebsiteArticlesSchema(pocketbaseClient);
+	collectionSchemaCache.set('website_articles', {
+		fields: ensured.fields,
+		expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
+	});
+
 	const schema = {
-		websiteField: resolveSchemaField(fields, WEBSITE_ARTICLES_WEBSITE_FIELD_CANDIDATES, 'websiteId'),
-		statusField: resolveSchemaField(fields, WEBSITE_ARTICLES_STATUS_FIELD_CANDIDATES, 'status'),
+		websiteField: ensured.websiteField,
+		statusField: ensured.statusField,
 	};
 
 	logger?.info?.('Website articles schema resolved for scanner', {
 		collection: 'website_articles',
 		schema,
+		fields: [...ensured.fields],
 	});
 
 	return schema;
+}
+
+function buildMinimalArticlePayload({ article, websiteId, ownerId, websiteField, statusField, source, runId }) {
+	return {
+		[websiteField]: websiteId,
+		owner: ownerId,
+		url: article.url,
+		title: (article.title || deriveSlug(article.url) || article.url).slice(0, 500),
+		slug: (article.slug || deriveSlug(article.url) || '').slice(0, 255),
+		[statusField]: 'new',
+		source: (article.source || source || '').slice(0, 64),
+		scan_run_id: (runId || '').slice(0, 64),
+	};
 }
 
 function sleep(ms) {
@@ -1145,10 +1165,28 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 	const existingByUrl = new Map(existingRecords.map((record) => [record.url, record]));
 
 	onProgress?.({ type: 'progress', stage: 'persist', message: `Saving ${articles.length} articles to PocketBase` });
+	onProgress?.({
+		type: 'progress',
+		stage: 'persist',
+		message: `Using fields ${articlesSchema.websiteField} + ${articlesSchema.statusField}`,
+	});
+
+	let firstPersistError = '';
 
 	for (const article of articles) {
 		let existing = existingByUrl.get(article.url);
-		const rawPayload = buildArticleWritePayload({
+
+		const minimalPayload = buildMinimalArticlePayload({
+			article,
+			websiteId: website.id,
+			ownerId,
+			websiteField: articlesSchema.websiteField,
+			statusField: articlesSchema.statusField,
+			source,
+			runId,
+		});
+
+		const fullPayload = buildArticleWritePayload({
 			article,
 			websiteId: website.id,
 			ownerId,
@@ -1159,21 +1197,53 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 			existingStatus: existing?.[articlesSchema.statusField] || existing?.status || 'new',
 		});
 
-		const payload = await sanitizeCollectionPayload({
-			collection: 'website_articles',
-			payload: rawPayload,
-			context: 'website-scan:create-or-update',
-			requiredKeys: [articlesSchema.websiteField, 'owner', 'url', 'title', articlesSchema.statusField],
-		});
-
-		// Belt-and-suspenders: always keep the website relation + owner on writes.
-		payload[articlesSchema.websiteField] = website.id;
-		payload.owner = ownerId;
-
 		try {
 			if (!existing) {
+				let created;
 				try {
-					let created = await pocketbaseClient.collection('website_articles').create(payload);
+					created = await pocketbaseClient.collection('website_articles').create(minimalPayload);
+				} catch (minimalError) {
+					if (isUniqueConflict(minimalError)) {
+						existing = await findArticleByWebsiteUrl({
+							pocketbaseClient,
+							websiteId: website.id,
+							websiteField: articlesSchema.websiteField,
+							url: article.url,
+						});
+						if (!existing) {
+							throw minimalError;
+						}
+					} else {
+						// Retry once with sanitized full payload for older schemas.
+						const sanitized = await sanitizeCollectionPayload({
+							collection: 'website_articles',
+							payload: fullPayload,
+							context: 'website-scan:create-fallback',
+							requiredKeys: [articlesSchema.websiteField, 'owner', 'url', 'title', articlesSchema.statusField],
+						});
+						sanitized[articlesSchema.websiteField] = website.id;
+						sanitized.owner = ownerId;
+						try {
+							created = await pocketbaseClient.collection('website_articles').create(sanitized);
+						} catch (fullError) {
+							if (isUniqueConflict(fullError)) {
+								existing = await findArticleByWebsiteUrl({
+									pocketbaseClient,
+									websiteId: website.id,
+									websiteField: articlesSchema.websiteField,
+									url: article.url,
+								});
+								if (!existing) {
+									throw fullError;
+								}
+							} else {
+								throw fullError || minimalError;
+							}
+						}
+					}
+				}
+
+				if (!existing) {
 					created = await ensureArticleLinkedToWebsite({
 						pocketbaseClient,
 						record: created,
@@ -1187,80 +1257,86 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 						throw new Error(`Article created without website relation (${articlesSchema.websiteField})`);
 					}
 
+					// Best-effort metadata enrichment after the required create succeeds.
+					const metaPatch = {};
+					for (const key of ['meta_description', 'featured_image', 'category', 'author', 'language', 'slug', 'title', 'source', 'scan_run_id']) {
+						if (fullPayload[key]) {
+							metaPatch[key] = fullPayload[key];
+						}
+					}
+					if (fullPayload.publish_date) {
+						metaPatch.publish_date = fullPayload.publish_date;
+					}
+					if (fullPayload.last_modified_date) {
+						metaPatch.last_modified_date = fullPayload.last_modified_date;
+					}
+					if (Object.keys(metaPatch).length > 0) {
+						created = await pocketbaseClient.collection('website_articles').update(created.id, metaPatch).catch(() => created);
+					}
+
 					existingByUrl.set(article.url, created);
 					summary.newArticles += 1;
 					continue;
-				} catch (createError) {
-					if (!isUniqueConflict(createError)) {
-						throw createError;
-					}
+				}
 
-					existing = await findArticleByWebsiteUrl({
-						pocketbaseClient,
-						websiteId: website.id,
-						websiteField: articlesSchema.websiteField,
-						url: article.url,
-					});
+				existing = await ensureArticleLinkedToWebsite({
+					pocketbaseClient,
+					record: existing,
+					websiteId: website.id,
+					websiteField: articlesSchema.websiteField,
+					ownerId,
+					logger,
+				});
+				existingByUrl.set(article.url, existing);
+			}
 
-					if (!existing) {
-						throw createError;
-					}
-
-					existing = await ensureArticleLinkedToWebsite({
-						pocketbaseClient,
-						record: existing,
-						websiteId: website.id,
-						websiteField: articlesSchema.websiteField,
-						ownerId,
-						logger,
-					});
-					existingByUrl.set(article.url, existing);
+			const updatePayload = {
+				[articlesSchema.websiteField]: website.id,
+				owner: ownerId,
+				scan_run_id: fullPayload.scan_run_id,
+			};
+			if (fullPayload.last_modified_date) {
+				updatePayload.last_modified_date = fullPayload.last_modified_date;
+			}
+			if (hasMetadataChanges(existing, fullPayload)) {
+				Object.assign(updatePayload, {
+					slug: fullPayload.slug,
+					title: fullPayload.title,
+					meta_description: fullPayload.meta_description,
+					featured_image: fullPayload.featured_image,
+					category: fullPayload.category,
+					author: fullPayload.author,
+					language: fullPayload.language,
+					source: fullPayload.source,
+				});
+				if (fullPayload.publish_date) {
+					updatePayload.publish_date = fullPayload.publish_date;
 				}
 			}
 
-			const updatePayload = await sanitizeCollectionPayload({
-				collection: 'website_articles',
-				payload: {
-					[articlesSchema.websiteField]: website.id,
-					owner: ownerId,
-					scan_run_id: payload.scan_run_id,
-					...(payload.last_modified_date ? { last_modified_date: payload.last_modified_date } : {}),
-					...(hasMetadataChanges(existing, payload) ? {
-						slug: payload.slug,
-						title: payload.title,
-						meta_description: payload.meta_description,
-						featured_image: payload.featured_image,
-						category: payload.category,
-						author: payload.author,
-						language: payload.language,
-						source: payload.source,
-						...(payload.publish_date ? { publish_date: payload.publish_date } : {}),
-					} : {}),
-				},
-				context: 'website-scan:update',
-				requiredKeys: [articlesSchema.websiteField, 'owner'],
-			});
-
-			updatePayload[articlesSchema.websiteField] = website.id;
-			updatePayload.owner = ownerId;
-
-			if (Object.keys(updatePayload).length > 0) {
-				const updated = await pocketbaseClient.collection('website_articles').update(existing.id, updatePayload);
-				existingByUrl.set(article.url, updated);
-				if (hasMetadataChanges(existing, payload)) {
-					summary.updatedArticles += 1;
-				}
+			const updated = await pocketbaseClient.collection('website_articles').update(existing.id, updatePayload);
+			existingByUrl.set(article.url, updated);
+			if (hasMetadataChanges(existing, fullPayload)) {
+				summary.updatedArticles += 1;
 			}
 		} catch (error) {
 			const message = formatPocketBaseError(error);
+			if (!firstPersistError) {
+				firstPersistError = message;
+			}
 			logger?.error?.('Failed to persist scanned article', {
 				websiteId: website.id,
 				articleUrl: article.url,
 				message,
-				payload,
+				minimalPayload,
 				pocketbaseErrorResponse: error?.response?.data || error?.response || null,
 			});
 			summary.errors.push(`Failed to save ${article.url}: ${message}`);
+
+			// Fail fast on the first persist error — remaining rows will share the same schema issue.
+			if (summary.newArticles === 0 && summary.updatedArticles === 0) {
+				break;
+			}
 		}
 	}
 
@@ -1275,11 +1351,16 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 			websiteId: website.id,
 			message: formatPocketBaseError(error),
 		});
-		summary.persistedArticles = summary.newArticles + summary.updatedArticles;
+		summary.persistedArticles = 0;
 	}
 
 	if (summary.newArticles > 0 && summary.persistedArticles === 0) {
 		summary.errors.push('Articles were reported as saved but could not be loaded back from PocketBase.');
+	}
+
+	if (summary.persistedArticles === 0 && articles.length > 0) {
+		const detail = firstPersistError || summary.errors[0] || 'PocketBase rejected article creates';
+		summary.errors.unshift(`Persist failed: ${detail}`);
 	}
 
 	try {
@@ -1299,13 +1380,18 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 		summary.errors.push(`Failed to update website scan status: ${message}`);
 	}
 
-	onProgress?.({ type: 'summary', summary });
 	logger?.info?.('Website scan completed', website.id, summary);
 
-	// Only hard-fail when nothing was persisted and we had candidates to save.
+	// Only emit a successful summary when articles are actually queryable.
 	if (summary.found > 0 && summary.persistedArticles === 0 && articles.length > 0) {
-		throw new Error(summary.errors[summary.errors.length - 1] || 'Scan discovered articles but failed to save any to PocketBase.');
+		const failMessage = firstPersistError
+			|| summary.errors.find((item) => String(item).startsWith('Persist failed:'))
+			|| summary.errors[summary.errors.length - 1]
+			|| 'Scan discovered articles but failed to save any to PocketBase.';
+		onProgress?.({ type: 'summary', summary });
+		throw new Error(failMessage);
 	}
 
+	onProgress?.({ type: 'summary', summary });
 	return summary;
 }

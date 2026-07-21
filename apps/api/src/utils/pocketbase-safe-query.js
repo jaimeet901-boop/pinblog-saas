@@ -113,6 +113,14 @@ function setCachedSchema(collection, fields) {
 	});
 }
 
+export function clearCollectionSchemaCache(collection) {
+	if (collection) {
+		schemaCache.delete(collection);
+		return;
+	}
+	schemaCache.clear();
+}
+
 function buildQueryUrl({ collection, page, perPage, filter = '', sort = '', expand = '' }) {
 	const pbBaseUrl = process.env.PB_BASE_URL || 'http://localhost:8090';
 	const params = new URLSearchParams();

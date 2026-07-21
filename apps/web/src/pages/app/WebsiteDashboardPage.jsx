@@ -153,15 +153,26 @@ export default function WebsiteDashboardPage() {
 				throw new Error(failedMessage || 'Scan ended without a completion event. Please try again.');
 			}
 
-			const savedCount = (completedSummary.newArticles || 0) + (completedSummary.updatedArticles || 0);
 			const persisted = completedSummary.persistedArticles;
+			const discovered = completedSummary.found || 0;
+			const saveErrors = Array.isArray(completedSummary.errors) ? completedSummary.errors : [];
+
+			if (discovered > 0 && (persisted === 0 || persisted == null) && (completedSummary.newArticles || 0) === 0) {
+				throw new Error(failedMessage || saveErrors[0] || 'Scan found articles but none were saved to PocketBase.');
+			}
+
+			if (typeof persisted === 'number' && persisted === 0 && discovered > 0) {
+				throw new Error(failedMessage || saveErrors[0] || `Scan found ${discovered} articles but PocketBase still has 0 for this website.`);
+			}
+
+			const savedCount = (completedSummary.newArticles || 0) + (completedSummary.updatedArticles || 0);
 			toast({
 				title: 'Scan complete',
 				description: typeof persisted === 'number'
-					? `Saved scan results. PocketBase now has ${persisted} articles for this website (${completedSummary.found || 0} discovered).`
+					? `PocketBase now has ${persisted} articles for this website (${discovered} discovered).`
 					: savedCount > 0
-						? `Saved ${savedCount} articles (${completedSummary.found || 0} discovered).`
-						: `Scan finished. Discovered ${completedSummary.found || 0} articles.`,
+						? `Saved ${savedCount} articles (${discovered} discovered).`
+						: `Scan finished. Discovered ${discovered} articles.`,
 			});
 			await loadWebsite();
 		} catch (error) {
