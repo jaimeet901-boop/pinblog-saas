@@ -909,6 +909,7 @@ router.post('/:websiteId/scan', async (req, res) => {
 		...site,
 		[websitesSchema.urlField]: computedBaseUrl,
 		url: computedBaseUrl,
+		owner: getOwnerId(site),
 	};
 
 	const runId = `${site.id}-${Date.now()}`;
@@ -917,6 +918,9 @@ router.post('/:websiteId/scan', async (req, res) => {
 	res.setHeader('Cache-Control', 'no-cache');
 	res.setHeader('Connection', 'keep-alive');
 	res.setHeader('X-Accel-Buffering', 'no');
+	if (typeof res.flushHeaders === 'function') {
+		res.flushHeaders();
+	}
 
 	const pushEvent = (event) => {
 		res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -936,18 +940,37 @@ router.post('/:websiteId/scan', async (req, res) => {
 
 		pushEvent({ type: 'completed', summary });
 	} catch (error) {
+		const responseData = error?.response?.data || error?.data || null;
+		const detailedMessage = responseData?.message
+			|| error?.message
+			|| 'Website scan failed';
+		const fieldErrors = responseData?.data;
+		const fieldDetails = fieldErrors && typeof fieldErrors === 'object'
+			? Object.entries(fieldErrors)
+				.map(([field, value]) => `${field}: ${value?.message || JSON.stringify(value)}`)
+				.join('; ')
+			: '';
+		const message = fieldDetails ? `${detailedMessage} (${fieldDetails})` : detailedMessage;
+
+		logger.error('Website scan failed', {
+			websiteId: site.id,
+			message,
+			stack: error?.stack || null,
+			pocketbaseErrorResponse: responseData,
+		});
+
 		await pocketbaseClient.collection('websites').update(site.id, {
 			[websitesSchema.discoveryStatusField]: 'failed',
 			last_scan_summary: {
 				found: 0,
 				newArticles: 0,
 				updatedArticles: 0,
-				errors: [error.message],
+				errors: [message],
 				lastScanAt: new Date().toISOString(),
 			},
 		}).catch(() => {});
 
-		pushEvent({ type: 'error', message: error.message || 'Website scan failed' });
+		pushEvent({ type: 'error', message });
 	} finally {
 		res.end();
 	}

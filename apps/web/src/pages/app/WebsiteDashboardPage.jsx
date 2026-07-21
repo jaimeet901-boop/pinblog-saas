@@ -17,8 +17,38 @@ function formatDateTime(value) {
 	}
 }
 
+function formatStatValue(value) {
+	if (value === 0) {
+		return '0';
+	}
+	if (value == null || value === '') {
+		return '—';
+	}
+	return value;
+}
+
 async function readJson(response) {
 	return response.json().catch(() => ({}));
+}
+
+function consumeSseChunk(chunk, handlers) {
+	if (!chunk?.trim()) {
+		return;
+	}
+
+	const dataLine = chunk.split('\n').find((line) => line.startsWith('data: '));
+	if (!dataLine) {
+		return;
+	}
+
+	let payload;
+	try {
+		payload = JSON.parse(dataLine.slice(6));
+	} catch {
+		return;
+	}
+
+	handlers(payload);
 }
 
 export default function WebsiteDashboardPage() {
@@ -59,8 +89,23 @@ export default function WebsiteDashboardPage() {
 		setScanning(true);
 		setScanMessages(['Starting website scan...']);
 		setScanSummary(null);
-		let completed = false;
+		let completedSummary = null;
 		let failedMessage = '';
+
+		const onPayload = (payload) => {
+			if (payload.type === 'progress') {
+				setScanMessages((prev) => [...prev.slice(-7), payload.message]);
+			}
+
+			if (payload.type === 'summary' || payload.type === 'completed') {
+				completedSummary = payload.summary || completedSummary;
+				setScanSummary(payload.summary || null);
+			}
+
+			if (payload.type === 'error') {
+				failedMessage = payload.message || 'Website scan failed';
+			}
+		};
 
 		try {
 			const response = await apiServerClient.fetch(`/websites/${websiteId}/scan`, {
@@ -88,46 +133,33 @@ export default function WebsiteDashboardPage() {
 				buffer = events.pop() || '';
 
 				for (const event of events) {
-					if (!event.trim()) {
-						continue;
-					}
-
-					const dataLine = event.split('\n').find((line) => line.startsWith('data: '));
-					if (!dataLine) {
-						continue;
-					}
-
-					let payload;
-					try {
-						payload = JSON.parse(dataLine.slice(6));
-					} catch {
-						continue;
-					}
-
-					if (payload.type === 'progress') {
-						setScanMessages((prev) => [...prev.slice(-7), payload.message]);
-					}
-
-					if (payload.type === 'summary' || payload.type === 'completed') {
-						setScanSummary(payload.summary);
-						completed = true;
-					}
-
-					if (payload.type === 'error') {
-						failedMessage = payload.message || 'Website scan failed';
-					}
+					consumeSseChunk(event, onPayload);
 				}
 			}
 
-			if (failedMessage) {
+			// Flush trailing UTF-8 + any final SSE frame left in the buffer.
+			buffer += decoder.decode();
+			if (buffer.trim()) {
+				for (const event of buffer.split('\n\n')) {
+					consumeSseChunk(event, onPayload);
+				}
+			}
+
+			if (failedMessage && !completedSummary) {
 				throw new Error(failedMessage);
 			}
 
-			if (!completed) {
-				throw new Error('Scan ended without a completion event. Please try again.');
+			if (!completedSummary) {
+				throw new Error(failedMessage || 'Scan ended without a completion event. Please try again.');
 			}
 
-			toast({ title: 'Scan complete', description: 'Website articles were discovered successfully.' });
+			const savedCount = (completedSummary.newArticles || 0) + (completedSummary.updatedArticles || 0);
+			toast({
+				title: 'Scan complete',
+				description: savedCount > 0
+					? `Saved ${savedCount} articles (${completedSummary.found || 0} discovered).`
+					: `Scan finished. Discovered ${completedSummary.found || 0} articles.`,
+			});
 			await loadWebsite();
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Scan failed', description: error.message });
@@ -163,14 +195,14 @@ export default function WebsiteDashboardPage() {
 
 			<div className="grid gap-4 lg:grid-cols-4">
 				{[
-					{ label: 'Total Articles', value: stats.totalArticles },
-					{ label: 'New Articles', value: stats.newArticles },
+					{ label: 'Total Articles', value: formatStatValue(stats.totalArticles) },
+					{ label: 'New Articles', value: formatStatValue(stats.newArticles) },
 					{ label: 'Last Scan', value: formatDateTime(stats.lastScan) },
 					{ label: 'Next Scheduled Scan', value: formatDateTime(stats.nextScheduledScan) },
 				].map((item) => (
 					<Card key={item.label}>
 						<p className="text-sm text-muted-foreground">{item.label}</p>
-						<p className="mt-2 text-2xl font-semibold">{item.value || '—'}</p>
+						<p className="mt-2 text-2xl font-semibold">{item.value}</p>
 					</Card>
 				))}
 			</div>
@@ -210,10 +242,10 @@ export default function WebsiteDashboardPage() {
 
 					{scanSummary && (
 						<div className="mt-4 grid gap-3 sm:grid-cols-4">
-							<Card><p className="text-xs text-muted-foreground">Articles Found</p><p className="mt-2 text-xl font-semibold">{scanSummary.found || 0}</p></Card>
-							<Card><p className="text-xs text-muted-foreground">New Articles</p><p className="mt-2 text-xl font-semibold">{scanSummary.newArticles || 0}</p></Card>
-							<Card><p className="text-xs text-muted-foreground">Updated Articles</p><p className="mt-2 text-xl font-semibold">{scanSummary.updatedArticles || 0}</p></Card>
-							<Card><p className="text-xs text-muted-foreground">Errors</p><p className="mt-2 text-xl font-semibold">{scanSummary.errors?.length || 0}</p></Card>
+							<Card><p className="text-xs text-muted-foreground">Articles Found</p><p className="mt-2 text-xl font-semibold">{formatStatValue(scanSummary.found || 0)}</p></Card>
+							<Card><p className="text-xs text-muted-foreground">New Articles</p><p className="mt-2 text-xl font-semibold">{formatStatValue(scanSummary.newArticles || 0)}</p></Card>
+							<Card><p className="text-xs text-muted-foreground">Updated Articles</p><p className="mt-2 text-xl font-semibold">{formatStatValue(scanSummary.updatedArticles || 0)}</p></Card>
+							<Card><p className="text-xs text-muted-foreground">Errors</p><p className="mt-2 text-xl font-semibold">{formatStatValue(scanSummary.errors?.length || 0)}</p></Card>
 						</div>
 					)}
 
