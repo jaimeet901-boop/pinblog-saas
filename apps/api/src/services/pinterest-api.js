@@ -56,6 +56,7 @@ export function mapBoard(record) {
 		privacy: record.privacy || '',
 		accountLabel: record.account_label || '',
 		accountUsername: record.account_username || '',
+		isDefault: Boolean(record.is_default),
 		updatedAt: record.updated,
 	};
 }
@@ -78,6 +79,7 @@ export function mapAccount(record) {
 		scope: record.scope || '',
 		status: record.status || (record.connected ? 'connected' : 'error'),
 		statusError: record.status_error || '',
+		isDefault: Boolean(record.is_default),
 		connectedAt: normalizeDate(record.connected_at || record.created),
 		tokenExpiresAt: normalizeDate(record.token_expires_at),
 		lastSyncAt: normalizeDate(record.last_sync_at),
@@ -88,15 +90,72 @@ export function mapAccount(record) {
 
 export async function getOwnedPinterestAccounts(owner) {
 	return pocketbaseClient.collection('pinterest_accounts').getFullList({
-		sort: '-created',
+		sort: '-is_default,-created',
 		filter: pocketbaseClient.filter('owner = {:owner}', { owner }),
 	});
 }
 
 export async function getOwnedPinterestAccount(owner) {
 	const accounts = await getOwnedPinterestAccounts(owner);
+	const preferredDefault = accounts.find((account) => account.is_default && account.connected && account.status === 'connected');
+	if (preferredDefault) {
+		return preferredDefault;
+	}
 	const connected = accounts.find((account) => account.connected && account.status === 'connected');
-	return connected || accounts[0] || null;
+	return connected || accounts.find((account) => account.is_default) || accounts[0] || null;
+}
+
+export async function getDefaultPinterestBoard({ owner, accountId }) {
+	if (!accountId) {
+		return null;
+	}
+
+	const boards = await pocketbaseClient.collection('pinterest_boards').getFullList({
+		sort: '-is_default,name',
+		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: accountId }),
+	});
+
+	return boards.find((board) => board.is_default) || boards[0] || null;
+}
+
+export async function setDefaultPinterestAccount({ owner, accountId }) {
+	const account = await getOwnedPinterestAccountById({ owner, accountId });
+	if (!account) {
+		throw httpError(404, 'Pinterest account not found');
+	}
+
+	const accounts = await getOwnedPinterestAccounts(owner);
+	await Promise.all(accounts.map((item) => (
+		pocketbaseClient.collection('pinterest_accounts').update(item.id, {
+			is_default: item.id === accountId,
+		}).catch(() => null)
+	)));
+
+	return pocketbaseClient.collection('pinterest_accounts').getOne(accountId);
+}
+
+export async function setDefaultPinterestBoard({ owner, accountId, boardRecordId }) {
+	const account = await getOwnedPinterestAccountById({ owner, accountId });
+	if (!account) {
+		throw httpError(404, 'Pinterest account not found');
+	}
+
+	const board = await pocketbaseClient.collection('pinterest_boards').getOne(boardRecordId).catch(() => null);
+	if (!board || board.owner !== owner || board.account !== accountId) {
+		throw httpError(404, 'Pinterest board not found for this account');
+	}
+
+	const boards = await pocketbaseClient.collection('pinterest_boards').getFullList({
+		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: accountId }),
+	});
+
+	await Promise.all(boards.map((item) => (
+		pocketbaseClient.collection('pinterest_boards').update(item.id, {
+			is_default: item.id === boardRecordId,
+		}).catch(() => null)
+	)));
+
+	return pocketbaseClient.collection('pinterest_boards').getOne(boardRecordId);
 }
 
 export async function getOwnedPinterestAccountById({ owner, accountId }) {
@@ -398,9 +457,18 @@ export async function syncPinterestBoardsForOwner({ owner, account }) {
 	});
 
 	const refreshedBoards = await pocketbaseClient.collection('pinterest_boards').getFullList({
-		sort: 'name',
+		sort: '-is_default,name',
 		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
 	});
+
+	// Ensure every account has exactly one default board when boards exist.
+	const hasDefaultBoard = refreshedBoards.some((board) => board.is_default);
+	if (!hasDefaultBoard && refreshedBoards.length > 0) {
+		await pocketbaseClient.collection('pinterest_boards').update(refreshedBoards[0].id, {
+			is_default: true,
+		}).catch(() => null);
+		refreshedBoards[0].is_default = true;
+	}
 
 	return refreshedBoards.map(mapBoard);
 }

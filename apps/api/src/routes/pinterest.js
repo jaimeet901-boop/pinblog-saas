@@ -11,12 +11,15 @@ import {
 	getOwnedPinterestAccounts,
 	getOwnedPinterestAccount,
 	getOwnedPinterestBoard,
+	getDefaultPinterestBoard,
 	getPinterestRedirectUri,
 	getWebAppBaseUrl,
 	markPinterestAccountStatus,
 	mapAccount,
 	mapBoard,
 	normalizePinterestError,
+	setDefaultPinterestAccount,
+	setDefaultPinterestBoard,
 	syncPinterestBoardsForOwner,
 } from '../services/pinterest-api.js';
 import { decryptSecret, encryptSecret } from '../utils/secretCrypto.js';
@@ -447,6 +450,12 @@ router.get('/oauth/callback', async (req, res) => {
 			? await pocketbaseClient.collection('pinterest_accounts').update(targetAccount.id, payload)
 			: await pocketbaseClient.collection('pinterest_accounts').create(payload);
 
+		const ownerAccounts = await getOwnedPinterestAccounts(stateRecord.owner);
+		const hasDefaultAccount = ownerAccounts.some((item) => item.is_default);
+		if (!hasDefaultAccount) {
+			await setDefaultPinterestAccount({ owner: stateRecord.owner, accountId: account.id }).catch(() => null);
+		}
+
 		await syncPinterestBoardsForOwner({ owner: stateRecord.owner, account });
 		await pocketbaseClient.collection('pinterest_oauth_states').update(stateRecord.id, { used: true });
 
@@ -460,8 +469,47 @@ router.get('/oauth/callback', async (req, res) => {
 router.use(pocketbaseAuth);
 
 router.get('/account', async (req, res) => {
+	// Legacy alias: returns the default (or first connected) account.
 	const account = await getOwnedPinterestAccount(req.pocketbaseUserId);
-	res.json(mapAccount(account));
+	const mapped = mapAccount(account);
+	if (account?.id) {
+		const defaultBoard = await getDefaultPinterestBoard({ owner: req.pocketbaseUserId, accountId: account.id });
+		mapped.defaultBoard = defaultBoard ? mapBoard(defaultBoard) : null;
+	}
+	res.json(mapped);
+});
+
+router.get('/defaults', async (req, res) => {
+	const owner = req.pocketbaseUserId;
+	const account = await getOwnedPinterestAccount(owner);
+	if (!account) {
+		return res.json({ account: null, board: null });
+	}
+	const board = await getDefaultPinterestBoard({ owner, accountId: account.id });
+	res.json({
+		account: mapAccount(account),
+		board: board ? mapBoard(board) : null,
+	});
+});
+
+router.post('/accounts/:accountId/default', async (req, res) => {
+	const owner = req.pocketbaseUserId;
+	const updated = await setDefaultPinterestAccount({ owner, accountId: req.params.accountId });
+	const board = await getDefaultPinterestBoard({ owner, accountId: updated.id });
+	res.json({
+		account: mapAccount(updated),
+		board: board ? mapBoard(board) : null,
+	});
+});
+
+router.post('/accounts/:accountId/boards/:boardRecordId/default', async (req, res) => {
+	const owner = req.pocketbaseUserId;
+	const board = await setDefaultPinterestBoard({
+		owner,
+		accountId: req.params.accountId,
+		boardRecordId: req.params.boardRecordId,
+	});
+	res.json(mapBoard(board));
 });
 
 router.get('/accounts', async (req, res) => {
@@ -555,6 +603,57 @@ router.patch('/accounts/:accountId', async (req, res) => {
 	res.json(mapAccount(updated));
 });
 
+async function disconnectOwnedAccount({ owner, account }) {
+	const openJobsFilter = await buildSchemaSafeFilter({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:disconnect:open-jobs',
+		parts: [
+			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'account', expression: pocketbaseClient.filter('account = {:account}', { account: account.id }) },
+			{ field: 'status', expression: '(status = "scheduled" || status = "publishing")' },
+		],
+	});
+
+	const openJobs = await safeGetFullList({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest:disconnect:open-jobs',
+		filter: openJobsFilter.filter,
+	});
+
+	await Promise.all(openJobs.map(async (job) => {
+		const payload = await sanitizeCollectionPayload({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest:disconnect:cancel-job',
+			payload: {
+				status: 'cancelled',
+				last_error: 'Cancelled because the Pinterest account was disconnected',
+			},
+		});
+		await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, payload).catch(() => null);
+		if (job.ai_pin) {
+			await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
+				status: 'draft',
+				publish_error: 'Pinterest account disconnected before publish completed',
+			}).catch(() => null);
+		}
+	}));
+
+	await pocketbaseClient.collection('pinterest_boards').getFullList({
+		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
+	}).then((boards) => Promise.all(boards.map((board) => pocketbaseClient.collection('pinterest_boards').delete(board.id).catch(() => {}))));
+
+	const wasDefault = Boolean(account.is_default);
+	await pocketbaseClient.collection('pinterest_accounts').delete(account.id).catch(() => {});
+
+	if (wasDefault) {
+		const remaining = await getOwnedPinterestAccounts(owner);
+		const next = remaining.find((item) => item.connected && item.status === 'connected') || remaining[0];
+		if (next) {
+			await setDefaultPinterestAccount({ owner, accountId: next.id }).catch(() => null);
+		}
+	}
+}
+
 router.post('/accounts/:accountId/disconnect', async (req, res) => {
 	const owner = req.pocketbaseUserId;
 	const account = await getOwnedPinterestAccountById({ owner, accountId: req.params.accountId });
@@ -562,26 +661,24 @@ router.post('/accounts/:accountId/disconnect', async (req, res) => {
 		throw httpError(404, 'Pinterest account not found');
 	}
 
-	await pocketbaseClient.collection('pinterest_boards').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
-	}).then((boards) => Promise.all(boards.map((board) => pocketbaseClient.collection('pinterest_boards').delete(board.id).catch(() => {}))));
-
-	await pocketbaseClient.collection('pinterest_accounts').delete(account.id).catch(() => {});
+	await disconnectOwnedAccount({ owner, account });
 	res.status(204).send();
 });
 
 router.post('/disconnect', async (req, res) => {
+	// Legacy alias: disconnect one account only (default or explicit accountId).
+	// Never wipe all connected accounts.
 	const owner = req.pocketbaseUserId;
-	const account = await getOwnedPinterestAccount(owner);
-	if (account) {
-		await pocketbaseClient.collection('pinterest_accounts').delete(account.id).catch(() => {});
+	const accountId = normalizeString(req.body?.accountId, 'accountId', { max: 80 });
+	const account = accountId
+		? await getOwnedPinterestAccountById({ owner, accountId })
+		: await getOwnedPinterestAccount(owner);
+
+	if (!account) {
+		return res.status(204).send();
 	}
 
-	const boards = await pocketbaseClient.collection('pinterest_boards').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner}', { owner }),
-	});
-
-	await Promise.all(boards.map((board) => pocketbaseClient.collection('pinterest_boards').delete(board.id).catch(() => {})));
+	await disconnectOwnedAccount({ owner, account });
 	res.status(204).send();
 });
 
@@ -601,7 +698,7 @@ router.get('/boards', async (req, res) => {
 		}
 
 		const allBoards = await pocketbaseClient.collection('pinterest_boards').getFullList({
-			sort: 'name',
+			sort: '-is_default,name',
 			filter: pocketbaseClient.filter('owner = {:owner}', { owner }),
 		});
 
@@ -616,7 +713,7 @@ router.get('/boards', async (req, res) => {
 	}
 
 	const boards = await pocketbaseClient.collection('pinterest_boards').getFullList({
-		sort: 'name',
+		sort: '-is_default,name',
 		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
 	});
 

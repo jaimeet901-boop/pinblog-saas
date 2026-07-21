@@ -385,7 +385,13 @@ export default function AIPinsPage() {
 			}
 			setBoards(Array.isArray(payload) ? payload : []);
 			if (Array.isArray(payload) && payload.length > 0) {
-				setSelectedBoardId((prev) => prev || payload[0].boardId);
+				const preferredBoard = payload.find((board) => board.isDefault) || payload[0];
+				setSelectedBoardId((prev) => {
+					if (prev && payload.some((board) => board.boardId === prev)) {
+						return prev;
+					}
+					return preferredBoard.boardId;
+				});
 			}
 			setBoardsByAccount((prev) => ({
 				...prev,
@@ -409,7 +415,13 @@ export default function AIPinsPage() {
 			const items = Array.isArray(payload.items) ? payload.items : [];
 			setAccounts(items);
 			if (items.length > 0) {
-				setSelectedAccountId((prev) => prev || items[0].id);
+				const preferredAccount = items.find((account) => account.isDefault) || items[0];
+				setSelectedAccountId((prev) => {
+					if (prev && items.some((account) => account.id === prev)) {
+						return prev;
+					}
+					return preferredAccount.id;
+				});
 			}
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Error', description: error.message });
@@ -1115,7 +1127,8 @@ export default function AIPinsPage() {
 			}
 		}
 
-		const fallbackBoardId = accountBoards[0]?.boardId || '';
+		const preferredBoard = accountBoards.find((board) => board.isDefault) || accountBoards[0];
+		const fallbackBoardId = preferredBoard?.boardId || '';
 		setSavedPins((prev) => prev.map((pin) => {
 			if (pin.id !== pinId) {
 				return pin;
@@ -1307,13 +1320,19 @@ export default function AIPinsPage() {
 						<Select label="Pinterest Account" value={selectedAccountId} onChange={(e) => setSelectedAccountId(e.target.value)} disabled={loadingAccounts || accounts.length === 0}>
 							<option value="">Select account</option>
 							{accounts.map((account) => (
-								<option key={account.id} value={account.id}>{account.label || account.accountName || account.username}</option>
+								<option key={account.id} value={account.id}>
+									{account.label || account.accountName || account.username}
+									{account.isDefault ? ' (Default)' : ''}
+								</option>
 							))}
 						</Select>
 						<Select label="Target Board" value={selectedBoardId} onChange={(e) => setSelectedBoardId(e.target.value)} disabled={loadingBoards || boards.length === 0}>
 							<option value="">Select board</option>
 							{boards.map((board) => (
-								<option key={board.id} value={board.boardId}>{board.name}</option>
+								<option key={board.id} value={board.boardId}>
+									{board.name}
+									{board.isDefault ? ' (Default)' : ''}
+								</option>
 							))}
 						</Select>
 						<Input label="Schedule Date & Time" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
@@ -1374,13 +1393,19 @@ export default function AIPinsPage() {
 												<Select label="Target Account (for bulk publish/schedule)" value={pin.accountId || ''} onChange={(e) => setPinTargetAccount(pin.id, e.target.value)}>
 													<option value="">Use global account</option>
 													{accounts.map((account) => (
-														<option key={account.id} value={account.id}>{account.label || account.accountName || account.username}</option>
+														<option key={account.id} value={account.id}>
+															{account.label || account.accountName || account.username}
+															{account.isDefault ? ' (Default)' : ''}
+														</option>
 													))}
 												</Select>
 												<Select label="Target Board (for bulk publish/schedule)" value={pin.boardId || ''} onChange={(e) => updatePinField(pin.id, 'boardId', e.target.value)}>
 													<option value="">Use global board</option>
 													{(boardsByAccount[pin.accountId || selectedAccountId] || boards).map((board) => (
-														<option key={board.id} value={board.boardId}>{board.name}</option>
+														<option key={board.id} value={board.boardId}>
+															{board.name}
+															{board.isDefault ? ' (Default)' : ''}
+														</option>
 													))}
 												</Select>
 											</>

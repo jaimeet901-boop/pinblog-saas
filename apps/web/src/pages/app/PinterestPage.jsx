@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Link2, Loader2, Pin, RefreshCw, Unlink, Pencil } from 'lucide-react';
+import { Link2, Loader2, Pin, RefreshCw, Unlink, Pencil, Star } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Card, Empty, Input, PageHeader, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
@@ -166,6 +166,14 @@ export default function PinterestPage() {
 	};
 
 	const disconnectAccount = async (account) => {
+		const label = account.label || account.username || 'this account';
+		const confirmed = window.confirm(
+			`Disconnect ${label}?\n\nScheduled and in-progress publish jobs for this account will be cancelled. OAuth credentials will be removed.`,
+		);
+		if (!confirmed) {
+			return;
+		}
+
 		setProcessingAccountId(account.id);
 		try {
 			const response = await apiServerClient.fetch(`/pinterest/accounts/${account.id}/disconnect`, { method: 'POST' });
@@ -173,7 +181,44 @@ export default function PinterestPage() {
 				const payload = await response.json().catch(() => ({}));
 				throw new Error(parseErrorMessage(payload, `Failed to disconnect account (${response.status})`));
 			}
-			toast({ title: 'Account disconnected', description: `${account.label || account.username} was disconnected.` });
+			toast({ title: 'Account disconnected', description: `${label} was disconnected.` });
+			load();
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Error', description: error.message });
+		} finally {
+			setProcessingAccountId('');
+		}
+	};
+
+	const setDefaultAccount = async (account) => {
+		setProcessingAccountId(account.id);
+		try {
+			const response = await apiServerClient.fetch(`/pinterest/accounts/${account.id}/default`, { method: 'POST' });
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(parseErrorMessage(payload, `Failed to set default account (${response.status})`));
+			}
+			toast({ title: 'Default account updated', description: `${account.label || account.username} is now the default.` });
+			load();
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Error', description: error.message });
+		} finally {
+			setProcessingAccountId('');
+		}
+	};
+
+	const setDefaultBoard = async (account, board) => {
+		setProcessingAccountId(account.id);
+		try {
+			const response = await apiServerClient.fetch(
+				`/pinterest/accounts/${account.id}/boards/${board.id}/default`,
+				{ method: 'POST' },
+			);
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(parseErrorMessage(payload, `Failed to set default board (${response.status})`));
+			}
+			toast({ title: 'Default board updated', description: `${board.name} is now the default for this account.` });
 			load();
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Error', description: error.message });
@@ -284,7 +329,10 @@ export default function PinterestPage() {
 										)}
 									</div>
 									<div className="min-w-0">
-										<p className="truncate font-semibold">{account.label || account.accountName || account.username || 'Pinterest account'}</p>
+										<div className="flex flex-wrap items-center gap-2">
+											<p className="truncate font-semibold">{account.label || account.accountName || account.username || 'Pinterest account'}</p>
+											{account.isDefault ? <Badge tone="blue">Default</Badge> : null}
+										</div>
 										<p className="truncate text-sm text-muted-foreground">{account.accountName || 'Unnamed account'} • @{account.username || 'unknown'}</p>
 										<p className="text-xs text-muted-foreground">Connected: {account.connectedAt ? new Date(account.connectedAt).toLocaleString() : '—'}</p>
 										<p className="text-xs text-muted-foreground">Published Pins: {account.publishedPins || 0} • Boards: {account.boardCount || 0}</p>
@@ -294,14 +342,17 @@ export default function PinterestPage() {
 
 								<div className="flex flex-wrap items-center gap-2">
 									<Badge tone={statusTone(account.status)}>{account.status}</Badge>
+									{!account.isDefault ? (
+										<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => setDefaultAccount(account)}>
+											<Star size={14} /> Set Default
+										</Button>
+									) : null}
 									<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => syncAccountBoards(account)}>
 										{processingAccountId === account.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw size={14} />} Sync Boards
 									</Button>
-									{account.status !== 'connected' ? (
-										<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => reconnectAccount(account)}>
-											<Link2 size={14} /> Reconnect
-										</Button>
-									) : null}
+									<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => reconnectAccount(account)}>
+										<Link2 size={14} /> Reconnect
+									</Button>
 									<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => {
 										setEditingLabelId(account.id);
 										setLabelDraft(account.label || account.accountName || account.username || '');
@@ -334,8 +385,24 @@ export default function PinterestPage() {
 									<div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
 										{(boardsByAccount[account.id] || []).slice(0, 9).map((board) => (
 											<div key={board.id} className="rounded-xl border border-border p-2">
-												<p className="truncate text-sm font-medium">{board.name}</p>
-												<p className="truncate text-xs text-muted-foreground">{board.boardId}</p>
+												<div className="flex items-start justify-between gap-2">
+													<div className="min-w-0">
+														<p className="truncate text-sm font-medium">{board.name}</p>
+														<p className="truncate text-xs text-muted-foreground">{board.boardId}</p>
+													</div>
+													{board.isDefault ? (
+														<Badge tone="blue">Default</Badge>
+													) : (
+														<Button
+															size="sm"
+															variant="outline"
+															disabled={processingAccountId === account.id}
+															onClick={() => setDefaultBoard(account, board)}
+														>
+															<Star size={12} /> Default
+														</Button>
+													)}
+												</div>
 											</div>
 										))}
 									</div>
