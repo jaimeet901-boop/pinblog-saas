@@ -154,11 +154,14 @@ export default function WebsiteDashboardPage() {
 			}
 
 			const savedCount = (completedSummary.newArticles || 0) + (completedSummary.updatedArticles || 0);
+			const persisted = completedSummary.persistedArticles;
 			toast({
 				title: 'Scan complete',
-				description: savedCount > 0
-					? `Saved ${savedCount} articles (${completedSummary.found || 0} discovered).`
-					: `Scan finished. Discovered ${completedSummary.found || 0} articles.`,
+				description: typeof persisted === 'number'
+					? `Saved scan results. PocketBase now has ${persisted} articles for this website (${completedSummary.found || 0} discovered).`
+					: savedCount > 0
+						? `Saved ${savedCount} articles (${completedSummary.found || 0} discovered).`
+						: `Scan finished. Discovered ${completedSummary.found || 0} articles.`,
 			});
 			await loadWebsite();
 		} catch (error) {

@@ -2,8 +2,9 @@ import { Router } from 'express';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { encryptSecret, isEncryptedSecret } from '../utils/secretCrypto.js';
 import logger from '../utils/logger.js';
-import { scanWebsiteArticles } from '../services/website-article-discovery.js';
+import { scanWebsiteArticles, countWebsiteArticles, listWebsiteArticles, repairOrphanWebsiteArticles } from '../services/website-article-discovery.js';
 import { getCache, setCache } from '../utils/cache.js';
+import { safeGetFullList, extractCollectionFieldNames } from '../utils/pocketbase-safe-query.js';
 
 const router = Router();
 const WEBSITE_FETCH_TIMEOUT_MS = 10000;
@@ -97,7 +98,7 @@ async function getCollectionFieldNames(collectionName) {
 	}
 
 	const model = await pocketbaseClient.collections.getOne(collectionName);
-	const fields = new Set((model?.fields || []).map((field) => field?.name).filter(Boolean));
+	const fields = extractCollectionFieldNames(model);
 
 	collectionSchemaCache.set(collectionName, {
 		fields,
@@ -119,7 +120,7 @@ function resolveSchemaField(fields, candidates, fallback) {
 
 async function resolveWebsitesSchema() {
 	const model = await pocketbaseClient.collections.getOne('websites');
-	const fields = new Set((model?.fields || []).map((field) => field?.name).filter(Boolean));
+	const fields = extractCollectionFieldNames(model);
 	collectionSchemaCache.set('websites', {
 		fields,
 		expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
@@ -132,7 +133,7 @@ async function resolveWebsitesSchema() {
 		discoveryStatusField: resolveSchemaField(fields, WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES, 'discovery_status'),
 		statusField: resolveSchemaField(fields, WEBSITE_STATUS_FIELD_CANDIDATES, 'status'),
 	};
-	const urlFieldDefinition = (model?.fields || []).find((field) => field?.name === schema.urlField) || null;
+	const urlFieldDefinition = (model?.fields || model?.schema || []).find((field) => field?.name === schema.urlField) || null;
 
 	logger.info('Websites schema resolved', {
 		collection: 'websites',
@@ -512,53 +513,42 @@ async function getOwnedWebsite({ websiteId, userId }) {
 }
 
 async function getWebsiteStats(site) {
-	const collectionName = 'website_articles';
-	const pbBaseUrl = process.env.PB_BASE_URL || 'http://localhost:8090';
 	const articleSchema = await resolveWebsiteArticlesSchema();
+	const ownerId = getOwnerId(site);
 
-	const totalFilter = pocketbaseClient.filter(`${articleSchema.websiteField} = {:websiteId}`, { websiteId: site.id });
-	const newFilter = [
-		totalFilter,
-		pocketbaseClient.filter(`${articleSchema.statusField} = {:status}`, { status: 'new' }),
-	].join(' && ');
-
-	const queryStatsList = async ({ filter, sort = '', expand = '' }) => {
-		const query = new URLSearchParams({
-			page: '1',
-			perPage: '1',
-			filter,
-			...(sort ? { sort } : {}),
-			...(expand ? { expand } : {}),
+	try {
+		await repairOrphanWebsiteArticles({
+			pocketbaseClient,
+			website: site,
+			websiteField: articleSchema.websiteField,
+			ownerId,
+			logger,
 		});
-		const requestUrl = `${pbBaseUrl}/api/collections/${collectionName}/records?${query.toString()}`;
+	} catch (error) {
+		logger.warn('Orphan website article repair skipped', {
+			websiteId: site.id,
+			message: error?.message || null,
+		});
+	}
 
-		try {
-			return await pocketbaseClient.collection(collectionName).getList(1, 1, {
-				filter,
-				...(sort ? { sort } : {}),
-				...(expand ? { expand } : {}),
-			});
-		} catch (error) {
-			logger.error('Website stats query failed', {
-				collection: collectionName,
-				filter,
-				expand,
-				sort,
-				requestUrl,
-				pocketbaseErrorMessage: error?.message,
-				pocketbaseErrorStatus: error?.status,
-				pocketbaseErrorResponse: error?.response?.data || error?.response || null,
-			});
-			return null;
-		}
-	};
-
-	const totalArticles = await queryStatsList({ filter: totalFilter });
-	const newArticles = await queryStatsList({ filter: newFilter });
+	const [totalArticles, newArticles] = await Promise.all([
+		countWebsiteArticles({
+			pocketbaseClient,
+			websiteId: site.id,
+			websiteField: articleSchema.websiteField,
+		}),
+		countWebsiteArticles({
+			pocketbaseClient,
+			websiteId: site.id,
+			websiteField: articleSchema.websiteField,
+			statusField: articleSchema.statusField,
+			status: 'new',
+		}),
+	]);
 
 	return {
-		totalArticles: totalArticles?.totalItems || 0,
-		newArticles: newArticles?.totalItems || 0,
+		totalArticles: totalArticles || 0,
+		newArticles: newArticles || 0,
 		lastScan: site.last_scan_at || '',
 		nextScheduledScan: site.next_scan_at || '',
 	};
@@ -580,44 +570,18 @@ router.post('/metadata', async (req, res) => {
 
 router.get('/', async (req, res) => {
 	const collectionName = 'websites';
-	const pbBaseUrl = process.env.PB_BASE_URL || 'http://localhost:8090';
 	const websitesSchema = await resolveWebsitesSchema();
 	const listFilter = pocketbaseClient.filter(`${websitesSchema.ownerField} = {:owner}`, { owner: req.pocketbaseUserId });
-	const query = new URLSearchParams({
+
+	const websites = await safeGetFullList({
+		collection: collectionName,
+		context: 'websites:list',
 		filter: listFilter,
 		sort: '-created',
 	});
-	const requestUrl = `${pbBaseUrl}/api/collections/${collectionName}/records?${query.toString()}`;
 
-	try {
-		const websites = await pocketbaseClient.collection(collectionName).getFullList({
-			filter: listFilter,
-			sort: '-created',
-		});
-
-		res.json(websites.map(mapWebsite));
-	} catch (error) {
-		logger.error('Websites list query failed', {
-			stack: error?.stack || null,
-			message: error?.message || null,
-			pocketbaseRequestUrl: requestUrl,
-			collectionName,
-			filter: listFilter,
-			httpStatus: error?.status || error?.response?.status || null,
-			responseBody: error?.response?.data || error?.response || null,
-			validationErrors: error?.response?.data?.data || null,
-			requestParameters: {
-				method: req.method,
-				originalUrl: req.originalUrl,
-				params: req.params,
-				query: req.query,
-				body: req.body,
-				pocketbaseUserId: req.pocketbaseUserId || '',
-			},
-		});
-
-		throw error;
-	}
+	const owned = (websites || []).filter((site) => getOwnerId(site, websitesSchema.ownerField) === req.pocketbaseUserId);
+	res.json(owned.map(mapWebsite));
 });
 
 router.get('/:websiteId', async (req, res) => {
@@ -664,40 +628,70 @@ router.get('/:websiteId/articles', async (req, res) => {
 	const category = normalizeOptionalString(req.query.category, 'category', 255);
 	const dateFrom = normalizeOptionalString(req.query.dateFrom, 'dateFrom', 64);
 	const dateTo = normalizeOptionalString(req.query.dateTo, 'dateTo', 64);
-	const filter = buildArticleFilters({
-		websiteId: site.id,
-		owner: req.pocketbaseUserId,
-		search,
-		status,
-		category,
-		dateFrom,
-		dateTo,
-		websiteField: articleSchema.websiteField,
-		statusField: articleSchema.statusField,
-	});
+	const filterExtraParts = [];
 
-	const result = await pocketbaseClient.collection('website_articles').getList(page, perPage, {
-		filter,
-		sort: '-publish_date,-updated',
-	});
+	if (search) {
+		const safeSearch = escapeFilterValue(search);
+		filterExtraParts.push(`(title ~ "${safeSearch}" || slug ~ "${safeSearch}" || url ~ "${safeSearch}")`);
+	}
+	if (status) {
+		filterExtraParts.push(`${articleSchema.statusField} = "${escapeFilterValue(status)}"`);
+	}
+	if (category) {
+		filterExtraParts.push(`category = "${escapeFilterValue(category)}"`);
+	}
+	if (dateFrom) {
+		filterExtraParts.push(`publish_date >= "${escapeFilterValue(dateFrom)}"`);
+	}
+	if (dateTo) {
+		filterExtraParts.push(`publish_date <= "${escapeFilterValue(dateTo)}"`);
+	}
 
-	const allArticles = await pocketbaseClient.collection('website_articles').getFullList({
-		filter: [
-			pocketbaseClient.filter(`${articleSchema.websiteField} = {:websiteId}`, { websiteId: site.id }),
-			pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
-		].join(' && '),
-		fields: 'id,category',
-	});
-	const categories = [...new Set(allArticles.map((article) => article.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+	let result;
+	try {
+		result = await listWebsiteArticles({
+			pocketbaseClient,
+			websiteId: site.id,
+			websiteField: articleSchema.websiteField,
+			owner: req.pocketbaseUserId,
+			page,
+			perPage,
+			filterExtra: filterExtraParts.join(' && '),
+			sort: '-created',
+		});
+	} catch (error) {
+		logger.error('Website articles list failed', {
+			websiteId: site.id,
+			message: error?.message || null,
+		});
+		result = { items: [], page, perPage, totalPages: 0, totalItems: 0 };
+	}
+
+	let categories = [];
+	try {
+		const allForCategories = await listWebsiteArticles({
+			pocketbaseClient,
+			websiteId: site.id,
+			websiteField: articleSchema.websiteField,
+			owner: req.pocketbaseUserId,
+			page: 1,
+			perPage: 200,
+			sort: '-created',
+		});
+		categories = [...new Set((allForCategories.items || []).map((article) => article.category).filter(Boolean))]
+			.sort((a, b) => a.localeCompare(b));
+	} catch {
+		categories = [];
+	}
 
 	res.json({
-		items: result.items.map(mapArticle),
-		page: result.page,
-		perPage: result.perPage,
-		totalPages: result.totalPages,
-		totalItems: result.totalItems,
+		items: (result.items || []).map(mapArticle),
+		page: result.page || page,
+		perPage: result.perPage || perPage,
+		totalPages: result.totalPages || 0,
+		totalItems: result.totalItems || 0,
 		categories,
-		totalArticles: allArticles.length,
+		totalArticles: result.totalItems || 0,
 	});
 });
 

@@ -171,6 +171,15 @@ function normalizePbError(error) {
 	};
 }
 
+export function extractCollectionFieldNames(model) {
+	const rawFields = model?.fields || model?.schema || [];
+	return new Set(
+		(Array.isArray(rawFields) ? rawFields : [])
+			.map((field) => field?.name)
+			.filter(Boolean),
+	);
+}
+
 export async function getCollectionSchemaFields(collection) {
 	const cached = getCachedSchema(collection);
 	if (cached) {
@@ -179,7 +188,7 @@ export async function getCollectionSchemaFields(collection) {
 
 	try {
 		const model = await pocketbaseClient.collections.getOne(collection);
-		const fields = new Set((model?.fields || []).map((field) => field?.name).filter(Boolean));
+		const fields = extractCollectionFieldNames(model);
 		if (fields.size > 0) {
 			setCachedSchema(collection, fields);
 			return fields;
@@ -240,7 +249,7 @@ export async function buildSchemaSafeFilter({ collection, context, parts }) {
 	return { filter, fields, droppedFields };
 }
 
-export async function sanitizeCollectionPayload({ collection, payload, context }) {
+export async function sanitizeCollectionPayload({ collection, payload, context, requiredKeys = [] }) {
 	const fields = await getCollectionSchemaFields(collection);
 	const sanitized = {};
 	const dropped = [];
@@ -253,11 +262,20 @@ export async function sanitizeCollectionPayload({ collection, payload, context }
 		}
 	}
 
+	// Never strip caller-required keys (e.g. website relation / owner) even when
+	// schema introspection is incomplete — PocketBase will validate them.
+	for (const key of requiredKeys) {
+		if (Object.prototype.hasOwnProperty.call(payload || {}, key) && sanitized[key] === undefined) {
+			sanitized[key] = payload[key];
+		}
+	}
+
 	if (dropped.length > 0) {
 		logger.warn('PocketBase payload fields dropped because they are not in schema', {
 			context,
 			collection,
 			droppedFields: dropped,
+			restoredRequiredKeys: requiredKeys.filter((key) => Object.prototype.hasOwnProperty.call(sanitized, key)),
 		});
 	}
 

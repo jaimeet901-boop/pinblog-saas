@@ -1,4 +1,4 @@
-import { sanitizeCollectionPayload, safeGetFullList, safeGetList } from '../utils/pocketbase-safe-query.js';
+import { sanitizeCollectionPayload, safeGetFullList, safeGetList, extractCollectionFieldNames } from '../utils/pocketbase-safe-query.js';
 
 const MAX_SOURCE_URLS = 250;
 const MAX_ARTICLE_FETCHES = 50;
@@ -30,14 +30,33 @@ async function getCollectionFieldNames({ collection, pocketbaseClient }) {
 
 	try {
 		const model = await pocketbaseClient.collections.getOne(collection);
-		const fields = new Set((model?.fields || []).map((field) => field?.name).filter(Boolean));
+		const fields = extractCollectionFieldNames(model);
 
 		collectionSchemaCache.set(collection, {
-			fields,
+			fields: fields.size > 0 ? fields : new Set([
+				'id',
+				'websiteId',
+				'owner',
+				'url',
+				'slug',
+				'title',
+				'meta_description',
+				'featured_image',
+				'publish_date',
+				'last_modified_date',
+				'category',
+				'author',
+				'language',
+				'status',
+				'source',
+				'scan_run_id',
+				'created',
+				'updated',
+			]),
 			expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
 		});
 
-		return fields;
+		return collectionSchemaCache.get(collection).fields;
 	} catch {
 		const fallback = new Set([
 			'id',
@@ -728,6 +747,55 @@ function recordMatchesWebsite(record, websiteId, websiteField) {
 	return String(raw) === websiteId;
 }
 
+function getRecordWebsiteId(record) {
+	const raw = record?.websiteId ?? record?.website_id ?? record?.website ?? record?.siteId;
+	if (!raw) {
+		return '';
+	}
+	if (typeof raw === 'string') {
+		return raw;
+	}
+	if (typeof raw === 'object') {
+		return raw.id || '';
+	}
+	return String(raw);
+}
+
+async function ensureArticleLinkedToWebsite({ pocketbaseClient, record, websiteId, websiteField, ownerId, logger }) {
+	if (!record?.id) {
+		return record;
+	}
+
+	const patch = {};
+	if (!recordMatchesWebsite(record, websiteId, websiteField)) {
+		patch[websiteField] = websiteId;
+	}
+	if (ownerId && !record.owner) {
+		patch.owner = ownerId;
+	}
+
+	if (Object.keys(patch).length === 0) {
+		return record;
+	}
+
+	try {
+		const repaired = await pocketbaseClient.collection('website_articles').update(record.id, patch);
+		logger?.warn?.('Repaired website article relation after scan write', {
+			articleId: record.id,
+			websiteId,
+			patch,
+		});
+		return repaired;
+	} catch (error) {
+		logger?.error?.('Failed to repair website article relation', {
+			articleId: record.id,
+			websiteId,
+			message: formatPocketBaseError(error),
+		});
+		return record;
+	}
+}
+
 async function loadExistingArticlesByWebsite({ pocketbaseClient, websiteId, websiteField, logger }) {
 	const filterExpressions = [
 		pocketbaseClient.filter(`${websiteField} = {:websiteId}`, { websiteId }),
@@ -746,8 +814,6 @@ async function loadExistingArticlesByWebsite({ pocketbaseClient, websiteId, webs
 			return records.filter((record) => recordMatchesWebsite(record, websiteId, websiteField));
 		}
 
-		// safeGetFullList returns [] on hard failure OR when truly empty.
-		// Probe with getList to distinguish "query broken" vs "no rows".
 		const probe = await safeGetList({
 			collection: 'website_articles',
 			context: 'website-scan:existing-articles-probe',
@@ -757,26 +823,38 @@ async function loadExistingArticlesByWebsite({ pocketbaseClient, websiteId, webs
 			sort: '-created',
 		});
 
-		if (Array.isArray(probe?.items)) {
+		// Only treat probe as authoritative when the filtered query succeeded with items,
+		// or when totalItems is explicitly 0 (empty website). Empty items with failed
+		// queries also look like { items: [] } — continue to fallbacks in that case.
+		if (Array.isArray(probe?.items) && (probe.items.length > 0 || probe.totalItems === 0)) {
 			return probe.items.filter((record) => recordMatchesWebsite(record, websiteId, websiteField));
 		}
 	}
 
-	// Last resort: load a page without filter and match in memory.
 	logger?.warn?.('Falling back to unfiltered website_articles probe for scan dedupe', {
 		websiteId,
 		websiteField,
 	});
 
-	const unfiltered = await safeGetList({
-		collection: 'website_articles',
-		context: 'website-scan:existing-articles-unfiltered',
-		page: 1,
-		perPage: 200,
-		sort: '-created',
-	});
+	const matched = [];
+	for (let page = 1; page <= 20; page += 1) {
+		const unfiltered = await safeGetList({
+			collection: 'website_articles',
+			context: 'website-scan:existing-articles-unfiltered',
+			page,
+			perPage: 200,
+			sort: '-created',
+		});
 
-	return (unfiltered.items || []).filter((record) => recordMatchesWebsite(record, websiteId, websiteField));
+		const pageItems = unfiltered.items || [];
+		matched.push(...pageItems.filter((record) => recordMatchesWebsite(record, websiteId, websiteField)));
+
+		if (pageItems.length < 200 || page >= (unfiltered.totalPages || page)) {
+			break;
+		}
+	}
+
+	return matched;
 }
 
 async function findArticleByWebsiteUrl({ pocketbaseClient, websiteId, websiteField, url }) {
@@ -789,8 +867,215 @@ async function findArticleByWebsiteUrl({ pocketbaseClient, websiteId, websiteFie
 	try {
 		return await pocketbaseClient.collection('website_articles').getFirstListItem(filter);
 	} catch {
+		// Fallback: match by URL only then verify website in memory.
+		try {
+			const byUrl = await pocketbaseClient.collection('website_articles').getFirstListItem(`url = "${escapedUrl}"`);
+			if (recordMatchesWebsite(byUrl, websiteId, websiteField) || !getRecordWebsiteId(byUrl)) {
+				return byUrl;
+			}
+		} catch {
+			return null;
+		}
 		return null;
 	}
+}
+
+export async function repairOrphanWebsiteArticles({ pocketbaseClient, website, websiteField, ownerId, logger }) {
+	const websiteId = website?.id;
+	if (!websiteId) {
+		return 0;
+	}
+
+	const domain = String(website.domain || '')
+		.replace(/^www\./i, '')
+		.trim()
+		.toLowerCase();
+	const siteUrl = String(website.url || '');
+	let hostname = domain;
+	try {
+		hostname = new URL(siteUrl).hostname.replace(/^www\./i, '').toLowerCase() || domain;
+	} catch {
+		hostname = domain;
+	}
+
+	if (!hostname) {
+		return 0;
+	}
+
+	let repaired = 0;
+	for (let page = 1; page <= 30; page += 1) {
+		const result = await safeGetList({
+			collection: 'website_articles',
+			context: 'website-articles:orphan-repair',
+			page,
+			perPage: 200,
+			sort: '-created',
+		});
+		const items = result.items || [];
+
+		for (const record of items) {
+			if (recordMatchesWebsite(record, websiteId, websiteField)) {
+				continue;
+			}
+
+			const existingWebsiteId = getRecordWebsiteId(record);
+			if (existingWebsiteId && existingWebsiteId !== websiteId) {
+				continue;
+			}
+
+			const articleUrl = String(record.url || '');
+			let articleHost = '';
+			try {
+				articleHost = new URL(articleUrl).hostname.replace(/^www\./i, '').toLowerCase();
+			} catch {
+				continue;
+			}
+
+			if (!articleHost || (articleHost !== hostname && !articleHost.endsWith(`.${hostname}`))) {
+				continue;
+			}
+
+			try {
+				await pocketbaseClient.collection('website_articles').update(record.id, {
+					[websiteField]: websiteId,
+					...(ownerId && !record.owner ? { owner: ownerId } : {}),
+				});
+				repaired += 1;
+			} catch (error) {
+				logger?.warn?.('Failed to repair orphan website article', {
+					articleId: record.id,
+					websiteId,
+					message: formatPocketBaseError(error),
+				});
+			}
+		}
+
+		if (items.length < 200 || page >= (result.totalPages || page)) {
+			break;
+		}
+	}
+
+	if (repaired > 0) {
+		logger?.info?.('Repaired orphan website articles', { websiteId, repaired });
+	}
+
+	return repaired;
+}
+
+export async function countWebsiteArticles({ pocketbaseClient, websiteId, websiteField, statusField, status } = {}) {
+	const filters = [
+		pocketbaseClient.filter(`${websiteField} = {:websiteId}`, { websiteId }),
+	];
+
+	if (status && statusField) {
+		filters.push(pocketbaseClient.filter(`${statusField} = {:status}`, { status }));
+	}
+
+	const filter = filters.join(' && ');
+
+	try {
+		const result = await pocketbaseClient.collection('website_articles').getList(1, 1, { filter });
+		if (typeof result?.totalItems === 'number' && result.totalItems >= 0) {
+			return result.totalItems;
+		}
+	} catch {
+		// fall through to in-memory count
+	}
+
+	let total = 0;
+	for (let page = 1; page <= 50; page += 1) {
+		const result = await safeGetList({
+			collection: 'website_articles',
+			context: 'website-articles:count-fallback',
+			page,
+			perPage: 200,
+			sort: '-created',
+		});
+		const items = result.items || [];
+		total += items.filter((record) => {
+			if (!recordMatchesWebsite(record, websiteId, websiteField)) {
+				return false;
+			}
+			if (!status) {
+				return true;
+			}
+			const value = record?.[statusField] || record?.status;
+			return value === status;
+		}).length;
+
+		if (items.length < 200 || page >= (result.totalPages || page)) {
+			break;
+		}
+	}
+
+	return total;
+}
+
+export async function listWebsiteArticles({
+	pocketbaseClient,
+	websiteId,
+	websiteField,
+	owner,
+	page = 1,
+	perPage = 10,
+	filterExtra = '',
+	sort = '-created',
+}) {
+	const baseFilters = [
+		pocketbaseClient.filter(`${websiteField} = {:websiteId}`, { websiteId }),
+	];
+	if (filterExtra) {
+		baseFilters.push(filterExtra);
+	}
+	const filter = baseFilters.join(' && ');
+
+	try {
+		const result = await pocketbaseClient.collection('website_articles').getList(page, perPage, {
+			filter,
+			...(sort ? { sort } : {}),
+		});
+
+		// Soft preference: if owner was provided and the website-scoped query returned
+		// rows, keep them even when owner differs (access already checked via website).
+		if (result.totalItems > 0 || !owner) {
+			return result;
+		}
+	} catch {
+		// Soft-fail path: page through records and filter in memory.
+	}
+
+	const matched = [];
+	for (let currentPage = 1; currentPage <= 50; currentPage += 1) {
+		const result = await safeGetList({
+			collection: 'website_articles',
+			context: 'website-articles:list-fallback',
+			page: currentPage,
+			perPage: 200,
+			sort: '-created',
+		});
+		const items = result.items || [];
+		for (const record of items) {
+			if (!recordMatchesWebsite(record, websiteId, websiteField)) {
+				continue;
+			}
+			matched.push(record);
+		}
+		if (items.length < 200 || currentPage >= (result.totalPages || currentPage)) {
+			break;
+		}
+	}
+
+	const totalItems = matched.length;
+	const totalPages = Math.max(1, Math.ceil(totalItems / perPage) || 1);
+	const start = (page - 1) * perPage;
+
+	return {
+		page,
+		perPage,
+		totalItems,
+		totalPages: totalItems === 0 ? 0 : totalPages,
+		items: matched.slice(start, start + perPage),
+	};
 }
 
 export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: ownerIdOverride, runId, onProgress, logger }) {
@@ -803,6 +1088,7 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 		source: '',
 		lastScanAt: startedAt,
 		nextScheduledScan: new Date(Date.now() + NEXT_SCAN_DELAY_MS).toISOString(),
+		persistedArticles: 0,
 	};
 
 	onProgress?.({ type: 'progress', stage: 'init', message: 'Preparing website scan' });
@@ -812,6 +1098,21 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 
 	if (!ownerId) {
 		throw new Error('Website owner is missing. Re-save the website and try scanning again.');
+	}
+
+	try {
+		await repairOrphanWebsiteArticles({
+			pocketbaseClient,
+			website,
+			websiteField: articlesSchema.websiteField,
+			ownerId,
+			logger,
+		});
+	} catch (error) {
+		logger?.warn?.('Pre-scan orphan repair failed', {
+			websiteId: website.id,
+			message: formatPocketBaseError(error),
+		});
 	}
 
 	const { candidates, errors, source } = await discoverArticleCandidates({ website, onProgress, logger });
@@ -862,12 +1163,30 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 			collection: 'website_articles',
 			payload: rawPayload,
 			context: 'website-scan:create-or-update',
+			requiredKeys: [articlesSchema.websiteField, 'owner', 'url', 'title', articlesSchema.statusField],
 		});
+
+		// Belt-and-suspenders: always keep the website relation + owner on writes.
+		payload[articlesSchema.websiteField] = website.id;
+		payload.owner = ownerId;
 
 		try {
 			if (!existing) {
 				try {
-					const created = await pocketbaseClient.collection('website_articles').create(payload);
+					let created = await pocketbaseClient.collection('website_articles').create(payload);
+					created = await ensureArticleLinkedToWebsite({
+						pocketbaseClient,
+						record: created,
+						websiteId: website.id,
+						websiteField: articlesSchema.websiteField,
+						ownerId,
+						logger,
+					});
+
+					if (!recordMatchesWebsite(created, website.id, articlesSchema.websiteField)) {
+						throw new Error(`Article created without website relation (${articlesSchema.websiteField})`);
+					}
+
 					existingByUrl.set(article.url, created);
 					summary.newArticles += 1;
 					continue;
@@ -887,6 +1206,14 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 						throw createError;
 					}
 
+					existing = await ensureArticleLinkedToWebsite({
+						pocketbaseClient,
+						record: existing,
+						websiteId: website.id,
+						websiteField: articlesSchema.websiteField,
+						ownerId,
+						logger,
+					});
 					existingByUrl.set(article.url, existing);
 				}
 			}
@@ -894,6 +1221,8 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 			const updatePayload = await sanitizeCollectionPayload({
 				collection: 'website_articles',
 				payload: {
+					[articlesSchema.websiteField]: website.id,
+					owner: ownerId,
 					scan_run_id: payload.scan_run_id,
 					...(payload.last_modified_date ? { last_modified_date: payload.last_modified_date } : {}),
 					...(hasMetadataChanges(existing, payload) ? {
@@ -909,7 +1238,11 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 					} : {}),
 				},
 				context: 'website-scan:update',
+				requiredKeys: [articlesSchema.websiteField, 'owner'],
 			});
+
+			updatePayload[articlesSchema.websiteField] = website.id;
+			updatePayload.owner = ownerId;
 
 			if (Object.keys(updatePayload).length > 0) {
 				const updated = await pocketbaseClient.collection('website_articles').update(existing.id, updatePayload);
@@ -932,8 +1265,26 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 	}
 
 	try {
+		summary.persistedArticles = await countWebsiteArticles({
+			pocketbaseClient,
+			websiteId: website.id,
+			websiteField: articlesSchema.websiteField,
+		});
+	} catch (error) {
+		logger?.warn?.('Post-scan article recount failed', {
+			websiteId: website.id,
+			message: formatPocketBaseError(error),
+		});
+		summary.persistedArticles = summary.newArticles + summary.updatedArticles;
+	}
+
+	if (summary.newArticles > 0 && summary.persistedArticles === 0) {
+		summary.errors.push('Articles were reported as saved but could not be loaded back from PocketBase.');
+	}
+
+	try {
 		await pocketbaseClient.collection('websites').update(website.id, {
-			discovery_status: summary.newArticles > 0 || summary.updatedArticles > 0 || summary.found === 0 ? 'ready' : 'failed',
+			discovery_status: summary.persistedArticles > 0 || summary.found === 0 ? 'ready' : 'failed',
 			last_scan_at: summary.lastScanAt,
 			next_scan_at: summary.nextScheduledScan,
 			last_scan_summary: summary,
@@ -952,7 +1303,7 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 	logger?.info?.('Website scan completed', website.id, summary);
 
 	// Only hard-fail when nothing was persisted and we had candidates to save.
-	if (summary.found > 0 && summary.newArticles === 0 && summary.updatedArticles === 0 && articles.length > 0) {
+	if (summary.found > 0 && summary.persistedArticles === 0 && articles.length > 0) {
 		throw new Error(summary.errors[summary.errors.length - 1] || 'Scan discovered articles but failed to save any to PocketBase.');
 	}
 
