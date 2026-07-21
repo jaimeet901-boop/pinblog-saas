@@ -185,10 +185,12 @@ async function assertPinterestConnected(owner, accountId = '') {
 		: await getOwnedPinterestAccount(owner);
 
 	if (!account) {
-		throw httpError(401, 'Pinterest account is not connected');
+		throw httpError(422, 'Pinterest account is not connected');
 	}
-	if (!account.connected || account.status !== 'connected') {
-		throw httpError(401, 'Selected Pinterest account is not connected');
+	const status = String(account.status || '').trim();
+	const usable = account.connected && (!status || status === 'connected');
+	if (!usable) {
+		throw httpError(422, 'Selected Pinterest account is not connected. Please reconnect it.');
 	}
 	return account;
 }
@@ -217,8 +219,9 @@ async function resolveTargetForPin({ owner, pin, defaultTarget, perPinTargets })
 
 async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, scheduledAt, timezone }) {
 	const pins = await getOwnedAIPins({ owner, pinIds });
-	const jobs = [];
+	const prepared = [];
 
+	// Validate all pins first so we never create partial job batches.
 	for (const pin of pins) {
 		const existingFilter = await buildSchemaSafeFilter({
 			collection: 'pinterest_publish_jobs',
@@ -237,8 +240,7 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 		});
 
 		if (existingActiveJob) {
-			jobs.push(existingActiveJob);
-			continue;
+			throw httpError(409, `Pin "${pin.title || pin.id}" already has an active publish/schedule job. Cancel it first.`);
 		}
 
 		if (!['draft', 'failed'].includes(pin.status)) {
@@ -255,6 +257,12 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 			perPinTargets,
 		});
 
+		prepared.push({ pin, account, board });
+	}
+
+	const jobs = [];
+
+	for (const { pin, account, board } of prepared) {
 		const createPayload = await sanitizeCollectionPayload({
 			collection: 'pinterest_publish_jobs',
 			context: 'pinterest:create-publish-job',
@@ -395,7 +403,10 @@ router.get('/oauth/callback', async (req, res) => {
 		});
 
 		const accessToken = normalizeString(tokenPayload.access_token, 'access_token', { required: true, max: 4000 });
-		const refreshToken = normalizeString(tokenPayload.refresh_token, 'refresh_token', { required: true, max: 4000 });
+		const refreshToken = normalizeString(tokenPayload.refresh_token, 'refresh_token', { max: 4000 });
+		if (!refreshToken) {
+			throw httpError(422, 'Pinterest did not return a refresh token. Enable continuous refresh on the Pinterest app and reconnect.');
+		}
 		const expiresAt = tokenPayload.expires_in
 			? new Date(Date.now() + Number(tokenPayload.expires_in) * 1000).toISOString()
 			: '';
@@ -450,14 +461,23 @@ router.get('/oauth/callback', async (req, res) => {
 			? await pocketbaseClient.collection('pinterest_accounts').update(targetAccount.id, payload)
 			: await pocketbaseClient.collection('pinterest_accounts').create(payload);
 
+		// Mark state used immediately after credentials are stored to prevent replay.
+		await pocketbaseClient.collection('pinterest_oauth_states').update(stateRecord.id, { used: true });
+
 		const ownerAccounts = await getOwnedPinterestAccounts(stateRecord.owner);
 		const hasDefaultAccount = ownerAccounts.some((item) => item.is_default);
 		if (!hasDefaultAccount) {
 			await setDefaultPinterestAccount({ owner: stateRecord.owner, accountId: account.id }).catch(() => null);
 		}
 
-		await syncPinterestBoardsForOwner({ owner: stateRecord.owner, account });
-		await pocketbaseClient.collection('pinterest_oauth_states').update(stateRecord.id, { used: true });
+		try {
+			await syncPinterestBoardsForOwner({ owner: stateRecord.owner, account });
+		} catch {
+			// Account is connected; boards can be synced later from the UI.
+			return res.redirect(
+				`${webAppBase}/app/pinterest?pinterest_connected=1&account_id=${encodeURIComponent(account.id)}&boards_sync_warning=1`,
+			);
+		}
 
 		return res.redirect(`${webAppBase}/app/pinterest?pinterest_connected=1&account_id=${encodeURIComponent(account.id)}`);
 	} catch (error) {
@@ -633,6 +653,13 @@ async function disconnectOwnedAccount({ owner, account }) {
 		if (job.ai_pin) {
 			await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
 				status: 'draft',
+				scheduled_at: '',
+				scheduled_timezone: '',
+				publish_job_id: '',
+				pinterest_account_id: '',
+				pinterest_account_label: '',
+				pinterest_board_id: '',
+				pinterest_board_name: '',
 				publish_error: 'Pinterest account disconnected before publish completed',
 			}).catch(() => null);
 		}
@@ -643,7 +670,11 @@ async function disconnectOwnedAccount({ owner, account }) {
 	}).then((boards) => Promise.all(boards.map((board) => pocketbaseClient.collection('pinterest_boards').delete(board.id).catch(() => {}))));
 
 	const wasDefault = Boolean(account.is_default);
-	await pocketbaseClient.collection('pinterest_accounts').delete(account.id).catch(() => {});
+	try {
+		await pocketbaseClient.collection('pinterest_accounts').delete(account.id);
+	} catch (error) {
+		throw httpError(500, error?.message || 'Failed to disconnect Pinterest account');
+	}
 
 	if (wasDefault) {
 		const remaining = await getOwnedPinterestAccounts(owner);
@@ -767,6 +798,9 @@ router.post('/schedule', async (req, res) => {
 
 	const pinIds = normalizePinIds(req.body?.pinIds);
 	const scheduledAt = normalizeDateTime(req.body?.scheduledAt, 'scheduledAt');
+	if (new Date(scheduledAt).getTime() <= Date.now() + 30 * 1000) {
+		throw httpError(422, 'scheduledAt must be at least 30 seconds in the future');
+	}
 	const timezone = normalizeString(req.body?.timezone, 'timezone', { required: true, max: 80 });
 	const defaultTarget = {
 		accountId: normalizeString(req.body?.accountId, 'accountId', { max: 80 }),
@@ -796,26 +830,34 @@ router.patch('/jobs/:jobId', async (req, res) => {
 	}
 
 	const updates = {};
+	const body = req.body || {};
+	const nextAccountId = normalizeString(body.accountId, 'accountId', { max: 80 }) || job.account;
+	const nextBoardId = normalizeString(body.boardId, 'boardId', { max: 120 }) || job.board_id;
 
-	if ('scheduledAt' in (req.body || {})) {
-		updates.scheduled_at = normalizeDateTime(req.body.scheduledAt, 'scheduledAt');
+	if ('scheduledAt' in body) {
+		updates.scheduled_at = normalizeDateTime(body.scheduledAt, 'scheduledAt');
 	}
-	if ('timezone' in (req.body || {})) {
-		updates.timezone = normalizeString(req.body.timezone, 'timezone', { required: true, max: 80 });
+	if ('timezone' in body) {
+		updates.timezone = normalizeString(body.timezone, 'timezone', { required: true, max: 80 });
 	}
-	if ('boardId' in (req.body || {})) {
-		const boardId = normalizeString(req.body.boardId, 'boardId', { required: true, max: 120 });
-		const currentAccountId = normalizeString(req.body?.accountId, 'accountId', { max: 80 }) || updates.account || job.account;
-		const board = await getOwnedPinterestBoard({ owner, boardId, accountId: currentAccountId });
-		updates.account = currentAccountId;
-		updates.board_id = board.board_id;
-		updates.board_name = board.name;
-	}
-	if ('accountId' in (req.body || {})) {
-		const account = await assertPinterestConnected(owner, normalizeString(req.body.accountId, 'accountId', { required: true, max: 80 }));
+
+	if ('accountId' in body || 'boardId' in body) {
+		const account = await assertPinterestConnected(owner, nextAccountId);
+		let board;
+		if ('boardId' in body && nextBoardId) {
+			board = await getOwnedPinterestBoard({ owner, boardId: nextBoardId, accountId: account.id });
+		} else {
+			board = await getDefaultPinterestBoard({ owner, accountId: account.id });
+			if (!board) {
+				throw httpError(422, 'Selected account has no boards. Sync boards first.');
+			}
+		}
+
 		updates.account = account.id;
 		updates.account_label = account.label || account.account_name || account.username || '';
 		updates.account_username = account.username || '';
+		updates.board_id = board.board_id;
+		updates.board_name = board.name;
 	}
 
 	if (Object.keys(updates).length === 0) {
@@ -877,8 +919,11 @@ router.post('/jobs/:jobId/cancel', async (req, res) => {
 		status: 'draft',
 		scheduled_at: '',
 		scheduled_timezone: '',
+		publish_job_id: '',
 		pinterest_account_id: '',
 		pinterest_account_label: '',
+		pinterest_board_id: '',
+		pinterest_board_name: '',
 		publish_error: '',
 	});
 

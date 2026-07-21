@@ -19,6 +19,7 @@ import {
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.PINTEREST_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.PINTEREST_QUEUE_BATCH || '10', 10);
+const STUCK_PUBLISHING_MS = Number.parseInt(process.env.PINTEREST_QUEUE_STUCK_MS || String(15 * 60 * 1000), 10);
 
 let workerTimer = null;
 let running = false;
@@ -60,6 +61,36 @@ function extractPinImageUrl(pin) {
 	return String(pin.image_url || '').trim();
 }
 
+async function claimScheduledJob(jobId) {
+	// Soft lock: re-read and only transition scheduled -> publishing.
+	// PocketBase has no conditional update; this reduces (does not eliminate) multi-worker races.
+	const current = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(jobId).catch(() => null);
+	if (!current || current.status !== 'scheduled') {
+		return null;
+	}
+
+	const lockPayload = await sanitizeCollectionPayload({
+		collection: 'pinterest_publish_jobs',
+		context: 'pinterest-queue:lock-job',
+		payload: {
+			status: 'publishing',
+		},
+	});
+
+	const locked = await pocketbaseClient.collection('pinterest_publish_jobs').update(jobId, lockPayload).catch(() => null);
+	if (!locked || locked.status !== 'publishing') {
+		return null;
+	}
+
+	// Detect lost race: another worker may have flipped away or already published.
+	const verified = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(jobId).catch(() => null);
+	if (!verified || verified.status !== 'publishing') {
+		return null;
+	}
+
+	return verified;
+}
+
 async function processJob(job) {
 	const owner = job.owner;
 
@@ -68,9 +99,46 @@ async function processJob(job) {
 		throw httpError(404, 'Associated AI pin was not found');
 	}
 
+	// Idempotency: if this job (or pin) already has a Pinterest pin id, mark published and skip create.
+	const existingPinId = String(job.pinterest_pin_id || pin.pinterest_pin_id || '').trim();
+	if (existingPinId) {
+		const publishedAt = job.published_at || pin.published_at || new Date().toISOString();
+		const pinterestPinUrl = job.pinterest_pin_url || pin.pinterest_pin_url || getPinterestPinPublicUrl(existingPinId);
+		const publishPayload = await sanitizeCollectionPayload({
+			collection: 'pinterest_publish_jobs',
+			context: 'pinterest-queue:mark-published-idempotent',
+			payload: {
+				status: 'published',
+				published_at: publishedAt,
+				last_error: '',
+				next_retry_at: null,
+				pinterest_pin_id: existingPinId,
+				pinterest_pin_url: pinterestPinUrl,
+			},
+		});
+		await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, publishPayload);
+		await markPinStatus(pin.id, {
+			status: 'published',
+			scheduled_at: '',
+			scheduled_timezone: '',
+			publish_error: '',
+			pinterest_pin_id: existingPinId,
+			pinterest_pin_url: pinterestPinUrl,
+			published_at: publishedAt,
+		});
+		await appendPublishEvent({
+			owner,
+			jobId: job.id,
+			eventType: 'published',
+			message: 'Pin already published; skipped duplicate create',
+			payload: { pinterestPinId: existingPinId, pinterestPinUrl },
+		});
+		return;
+	}
+
 	const account = await getOwnedPinterestAccountById({ owner, accountId: job.account });
 	if (!account?.connected) {
-		throw httpError(401, 'Pinterest account is not connected');
+		throw httpError(422, 'Pinterest account is not connected');
 	}
 
 	const imageUrl = extractPinImageUrl(pin);
@@ -240,17 +308,8 @@ async function processDueJobs() {
 		const dueJobs = await getDuePublishJobs(now);
 
 		for (const job of dueJobs.slice(0, MAX_JOBS_PER_TICK)) {
-			const lockPayload = await sanitizeCollectionPayload({
-				collection: 'pinterest_publish_jobs',
-				context: 'pinterest-queue:lock-job',
-				payload: {
-					status: 'publishing',
-				},
-			});
-
-			const locked = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, lockPayload).catch(() => null);
-
-			if (!locked || locked.status !== 'publishing') {
+			const locked = await claimScheduledJob(job.id);
+			if (!locked) {
 				continue;
 			}
 
@@ -339,15 +398,48 @@ async function recoverStuckPublishingJobs() {
 		return;
 	}
 
-	const now = new Date().toISOString();
+	const nowMs = Date.now();
+	const now = new Date(nowMs).toISOString();
+	let recovered = 0;
+
 	await Promise.all(stuck.map(async (job) => {
+		// Only recover jobs stuck longer than the threshold to avoid interrupting an active publish.
+		const updatedAt = new Date(job.updated || job.created || 0).getTime();
+		const ageMs = Number.isFinite(updatedAt) ? nowMs - updatedAt : STUCK_PUBLISHING_MS + 1;
+		if (ageMs < STUCK_PUBLISHING_MS) {
+			return;
+		}
+
+		// Already published remotely — finalize instead of republishing.
+		if (String(job.pinterest_pin_id || '').trim()) {
+			const publishPayload = await sanitizeCollectionPayload({
+				collection: 'pinterest_publish_jobs',
+				context: 'pinterest-queue:recover-published',
+				payload: {
+					status: 'published',
+					published_at: job.published_at || now,
+					last_error: '',
+					next_retry_at: null,
+				},
+			});
+			await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, publishPayload).catch(() => null);
+			await markPinStatus(job.ai_pin, {
+				status: 'published',
+				publish_error: '',
+				pinterest_pin_id: job.pinterest_pin_id,
+				pinterest_pin_url: job.pinterest_pin_url || '',
+			}).catch(() => null);
+			recovered += 1;
+			return;
+		}
+
 		const recoveryPayload = await sanitizeCollectionPayload({
 			collection: 'pinterest_publish_jobs',
 			context: 'pinterest-queue:recover-update',
 			payload: {
 				status: 'scheduled',
 				next_retry_at: now,
-				last_error: 'Recovered after worker restart',
+				last_error: 'Recovered after stuck publishing state',
 			},
 		});
 
@@ -357,9 +449,12 @@ async function recoverStuckPublishingJobs() {
 			status: 'scheduled',
 			publish_error: '',
 		}).catch(() => null);
+		recovered += 1;
 	}));
 
-	logger.info(`Recovered ${stuck.length} publishing jobs after restart`);
+	if (recovered > 0) {
+		logger.info(`Recovered ${recovered} stuck publishing jobs`);
+	}
 }
 
 export function getPinterestQueueStatus() {

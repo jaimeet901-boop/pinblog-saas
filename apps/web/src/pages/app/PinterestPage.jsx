@@ -84,9 +84,16 @@ export default function PinterestPage() {
 			toast({
 				title: 'Pinterest connected',
 				description: connectedAccountId
-					? `Account linked: ${connectedAccountId}`
+					? `Account linked successfully.`
 					: 'Your Pinterest account is now linked successfully.',
 			});
+			if (searchParams.get('boards_sync_warning') === '1') {
+				toast({
+					variant: 'destructive',
+					title: 'Boards sync incomplete',
+					description: 'Account connected, but boards could not be synced. Use Sync Boards.',
+				});
+			}
 			load();
 		}
 

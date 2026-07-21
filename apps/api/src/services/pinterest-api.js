@@ -97,11 +97,19 @@ export async function getOwnedPinterestAccounts(owner) {
 
 export async function getOwnedPinterestAccount(owner) {
 	const accounts = await getOwnedPinterestAccounts(owner);
-	const preferredDefault = accounts.find((account) => account.is_default && account.connected && account.status === 'connected');
+	const isUsable = (account) => {
+		if (!account?.connected) {
+			return false;
+		}
+		const status = String(account.status || '').trim();
+		return !status || status === 'connected';
+	};
+
+	const preferredDefault = accounts.find((account) => account.is_default && isUsable(account));
 	if (preferredDefault) {
 		return preferredDefault;
 	}
-	const connected = accounts.find((account) => account.connected && account.status === 'connected');
+	const connected = accounts.find((account) => isUsable(account));
 	return connected || accounts.find((account) => account.is_default) || accounts[0] || null;
 }
 
@@ -295,6 +303,7 @@ export async function exchangeOAuthCodeForTokens({ code, redirectUri }) {
 		grant_type: 'authorization_code',
 		code,
 		redirect_uri: redirectUri,
+		continuous_refresh: 'true',
 	});
 }
 
@@ -310,12 +319,18 @@ export async function refreshPinterestAccessToken({ account }) {
 		refresh_token: refreshToken,
 	});
 
+	const nextAccessToken = String(payload.access_token || '').trim();
+	if (!nextAccessToken) {
+		await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: 'Refresh returned empty access token' });
+		throw httpError(401, 'Pinterest access token refresh failed. Please reconnect your account.');
+	}
+
 	const expiresAt = payload.expires_in
 		? new Date(Date.now() + Number(payload.expires_in) * 1000).toISOString()
 		: account.token_expires_at || '';
 
 	const updated = await pocketbaseClient.collection('pinterest_accounts').update(account.id, {
-		access_token: encryptSecret(payload.access_token || ''),
+		access_token: encryptSecret(nextAccessToken),
 		refresh_token: payload.refresh_token ? encryptSecret(payload.refresh_token) : account.refresh_token,
 		token_expires_at: expiresAt,
 		connected: true,

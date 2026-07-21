@@ -219,7 +219,7 @@ export default function AIPinsPage() {
 	);
 
 	const draftPins = useMemo(
-		() => savedPins.filter((pin) => pin.status !== 'published'),
+		() => savedPins.filter((pin) => pin.status === 'draft' || pin.status === 'failed'),
 		[savedPins],
 	);
 
@@ -374,12 +374,17 @@ export default function AIPinsPage() {
 		setLoadingBoards(true);
 		try {
 			const response = await apiServerClient.fetch(`/pinterest/boards?accountId=${encodeURIComponent(selectedAccountId)}`, { method: 'GET' });
-			if (response.status === 401) {
+			const payload = await response.json().catch(() => ([]));
+			if (response.status === 401 || response.status === 422) {
 				setBoards([]);
 				setSelectedBoardId('');
+				toast({
+					variant: 'destructive',
+					title: 'Pinterest account unavailable',
+					description: payload?.message || 'Reconnect this Pinterest account to load boards.',
+				});
 				return;
 			}
-			const payload = await response.json().catch(() => []);
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to load Pinterest boards (${response.status})`);
 			}
