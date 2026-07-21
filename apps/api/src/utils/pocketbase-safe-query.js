@@ -68,6 +68,26 @@ const FALLBACK_SCHEMA_FIELDS = {
 		'created',
 		'updated',
 	]),
+	website_articles: new Set([
+		'id',
+		'websiteId',
+		'owner',
+		'url',
+		'slug',
+		'title',
+		'meta_description',
+		'featured_image',
+		'publish_date',
+		'last_modified_date',
+		'category',
+		'author',
+		'language',
+		'status',
+		'source',
+		'scan_run_id',
+		'created',
+		'updated',
+	]),
 };
 
 const schemaCache = new Map();

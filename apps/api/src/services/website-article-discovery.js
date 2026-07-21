@@ -1,3 +1,5 @@
+import { sanitizeCollectionPayload, safeGetFullList, safeGetList } from '../utils/pocketbase-safe-query.js';
+
 const MAX_SOURCE_URLS = 250;
 const MAX_ARTICLE_FETCHES = 50;
 const MAX_CRAWL_PAGES = 40;
@@ -26,15 +28,43 @@ async function getCollectionFieldNames({ collection, pocketbaseClient }) {
 		return cached.fields;
 	}
 
-	const model = await pocketbaseClient.collections.getOne(collection);
-	const fields = new Set((model?.fields || []).map((field) => field?.name).filter(Boolean));
+	try {
+		const model = await pocketbaseClient.collections.getOne(collection);
+		const fields = new Set((model?.fields || []).map((field) => field?.name).filter(Boolean));
 
-	collectionSchemaCache.set(collection, {
-		fields,
-		expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
-	});
+		collectionSchemaCache.set(collection, {
+			fields,
+			expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
+		});
 
-	return fields;
+		return fields;
+	} catch {
+		const fallback = new Set([
+			'id',
+			'websiteId',
+			'owner',
+			'url',
+			'slug',
+			'title',
+			'meta_description',
+			'featured_image',
+			'publish_date',
+			'last_modified_date',
+			'category',
+			'author',
+			'language',
+			'status',
+			'source',
+			'scan_run_id',
+			'created',
+			'updated',
+		]);
+		collectionSchemaCache.set(collection, {
+			fields: fallback,
+			expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
+		});
+		return fallback;
+	}
 }
 
 async function resolveWebsiteArticlesSchema({ pocketbaseClient, logger }) {
@@ -674,6 +704,95 @@ function buildArticleWritePayload({ article, websiteId, ownerId, websiteField, s
 	return payload;
 }
 
+function isUniqueConflict(error) {
+	const message = String(formatPocketBaseError(error) || '').toLowerCase();
+	const responseData = error?.response?.data || error?.data || {};
+	const raw = JSON.stringify(responseData).toLowerCase();
+	return message.includes('unique')
+		|| message.includes('duplicate')
+		|| raw.includes('unique')
+		|| raw.includes('validation_not_unique');
+}
+
+function recordMatchesWebsite(record, websiteId, websiteField) {
+	const raw = record?.[websiteField] ?? record?.websiteId ?? record?.website_id ?? record?.website;
+	if (!raw) {
+		return false;
+	}
+	if (typeof raw === 'string') {
+		return raw === websiteId;
+	}
+	if (typeof raw === 'object') {
+		return raw.id === websiteId;
+	}
+	return String(raw) === websiteId;
+}
+
+async function loadExistingArticlesByWebsite({ pocketbaseClient, websiteId, websiteField, logger }) {
+	const filterExpressions = [
+		pocketbaseClient.filter(`${websiteField} = {:websiteId}`, { websiteId }),
+		`${websiteField}="${String(websiteId).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`,
+	];
+
+	for (const filter of filterExpressions) {
+		const records = await safeGetFullList({
+			collection: 'website_articles',
+			context: 'website-scan:existing-articles',
+			filter,
+			sort: '-created',
+		});
+
+		if (Array.isArray(records) && records.length > 0) {
+			return records.filter((record) => recordMatchesWebsite(record, websiteId, websiteField));
+		}
+
+		// safeGetFullList returns [] on hard failure OR when truly empty.
+		// Probe with getList to distinguish "query broken" vs "no rows".
+		const probe = await safeGetList({
+			collection: 'website_articles',
+			context: 'website-scan:existing-articles-probe',
+			page: 1,
+			perPage: 50,
+			filter,
+			sort: '-created',
+		});
+
+		if (Array.isArray(probe?.items)) {
+			return probe.items.filter((record) => recordMatchesWebsite(record, websiteId, websiteField));
+		}
+	}
+
+	// Last resort: load a page without filter and match in memory.
+	logger?.warn?.('Falling back to unfiltered website_articles probe for scan dedupe', {
+		websiteId,
+		websiteField,
+	});
+
+	const unfiltered = await safeGetList({
+		collection: 'website_articles',
+		context: 'website-scan:existing-articles-unfiltered',
+		page: 1,
+		perPage: 200,
+		sort: '-created',
+	});
+
+	return (unfiltered.items || []).filter((record) => recordMatchesWebsite(record, websiteId, websiteField));
+}
+
+async function findArticleByWebsiteUrl({ pocketbaseClient, websiteId, websiteField, url }) {
+	const escapedUrl = String(url).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+	const filter = [
+		pocketbaseClient.filter(`${websiteField} = {:websiteId}`, { websiteId }),
+		`url = "${escapedUrl}"`,
+	].join(' && ');
+
+	try {
+		return await pocketbaseClient.collection('website_articles').getFirstListItem(filter);
+	} catch {
+		return null;
+	}
+}
+
 export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: ownerIdOverride, runId, onProgress, logger }) {
 	const startedAt = new Date().toISOString();
 	const summary = {
@@ -705,18 +824,21 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 
 	let existingRecords = [];
 	try {
-		existingRecords = await pocketbaseClient.collection('website_articles').getFullList({
-			filter: pocketbaseClient.filter(`${articlesSchema.websiteField} = {:websiteId}`, { websiteId: website.id }),
-			sort: '-updated',
+		existingRecords = await loadExistingArticlesByWebsite({
+			pocketbaseClient,
+			websiteId: website.id,
+			websiteField: articlesSchema.websiteField,
+			logger,
 		});
 	} catch (error) {
 		const message = formatPocketBaseError(error);
-		logger?.error?.('Failed to load existing website articles before scan write', {
+		logger?.warn?.('Existing article lookup failed; continuing scan with empty dedupe map', {
 			websiteId: website.id,
 			message,
 			pocketbaseErrorResponse: error?.response?.data || error?.response || null,
 		});
-		throw new Error(`Unable to load existing articles for this website: ${message}`);
+		summary.errors.push(`Existing article lookup warning: ${message}`);
+		existingRecords = [];
 	}
 
 	const existingByUrl = new Map(existingRecords.map((record) => [record.url, record]));
@@ -724,8 +846,8 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 	onProgress?.({ type: 'progress', stage: 'persist', message: `Saving ${articles.length} articles to PocketBase` });
 
 	for (const article of articles) {
-		const existing = existingByUrl.get(article.url);
-		const payload = buildArticleWritePayload({
+		let existing = existingByUrl.get(article.url);
+		const rawPayload = buildArticleWritePayload({
 			article,
 			websiteId: website.id,
 			ownerId,
@@ -736,45 +858,73 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 			existingStatus: existing?.[articlesSchema.statusField] || existing?.status || 'new',
 		});
 
+		const payload = await sanitizeCollectionPayload({
+			collection: 'website_articles',
+			payload: rawPayload,
+			context: 'website-scan:create-or-update',
+		});
+
 		try {
 			if (!existing) {
-				await pocketbaseClient.collection('website_articles').create(payload);
-				summary.newArticles += 1;
-				continue;
-			}
+				try {
+					const created = await pocketbaseClient.collection('website_articles').create(payload);
+					existingByUrl.set(article.url, created);
+					summary.newArticles += 1;
+					continue;
+				} catch (createError) {
+					if (!isUniqueConflict(createError)) {
+						throw createError;
+					}
 
-			const updatePayload = {
-				scan_run_id: payload.scan_run_id,
-			};
+					existing = await findArticleByWebsiteUrl({
+						pocketbaseClient,
+						websiteId: website.id,
+						websiteField: articlesSchema.websiteField,
+						url: article.url,
+					});
 
-			if (payload.last_modified_date) {
-				updatePayload.last_modified_date = payload.last_modified_date;
-			}
+					if (!existing) {
+						throw createError;
+					}
 
-			if (hasMetadataChanges(existing, payload)) {
-				Object.assign(updatePayload, {
-					slug: payload.slug,
-					title: payload.title,
-					meta_description: payload.meta_description,
-					featured_image: payload.featured_image,
-					category: payload.category,
-					author: payload.author,
-					language: payload.language,
-					source: payload.source,
-				});
-				if (payload.publish_date) {
-					updatePayload.publish_date = payload.publish_date;
+					existingByUrl.set(article.url, existing);
 				}
-				summary.updatedArticles += 1;
 			}
 
-			await pocketbaseClient.collection('website_articles').update(existing.id, updatePayload);
+			const updatePayload = await sanitizeCollectionPayload({
+				collection: 'website_articles',
+				payload: {
+					scan_run_id: payload.scan_run_id,
+					...(payload.last_modified_date ? { last_modified_date: payload.last_modified_date } : {}),
+					...(hasMetadataChanges(existing, payload) ? {
+						slug: payload.slug,
+						title: payload.title,
+						meta_description: payload.meta_description,
+						featured_image: payload.featured_image,
+						category: payload.category,
+						author: payload.author,
+						language: payload.language,
+						source: payload.source,
+						...(payload.publish_date ? { publish_date: payload.publish_date } : {}),
+					} : {}),
+				},
+				context: 'website-scan:update',
+			});
+
+			if (Object.keys(updatePayload).length > 0) {
+				const updated = await pocketbaseClient.collection('website_articles').update(existing.id, updatePayload);
+				existingByUrl.set(article.url, updated);
+				if (hasMetadataChanges(existing, payload)) {
+					summary.updatedArticles += 1;
+				}
+			}
 		} catch (error) {
 			const message = formatPocketBaseError(error);
 			logger?.error?.('Failed to persist scanned article', {
 				websiteId: website.id,
 				articleUrl: article.url,
 				message,
+				payload,
 				pocketbaseErrorResponse: error?.response?.data || error?.response || null,
 			});
 			summary.errors.push(`Failed to save ${article.url}: ${message}`);
@@ -802,7 +952,7 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 	logger?.info?.('Website scan completed', website.id, summary);
 
 	// Only hard-fail when nothing was persisted and we had candidates to save.
-	if (summary.found > 0 && summary.newArticles === 0 && summary.updatedArticles === 0) {
+	if (summary.found > 0 && summary.newArticles === 0 && summary.updatedArticles === 0 && articles.length > 0) {
 		throw new Error(summary.errors[summary.errors.length - 1] || 'Scan discovered articles but failed to save any to PocketBase.');
 	}
 
