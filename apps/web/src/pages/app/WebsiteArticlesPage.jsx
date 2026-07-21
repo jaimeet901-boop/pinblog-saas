@@ -83,7 +83,7 @@ export default function WebsiteArticlesPage() {
 	return (
 		<div>
 			<PageHeader
-				title={website ? `${website.name} Articles` : 'Website Articles'}
+				title={`${website?.name || website?.domain || 'Website'} Articles`}
 				subtitle="Browse discovered articles with search, filters, and pagination."
 				action={(
 					<div className="flex flex-wrap gap-2">

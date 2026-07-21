@@ -80,6 +80,7 @@ export default function WebsitesPage() {
 	const [lastMetadataUrl, setLastMetadataUrl] = useState('');
 
 	const load = async () => {
+		setLoading(true);
 		setLoadError('');
 		try {
 			const res = await apiServerClient.fetch('/websites', { method: 'GET' });

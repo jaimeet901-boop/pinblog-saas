@@ -120,31 +120,44 @@ function resolveSchemaField(fields, candidates, fallback) {
 }
 
 async function resolveWebsitesSchema() {
-	const model = await pocketbaseClient.collections.getOne('websites');
-	const fields = extractCollectionFieldNames(model);
-	collectionSchemaCache.set('websites', {
-		fields,
-		expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
-	});
+	try {
+		const model = await pocketbaseClient.collections.getOne('websites');
+		const fields = extractCollectionFieldNames(model);
+		collectionSchemaCache.set('websites', {
+			fields,
+			expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
+		});
 
-	const schema = {
-		ownerField: resolveSchemaField(fields, WEBSITE_OWNER_FIELD_CANDIDATES, 'owner'),
-		urlField: resolveSchemaField(fields, WEBSITE_URL_FIELD_CANDIDATES, 'url'),
-		domainField: resolveSchemaField(fields, WEBSITE_DOMAIN_FIELD_CANDIDATES, 'domain'),
-		discoveryStatusField: resolveSchemaField(fields, WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES, 'discovery_status'),
-		statusField: resolveSchemaField(fields, WEBSITE_STATUS_FIELD_CANDIDATES, 'status'),
-	};
-	const urlFieldDefinition = (model?.fields || model?.schema || []).find((field) => field?.name === schema.urlField) || null;
+		const schema = {
+			ownerField: resolveSchemaField(fields, WEBSITE_OWNER_FIELD_CANDIDATES, 'owner'),
+			urlField: resolveSchemaField(fields, WEBSITE_URL_FIELD_CANDIDATES, 'url'),
+			domainField: resolveSchemaField(fields, WEBSITE_DOMAIN_FIELD_CANDIDATES, 'domain'),
+			discoveryStatusField: resolveSchemaField(fields, WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES, 'discovery_status'),
+			statusField: resolveSchemaField(fields, WEBSITE_STATUS_FIELD_CANDIDATES, 'status'),
+		};
+		const urlFieldDefinition = (model?.fields || model?.schema || []).find((field) => field?.name === schema.urlField) || null;
 
-	logger.info('Websites schema resolved', {
-		collection: 'websites',
-		schema,
-		urlFieldDefinition,
-		createRule: model?.createRule ?? null,
-		updateRule: model?.updateRule ?? null,
-	});
+		logger.info('Websites schema resolved', {
+			collection: 'websites',
+			schema,
+			urlFieldDefinition,
+			createRule: model?.createRule ?? null,
+			updateRule: model?.updateRule ?? null,
+		});
 
-	return schema;
+		return schema;
+	} catch (error) {
+		logger.warn('Websites schema lookup failed; using defaults', {
+			message: error?.message || null,
+		});
+		return {
+			ownerField: 'owner',
+			urlField: 'url',
+			domainField: 'domain',
+			discoveryStatusField: 'discovery_status',
+			statusField: 'status',
+		};
+	}
 }
 
 async function createWebsiteRecord({ payload, urlField, context }) {
@@ -398,10 +411,14 @@ function mapWebsite(site) {
 	const status = getFieldValue(site, WEBSITE_STATUS_FIELD_CANDIDATES);
 	const discoveryStatus = getFieldValue(site, WEBSITE_DISCOVERY_STATUS_FIELD_CANDIDATES);
 	const hasPassword = typeof site.wp_app_password === 'string' && site.wp_app_password.length > 0;
+	const name = (typeof site.name === 'string' && site.name.trim())
+		|| domain
+		|| url
+		|| 'Untitled website';
 
 	return {
 		id: site.id,
-		name: site.name,
+		name,
 		url,
 		domain,
 		favicon: site.favicon,
@@ -575,20 +592,81 @@ router.post('/metadata', async (req, res) => {
 	res.json(metadata);
 });
 
-router.get('/', async (req, res) => {
-	const collectionName = 'websites';
+async function listOwnedWebsites({ userId }) {
 	const websitesSchema = await resolveWebsitesSchema();
-	const listFilter = pocketbaseClient.filter(`${websitesSchema.ownerField} = {:owner}`, { owner: req.pocketbaseUserId });
+	const ownerField = websitesSchema.ownerField || 'owner';
+	const listFilter = pocketbaseClient.filter(`${ownerField} = {:owner}`, { owner: userId });
 
-	const websites = await safeGetFullList({
-		collection: collectionName,
+	let records = await safeGetFullList({
+		collection: 'websites',
 		context: 'websites:list',
 		filter: listFilter,
 		sort: '-created',
 	});
 
-	const owned = (websites || []).filter((site) => getOwnerId(site, websitesSchema.ownerField) === req.pocketbaseUserId);
-	res.json(owned.map(mapWebsite));
+	let owned = (records || []).filter((site) => getOwnerId(site, ownerField) === userId);
+
+	// Owner filter can succeed with 0 rows when owner is missing/mismatched even though
+	// direct getOne access works (see getOwnedWebsite repair path). Fall back to an
+	// unfiltered scan and keep matching + claimable (owner-empty) records.
+	if (owned.length === 0) {
+		records = await safeGetFullList({
+			collection: 'websites',
+			context: 'websites:list-unfiltered',
+			filter: '',
+			sort: '-created',
+		});
+
+		const claimable = [];
+		owned = [];
+
+		for (const site of records || []) {
+			const storedOwnerId = getOwnerId(site, ownerField);
+			if (storedOwnerId === userId) {
+				owned.push(site);
+				continue;
+			}
+			if (!storedOwnerId) {
+				claimable.push(site);
+			}
+		}
+
+		for (const site of claimable) {
+			const repaired = await pocketbaseClient
+				.collection('websites')
+				.update(site.id, { [ownerField]: userId })
+				.catch(() => null);
+			owned.push(repaired || { ...site, [ownerField]: userId });
+		}
+	}
+
+	return owned.map(mapWebsite);
+}
+
+router.get('/', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in to view websites');
+	}
+
+	try {
+		const websites = await listOwnedWebsites({ userId: req.pocketbaseUserId });
+		res.json(websites);
+	} catch (error) {
+		logger.error('Websites list failed', {
+			message: error?.message || null,
+			stack: error?.stack || null,
+			pocketbaseUserId: req.pocketbaseUserId || '',
+			pocketbaseErrorResponse: error?.response?.data || error?.response || null,
+		});
+
+		// Prefer an empty list over a hard 500 so the Website Manager stays usable.
+		if (!error?.status || error.status >= 500) {
+			res.json([]);
+			return;
+		}
+
+		throw error;
+	}
 });
 
 router.get('/:websiteId', async (req, res) => {

@@ -326,9 +326,16 @@ export async function safeGetFullList({ collection, context, filter = '', sort =
 			...details,
 		});
 
-		if (details.status === 400) {
+		// Any filtered query failure should soft-fallback so list UIs stay available.
+		if (filter) {
 			try {
-				return await executeGetFullList({ collection, context: `${context}:fallback-no-filter`, filter: '', sort: safeSort, expand });
+				return await executeGetFullList({
+					collection,
+					context: `${context}:fallback-no-filter`,
+					filter: '',
+					sort: safeSort,
+					expand,
+				});
 			} catch (fallbackError) {
 				const fallbackDetails = normalizePbError(fallbackError);
 				logger.error('PocketBase fallback getFullList failed', {
