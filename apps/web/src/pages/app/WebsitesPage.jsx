@@ -134,7 +134,18 @@ export default function WebsitesPage() {
 			const data = await res.json().catch(() => ({}));
 
 			if (!res.ok) {
-				throw new Error(data?.message || 'Unable to fetch website details.');
+				if (res.status === 429 && allowFallback) {
+					const fallback = deriveFallbackMetadata(normalizedUrl);
+					setModalData({
+						...fallback,
+						status: 'active',
+						discovery_status: 'pending',
+					});
+					setLastMetadataUrl(fallback.url || normalizedUrl);
+					setUrlError('Rate limit reached while fetching details. You can still save with the URL and name.');
+					return fallback;
+				}
+				throw new Error(data?.message || data?.error || 'Unable to fetch website details.');
 			}
 
 			setModalData({
@@ -181,18 +192,28 @@ export default function WebsitesPage() {
 					return;
 				}
 
-				// Prefer live metadata, but never block save if the remote site is unreachable.
-				const metadata = await fetchWebsiteMetadata(data.url, { allowFallback: true });
-				if (!metadata) {
-					return;
+				const trimmedUrl = data.url.trim();
+				const alreadyHydrated = Boolean(
+					lastMetadataUrl
+					&& lastMetadataUrl === trimmedUrl
+					&& data.name?.trim()
+					&& data.domain?.trim(),
+				);
+
+				if (!alreadyHydrated) {
+					// Prefer live metadata, but never block save if the remote site is unreachable.
+					const metadata = await fetchWebsiteMetadata(trimmedUrl, { allowFallback: true });
+					if (!metadata) {
+						return;
+					}
+					working = {
+						...data,
+						name: data.name?.trim() ? data.name : metadata.name,
+						url: metadata.url || data.url,
+						domain: metadata.domain || data.domain,
+						favicon: metadata.favicon || data.favicon,
+					};
 				}
-				working = {
-					...data,
-					name: data.name?.trim() ? data.name : metadata.name,
-					url: metadata.url || data.url,
-					domain: metadata.domain || data.domain,
-					favicon: metadata.favicon || data.favicon,
-				};
 			}
 
 			if (!working.name?.trim()) {
