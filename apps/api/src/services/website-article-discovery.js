@@ -674,7 +674,7 @@ function buildArticleWritePayload({ article, websiteId, ownerId, websiteField, s
 	return payload;
 }
 
-export async function scanWebsiteArticles({ pocketbaseClient, website, runId, onProgress, logger }) {
+export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: ownerIdOverride, runId, onProgress, logger }) {
 	const startedAt = new Date().toISOString();
 	const summary = {
 		found: 0,
@@ -688,7 +688,8 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, runId, on
 
 	onProgress?.({ type: 'progress', stage: 'init', message: 'Preparing website scan' });
 	const articlesSchema = await resolveWebsiteArticlesSchema({ pocketbaseClient, logger });
-	const ownerId = resolveOwnerId(website);
+	const ownerId = (typeof ownerIdOverride === 'string' && ownerIdOverride.trim())
+		|| resolveOwnerId(website);
 
 	if (!ownerId) {
 		throw new Error('Website owner is missing. Re-save the website and try scanning again.');

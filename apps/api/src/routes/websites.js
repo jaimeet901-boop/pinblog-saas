@@ -410,24 +410,30 @@ function mapWebsite(site) {
 	};
 }
 
-function getOwnerId(site) {
-	if (!site?.owner) {
+function getOwnerId(site, ownerField = 'owner') {
+	const rawOwner = site?.[ownerField] ?? site?.owner;
+
+	if (rawOwner == null || rawOwner === '') {
 		return '';
 	}
 
-	if (typeof site.owner === 'string') {
-		return site.owner;
+	if (typeof rawOwner === 'string') {
+		return rawOwner.trim();
 	}
 
-	if (Array.isArray(site.owner)) {
-		return typeof site.owner[0] === 'string' ? site.owner[0] : site.owner[0]?.id || '';
+	if (Array.isArray(rawOwner)) {
+		const first = rawOwner[0];
+		if (typeof first === 'string') {
+			return first.trim();
+		}
+		return first?.id || first?.value || '';
 	}
 
-	if (typeof site.owner === 'object') {
-		return site.owner.id || site.owner.value || '';
+	if (typeof rawOwner === 'object') {
+		return rawOwner.id || rawOwner.value || rawOwner.recordId || '';
 	}
 
-	return String(site.owner);
+	return String(rawOwner).trim();
 }
 
 async function getOwnedWebsite({ websiteId, userId }) {
@@ -452,7 +458,7 @@ async function getOwnedWebsite({ websiteId, userId }) {
 		logger.info('Website access granted', {
 			websiteId,
 			authenticatedUserId: userId,
-			storedOwnerId: getOwnerId(ownedSite),
+			storedOwnerId: getOwnerId(ownedSite, websitesSchema.ownerField),
 		});
 		return ownedSite;
 	}
@@ -467,7 +473,7 @@ async function getOwnedWebsite({ websiteId, userId }) {
 		throw httpError(404, 'Website not found');
 	}
 
-	const storedOwnerId = getOwnerId(siteById);
+	const storedOwnerId = getOwnerId(siteById, websitesSchema.ownerField);
 	logger.warn('Website access fallback check', {
 		websiteId,
 		authenticatedUserId: userId,
@@ -488,14 +494,14 @@ async function getOwnedWebsite({ websiteId, userId }) {
 	if (!storedOwnerId && userId) {
 		const repaired = await pocketbaseClient
 			.collection('websites')
-			.update(siteById.id, { owner: userId })
+			.update(siteById.id, { [websitesSchema.ownerField]: userId })
 			.catch(() => null);
 
 		if (repaired) {
 			logger.warn('Website owner auto-assigned during access fallback', {
 				websiteId,
 				authenticatedUserId: userId,
-				storedOwnerId: getOwnerId(repaired),
+				storedOwnerId: getOwnerId(repaired, websitesSchema.ownerField),
 				finalQuery: ownershipFilter,
 			});
 			return repaired;
@@ -905,12 +911,46 @@ router.post('/:websiteId/scan', async (req, res) => {
 		}).catch(() => null);
 	}
 
+	// Authenticated caller already passed ownership checks. Prefer the stored
+	// owner, then fall back to the signed-in user and persist a repair when needed.
+	let ownerId = getOwnerId(site, websitesSchema.ownerField) || req.pocketbaseUserId || '';
+	if (!ownerId) {
+		throw httpError(401, 'You must be signed in to scan a website');
+	}
+
+	if (!getOwnerId(site, websitesSchema.ownerField)) {
+		const repaired = await pocketbaseClient
+			.collection('websites')
+			.update(site.id, { [websitesSchema.ownerField]: ownerId })
+			.catch((error) => {
+				logger.warn('Failed to repair missing website owner before scan', {
+					websiteId: site.id,
+					ownerId,
+					message: error?.message || null,
+				});
+				return null;
+			});
+
+		if (repaired) {
+			logger.warn('Website owner repaired before scan', {
+				websiteId: site.id,
+				ownerId,
+			});
+		}
+	}
+
 	const siteForScan = {
 		...site,
 		[websitesSchema.urlField]: computedBaseUrl,
 		url: computedBaseUrl,
-		owner: getOwnerId(site),
+		owner: ownerId,
 	};
+
+	logger.info('Scan website owner resolved', {
+		websiteId: site.id,
+		ownerId,
+		rawOwnerField: site?.[websitesSchema.ownerField] ?? site?.owner ?? null,
+	});
 
 	const runId = `${site.id}-${Date.now()}`;
 
@@ -933,6 +973,7 @@ router.post('/:websiteId/scan', async (req, res) => {
 		const summary = await scanWebsiteArticles({
 			pocketbaseClient,
 			website: siteForScan,
+			ownerId,
 			runId,
 			onProgress: pushEvent,
 			logger,
