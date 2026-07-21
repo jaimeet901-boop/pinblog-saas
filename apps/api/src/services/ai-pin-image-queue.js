@@ -1,6 +1,8 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import logger from '../utils/logger.js';
-import { getDecryptedOpenAIKey } from './user-settings.js';
+import { getDecryptedOpenAIKey, getDecryptedFalKey } from './user-settings.js';
+import { generateImagesWithProvider } from './image-providers/index.js';
+import { consumeCredits, recordGenerationHistory } from './ai-pin-credits.js';
 import {
 	buildSchemaSafeFilter,
 	safeGetFullList,
@@ -61,52 +63,13 @@ async function uploadGeneratedImage({ owner, bytes, contentType = 'image/png' })
 }
 
 async function generateOpenAIImage({ apiKey, prompt }) {
-	const response = await fetch('https://api.openai.com/v1/images/generations', {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${apiKey}`,
-		},
-		body: JSON.stringify({
-			model: process.env.OPENAI_IMAGES_MODEL || 'gpt-image-1',
-			prompt,
-			size: process.env.OPENAI_IMAGES_SIZE || '1024x1536',
-		}),
+	const images = await generateImagesWithProvider({
+		provider: 'openai',
+		apiKeys: { openai: apiKey },
+		prompt,
+		count: 1,
 	});
-
-	if (!response.ok) {
-		const details = await response.text().catch(() => 'OpenAI image generation failed');
-		const error = new Error(details || 'OpenAI image generation failed');
-		error.status = response.status;
-		throw error;
-	}
-
-	const payload = await response.json();
-	const item = payload?.data?.[0];
-	if (!item) {
-		throw new Error('OpenAI image generation returned empty output');
-	}
-
-	if (item.b64_json) {
-		return {
-			bytes: Buffer.from(item.b64_json, 'base64'),
-			contentType: 'image/png',
-		};
-	}
-
-	if (item.url) {
-		const imageResponse = await fetch(item.url);
-		if (!imageResponse.ok) {
-			throw new Error('Failed to download generated image from OpenAI');
-		}
-		const arrayBuffer = await imageResponse.arrayBuffer();
-		return {
-			bytes: Buffer.from(arrayBuffer),
-			contentType: imageResponse.headers.get('content-type') || 'image/png',
-		};
-	}
-
-	throw new Error('OpenAI image generation output format is not supported');
+	return images[0];
 }
 
 async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' }) {
@@ -152,8 +115,24 @@ async function processJob(job) {
 		return;
 	}
 
-	const apiKey = await getDecryptedOpenAIKey(job.owner);
-	if (!apiKey) {
+	const openaiKey = await getDecryptedOpenAIKey(job.owner);
+	const falKey = await getDecryptedFalKey(job.owner);
+	const provider = normalizeText(job.prompt_payload?.provider || 'openai', 40) || 'openai';
+
+	if (provider !== 'openai' && !falKey && !openaiKey) {
+		if (fallbackImage) {
+			await setJobTerminalState({
+				job,
+				status: 'fallback',
+				imageUrl: fallbackImage,
+				lastError: 'Image provider API key is not configured',
+			});
+			return;
+		}
+		throw new Error('Image provider API key is not configured');
+	}
+
+	if (provider === 'openai' && !openaiKey) {
 		if (fallbackImage) {
 			await setJobTerminalState({
 				job,
@@ -166,8 +145,23 @@ async function processJob(job) {
 		throw new Error('OpenAI API key is not configured');
 	}
 
+	await consumeCredits(pocketbaseClient, { userId: job.owner, ai: 0, image: 1 }).catch((error) => {
+		if (error?.status === 402) {
+			throw error;
+		}
+	});
+
 	const prompt = normalizeText(job.prompt, 5000) || buildPinterestImagePrompt(job);
-	const generated = await generateOpenAIImage({ apiKey, prompt });
+	const generatedList = await generateImagesWithProvider({
+		provider,
+		apiKeys: { openai: openaiKey, fal: falKey },
+		prompt,
+		count: 1,
+	});
+	const generated = generatedList[0];
+	if (!generated) {
+		throw new Error('Image provider returned no output');
+	}
 	const imageUrl = await uploadGeneratedImage({ owner: job.owner, ...generated });
 
 	await setJobTerminalState({
@@ -175,6 +169,19 @@ async function processJob(job) {
 		status: 'completed',
 		imageUrl,
 		lastError: '',
+	});
+
+	await recordGenerationHistory(pocketbaseClient, {
+		owner: job.owner,
+		ai_pin: job.ai_pin || '',
+		articleId: job.articleId || '',
+		websiteId: job.websiteId || '',
+		event_type: 'image',
+		prompt,
+		image_url: imageUrl,
+		metadata: { provider, jobId: job.id },
+		ai_credits_used: 0,
+		image_credits_used: 1,
 	});
 }
 

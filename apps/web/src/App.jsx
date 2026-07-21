@@ -25,6 +25,8 @@ import NotFoundPage from '@/pages/NotFoundPage';
 
 const AIPinsPage = lazy(() => import('@/pages/app/AIPinsPage'));
 const TemplatesPage = lazy(() => import('@/pages/app/TemplatesPage'));
+const BrandKitPage = lazy(() => import('@/pages/app/BrandKitPage'));
+const AIPinHistoryPage = lazy(() => import('@/pages/app/AIPinHistoryPage'));
 const PinterestPage = lazy(() => import('@/pages/app/PinterestPage'));
 const CalendarPage = lazy(() => import('@/pages/app/CalendarPage'));
 const PublishingHistoryPage = lazy(() => import('@/pages/app/PublishingHistoryPage'));
@@ -63,6 +65,8 @@ function App() {
 						<Route path="/app/websites/:websiteId/articles" element={<Shell><WebsiteArticlesPage /></Shell>} />
 						<Route path="/app/ai-pins" element={<Shell><LazyPage><AIPinsPage /></LazyPage></Shell>} />
 						<Route path="/app/ai-pins/templates" element={<Shell><LazyPage><TemplatesPage /></LazyPage></Shell>} />
+						<Route path="/app/ai-pins/brand-kit" element={<Shell><LazyPage><BrandKitPage /></LazyPage></Shell>} />
+						<Route path="/app/ai-pins/history" element={<Shell><LazyPage><AIPinHistoryPage /></LazyPage></Shell>} />
 						<Route path="/app/writer" element={<Shell><WriterPage /></Shell>} />
 						<Route path="/app/images" element={<Shell><ImagesPage /></Shell>} />
 						<Route path="/app/pinterest" element={<Shell><LazyPage><PinterestPage /></LazyPage></Shell>} />

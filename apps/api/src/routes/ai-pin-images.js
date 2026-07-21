@@ -87,6 +87,11 @@ function mapJob(job) {
 
 router.use(pocketbaseAuth);
 
+router.get('/providers', async (req, res) => {
+	const { listImageProviders } = await import('../services/image-providers/index.js');
+	res.json({ providers: listImageProviders(), counts: [1, 3, 5], size: '1000x1500' });
+});
+
 router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 	const owner = req.pocketbaseUserId;
 	const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -138,6 +143,10 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		const keywords = normalizeKeywords(rawItem?.keywords || pin?.suggested_keywords || []);
 		const imagePrompt = normalizeString(rawItem?.imagePrompt || pin?.image_prompt || '', 'imagePrompt', { max: 1200 });
 		const featuredImageUrl = normalizeString(rawItem?.featuredImageUrl || article.featured_image || '', 'featuredImageUrl', { max: 1000 });
+		const provider = normalizeString(rawItem?.provider || 'openai', 'provider', { max: 40 }) || 'openai';
+		if (!['openai', 'fal', 'flux'].includes(provider)) {
+			throw httpError(422, 'provider must be openai, fal, or flux');
+		}
 
 		const prompt = [
 			'Professional Pinterest marketing visual, vertical 2:3.',
@@ -171,6 +180,7 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 				pinTitle: title,
 				pinDescription: description,
 				imagePrompt,
+				provider,
 			},
 			featured_image_url: featuredImageUrl,
 			status: 'queued',

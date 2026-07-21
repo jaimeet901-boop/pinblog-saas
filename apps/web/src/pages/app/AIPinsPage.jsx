@@ -12,7 +12,8 @@ import ArticlePreviewDrawer from '@/components/ai-pins/ArticlePreviewDrawer';
 import ManualArticleForm from '@/components/ai-pins/ManualArticleForm';
 import { createDefaultTemplateConfig, normalizeTemplateConfig } from '@/lib/pinTemplates';
 
-const PIN_COUNTS = [1, 3, 5, 10];
+const PIN_COUNTS = [1, 3, 5];
+const PIN_STYLES = ['Food', 'Recipe', 'Fitness', 'Travel', 'DIY', 'Home', 'Beauty', 'Fashion', 'Technology', 'Business', 'Lifestyle'];
 
 function truncate(value, max = 160) {
 	if (!value) {
@@ -197,7 +198,15 @@ export default function AIPinsPage() {
 		language: 'English',
 		count: 3,
 		imageMode: 'use_featured',
+		style: 'Lifestyle',
+		imageProvider: 'openai',
 	});
+	const [analysis, setAnalysis] = useState(null);
+	const [analyzing, setAnalyzing] = useState(false);
+	const [credits, setCredits] = useState(null);
+	const [bulkProgress, setBulkProgress] = useState({ active: false, current: 0, total: 0, message: '' });
+	const [brandKits, setBrandKits] = useState([]);
+	const [selectedBrandKitId, setSelectedBrandKitId] = useState('');
 
 	const activeArticle = useMemo(
 		() => articles.find((article) => article.id === activeArticleId) || null,
@@ -432,10 +441,103 @@ export default function AIPinsPage() {
 		}
 	};
 
+	const loadCredits = async () => {
+		try {
+			const response = await apiServerClient.fetch('/ai-pins/credits', { method: 'GET' });
+			const payload = await response.json().catch(() => null);
+			if (response.ok) {
+				setCredits(payload);
+			}
+		} catch {
+			// ignore
+		}
+	};
+
+	const loadBrandKits = async () => {
+		try {
+			const response = await apiServerClient.fetch('/ai-pins/brand-kits', { method: 'GET' });
+			const payload = await response.json().catch(() => []);
+			if (response.ok && Array.isArray(payload)) {
+				setBrandKits(payload);
+				const fallback = payload.find((item) => item.isDefault) || payload[0];
+				setSelectedBrandKitId((prev) => prev || fallback?.id || '');
+			}
+		} catch {
+			// ignore until migration applied
+		}
+	};
+
+	const handleAnalyzeArticle = async () => {
+		if (!activeArticle) {
+			toast({ variant: 'destructive', title: 'Select an article', description: 'Choose an article to analyze first.' });
+			return;
+		}
+		setAnalyzing(true);
+		try {
+			const response = await apiServerClient.fetch('/ai-pins/analyze', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ articleId: activeArticle.id, style: panel.style }),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload?.message || `Analysis failed (${response.status})`);
+			}
+			setAnalysis(payload.analysis || null);
+			if (payload.credits) setCredits(payload.credits);
+			setPanel((prev) => ({
+				...prev,
+				pinTitle: payload.analysis?.title || prev.pinTitle,
+				pinDescription: payload.analysis?.seoDescription || prev.pinDescription,
+				targetAudience: payload.analysis?.targetAudience || prev.targetAudience,
+			}));
+			toast({ title: 'Article analyzed', description: 'Pinterest metadata was generated from the article.' });
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Analyze failed', description: error.message });
+		} finally {
+			setAnalyzing(false);
+		}
+	};
+
+	const handleGeneratePrompt = async () => {
+		if (!activeArticle) {
+			toast({ variant: 'destructive', title: 'Select an article', description: 'Choose an article first.' });
+			return;
+		}
+		try {
+			const response = await apiServerClient.fetch('/ai-pins/prompts', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					articleId: activeArticle.id,
+					style: panel.style,
+					analysis,
+				}),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload?.message || `Prompt generation failed (${response.status})`);
+			}
+			if (payload.analysis) setAnalysis(payload.analysis);
+			if (payload.credits) setCredits(payload.credits);
+			setPanel((prev) => ({
+				...prev,
+				textOverlay: payload.analysis?.cta || prev.textOverlay,
+			}));
+			toast({ title: 'Prompt ready', description: 'Image prompt optimized for the selected style.' });
+			return payload.imagePrompt || '';
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Prompt failed', description: error.message });
+			return '';
+		}
+	};
+
 	useEffect(() => {
 		loadWebsites();
 		loadAccounts();
 		loadTemplates();
+		loadCredits();
+		loadBrandKits();
 	}, []);
 
 	useEffect(() => {
@@ -557,6 +659,7 @@ export default function AIPinsPage() {
 					category: pin.category,
 					featuredImageUrl: pin.featuredImage,
 					imageMode: 'generate_ai',
+					provider: panel.imageProvider || 'openai',
 				})),
 			}),
 		});
@@ -670,40 +773,64 @@ export default function AIPinsPage() {
 		}
 
 		setGenerating(true);
+		setBulkProgress({ active: true, current: 0, total: targets.length, message: 'Starting bulk generation...' });
 		try {
 			const generatedRecords = [];
 			const activeAccount = accounts.find((account) => account.id === selectedAccountId);
 			const activeBoard = boards.find((board) => board.boardId === selectedBoardId);
 			const templateConfig = selectedTemplate?.configuration || createDefaultTemplateConfig();
-			for (const article of targets) {
+			const selectedBrand = brandKits.find((item) => item.id === selectedBrandKitId) || null;
+			for (let articleIndex = 0; articleIndex < targets.length; articleIndex += 1) {
+				const article = targets[articleIndex];
+				setBulkProgress({
+					active: true,
+					current: articleIndex + 1,
+					total: targets.length,
+					message: `Generating pins for ${article.title || article.slug || 'article'}...`,
+				});
 				const generatedPins = await generatePinsForArticle(article, panel.count);
 				generatedRecords.push(
 					...generatedPins.map((pin, index) => ({
 						tempId: `${article.id}-${Date.now()}-${index}`,
 						articleId: article.id,
 						websiteId: article.websiteId,
-						title: String(pin.title || article.title || article.slug || 'Draft AI Pin').trim(),
-						description: String(pin.description || '').trim(),
-						overlayText: String(pin.overlayText || '').trim(),
+						title: String(pin.title || analysis?.title || article.title || article.slug || 'Draft AI Pin').trim(),
+						description: String(pin.description || analysis?.seoDescription || '').trim(),
+						overlayText: String(pin.overlayText || analysis?.cta || '').trim(),
 						imagePrompt: String(pin.imagePrompt || '').trim(),
 						imageUrl: panel.imageMode === 'use_featured' ? (article.featuredImage || '') : '',
-						suggestedKeywords: safeArray(pin.suggestedKeywords),
-						suggestedHashtags: safeArray(pin.suggestedHashtags),
+						suggestedKeywords: safeArray(pin.suggestedKeywords?.length ? pin.suggestedKeywords : analysis?.keywords),
+						suggestedHashtags: safeArray(pin.suggestedHashtags?.length ? pin.suggestedHashtags : analysis?.hashtags),
 						accountId: selectedAccountId,
 						accountLabel: activeAccount?.label || activeAccount?.accountName || activeAccount?.username || '',
 						boardId: selectedBoardId,
 						boardName: activeBoard?.name || '',
 						templateId: selectedTemplate?.id || '',
 						templateName: selectedTemplate?.name || 'Default Template',
-						templateConfig,
-						category: article.category,
-						website: websites.find((site) => site.id === article.websiteId)?.name || '',
+						templateConfig: {
+							...templateConfig,
+							...(selectedBrand ? {
+								colors: {
+									primary: selectedBrand.primaryColor,
+									secondary: selectedBrand.secondaryColor,
+									accent: selectedBrand.accentColor,
+								},
+								watermark: selectedBrand.watermarkText || selectedBrand.watermarkUrl || '',
+								website: selectedBrand.websiteUrl || '',
+							} : {}),
+						},
+						category: article.category || analysis?.pinterestCategory || '',
+						website: selectedBrand?.websiteUrl || websites.find((site) => site.id === article.websiteId)?.name || '',
 						author: article.author,
 						featuredImage: article.featuredImage || '',
 						imageSource: panel.imageMode === 'use_featured' ? 'featured' : 'ai_generated',
 						imageGenerationStatus: panel.imageMode === 'use_featured' ? 'completed' : 'queued',
 						imageGenerationError: '',
 						imageJobId: '',
+						style: panel.style,
+						cta: analysis?.cta || '',
+						analysis: analysis || null,
+						brandKitId: selectedBrandKitId || '',
 					}))
 				);
 			}
@@ -715,6 +842,7 @@ export default function AIPinsPage() {
 			toast({ variant: 'destructive', title: 'Generation failed', description: error.message });
 		} finally {
 			setGenerating(false);
+			setBulkProgress({ active: false, current: 0, total: 0, message: '' });
 		}
 	};
 
@@ -882,22 +1010,56 @@ export default function AIPinsPage() {
 			const candidateBoards = boardsByAccount[pin.accountId] || boards;
 			const selectedBoard = candidateBoards.find((board) => board.boardId === pin.boardId);
 
+			const editorResponse = await apiServerClient.fetch(`/ai-pins/pins/${pin.id}/editor`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					title: pin.title,
+					description: pin.description,
+					overlayText: pin.overlayText,
+					imagePrompt: pin.imagePrompt,
+					imageUrl: pin.imageUrl,
+					cta: pin.cta || analysis?.cta || '',
+					style: pin.style || panel.style,
+					analysis: pin.analysis || analysis,
+					editorState: {
+						crop: pin.editorCrop || null,
+						resize: pin.editorResize || { width: 1000, height: 1500 },
+						overlays: pin.editorOverlays || [],
+					},
+					suggestedKeywords: safeArray(pin.suggestedKeywords),
+					suggestedHashtags: safeArray(pin.suggestedHashtags),
+				}),
+			});
+			const editorPayload = await editorResponse.json().catch(() => ({}));
+			if (!editorResponse.ok) {
+				throw new Error(editorPayload?.message || 'Failed to save pin editor changes');
+			}
+
 			const updated = await pb.collection('ai_pins').update(pin.id, {
-				title: pin.title,
-				description: pin.description,
-				overlay_text: pin.overlayText,
-				image_prompt: pin.imagePrompt,
-				image_url: pin.imageUrl,
 				pinterest_account_id: pin.accountId || '',
 				pinterest_account_label: pin.accountId ? (selectedAccount?.label || selectedAccount?.accountName || selectedAccount?.username || '') : '',
 				pinterest_board_id: pin.boardId || '',
 				pinterest_board_name: selectedBoard?.name || pin.boardName || '',
-				suggested_keywords: safeArray(pin.suggestedKeywords),
-				suggested_hashtags: safeArray(pin.suggestedHashtags),
-			});
-			setSavedPins((prev) => prev.map((item) => (item.id === pin.id ? mapSavedPin(updated) : item)));
+			}).catch(() => null);
+
+			setSavedPins((prev) => prev.map((item) => {
+				if (item.id !== pin.id) return item;
+				return {
+					...item,
+					...(updated ? mapSavedPin(updated) : {}),
+					title: editorPayload.title || pin.title,
+					description: editorPayload.description || pin.description,
+					overlayText: editorPayload.overlayText || pin.overlayText,
+					imagePrompt: editorPayload.imagePrompt || pin.imagePrompt,
+					imageUrl: editorPayload.imageUrl || pin.imageUrl,
+					cta: editorPayload.cta || '',
+					style: editorPayload.style || panel.style,
+					analysis: editorPayload.analysis || analysis,
+				};
+			}));
 			setEditingPinId('');
-			toast({ title: 'Saved', description: 'Pin draft updated.' });
+			toast({ title: 'Saved', description: 'Pin editor changes saved.' });
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Error', description: error.message });
 		}
@@ -970,9 +1132,34 @@ export default function AIPinsPage() {
 		<div>
 			<PageHeader
 				title="AI Pins"
-				subtitle="Select website or manual articles, then generate, preview, and store Pinterest pin drafts."
-				action={<div className="flex gap-2"><Link to="/app/ai-pins/templates"><Button variant="outline">Templates</Button></Link><Button onClick={handleGenerate} disabled={generating || loadingArticles || loadingPins}><Wand2 size={16} /> {generating ? 'Generating...' : 'Generate Pins'}</Button></div>}
+				subtitle="Select articles, analyze, generate prompts/images, edit, and publish Pinterest drafts."
+				action={(
+					<div className="flex flex-wrap gap-2">
+						<Link to="/app/ai-pins/brand-kit"><Button variant="outline">Brand Kit</Button></Link>
+						<Link to="/app/ai-pins/history"><Button variant="outline">History</Button></Link>
+						<Link to="/app/ai-pins/templates"><Button variant="outline">Templates</Button></Link>
+						<Button onClick={handleGenerate} disabled={generating || loadingArticles || loadingPins}><Wand2 size={16} /> {generating ? 'Generating...' : 'Generate Pins'}</Button>
+					</div>
+				)}
 			/>
+
+			{credits ? (
+				<div className="mb-4 grid gap-3 sm:grid-cols-2">
+					<Card><p className="text-xs text-muted-foreground">AI credits</p><p className="mt-1 text-lg font-semibold">{credits.ai?.remaining ?? 0} / {credits.ai?.limit ?? 0}</p></Card>
+					<Card><p className="text-xs text-muted-foreground">Image credits</p><p className="mt-1 text-lg font-semibold">{credits.image?.remaining ?? 0} / {credits.image?.limit ?? 0}</p></Card>
+				</div>
+			) : null}
+
+			{bulkProgress.active ? (
+				<Card className="mb-4">
+					<p className="text-sm font-medium">Bulk generation progress</p>
+					<p className="mt-1 text-xs text-muted-foreground">{bulkProgress.message}</p>
+					<div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
+						<div className="h-full bg-primary transition-all" style={{ width: `${Math.round((bulkProgress.current / Math.max(1, bulkProgress.total)) * 100)}%` }} />
+					</div>
+					<p className="mt-2 text-xs text-muted-foreground">{bulkProgress.current} / {bulkProgress.total}</p>
+				</Card>
+			) : null}
 
 			<div className="grid gap-4 lg:grid-cols-3">
 				<Card className="lg:col-span-2">
@@ -1003,7 +1190,7 @@ export default function AIPinsPage() {
 
 				<Card>
 					<h3 className="font-semibold">Generation Panel</h3>
-					<p className="mt-1 text-xs text-muted-foreground">Select one article or multiple articles, then generate pin drafts.</p>
+					<p className="mt-1 text-xs text-muted-foreground">Analyze, style, and generate pin drafts for one or many articles.</p>
 					<div className="mt-4 space-y-3">
 						<Select label="Template" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} disabled={loadingTemplates || templates.length === 0}>
 							<option value="">System default template</option>
@@ -1011,6 +1198,27 @@ export default function AIPinsPage() {
 								<option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' (Default)' : ''}</option>
 							))}
 						</Select>
+						<Select label="Brand Kit" value={selectedBrandKitId} onChange={(e) => setSelectedBrandKitId(e.target.value)}>
+							<option value="">No brand kit</option>
+							{brandKits.map((kit) => (
+								<option key={kit.id} value={kit.id}>{kit.name}{kit.isDefault ? ' (Default)' : ''}</option>
+							))}
+						</Select>
+						<Select label="Pin Style" value={panel.style} onChange={(e) => setPanel((prev) => ({ ...prev, style: e.target.value }))}>
+							{PIN_STYLES.map((style) => <option key={style} value={style}>{style}</option>)}
+						</Select>
+						<div className="flex gap-2">
+							<Button type="button" variant="outline" className="flex-1" onClick={handleAnalyzeArticle} disabled={analyzing || !activeArticle}>{analyzing ? 'Analyzing...' : 'Analyze'}</Button>
+							<Button type="button" variant="outline" className="flex-1" onClick={handleGeneratePrompt} disabled={!activeArticle}>Prompt</Button>
+						</div>
+						{analysis ? (
+							<div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground space-y-1">
+								<p><span className="font-medium text-foreground">CTA:</span> {analysis.cta || '—'}</p>
+								<p><span className="font-medium text-foreground">Category:</span> {analysis.pinterestCategory || '—'}</p>
+								<p><span className="font-medium text-foreground">Audience:</span> {analysis.targetAudience || '—'}</p>
+								<p><span className="font-medium text-foreground">Keywords:</span> {(analysis.keywords || []).join(', ') || '—'}</p>
+							</div>
+						) : null}
 						<Input label="Pin Title" value={panel.pinTitle} onChange={(e) => setPanel((prev) => ({ ...prev, pinTitle: e.target.value }))} />
 						<Textarea label="Pin Description" rows={3} value={panel.pinDescription} onChange={(e) => setPanel((prev) => ({ ...prev, pinDescription: e.target.value }))} />
 						<Input label="Text Overlay" value={panel.textOverlay} onChange={(e) => setPanel((prev) => ({ ...prev, textOverlay: e.target.value }))} />
@@ -1020,6 +1228,11 @@ export default function AIPinsPage() {
 						<Select label="Image Source" value={panel.imageMode} onChange={(e) => setPanel((prev) => ({ ...prev, imageMode: e.target.value }))}>
 							<option value="use_featured">Use Featured Image</option>
 							<option value="generate_ai">Generate AI Image</option>
+						</Select>
+						<Select label="Image Provider" value={panel.imageProvider} onChange={(e) => setPanel((prev) => ({ ...prev, imageProvider: e.target.value }))} disabled={panel.imageMode !== 'generate_ai'}>
+							<option value="openai">OpenAI Images</option>
+							<option value="fal">Fal.ai</option>
+							<option value="flux">FLUX (via Fal)</option>
 						</Select>
 						<Select label="Generate" value={String(panel.count)} onChange={(e) => setPanel((prev) => ({ ...prev, count: Number(e.target.value) }))}>
 							{PIN_COUNTS.map((count) => <option key={count} value={count}>Generate {count} Pin{count > 1 ? 's' : ''}</option>)}
@@ -1136,12 +1349,16 @@ export default function AIPinsPage() {
 										<Badge tone={pin.status === 'published' ? 'green' : pin.status === 'failed' ? 'red' : pin.status === 'scheduled' ? 'amber' : 'blue'}>{pin.status}</Badge>
 									</div>
 									<div className="rounded-xl border border-dashed border-border bg-secondary/30 p-3">
-										<div className="flex h-40 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 via-accent/20 to-secondary text-center">
-											<div>
-												<Globe className="mx-auto h-6 w-6 text-muted-foreground" />
-												<p className="mt-2 text-xs text-muted-foreground">{pin.imageUrl ? 'Image URL attached' : 'Image URL required for publishing'}</p>
+										{pin.imageUrl ? (
+											<img src={pin.imageUrl} alt={pin.title} className="h-40 w-full rounded-lg object-cover" loading="lazy" decoding="async" />
+										) : (
+											<div className="flex h-40 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 via-accent/20 to-secondary text-center">
+												<div>
+													<Globe className="mx-auto h-6 w-6 text-muted-foreground" />
+													<p className="mt-2 text-xs text-muted-foreground">Image URL required for publishing</p>
+												</div>
 											</div>
-										</div>
+										)}
 									</div>
 
 									<div className="mt-3 space-y-2">

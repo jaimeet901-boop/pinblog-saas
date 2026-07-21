@@ -28,10 +28,20 @@ import {
 	sanitizeCollectionPayload,
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
+import { listPublishProviders, setPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
 
 const router = Router();
 const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 20;
+
+setPublishProvider(new PinterestPublishProvider({
+	createJobs: async ({ pins, mode, ...options }) => ({
+		provider: 'pinterest',
+		mode,
+		pins,
+		options,
+	}),
+}));
 
 function httpError(status, message, extras = {}) {
 	const error = new Error(message);
@@ -1014,13 +1024,11 @@ router.post('/token/refresh', async (req, res) => {
 	}
 });
 
-export default router;
+router.get('/providers', async (req, res) => {
+	res.json({ providers: listPublishProviders() });
+});
 
-verifyCollectionFields({
-	collection: 'pinterest_publish_jobs',
-	requiredFields: ['owner', 'ai_pin', 'status', 'scheduled_at', 'next_retry_at', 'created', 'updated'],
-	context: 'pinterest-routes:module-schema-check',
-}).catch(() => null);
+export default router;
 
 verifyCollectionFields({
 	collection: 'websites',

@@ -73,3 +73,15 @@ export async function getDecryptedOpenAIKey(owner) {
 
 	return key;
 }
+
+export async function getDecryptedFalKey(owner) {
+	const settings = await getOwnedUserSettings(owner);
+	const raw = settings?.fal_key || '';
+	if (!raw) {
+		return '';
+	}
+	if (isEncryptedSecret(raw)) {
+		return decryptSecret(raw);
+	}
+	return String(raw).trim();
+}

@@ -4,6 +4,9 @@ import logger from '../utils/logger.js';
 import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
 import { listWebsiteArticles } from '../services/website-article-discovery.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
+import { analyzeArticleForPin, generateImagePromptForPin, PIN_STYLES } from '../services/ai-pin-analysis.js';
+import { consumeCredits, getUserCreditUsage, recordGenerationHistory } from '../services/ai-pin-credits.js';
+import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 
 const router = Router();
 
@@ -274,6 +277,320 @@ router.post('/manual-articles', async (req, res) => {
 		});
 		throw httpError(422, error?.response?.data?.message || error?.message || 'Failed to create manual article');
 	}
+});
+
+router.get('/styles', async (req, res) => {
+	res.json({ styles: PIN_STYLES });
+});
+
+router.get('/credits', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+	res.json(await getUserCreditUsage(pocketbaseClient, req.pocketbaseUserId));
+});
+
+router.post('/analyze', integratedAiRateLimit, async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+
+	const articleId = normalizeOptionalString(req.body?.articleId, 'articleId', 64);
+	const style = normalizeOptionalString(req.body?.style, 'style', 64) || 'Lifestyle';
+	if (!articleId) {
+		throw httpError(422, 'articleId is required');
+	}
+
+	const articleRecord = await pocketbaseClient.collection('website_articles').getOne(articleId).catch(() => null);
+	if (!articleRecord || getOwnerId(articleRecord) !== req.pocketbaseUserId) {
+		throw httpError(404, 'Article not found');
+	}
+
+	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, ai: 1, image: 0 });
+	const article = mapArticle(articleRecord);
+	const analysis = await analyzeArticleForPin({
+		owner: req.pocketbaseUserId,
+		article,
+		style,
+	});
+
+	await recordGenerationHistory(pocketbaseClient, {
+		owner: req.pocketbaseUserId,
+		articleId,
+		websiteId: article.websiteId || '',
+		event_type: 'analyze',
+		analysis,
+		metadata: { style },
+		ai_credits_used: 1,
+		image_credits_used: 0,
+	});
+
+	const credits = await getUserCreditUsage(pocketbaseClient, req.pocketbaseUserId);
+	res.json({ analysis, credits });
+});
+
+router.post('/prompts', integratedAiRateLimit, async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+
+	const articleId = normalizeOptionalString(req.body?.articleId, 'articleId', 64);
+	const style = normalizeOptionalString(req.body?.style, 'style', 64) || 'Lifestyle';
+	const analysis = req.body?.analysis && typeof req.body.analysis === 'object' ? req.body.analysis : null;
+	if (!articleId) {
+		throw httpError(422, 'articleId is required');
+	}
+
+	const articleRecord = await pocketbaseClient.collection('website_articles').getOne(articleId).catch(() => null);
+	if (!articleRecord || getOwnerId(articleRecord) !== req.pocketbaseUserId) {
+		throw httpError(404, 'Article not found');
+	}
+
+	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, ai: 1, image: 0 });
+	const article = mapArticle(articleRecord);
+	const resolvedAnalysis = analysis || await analyzeArticleForPin({
+		owner: req.pocketbaseUserId,
+		article,
+		style,
+	});
+	const promptResult = await generateImagePromptForPin({
+		owner: req.pocketbaseUserId,
+		article,
+		analysis: resolvedAnalysis,
+		style,
+	});
+
+	await recordGenerationHistory(pocketbaseClient, {
+		owner: req.pocketbaseUserId,
+		articleId,
+		websiteId: article.websiteId || '',
+		event_type: 'prompt',
+		prompt: promptResult.imagePrompt,
+		analysis: resolvedAnalysis,
+		metadata: { style: promptResult.style, source: promptResult.source },
+		ai_credits_used: 1,
+		image_credits_used: 0,
+	});
+
+	const credits = await getUserCreditUsage(pocketbaseClient, req.pocketbaseUserId);
+	res.json({
+		...promptResult,
+		analysis: resolvedAnalysis,
+		credits,
+	});
+});
+
+router.get('/history', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+
+	const page = normalizePositiveInt(req.query.page, 1);
+	const perPage = Math.min(normalizePositiveInt(req.query.perPage, 20), 100);
+
+	try {
+		const result = await pocketbaseClient.collection('ai_pin_generation_history').getList(page, perPage, {
+			filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
+			sort: '-created',
+		});
+		res.json({
+			items: result.items.map((item) => ({
+				id: item.id,
+				eventType: item.event_type,
+				prompt: item.prompt || '',
+				imageUrl: item.image_url || '',
+				analysis: item.analysis || null,
+				metadata: item.metadata || null,
+				articleId: item.articleId || '',
+				websiteId: item.websiteId || '',
+				aiPinId: item.ai_pin || '',
+				aiCreditsUsed: item.ai_credits_used || 0,
+				imageCreditsUsed: item.image_credits_used || 0,
+				created: item.created,
+			})),
+			page: result.page,
+			perPage: result.perPage,
+			totalPages: result.totalPages,
+			totalItems: result.totalItems,
+		});
+	} catch (error) {
+		logger.warn('AI pin history unavailable', { message: error?.message || null });
+		res.json({ items: [], page: 1, perPage, totalPages: 0, totalItems: 0 });
+	}
+});
+
+function mapBrandKit(record) {
+	return {
+		id: record.id,
+		name: record.name,
+		logoUrl: record.logo_url || '',
+		primaryColor: record.primary_color || '#111827',
+		secondaryColor: record.secondary_color || '#F97316',
+		accentColor: record.accent_color || '#0EA5E9',
+		fontHeading: record.font_heading || '',
+		fontBody: record.font_body || '',
+		watermarkText: record.watermark_text || '',
+		watermarkUrl: record.watermark_url || '',
+		websiteUrl: record.website_url || '',
+		isDefault: Boolean(record.is_default),
+		created: record.created,
+		updated: record.updated,
+	};
+}
+
+router.get('/brand-kits', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+	try {
+		const items = await pocketbaseClient.collection('brand_kits').getFullList({
+			filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
+			sort: '-is_default,-updated',
+		});
+		res.json(items.map(mapBrandKit));
+	} catch {
+		res.json([]);
+	}
+});
+
+router.post('/brand-kits', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+
+	const name = normalizeOptionalString(req.body?.name, 'name', 120) || 'Default brand';
+	const payload = {
+		owner: req.pocketbaseUserId,
+		name,
+		logo_url: normalizeOptionalString(req.body?.logoUrl, 'logoUrl', 1000),
+		primary_color: normalizeOptionalString(req.body?.primaryColor, 'primaryColor', 32) || '#111827',
+		secondary_color: normalizeOptionalString(req.body?.secondaryColor, 'secondaryColor', 32) || '#F97316',
+		accent_color: normalizeOptionalString(req.body?.accentColor, 'accentColor', 32) || '#0EA5E9',
+		font_heading: normalizeOptionalString(req.body?.fontHeading, 'fontHeading', 120),
+		font_body: normalizeOptionalString(req.body?.fontBody, 'fontBody', 120),
+		watermark_text: normalizeOptionalString(req.body?.watermarkText, 'watermarkText', 120),
+		watermark_url: normalizeOptionalString(req.body?.watermarkUrl, 'watermarkUrl', 1000),
+		website_url: normalizeOptionalString(req.body?.websiteUrl, 'websiteUrl', 500),
+		is_default: Boolean(req.body?.isDefault),
+	};
+
+	if (payload.is_default) {
+		const existing = await pocketbaseClient.collection('brand_kits').getFullList({
+			filter: pocketbaseClient.filter('owner = {:owner} && is_default = true', { owner: req.pocketbaseUserId }),
+		}).catch(() => []);
+		await Promise.all(existing.map((item) => pocketbaseClient.collection('brand_kits').update(item.id, { is_default: false }).catch(() => null)));
+	}
+
+	const created = await pocketbaseClient.collection('brand_kits').create(payload);
+	res.status(201).json(mapBrandKit(created));
+});
+
+router.patch('/brand-kits/:id', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+	const existing = await pocketbaseClient.collection('brand_kits').getOne(req.params.id).catch(() => null);
+	if (!existing || getOwnerId(existing) !== req.pocketbaseUserId) {
+		throw httpError(404, 'Brand kit not found');
+	}
+
+	const updates = {};
+	const fields = [
+		['name', 'name', 120],
+		['logoUrl', 'logo_url', 1000],
+		['primaryColor', 'primary_color', 32],
+		['secondaryColor', 'secondary_color', 32],
+		['accentColor', 'accent_color', 32],
+		['fontHeading', 'font_heading', 120],
+		['fontBody', 'font_body', 120],
+		['watermarkText', 'watermark_text', 120],
+		['watermarkUrl', 'watermark_url', 1000],
+		['websiteUrl', 'website_url', 500],
+	];
+	for (const [input, output, max] of fields) {
+		if (req.body?.[input] != null) {
+			updates[output] = normalizeOptionalString(req.body[input], input, max);
+		}
+	}
+	if (typeof req.body?.isDefault === 'boolean') {
+		updates.is_default = req.body.isDefault;
+		if (req.body.isDefault) {
+			const others = await pocketbaseClient.collection('brand_kits').getFullList({
+				filter: pocketbaseClient.filter('owner = {:owner} && is_default = true', { owner: req.pocketbaseUserId }),
+			}).catch(() => []);
+			await Promise.all(others.filter((item) => item.id !== existing.id).map((item) => (
+				pocketbaseClient.collection('brand_kits').update(item.id, { is_default: false }).catch(() => null)
+			)));
+		}
+	}
+
+	const updated = await pocketbaseClient.collection('brand_kits').update(existing.id, updates);
+	res.json(mapBrandKit(updated));
+});
+
+router.delete('/brand-kits/:id', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+	const existing = await pocketbaseClient.collection('brand_kits').getOne(req.params.id).catch(() => null);
+	if (!existing || getOwnerId(existing) !== req.pocketbaseUserId) {
+		throw httpError(404, 'Brand kit not found');
+	}
+	await pocketbaseClient.collection('brand_kits').delete(existing.id);
+	res.status(204).end();
+});
+
+router.patch('/pins/:pinId/editor', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+	const pin = await pocketbaseClient.collection('ai_pins').getOne(req.params.pinId).catch(() => null);
+	if (!pin || getOwnerId(pin) !== req.pocketbaseUserId) {
+		throw httpError(404, 'Pin not found');
+	}
+
+	const updates = {};
+	if (typeof req.body?.title === 'string') updates.title = req.body.title.trim().slice(0, 300);
+	if (typeof req.body?.description === 'string') updates.description = req.body.description.trim().slice(0, 2000);
+	if (typeof req.body?.overlayText === 'string') updates.overlay_text = req.body.overlayText.trim().slice(0, 600);
+	if (typeof req.body?.imageUrl === 'string') updates.image_url = req.body.imageUrl.trim().slice(0, 1000);
+	if (typeof req.body?.imagePrompt === 'string') updates.image_prompt = req.body.imagePrompt.trim().slice(0, 4000);
+	if (typeof req.body?.cta === 'string') updates.cta = req.body.cta.trim().slice(0, 300);
+	if (typeof req.body?.style === 'string') updates.style = req.body.style.trim().slice(0, 64);
+	if (req.body?.editorState && typeof req.body.editorState === 'object') updates.editor_state = req.body.editorState;
+	if (req.body?.analysis && typeof req.body.analysis === 'object') updates.analysis = req.body.analysis;
+	if (Array.isArray(req.body?.suggestedKeywords)) updates.suggested_keywords = req.body.suggestedKeywords;
+	if (Array.isArray(req.body?.suggestedHashtags)) updates.suggested_hashtags = req.body.suggestedHashtags;
+
+	const updated = await pocketbaseClient.collection('ai_pins').update(pin.id, updates);
+	await recordGenerationHistory(pocketbaseClient, {
+		owner: req.pocketbaseUserId,
+		ai_pin: pin.id,
+		articleId: pin.articleId || '',
+		websiteId: pin.websiteId || '',
+		event_type: 'edit',
+		prompt: updated.image_prompt || '',
+		image_url: updated.image_url || '',
+		analysis: updated.analysis || null,
+		metadata: { editor_state: updated.editor_state || null },
+		ai_credits_used: 0,
+		image_credits_used: 0,
+	});
+
+	res.json({
+		id: updated.id,
+		title: updated.title,
+		description: updated.description,
+		overlayText: updated.overlay_text,
+		imageUrl: updated.image_url,
+		imagePrompt: updated.image_prompt,
+		cta: updated.cta || '',
+		style: updated.style || '',
+		analysis: updated.analysis || null,
+		editorState: updated.editor_state || null,
+		suggestedKeywords: updated.suggested_keywords || [],
+		suggestedHashtags: updated.suggested_hashtags || [],
+	});
 });
 
 export default router;
