@@ -3,6 +3,8 @@ import { pocketbaseAuth } from '../../middleware/pocketbase-auth.js';
 import { assertAdminEnabled, requireAdmin } from '../../middleware/require-admin.js';
 import providersRouter from './providers.js';
 import modelsRouter from './models.js';
+import plansRouter from './plans.js';
+import creditsRouter from './credits.js';
 
 const router = Router();
 
@@ -19,5 +21,7 @@ router.use(pocketbaseAuth);
 router.use(requireAdmin);
 router.use('/providers', providersRouter);
 router.use('/models', modelsRouter);
+router.use('/plans', plansRouter);
+router.use('/credits', creditsRouter);
 
 export default router;
