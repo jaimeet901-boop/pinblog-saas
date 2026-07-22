@@ -78,29 +78,20 @@ migrate(
 			deleteRule: "@request.auth.id != '' && owner = @request.auth.id",
 		};
 
-		const applyOwnerRules = (collection) => {
-			let persisted;
-			try {
-				persisted = app.findCollectionByNameOrId(collection.id || collection.name);
-			} catch (_) {
-				return;
-			}
-
-			if (!persisted) {
-				return;
-			}
-
+		function saveCollectionThenApplyOwnerRules(app, collection, ownerRules) {
+			app.save(collection); // persist fields including owner
+			let persisted = app.findCollectionByNameOrId(collection.id || collection.name);
 			if (!persisted.fields.getByName("owner")) {
-				return;
+				throw new Error(`Collection ${persisted.name} is missing required owner field after save`);
 			}
-
 			persisted.listRule = ownerRules.listRule;
 			persisted.viewRule = ownerRules.viewRule;
 			persisted.createRule = ownerRules.createRule;
 			persisted.updateRule = ownerRules.updateRule;
 			persisted.deleteRule = ownerRules.deleteRule;
 			app.save(persisted);
-		};
+			return app.findCollectionByNameOrId(persisted.id || persisted.name);
+		}
 
 		// Websites
 		const websites = new Collection({
@@ -117,8 +108,7 @@ migrate(
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 			].map(toField),
 		});
-		app.save(websites);
-		applyOwnerRules(websites);
+		saveCollectionThenApplyOwnerRules(app, websites, ownerRules);
 
 		// Articles
 		const articles = new Collection({
@@ -140,8 +130,7 @@ migrate(
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 			].map(toField),
 		});
-		app.save(articles);
-		applyOwnerRules(articles);
+		saveCollectionThenApplyOwnerRules(app, articles, ownerRules);
 
 		// Pins (Pinterest images / scheduled pins)
 		const pins = new Collection({
@@ -159,8 +148,7 @@ migrate(
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 			].map(toField),
 		});
-		app.save(pins);
-		applyOwnerRules(pins);
+		saveCollectionThenApplyOwnerRules(app, pins, ownerRules);
 
 		// Per-user settings (API keys, integrations)
 		const settings = new Collection({
@@ -178,8 +166,7 @@ migrate(
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 			].map(toField),
 		});
-		app.save(settings);
-		applyOwnerRules(settings);
+		saveCollectionThenApplyOwnerRules(app, settings, ownerRules);
 	},
 	(app) => {
 		for (const name of ["user_settings", "pins", "articles", "websites"]) {

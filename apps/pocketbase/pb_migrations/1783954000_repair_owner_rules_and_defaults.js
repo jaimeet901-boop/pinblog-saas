@@ -49,22 +49,40 @@ function findCollectionSafe(app, name) {
 	}
 }
 
-function applyOwnerRules(collection) {
-	if (!collection || !collection.fields.getByName("owner")) {
-		return false;
+function saveCollectionThenApplyOwnerRules(app, collection, ownerRules) {
+	app.save(collection); // persist fields including owner
+	let persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+	if (!persisted.fields.getByName("owner")) {
+		throw new Error(`Collection ${persisted.name} is missing required owner field after save`);
 	}
-
-	collection.listRule = "@request.auth.id != '' && owner = @request.auth.id";
-	collection.viewRule = "@request.auth.id != '' && owner = @request.auth.id";
-	collection.createRule = "@request.auth.id != '' && owner = @request.auth.id";
-	collection.updateRule = "@request.auth.id != '' && owner = @request.auth.id";
-	collection.deleteRule = "@request.auth.id != '' && owner = @request.auth.id";
-	return true;
+	persisted.listRule = ownerRules.listRule;
+	persisted.viewRule = ownerRules.viewRule;
+	persisted.createRule = ownerRules.createRule;
+	persisted.updateRule = ownerRules.updateRule;
+	persisted.deleteRule = ownerRules.deleteRule;
+	app.save(persisted);
+	return app.findCollectionByNameOrId(persisted.id || persisted.name);
 }
 
 migrate(
 	(app) => {
 		const users = findCollectionSafe(app, "users");
+
+		const ownerRules = {
+			listRule: "@request.auth.id != '' && owner = @request.auth.id",
+			viewRule: "@request.auth.id != '' && owner = @request.auth.id",
+			createRule: "@request.auth.id != '' && owner = @request.auth.id",
+			updateRule: "@request.auth.id != '' && owner = @request.auth.id",
+			deleteRule: "@request.auth.id != '' && owner = @request.auth.id",
+		};
+
+		const ownerReadApiWriteRules = {
+			listRule: "@request.auth.id != '' && owner = @request.auth.id",
+			viewRule: "@request.auth.id != '' && owner = @request.auth.id",
+			createRule: null,
+			updateRule: null,
+			deleteRule: null,
+		};
 
 		const ownerCollections = [
 			"ai_pins",
@@ -97,55 +115,87 @@ migrate(
 				ensureField(collection, { name: "is_default", type: "bool" });
 			}
 
-			applyOwnerRules(collection);
-			app.save(collection);
+			if (!collection.fields.getByName("owner")) {
+				app.save(collection);
+				continue;
+			}
+
+			// Save fields first, reload, then apply owner rules.
+			saveCollectionThenApplyOwnerRules(app, collection, ownerRules);
 		}
 
 		const accounts = findCollectionSafe(app, "pinterest_accounts");
 		if (accounts) {
+			if (users) {
+				ensureField(accounts, {
+					name: "owner",
+					type: "relation",
+					required: true,
+					maxSelect: 1,
+					collectionId: users.id,
+					cascadeDelete: true,
+				});
+			}
 			ensureField(accounts, { name: "is_default", type: "bool" });
-			// Metadata readable by owner; mutations stay API-only (superuser).
-			accounts.listRule = "@request.auth.id != '' && owner = @request.auth.id";
-			accounts.viewRule = "@request.auth.id != '' && owner = @request.auth.id";
-			accounts.createRule = null;
-			accounts.updateRule = null;
-			accounts.deleteRule = null;
-			app.save(accounts);
+			if (accounts.fields.getByName("owner")) {
+				// Metadata readable by owner; mutations stay API-only (superuser).
+				saveCollectionThenApplyOwnerRules(app, accounts, ownerReadApiWriteRules);
+			} else {
+				app.save(accounts);
+			}
 		}
 
 		const boards = findCollectionSafe(app, "pinterest_boards");
 		if (boards) {
 			ensureField(boards, { name: "is_default", type: "bool" });
-			applyOwnerRules(boards);
-			app.save(boards);
+			if (boards.fields.getByName("owner")) {
+				saveCollectionThenApplyOwnerRules(app, boards, ownerRules);
+			} else {
+				app.save(boards);
+			}
 		}
 
 		const jobs = findCollectionSafe(app, "pinterest_publish_jobs");
 		if (jobs) {
-			jobs.listRule = "@request.auth.id != '' && owner = @request.auth.id";
-			jobs.viewRule = "@request.auth.id != '' && owner = @request.auth.id";
-			jobs.createRule = null;
-			jobs.updateRule = null;
-			jobs.deleteRule = null;
-			app.save(jobs);
+			if (users) {
+				ensureField(jobs, {
+					name: "owner",
+					type: "relation",
+					required: true,
+					maxSelect: 1,
+					collectionId: users.id,
+					cascadeDelete: true,
+				});
+			}
+			if (jobs.fields.getByName("owner")) {
+				saveCollectionThenApplyOwnerRules(app, jobs, ownerReadApiWriteRules);
+			} else {
+				app.save(jobs);
+			}
 		}
 
 		const secrets = findCollectionSafe(app, "pinterest_account_secrets");
 		if (secrets) {
-			secrets.listRule = null;
-			secrets.viewRule = null;
-			secrets.createRule = null;
-			secrets.updateRule = null;
-			secrets.deleteRule = null;
 			app.save(secrets);
+			let secretsPersisted = app.findCollectionByNameOrId(secrets.id || secrets.name);
+			secretsPersisted.listRule = null;
+			secretsPersisted.viewRule = null;
+			secretsPersisted.createRule = null;
+			secretsPersisted.updateRule = null;
+			secretsPersisted.deleteRule = null;
+			app.save(secretsPersisted);
 		}
 
 		const integrated = findCollectionSafe(app, "_integratedAiMessages");
-		if (integrated && integrated.fields.getByName("userId")) {
-			integrated.listRule = "@request.auth.id != '' && userId = @request.auth.id";
-			integrated.viewRule = "@request.auth.id != '' && userId = @request.auth.id";
-			integrated.deleteRule = "@request.auth.id != '' && userId = @request.auth.id";
+		if (integrated) {
 			app.save(integrated);
+			let integratedPersisted = app.findCollectionByNameOrId(integrated.id || integrated.name);
+			if (integratedPersisted.fields.getByName("userId")) {
+				integratedPersisted.listRule = "@request.auth.id != '' && userId = @request.auth.id";
+				integratedPersisted.viewRule = "@request.auth.id != '' && userId = @request.auth.id";
+				integratedPersisted.deleteRule = "@request.auth.id != '' && userId = @request.auth.id";
+				app.save(integratedPersisted);
+			}
 		}
 	},
 	(_app) => {

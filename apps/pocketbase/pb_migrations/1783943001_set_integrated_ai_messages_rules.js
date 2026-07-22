@@ -7,11 +7,11 @@ migrate(
 			return;
 		}
 
-		// Persist first, then reload to make sure field metadata is available.
+		// Persist first, then reload so userId is available for rule parsing.
 		app.save(collection);
 		const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
-		if (!persisted || !persisted.fields.getByName("userId")) {
-			return;
+		if (!persisted.fields.getByName("userId")) {
+			throw new Error(`Collection ${persisted.name} is missing required userId field after save`);
 		}
 
 		persisted.listRule = "@request.auth.id != '' && userId = @request.auth.id";

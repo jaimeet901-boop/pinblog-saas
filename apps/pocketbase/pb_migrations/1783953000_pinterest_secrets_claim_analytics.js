@@ -38,6 +38,21 @@ function ensureField(collection, def) {
 	}
 }
 
+function saveCollectionThenApplyOwnerRules(app, collection, ownerRules) {
+	app.save(collection); // persist fields including owner
+	let persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+	if (!persisted.fields.getByName("owner")) {
+		throw new Error(`Collection ${persisted.name} is missing required owner field after save`);
+	}
+	persisted.listRule = ownerRules.listRule;
+	persisted.viewRule = ownerRules.viewRule;
+	persisted.createRule = ownerRules.createRule;
+	persisted.updateRule = ownerRules.updateRule;
+	persisted.deleteRule = ownerRules.deleteRule;
+	app.save(persisted);
+	return app.findCollectionByNameOrId(persisted.id || persisted.name);
+}
+
 function lockApiOnly(collection) {
 	collection.listRule = null;
 	collection.viewRule = null;
@@ -49,16 +64,25 @@ function lockApiOnly(collection) {
 migrate(
 	(app) => {
 		const users = app.findCollectionByNameOrId("users");
-		const accounts = app.findCollectionByNameOrId("pinterest_accounts");
+		let accounts = app.findCollectionByNameOrId("pinterest_accounts");
 		const jobs = app.findCollectionByNameOrId("pinterest_publish_jobs");
 
-		// Public metadata remains owner-readable; writes stay API-only (superuser).
-		accounts.listRule = "@request.auth.id != '' && owner = @request.auth.id";
-		accounts.viewRule = "@request.auth.id != '' && owner = @request.auth.id";
-		accounts.createRule = null;
-		accounts.updateRule = null;
-		accounts.deleteRule = null;
-		app.save(accounts);
+		// Ensure owner exists, persist, reload, then apply owner list/view rules.
+		ensureField(accounts, {
+			name: "owner",
+			type: "relation",
+			required: true,
+			maxSelect: 1,
+			collectionId: users.id,
+			cascadeDelete: true,
+		});
+		accounts = saveCollectionThenApplyOwnerRules(app, accounts, {
+			listRule: "@request.auth.id != '' && owner = @request.auth.id",
+			viewRule: "@request.auth.id != '' && owner = @request.auth.id",
+			createRule: null,
+			updateRule: null,
+			deleteRule: null,
+		});
 
 		let secrets;
 		try {
@@ -148,10 +172,11 @@ migrate(
 		app.save(jobs);
 
 		// Jobs remain readable by owner; mutations are API-only.
-		jobs.createRule = null;
-		jobs.updateRule = null;
-		jobs.deleteRule = null;
-		app.save(jobs);
+		let jobsPersisted = app.findCollectionByNameOrId(jobs.id || jobs.name);
+		jobsPersisted.createRule = null;
+		jobsPersisted.updateRule = null;
+		jobsPersisted.deleteRule = null;
+		app.save(jobsPersisted);
 	},
 	(app) => {
 		try {

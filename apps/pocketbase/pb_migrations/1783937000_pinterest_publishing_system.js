@@ -60,19 +60,20 @@ migrate(
 			deleteRule: "@request.auth.id != '' && owner = @request.auth.id",
 		};
 
-		const applyOwnerRules = (collection) => {
-			const persisted = app.findCollectionByNameOrId(collection.id || collection.name);
-			if (!persisted || !persisted.fields.getByName("owner")) {
-				return;
+		function saveCollectionThenApplyOwnerRules(app, collection, ownerRules) {
+			app.save(collection); // persist fields including owner
+			let persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+			if (!persisted.fields.getByName("owner")) {
+				throw new Error(`Collection ${persisted.name} is missing required owner field after save`);
 			}
-
 			persisted.listRule = ownerRules.listRule;
 			persisted.viewRule = ownerRules.viewRule;
 			persisted.createRule = ownerRules.createRule;
 			persisted.updateRule = ownerRules.updateRule;
 			persisted.deleteRule = ownerRules.deleteRule;
 			app.save(persisted);
-		};
+			return app.findCollectionByNameOrId(persisted.id || persisted.name);
+		}
 
 		const statusField = aiPins.fields.getByName("status");
 		if (statusField) {
@@ -136,8 +137,7 @@ migrate(
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 			].map(toField),
 		});
-		app.save(pinterestAccounts);
-		applyOwnerRules(pinterestAccounts);
+		saveCollectionThenApplyOwnerRules(app, pinterestAccounts, ownerRules);
 
 		const pinterestBoards = new Collection({
 			type: "base",
@@ -165,8 +165,7 @@ migrate(
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 			].map(toField),
 		});
-		app.save(pinterestBoards);
-		applyOwnerRules(pinterestBoards);
+		saveCollectionThenApplyOwnerRules(app, pinterestBoards, ownerRules);
 
 		const publishJobs = new Collection({
 			type: "base",
@@ -217,8 +216,7 @@ migrate(
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 			].map(toField),
 		});
-		app.save(publishJobs);
-		applyOwnerRules(publishJobs);
+		saveCollectionThenApplyOwnerRules(app, publishJobs, ownerRules);
 
 		const publishEvents = new Collection({
 			type: "base",
@@ -244,8 +242,7 @@ migrate(
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 			].map(toField),
 		});
-		app.save(publishEvents);
-		applyOwnerRules(publishEvents);
+		saveCollectionThenApplyOwnerRules(app, publishEvents, ownerRules);
 
 		const oauthStates = new Collection({
 			type: "base",
@@ -263,8 +260,7 @@ migrate(
 				{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 			].map(toField),
 		});
-		app.save(oauthStates);
-		applyOwnerRules(oauthStates);
+		saveCollectionThenApplyOwnerRules(app, oauthStates, ownerRules);
 	},
 	(app) => {
 		for (const name of [
