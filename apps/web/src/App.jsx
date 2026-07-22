@@ -1,8 +1,10 @@
 import { Suspense, lazy } from 'react';
-import { Route, Routes, BrowserRouter as Router } from 'react-router-dom';
+import { Navigate, Route, Routes, BrowserRouter as Router } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 import ScrollToTop from '@/components/ScrollToTop';
 import AppLayout from '@/components/AppLayout';
+import AdminLayout from '@/components/admin/AdminLayout';
+import AdminRoute from '@/components/admin/AdminRoute';
 import { ProtectedRoute, Spinner } from '@/components/kit';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/context/ThemeContext';
@@ -32,6 +34,23 @@ const CalendarPage = lazy(() => import('@/pages/app/CalendarPage'));
 const PublishingHistoryPage = lazy(() => import('@/pages/app/PublishingHistoryPage'));
 const AnalyticsPage = lazy(() => import('@/pages/app/AnalyticsPage'));
 
+const AdminDashboardPage = lazy(() => import('@/pages/admin/AdminDashboardPage'));
+const AdminUsersPage = lazy(() => import('@/pages/admin/AdminUsersPage'));
+const AdminWorkspacesPage = lazy(() => import('@/pages/admin/AdminWorkspacesPage'));
+const AdminPlansPage = lazy(() => import('@/pages/admin/AdminPlansPage'));
+const AdminCreditsPage = lazy(() => import('@/pages/admin/AdminCreditsPage'));
+const AdminProvidersPage = lazy(() => import('@/pages/admin/AdminProvidersPage'));
+const AdminModelsPage = lazy(() => import('@/pages/admin/AdminModelsPage'));
+const AdminWebsitesPage = lazy(() => import('@/pages/admin/AdminWebsitesPage'));
+const AdminPinterestPage = lazy(() => import('@/pages/admin/AdminPinterestPage'));
+const AdminAnalyticsPage = lazy(() => import('@/pages/admin/AdminAnalyticsPage'));
+const AdminQueuePage = lazy(() => import('@/pages/admin/AdminQueuePage'));
+const AdminJobsPage = lazy(() => import('@/pages/admin/AdminJobsPage'));
+const AdminLogsPage = lazy(() => import('@/pages/admin/AdminLogsPage'));
+const AdminNotificationsPage = lazy(() => import('@/pages/admin/AdminNotificationsPage'));
+const AdminSettingsPage = lazy(() => import('@/pages/admin/AdminSettingsPage'));
+const AdminSystemPage = lazy(() => import('@/pages/admin/AdminSystemPage'));
+
 function Shell({ children, admin }) {
 	return (
 		<ProtectedRoute admin={admin}>
@@ -48,6 +67,22 @@ function LazyPage({ children }) {
 	);
 }
 
+function AdminShell() {
+	return (
+		<AdminRoute>
+			<AdminLayout />
+		</AdminRoute>
+	);
+}
+
+function AdminLazy({ children }) {
+	return (
+		<Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center text-[#e8a87c]"><Spinner /></div>}>
+			{children}
+		</Suspense>
+	);
+}
+
 function App() {
 	return (
 		<ThemeProvider>
@@ -59,6 +94,8 @@ function App() {
 						<Route path="/login" element={<LoginPage />} />
 						<Route path="/signup" element={<SignupPage />} />
 						<Route path="/forgot-password" element={<ForgotPasswordPage />} />
+
+						{/* Customer Workspace — unchanged */}
 						<Route path="/app" element={<Shell><DashboardPage /></Shell>} />
 						<Route path="/app/websites" element={<Shell><WebsitesPage /></Shell>} />
 						<Route path="/app/websites/:websiteId" element={<Shell><WebsiteDashboardPage /></Shell>} />
@@ -77,6 +114,28 @@ function App() {
 						<Route path="/app/settings" element={<Shell><SettingsPage /></Shell>} />
 						<Route path="/app/profile" element={<Shell><ProfilePage /></Shell>} />
 						<Route path="/app/admin" element={<Shell admin><AdminPage /></Shell>} />
+
+						{/* Super User Admin Console — separate application area */}
+						<Route path="/admin" element={<AdminShell />}>
+							<Route index element={<Navigate to="dashboard" replace />} />
+							<Route path="dashboard" element={<AdminLazy><AdminDashboardPage /></AdminLazy>} />
+							<Route path="users" element={<AdminLazy><AdminUsersPage /></AdminLazy>} />
+							<Route path="workspaces" element={<AdminLazy><AdminWorkspacesPage /></AdminLazy>} />
+							<Route path="plans" element={<AdminLazy><AdminPlansPage /></AdminLazy>} />
+							<Route path="credits" element={<AdminLazy><AdminCreditsPage /></AdminLazy>} />
+							<Route path="providers" element={<AdminLazy><AdminProvidersPage /></AdminLazy>} />
+							<Route path="models" element={<AdminLazy><AdminModelsPage /></AdminLazy>} />
+							<Route path="websites" element={<AdminLazy><AdminWebsitesPage /></AdminLazy>} />
+							<Route path="pinterest" element={<AdminLazy><AdminPinterestPage /></AdminLazy>} />
+							<Route path="analytics" element={<AdminLazy><AdminAnalyticsPage /></AdminLazy>} />
+							<Route path="queue" element={<AdminLazy><AdminQueuePage /></AdminLazy>} />
+							<Route path="jobs" element={<AdminLazy><AdminJobsPage /></AdminLazy>} />
+							<Route path="logs" element={<AdminLazy><AdminLogsPage /></AdminLazy>} />
+							<Route path="notifications" element={<AdminLazy><AdminNotificationsPage /></AdminLazy>} />
+							<Route path="settings" element={<AdminLazy><AdminSettingsPage /></AdminLazy>} />
+							<Route path="system" element={<AdminLazy><AdminSystemPage /></AdminLazy>} />
+						</Route>
+
 						<Route path="*" element={<NotFoundPage />} />
 					</Routes>
 					<Toaster />
