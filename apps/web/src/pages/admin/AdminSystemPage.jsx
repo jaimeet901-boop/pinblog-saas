@@ -1,11 +1,44 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-	RefreshCw, Download, RotateCcw, Activity, ScrollText, LineChart, Eraser,
+	RefreshCw, Download, RotateCcw, Activity, ScrollText, LineChart, Eraser, Loader2,
 } from 'lucide-react';
 import { AdminHero, StatusPill, AdminChartCard } from '@/components/admin/AdminUi';
-import { MOCK_SYSTEM_HEALTH as DATA } from '@/pages/admin/systemHealthMock';
+import apiServerClient from '@/lib/apiServerClient';
+import { useToast } from '@/hooks/use-toast';
+import { useNavigate } from 'react-router-dom';
 
-const BACKEND_READY = false;
+const EMPTY = {
+	overall: {
+		status: 'healthy',
+		uptime: '—',
+		lastIncident: '—',
+		lastCheck: '—',
+	},
+	summary: {
+		systemUptime: '—',
+		servicesOnline: 0,
+		servicesOffline: 0,
+		avgResponseTime: '—',
+		cpuUsage: '—',
+		memoryUsage: '—',
+		diskUsage: '—',
+		networkLatency: '—',
+	},
+	coreServices: [],
+	aiProviders: [],
+	external: [],
+	resources: {
+		cpu: [],
+		memory: [],
+		disk: [],
+		bandwidth: [],
+		storageGrowth: [],
+	},
+	certificates: [],
+	incidents: [],
+	alerts: [],
+	logs: [],
+};
 
 function overallTone(status) {
 	if (status === 'critical') return 'critical';
@@ -26,29 +59,151 @@ function ServiceCard({ item, extraRows }) {
 	);
 }
 
+async function readApiError(response) {
+	try {
+		const data = await response.json();
+		return data?.message || `Request failed (${response.status})`;
+	} catch {
+		return `Request failed (${response.status})`;
+	}
+}
+
 export default function AdminSystemPage() {
+	const { toast } = useToast();
+	const navigate = useNavigate();
 	const [autoRefresh, setAutoRefresh] = useState(false);
 	const [refreshedAt, setRefreshedAt] = useState(() => new Date().toLocaleTimeString());
-	const [tick, setTick] = useState(0);
+	const [data, setData] = useState(EMPTY);
+	const [loading, setLoading] = useState(true);
+	const [runningCheck, setRunningCheck] = useState(false);
+	const [exporting, setExporting] = useState(false);
+	const [error, setError] = useState('');
+
+	const load = useCallback(async ({ refresh = false } = {}) => {
+		setLoading(true);
+		setError('');
+		try {
+			const params = refresh ? '?refresh=1' : '';
+			const response = await apiServerClient.fetch(`/admin/v1/system/health${params}`);
+			if (!response.ok) throw new Error(await readApiError(response));
+			const payload = await response.json();
+			setData({
+				...EMPTY,
+				...payload,
+				summary: { ...EMPTY.summary, ...(payload.summary || {}) },
+				overall: { ...EMPTY.overall, ...(payload.overall || {}) },
+				resources: { ...EMPTY.resources, ...(payload.resources || {}) },
+			});
+			setRefreshedAt(new Date().toLocaleTimeString());
+		} catch (err) {
+			setError(err.message);
+			toast({ variant: 'destructive', title: 'System health failed', description: err.message });
+		} finally {
+			setLoading(false);
+		}
+	}, [toast]);
+
+	useEffect(() => {
+		load();
+	}, [load]);
 
 	useEffect(() => {
 		if (!autoRefresh) return undefined;
-		const id = window.setInterval(() => {
-			setTick((value) => value + 1);
-			setRefreshedAt(new Date().toLocaleTimeString());
-		}, 10000);
-		return () => window.clearInterval(id);
-	}, [autoRefresh]);
+		let cancelled = false;
+		let abort;
+		let retryTimer;
+
+		const connect = async () => {
+			abort = new AbortController();
+			try {
+				const response = await apiServerClient.fetch('/admin/v1/system/stream', {
+					signal: abort.signal,
+					headers: { Accept: 'text/event-stream' },
+				});
+				if (!response.ok || !response.body) throw new Error('SSE unavailable');
+				const reader = response.body.getReader();
+				const decoder = new TextDecoder();
+				let buffer = '';
+				while (!cancelled) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					buffer += decoder.decode(value, { stream: true });
+					const chunks = buffer.split('\n\n');
+					buffer = chunks.pop() || '';
+					for (const chunk of chunks) {
+						if (chunk.includes('event: health')) {
+							load();
+							break;
+						}
+					}
+				}
+			} catch {
+				if (!cancelled) {
+					retryTimer = window.setTimeout(connect, 10000);
+				}
+			}
+		};
+
+		connect();
+		return () => {
+			cancelled = true;
+			abort?.abort();
+			if (retryTimer) window.clearTimeout(retryTimer);
+		};
+	}, [autoRefresh, load]);
 
 	const refresh = () => {
-		setTick((value) => value + 1);
-		setRefreshedAt(new Date().toLocaleTimeString());
+		load({ refresh: true });
 	};
 
-	const overall = overallTone(DATA.overall.status);
+	const runHealthCheck = async () => {
+		setRunningCheck(true);
+		try {
+			const response = await apiServerClient.fetch('/admin/v1/system/checks/run', { method: 'POST' });
+			if (!response.ok) throw new Error(await readApiError(response));
+			toast({ title: 'Health check complete', description: 'Probes finished and snapshot stored.' });
+			await load({ refresh: true });
+		} catch (err) {
+			toast({ variant: 'destructive', title: 'Health check failed', description: err.message });
+		} finally {
+			setRunningCheck(false);
+		}
+	};
+
+	const exportReport = async () => {
+		setExporting(true);
+		try {
+			const response = await apiServerClient.fetch('/admin/v1/system/export?format=json');
+			if (!response.ok) throw new Error(await readApiError(response));
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			anchor.href = url;
+			anchor.download = 'system-health.json';
+			anchor.click();
+			URL.revokeObjectURL(url);
+			toast({ title: 'Report exported' });
+		} catch (err) {
+			toast({ variant: 'destructive', title: 'Export failed', description: err.message });
+		} finally {
+			setExporting(false);
+		}
+	};
+
+	const clearCache = async () => {
+		try {
+			const response = await apiServerClient.fetch('/admin/v1/system/actions/clear-cache', { method: 'POST' });
+			if (!response.ok) throw new Error(await readApiError(response));
+			toast({ title: 'Cache cleared', description: 'Analytics caches marked for refresh.' });
+		} catch (err) {
+			toast({ variant: 'destructive', title: 'Clear cache failed', description: err.message });
+		}
+	};
+
+	const overall = overallTone(data.overall.status);
 
 	return (
-		<div key={tick}>
+		<div>
 			<AdminHero
 				title="System Health"
 				description="Monitor platform infrastructure, connected services, uptime and resource usage."
@@ -58,45 +213,49 @@ export default function AdminSystemPage() {
 							<input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
 							<span>Auto Refresh</span>
 						</label>
-						<button type="button" className="admin-btn" onClick={refresh}>
-							<RefreshCw size={13} /> Refresh
+						<button type="button" className="admin-btn" onClick={refresh} disabled={loading}>
+							{loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Refresh
 						</button>
-						<button type="button" className="admin-btn admin-btn--primary" disabled title="UI only">
-							<Download size={13} /> Export Report
+						<button type="button" className="admin-btn admin-btn--primary" onClick={exportReport} disabled={exporting}>
+							{exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Export Report
 						</button>
 					</div>
 				)}
 			/>
 
+			{error ? (
+				<p className="admin-note mt-2" style={{ color: 'var(--admin-danger, #b91c1c)' }}>{error}</p>
+			) : null}
+
 			<section className={`admin-system-banner admin-system-banner--${overall}`}>
 				<div>
 					<p className="admin-system-banner__label">Overall System Status</p>
 					<p className="admin-system-banner__status">
-						{DATA.overall.status === 'healthy' ? 'Healthy' : DATA.overall.status === 'warning' ? 'Warning' : 'Critical'}
+						{data.overall.status === 'healthy' ? 'Healthy' : data.overall.status === 'warning' ? 'Warning' : 'Critical'}
 					</p>
 					<p className="admin-system-banner__meta">
-						Uptime {DATA.overall.uptime} · Last incident {DATA.overall.lastIncident}
+						Uptime {data.overall.uptime} · Last incident {data.overall.lastIncident}
 					</p>
-					<p className="admin-system-banner__meta">Last health check {DATA.overall.lastCheck} · UI refreshed {refreshedAt}</p>
+					<p className="admin-system-banner__meta">Last health check {data.overall.lastCheck} · UI refreshed {refreshedAt}</p>
 				</div>
 				<span className={`admin-system-pulse admin-system-pulse--${overall}`} aria-hidden="true" />
 			</section>
 
 			<div className="admin-stats admin-stats--compact mt-4">
 				{[
-					{ label: 'System Uptime', value: DATA.summary.systemUptime },
-					{ label: 'Services Online', value: DATA.summary.servicesOnline },
-					{ label: 'Services Offline', value: DATA.summary.servicesOffline },
-					{ label: 'Average Response Time', value: DATA.summary.avgResponseTime },
-					{ label: 'CPU Usage', value: DATA.summary.cpuUsage },
-					{ label: 'Memory Usage', value: DATA.summary.memoryUsage },
-					{ label: 'Disk Usage', value: DATA.summary.diskUsage },
-					{ label: 'Network Latency', value: DATA.summary.networkLatency },
+					{ label: 'System Uptime', value: data.summary.systemUptime },
+					{ label: 'Services Online', value: data.summary.servicesOnline },
+					{ label: 'Services Offline', value: data.summary.servicesOffline },
+					{ label: 'Average Response Time', value: data.summary.avgResponseTime },
+					{ label: 'CPU Usage', value: data.summary.cpuUsage },
+					{ label: 'Memory Usage', value: data.summary.memoryUsage },
+					{ label: 'Disk Usage', value: data.summary.diskUsage },
+					{ label: 'Network Latency', value: data.summary.networkLatency },
 				].map((card) => (
 					<div key={card.label} className="admin-stat">
 						<p className="admin-stat__label">{card.label}</p>
 						<p className="admin-stat__value">{card.value}</p>
-						<p className="admin-stat__hint">Mock</p>
+						<p className="admin-stat__hint">Live</p>
 					</div>
 				))}
 			</div>
@@ -104,7 +263,7 @@ export default function AdminSystemPage() {
 			<section className="mt-4">
 				<h3 className="admin-system-section-title">Core Services</h3>
 				<div className="admin-health">
-					{DATA.coreServices.map((item) => (
+					{(data.coreServices.length ? data.coreServices : []).map((item) => (
 						<ServiceCard
 							key={item.name}
 							item={item}
@@ -118,13 +277,16 @@ export default function AdminSystemPage() {
 							)}
 						/>
 					))}
+					{!data.coreServices.length && !loading ? (
+						<p className="admin-note">No core service probes yet. Run a health check.</p>
+					) : null}
 				</div>
 			</section>
 
 			<section className="mt-4">
 				<h3 className="admin-system-section-title">AI Providers Health</h3>
 				<div className="admin-health">
-					{DATA.aiProviders.map((item) => (
+					{data.aiProviders.map((item) => (
 						<ServiceCard
 							key={item.name}
 							item={item}
@@ -138,13 +300,16 @@ export default function AdminSystemPage() {
 							)}
 						/>
 					))}
+					{!data.aiProviders.length && !loading ? (
+						<p className="admin-note">No AI providers registered.</p>
+					) : null}
 				</div>
 			</section>
 
 			<section className="mt-4">
 				<h3 className="admin-system-section-title">External Services</h3>
 				<div className="admin-health">
-					{DATA.external.map((item) => (
+					{data.external.map((item) => (
 						<article key={item.name} className="admin-health__card">
 							<div className="flex items-start justify-between gap-2">
 								<strong>{item.name}</strong>
@@ -160,11 +325,11 @@ export default function AdminSystemPage() {
 			<section className="mt-4">
 				<h3 className="admin-system-section-title">Resource Usage</h3>
 				<div className="admin-analytics-charts">
-					<AdminChartCard title="CPU" series={DATA.resources.cpu} note="Mock resource series" />
-					<AdminChartCard title="Memory" series={DATA.resources.memory} note="Mock resource series" />
-					<AdminChartCard title="Disk" series={DATA.resources.disk} note="Mock resource series" />
-					<AdminChartCard title="Bandwidth" series={DATA.resources.bandwidth} note="Mock resource series" />
-					<AdminChartCard title="Storage Growth" series={DATA.resources.storageGrowth} note="Mock resource series" />
+					<AdminChartCard title="CPU" series={data.resources.cpu} note="Live resource series" />
+					<AdminChartCard title="Memory" series={data.resources.memory} note="Live resource series" />
+					<AdminChartCard title="Disk" series={data.resources.disk} note="Live resource series" />
+					<AdminChartCard title="Bandwidth" series={data.resources.bandwidth} note="Live resource series" />
+					<AdminChartCard title="Storage Growth" series={data.resources.storageGrowth} note="Live resource series" />
 				</div>
 			</section>
 
@@ -182,7 +347,7 @@ export default function AdminSystemPage() {
 							</tr>
 						</thead>
 						<tbody>
-							{DATA.certificates.map((row) => (
+							{data.certificates.map((row) => (
 								<tr key={row.domain}>
 									<td className="font-medium">{row.service}</td>
 									<td style={{ color: 'var(--admin-muted)' }}>{row.domain}</td>
@@ -191,6 +356,11 @@ export default function AdminSystemPage() {
 									<td>{row.days}</td>
 								</tr>
 							))}
+							{!data.certificates.length ? (
+								<tr>
+									<td colSpan={5} style={{ color: 'var(--admin-muted)' }}>No certificate domains configured.</td>
+								</tr>
+							) : null}
 						</tbody>
 					</table>
 				</div>
@@ -200,7 +370,7 @@ export default function AdminSystemPage() {
 				<section className="admin-card">
 					<h3>Incident History</h3>
 					<div className="admin-analytics-timeline">
-						{DATA.incidents.map((item) => (
+						{data.incidents.map((item) => (
 							<div key={item.id} className="admin-analytics-timeline__item">
 								<span className="admin-analytics-timeline__dot" aria-hidden="true" />
 								<div>
@@ -209,6 +379,9 @@ export default function AdminSystemPage() {
 								</div>
 							</div>
 						))}
+						{!data.incidents.length ? (
+							<p className="admin-note">No incidents recorded.</p>
+						) : null}
 					</div>
 				</section>
 
@@ -226,7 +399,7 @@ export default function AdminSystemPage() {
 								</tr>
 							</thead>
 							<tbody>
-								{DATA.alerts.map((alert) => (
+								{data.alerts.map((alert) => (
 									<tr key={alert.id}>
 										<td><StatusPill status={alert.severity === 'critical' ? 'failed' : alert.severity === 'warning' ? 'warn' : 'info'} /></td>
 										<td>{alert.service}</td>
@@ -235,6 +408,11 @@ export default function AdminSystemPage() {
 										<td><StatusPill status={alert.status === 'open' ? 'warn' : 'ready'} /></td>
 									</tr>
 								))}
+								{!data.alerts.length ? (
+									<tr>
+										<td colSpan={5} style={{ color: 'var(--admin-muted)' }}>No active alerts.</td>
+									</tr>
+								) : null}
 							</tbody>
 						</table>
 					</div>
@@ -245,32 +423,40 @@ export default function AdminSystemPage() {
 				<section className="admin-card">
 					<h3>System Logs Preview</h3>
 					<div className="admin-queue-logs">
-						{DATA.logs.map((line) => (
+						{data.logs.map((line) => (
 							<code key={line}>{line}</code>
 						))}
+						{!data.logs.length ? (
+							<code>No recent system logs.</code>
+						) : null}
 					</div>
 				</section>
 
 				<section className="admin-card">
 					<h3>Prepared Actions</h3>
 					<div className="admin-analytics-actions">
-						<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+						<button
+							type="button"
+							className="admin-btn"
+							disabled
+							title="Host-level restarts are not available from the Admin API"
+						>
 							<RotateCcw size={13} /> Restart Service
 						</button>
-						<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
-							<Activity size={13} /> Run Health Check
+						<button type="button" className="admin-btn" onClick={runHealthCheck} disabled={runningCheck}>
+							{runningCheck ? <Loader2 size={13} className="animate-spin" /> : <Activity size={13} />} Run Health Check
 						</button>
-						<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+						<button type="button" className="admin-btn" onClick={() => navigate('/admin/logs')}>
 							<ScrollText size={13} /> View Logs
 						</button>
-						<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+						<button type="button" className="admin-btn" onClick={() => navigate('/admin/queue')}>
 							<LineChart size={13} /> Open Metrics
 						</button>
-						<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+						<button type="button" className="admin-btn" onClick={clearCache}>
 							<Eraser size={13} /> Clear Cache
 						</button>
 					</div>
-					<p className="admin-note">All mutations stay disabled until Admin Console APIs exist.</p>
+					<p className="admin-note">Health probes, exports, logs and cache refresh are live. Process restarts stay host-managed.</p>
 				</section>
 			</div>
 		</div>

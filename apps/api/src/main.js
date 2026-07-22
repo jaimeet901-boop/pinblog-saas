@@ -16,6 +16,7 @@ import { startWordpressPublishQueue, stopWordpressPublishQueue } from './service
 import { startQueueEngine, stopQueueEngine } from './services/queue/engine.js';
 import { startAnalyticsRefreshWorker, stopAnalyticsRefreshWorker } from './services/analytics/refresh.js';
 import { startAuditRetentionWorker, stopAuditRetentionWorker } from './services/audit/retention.js';
+import { startHealthMonitorWorker, stopHealthMonitorWorker } from './services/health/worker.js';
 
 const app = express();
 
@@ -75,6 +76,7 @@ process.on('SIGINT', async () => {
 	stopQueueEngine();
 	stopAnalyticsRefreshWorker();
 	stopAuditRetentionWorker();
+	stopHealthMonitorWorker();
 	process.exit(0);
 });
 
@@ -87,6 +89,7 @@ process.on('SIGTERM', async () => {
 	stopQueueEngine();
 	stopAnalyticsRefreshWorker();
 	stopAuditRetentionWorker();
+	stopHealthMonitorWorker();
 
 	await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -133,6 +136,7 @@ app.listen(port, () => {
 	startQueueEngine();
 	startAnalyticsRefreshWorker();
 	startAuditRetentionWorker();
+	startHealthMonitorWorker();
 });
 
 export default app;

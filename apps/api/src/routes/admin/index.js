@@ -9,6 +9,7 @@ import creditsRouter from './credits.js';
 import queueRouter from './queue.js';
 import analyticsRouter from './analytics.js';
 import logsRouter from './logs.js';
+import systemRouter from './system.js';
 
 const router = Router();
 
@@ -31,5 +32,6 @@ router.use('/credits', creditsRouter);
 router.use('/queue', queueRouter);
 router.use('/analytics', analyticsRouter);
 router.use('/logs', logsRouter);
+router.use('/system', systemRouter);
 
 export default router;
