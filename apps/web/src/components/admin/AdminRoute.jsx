@@ -1,7 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { canAccessAdminConsole } from '@/lib/adminRbac';
-import { Spinner } from '@/components/kit';
+import { AdminSkeleton } from '@/components/admin/AdminUi';
 import './AdminLayout.css';
 
 /**
@@ -34,8 +34,11 @@ export default function AdminRoute({ children }) {
 
 	if (!user) {
 		return (
-			<div className="flex min-h-[100dvh] items-center justify-center bg-[#0c0e12] text-[#e8a87c]">
-				<Spinner />
+			<div className="admin-denied">
+				<div className="w-full max-w-sm">
+					<p className="mb-3 text-xs font-bold uppercase tracking-[0.16em]" style={{ color: '#e8a87c' }}>Loading Admin Console</p>
+					<AdminSkeleton rows={5} />
+				</div>
 			</div>
 		);
 	}

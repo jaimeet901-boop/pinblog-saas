@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
 	RefreshCw, Download, Eye, Copy, Filter, Bookmark, X,
 } from 'lucide-react';
-import { AdminHero, StatusPill } from '@/components/admin/AdminUi';
+import { AdminHero, StatusPill, AdminPagination } from '@/components/admin/AdminUi';
 import { MOCK_AUDIT_LOGS as DATA } from '@/pages/admin/auditLogsMock';
 import { useToast } from '@/hooks/use-toast';
 
@@ -179,7 +179,7 @@ export default function AdminLogsPage() {
 
 			<p className="admin-note mt-0 mb-3">Last refreshed {refreshedAt}{autoRefresh ? ' · auto every 10s (UI pulse)' : ''}</p>
 
-			<div className="admin-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))' }}>
+			<div className="admin-stats admin-stats--compact">
 				{[
 					{ label: 'Total Events Today', value: DATA.summary.totalToday },
 					{ label: 'Warnings', value: DATA.summary.warnings },
@@ -308,17 +308,14 @@ export default function AdminLogsPage() {
 						</tbody>
 					</table>
 				</div>
-				{filtered.length === 0 ? (
-					<p className="admin-note">No events match the current filters.</p>
-				) : (
-					<div className="mt-3 flex items-center justify-between gap-2">
-						<p className="admin-note m-0">{filtered.length} events · page {page} of {totalPages}</p>
-						<div className="flex gap-2">
-							<button type="button" className="admin-btn" disabled={page <= 1} onClick={() => setPage((prev) => prev - 1)}>Previous</button>
-							<button type="button" className="admin-btn" disabled={page >= totalPages} onClick={() => setPage((prev) => prev + 1)}>Next</button>
-						</div>
-					</div>
-				)}
+				<AdminPagination
+					total={filtered.length}
+					page={page}
+					totalPages={totalPages}
+					noun="events"
+					onPrev={() => setPage((prev) => prev - 1)}
+					onNext={() => setPage((prev) => prev + 1)}
+				/>
 			</section>
 
 			<div className="admin-grid admin-grid--2 mt-4">

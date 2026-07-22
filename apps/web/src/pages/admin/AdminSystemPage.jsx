@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
 	RefreshCw, Download, RotateCcw, Activity, ScrollText, LineChart, Eraser,
 } from 'lucide-react';
-import { AdminHero, StatusPill } from '@/components/admin/AdminUi';
+import { AdminHero, StatusPill, AdminChartCard } from '@/components/admin/AdminUi';
 import { MOCK_SYSTEM_HEALTH as DATA } from '@/pages/admin/systemHealthMock';
 
 const BACKEND_READY = false;
@@ -11,29 +11,6 @@ function overallTone(status) {
 	if (status === 'critical') return 'critical';
 	if (status === 'warning') return 'warning';
 	return 'healthy';
-}
-
-function ChartCard({ title, series }) {
-	const max = Math.max(...series.map((row) => row.value), 1);
-	return (
-		<section className="admin-card admin-analytics-chart">
-			<h3>{title}</h3>
-			<div className="admin-analytics-chart__bars" aria-hidden="true">
-				{series.map((row) => (
-					<div key={row.label} className="admin-analytics-chart__col">
-						<div className="admin-analytics-chart__track">
-							<div
-								className="admin-analytics-chart__fill"
-								style={{ height: `${Math.max(8, (row.value / max) * 100)}%` }}
-							/>
-						</div>
-						<span>{row.label}</span>
-					</div>
-				))}
-			</div>
-			<p className="admin-note">Mock resource series</p>
-		</section>
-	);
 }
 
 function ServiceCard({ item, extraRows }) {
@@ -105,7 +82,7 @@ export default function AdminSystemPage() {
 				<span className={`admin-system-pulse admin-system-pulse--${overall}`} aria-hidden="true" />
 			</section>
 
-			<div className="admin-stats mt-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))' }}>
+			<div className="admin-stats admin-stats--compact mt-4">
 				{[
 					{ label: 'System Uptime', value: DATA.summary.systemUptime },
 					{ label: 'Services Online', value: DATA.summary.servicesOnline },
@@ -183,11 +160,11 @@ export default function AdminSystemPage() {
 			<section className="mt-4">
 				<h3 className="admin-system-section-title">Resource Usage</h3>
 				<div className="admin-analytics-charts">
-					<ChartCard title="CPU" series={DATA.resources.cpu} />
-					<ChartCard title="Memory" series={DATA.resources.memory} />
-					<ChartCard title="Disk" series={DATA.resources.disk} />
-					<ChartCard title="Bandwidth" series={DATA.resources.bandwidth} />
-					<ChartCard title="Storage Growth" series={DATA.resources.storageGrowth} />
+					<AdminChartCard title="CPU" series={DATA.resources.cpu} note="Mock resource series" />
+					<AdminChartCard title="Memory" series={DATA.resources.memory} note="Mock resource series" />
+					<AdminChartCard title="Disk" series={DATA.resources.disk} note="Mock resource series" />
+					<AdminChartCard title="Bandwidth" series={DATA.resources.bandwidth} note="Mock resource series" />
+					<AdminChartCard title="Storage Growth" series={DATA.resources.storageGrowth} note="Mock resource series" />
 				</div>
 			</section>
 

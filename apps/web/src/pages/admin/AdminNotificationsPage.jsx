@@ -12,7 +12,7 @@ export default function AdminNotificationsPage() {
 			<AdminHero
 				title="Notifications"
 				description="Platform announcement and alert templates. UI placeholders only."
-				action={<button type="button" className="admin-btn admin-btn--primary" disabled>Compose</button>}
+				action={<button type="button" className="admin-btn admin-btn--primary" disabled title="Backend not available">Compose</button>}
 			/>
 			<section className="admin-card">
 				<div className="admin-list">
@@ -22,10 +22,11 @@ export default function AdminNotificationsPage() {
 								<strong className="block">{note.title}</strong>
 								<span style={{ color: 'var(--admin-muted)', fontSize: '0.75rem' }}>{note.channel}</span>
 							</span>
-							<StatusPill status={note.status === 'active' ? 'active' : note.status === 'scheduled' ? 'waiting' : 'ready'} />
+							<StatusPill status={note.status} />
 						</div>
 					))}
 				</div>
+				<p className="admin-note">No notification sends — display only.</p>
 			</section>
 		</div>
 	);

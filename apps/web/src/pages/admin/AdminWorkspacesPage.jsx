@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
 	Eye, Pencil, Ban, CheckCircle2, Trash2, X, ArrowLeftRight,
 } from 'lucide-react';
-import { AdminHero, StatusPill } from '@/components/admin/AdminUi';
+import { AdminHero, StatusPill, AdminPagination, AdminEmptyState } from '@/components/admin/AdminUi';
 import { MOCK_WORKSPACES } from '@/pages/admin/mockData';
 
 const PAGE_SIZE = 6;
@@ -89,7 +89,7 @@ export default function AdminWorkspacesPage() {
 				description="Manage customer workspaces across the platform. Mock data only — mutation actions stay disabled until admin APIs exist."
 			/>
 
-			<div className="admin-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))' }}>
+			<div className="admin-stats admin-stats--compact">
 				{[
 					{ label: 'Total Workspaces', value: stats.total },
 					{ label: 'Active Workspaces', value: stats.active },
@@ -210,17 +210,14 @@ export default function AdminWorkspacesPage() {
 					</table>
 				</div>
 
-				{filtered.length === 0 ? (
-					<p className="admin-note">No workspaces match the current filters.</p>
-				) : (
-					<div className="mt-3 flex items-center justify-between gap-2">
-						<p className="admin-note m-0">{filtered.length} workspaces · page {page} of {totalPages}</p>
-						<div className="flex gap-2">
-							<button type="button" className="admin-btn" disabled={page <= 1} onClick={() => setPage((prev) => prev - 1)}>Previous</button>
-							<button type="button" className="admin-btn" disabled={page >= totalPages} onClick={() => setPage((prev) => prev + 1)}>Next</button>
-						</div>
-					</div>
-				)}
+				<AdminPagination
+					total={filtered.length}
+					page={page}
+					totalPages={totalPages}
+					noun="workspaces"
+					onPrev={() => setPage((prev) => prev - 1)}
+					onNext={() => setPage((prev) => prev + 1)}
+				/>
 			</section>
 
 			{selected ? (
@@ -280,7 +277,7 @@ export default function AdminWorkspacesPage() {
 									))}
 								</div>
 							) : (
-								<p className="admin-note m-0">No websites connected.</p>
+								<AdminEmptyState title="No websites" description="No websites connected on this mock workspace." />
 							)}
 						</section>
 
@@ -296,7 +293,7 @@ export default function AdminWorkspacesPage() {
 									))}
 								</div>
 							) : (
-								<p className="admin-note m-0">No Pinterest accounts linked.</p>
+								<AdminEmptyState title="No Pinterest accounts" description="No Pinterest accounts linked on this mock workspace." />
 							)}
 						</section>
 
@@ -312,7 +309,7 @@ export default function AdminWorkspacesPage() {
 									))}
 								</div>
 							) : (
-								<p className="admin-note m-0">No WordPress connections.</p>
+								<AdminEmptyState title="No WordPress connections" description="No WordPress connections on this mock workspace." />
 							)}
 						</section>
 

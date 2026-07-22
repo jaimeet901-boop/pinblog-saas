@@ -2,16 +2,12 @@ export function canAccessAdminConsole(user) {
 	return String(user?.role || '').toLowerCase() === 'admin';
 }
 
-export function canAccessWorkspace(user) {
-	return Boolean(user?.id || user?.email);
-}
-
 /** Frontend RBAC preparation only — no backend enforcement. */
 export const ADMIN_NAV = [
 	{ to: '/admin/dashboard', label: 'Dashboard', end: true },
 	{ to: '/admin/users', label: 'Users' },
 	{ to: '/admin/workspaces', label: 'Workspaces' },
-	{ to: '/admin/plans', label: 'Subscriptions' },
+	{ to: '/admin/plans', label: 'Plans & Credits' },
 	{ to: '/admin/credits', label: 'Credits' },
 	{ to: '/admin/providers', label: 'AI Providers' },
 	{ to: '/admin/models', label: 'AI Models' },

@@ -4,7 +4,7 @@ import {
 	RefreshCw, Download, Users, Building2, Cpu, Boxes, CreditCard,
 	ListOrdered, ScrollText, TrendingUp,
 } from 'lucide-react';
-import { AdminHero, StatusPill } from '@/components/admin/AdminUi';
+import { AdminHero, StatusPill, AdminChartCard } from '@/components/admin/AdminUi';
 import { MOCK_PLATFORM_ANALYTICS as DATA } from '@/pages/admin/platformAnalyticsMock';
 
 const RANGES = [
@@ -14,29 +14,6 @@ const RANGES = [
 	{ id: '90d', label: 'Last 90 Days' },
 	{ id: 'custom', label: 'Custom Range' },
 ];
-
-function ChartCard({ title, series }) {
-	const max = Math.max(...series.map((row) => row.value), 1);
-	return (
-		<section className="admin-card admin-analytics-chart">
-			<h3>{title}</h3>
-			<div className="admin-analytics-chart__bars" aria-hidden="true">
-				{series.map((row) => (
-					<div key={row.label} className="admin-analytics-chart__col">
-						<div className="admin-analytics-chart__track">
-							<div
-								className="admin-analytics-chart__fill"
-								style={{ height: `${Math.max(8, (row.value / max) * 100)}%` }}
-							/>
-						</div>
-						<span>{row.label}</span>
-					</div>
-				))}
-			</div>
-			<p className="admin-note">Mock series · no live telemetry</p>
-		</section>
-	);
-}
 
 function money(value) {
 	return `$${Number(value || 0).toLocaleString()}`;
@@ -109,14 +86,14 @@ export default function AdminAnalyticsPage() {
 			</div>
 
 			<div className="admin-analytics-charts">
-				<ChartCard title="User Growth" series={DATA.charts.userGrowth} />
-				<ChartCard title="Daily Active Users" series={DATA.charts.dau} />
-				<ChartCard title="Workspace Growth" series={DATA.charts.workspaceGrowth} />
-				<ChartCard title="Articles Generated Per Day" series={DATA.charts.articlesPerDay} />
-				<ChartCard title="Images Generated Per Day" series={DATA.charts.imagesPerDay} />
-				<ChartCard title="Credits Usage" series={DATA.charts.creditsUsage} />
-				<ChartCard title="Revenue Trend" series={DATA.charts.revenueTrend} />
-				<ChartCard title="AI Requests" series={DATA.charts.aiRequests} />
+				<AdminChartCard title="User Growth" series={DATA.charts.userGrowth} />
+				<AdminChartCard title="Daily Active Users" series={DATA.charts.dau} />
+				<AdminChartCard title="Workspace Growth" series={DATA.charts.workspaceGrowth} />
+				<AdminChartCard title="Articles Generated Per Day" series={DATA.charts.articlesPerDay} />
+				<AdminChartCard title="Images Generated Per Day" series={DATA.charts.imagesPerDay} />
+				<AdminChartCard title="Credits Usage" series={DATA.charts.creditsUsage} />
+				<AdminChartCard title="Revenue Trend" series={DATA.charts.revenueTrend} />
+				<AdminChartCard title="AI Requests" series={DATA.charts.aiRequests} />
 			</div>
 
 			<section className="admin-card mt-4">

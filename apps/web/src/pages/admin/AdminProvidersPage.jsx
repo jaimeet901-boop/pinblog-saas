@@ -120,7 +120,7 @@ export default function AdminProvidersPage() {
 				description="Configure all platform-wide AI providers and external integrations. Admin-only — secrets never appear in the customer workspace."
 			/>
 
-			<div className="admin-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))' }}>
+			<div className="admin-stats admin-stats--compact">
 				{[
 					{ label: 'Total Providers', value: stats.total },
 					{ label: 'Connected Providers', value: stats.connected },

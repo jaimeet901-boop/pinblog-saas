@@ -7,7 +7,7 @@ export default function AdminCreditsPage() {
 				title="Credits"
 				description="Platform credit pools, grants, and burn rate. Placeholder widgets only."
 			/>
-			<div className="admin-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(11rem, 1fr))' }}>
+			<div className="admin-stats admin-stats--compact">
 				{[
 					{ label: 'Credits issued', value: '120,400' },
 					{ label: 'Credits burned', value: '48,290' },

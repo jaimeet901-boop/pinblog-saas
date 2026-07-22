@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
 	RefreshCw, Download, Eye, RotateCcw, Ban, Pause, Play, ScrollText, Trash2, ListRestart, X,
 } from 'lucide-react';
-import { AdminHero, StatusPill } from '@/components/admin/AdminUi';
+import { AdminHero, StatusPill, AdminPagination, AdminProgressBar } from '@/components/admin/AdminUi';
 import { MOCK_QUEUE_MONITOR as DATA } from '@/pages/admin/queueMonitorMock';
 
 const PAGE_SIZE = 8;
@@ -24,18 +24,6 @@ const JOB_TYPES = [
 ];
 
 const STATUSES = ['queued', 'waiting', 'running', 'completed', 'failed', 'retrying', 'paused', 'cancelled'];
-
-function ProgressBar({ value }) {
-	const pct = Math.max(0, Math.min(100, Number(value || 0)));
-	return (
-		<div className="admin-queue-progress" title={`${pct}%`}>
-			<div className="admin-queue-progress__track">
-				<div className="admin-queue-progress__fill" style={{ width: `${pct}%` }} />
-			</div>
-			<span>{pct}%</span>
-		</div>
-	);
-}
 
 export default function AdminQueuePage() {
 	const [search, setSearch] = useState('');
@@ -132,7 +120,7 @@ export default function AdminQueuePage() {
 				{autoRefresh ? ' · auto every 8s (UI pulse only)' : ''}
 			</p>
 
-			<div className="admin-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(9.5rem, 1fr))' }}>
+			<div className="admin-stats admin-stats--compact">
 				{[
 					{ label: 'Running Jobs', value: DATA.summary.running },
 					{ label: 'Queued Jobs', value: DATA.summary.queued },
@@ -240,7 +228,7 @@ export default function AdminQueuePage() {
 									<td>{job.provider}</td>
 									<td><StatusPill status={job.priority} /></td>
 									<td><StatusPill status={job.status} /></td>
-									<td><ProgressBar value={job.progress} /></td>
+									<td><AdminProgressBar value={job.progress} /></td>
 									<td style={{ color: 'var(--admin-muted)' }}>{job.worker}</td>
 									<td style={{ color: 'var(--admin-muted)', whiteSpace: 'nowrap' }}>{job.created}</td>
 									<td style={{ color: 'var(--admin-muted)', whiteSpace: 'nowrap' }}>{job.started}</td>
@@ -263,17 +251,14 @@ export default function AdminQueuePage() {
 						</tbody>
 					</table>
 				</div>
-				{filtered.length === 0 ? (
-					<p className="admin-note">No jobs match the current filters.</p>
-				) : (
-					<div className="mt-3 flex items-center justify-between gap-2">
-						<p className="admin-note m-0">{filtered.length} jobs · page {page} of {totalPages}</p>
-						<div className="flex gap-2">
-							<button type="button" className="admin-btn" disabled={page <= 1} onClick={() => setPage((prev) => prev - 1)}>Previous</button>
-							<button type="button" className="admin-btn" disabled={page >= totalPages} onClick={() => setPage((prev) => prev + 1)}>Next</button>
-						</div>
-					</div>
-				)}
+				<AdminPagination
+					total={filtered.length}
+					page={page}
+					totalPages={totalPages}
+					noun="jobs"
+					onPrev={() => setPage((prev) => prev - 1)}
+					onNext={() => setPage((prev) => prev + 1)}
+				/>
 			</section>
 
 			<div className="admin-grid admin-grid--2 mt-4">
@@ -367,7 +352,7 @@ export default function AdminQueuePage() {
 							<div className="admin-meta-row"><span>Created</span><span>{selected.created}</span></div>
 							<div className="admin-meta-row"><span>Started</span><span>{selected.started}</span></div>
 							<div className="admin-meta-row"><span>Duration</span><span>{selected.duration}</span></div>
-							<div className="mt-2"><ProgressBar value={selected.progress} /></div>
+							<div className="mt-2"><AdminProgressBar value={selected.progress} /></div>
 						</section>
 
 						<section className="admin-user-drawer__section">

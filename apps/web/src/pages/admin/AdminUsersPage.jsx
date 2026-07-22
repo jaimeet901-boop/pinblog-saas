@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Eye, Pencil, Ban, CheckCircle2, KeyRound, Trash2, X } from 'lucide-react';
-import { AdminHero, StatusPill } from '@/components/admin/AdminUi';
+import { AdminHero, StatusPill, AdminPagination, AdminEmptyState } from '@/components/admin/AdminUi';
 import { MOCK_USERS } from '@/pages/admin/mockData';
 
 const PAGE_SIZE = 6;
@@ -85,7 +85,7 @@ export default function AdminUsersPage() {
 				description="Manage platform users and workspace owners. Mock data only — actions disabled until admin APIs exist."
 			/>
 
-			<div className="admin-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))' }}>
+			<div className="admin-stats admin-stats--compact">
 				{[
 					{ label: 'Total Users', value: stats.total },
 					{ label: 'Active Users', value: stats.active },
@@ -202,17 +202,14 @@ export default function AdminUsersPage() {
 					</table>
 				</div>
 
-				{filtered.length === 0 ? (
-					<p className="admin-note">No users match the current filters.</p>
-				) : (
-					<div className="mt-3 flex items-center justify-between gap-2">
-						<p className="admin-note m-0">{filtered.length} users · page {page} of {totalPages}</p>
-						<div className="flex gap-2">
-							<button type="button" className="admin-btn" disabled={page <= 1} onClick={() => setPage((prev) => prev - 1)}>Previous</button>
-							<button type="button" className="admin-btn" disabled={page >= totalPages} onClick={() => setPage((prev) => prev + 1)}>Next</button>
-						</div>
-					</div>
-				)}
+				<AdminPagination
+					total={filtered.length}
+					page={page}
+					totalPages={totalPages}
+					noun="users"
+					onPrev={() => setPage((prev) => prev - 1)}
+					onNext={() => setPage((prev) => prev + 1)}
+				/>
 			</section>
 
 			{selected ? (
@@ -256,7 +253,7 @@ export default function AdminUsersPage() {
 									))}
 								</div>
 							) : (
-								<p className="admin-note m-0">No workspaces on this mock profile.</p>
+								<AdminEmptyState title="No workspaces" description="No workspaces on this mock profile." />
 							)}
 						</section>
 
@@ -285,7 +282,7 @@ export default function AdminUsersPage() {
 									))}
 								</div>
 							) : (
-								<p className="admin-note m-0">No websites connected.</p>
+								<AdminEmptyState title="No websites" description="No websites connected on this mock profile." />
 							)}
 						</section>
 

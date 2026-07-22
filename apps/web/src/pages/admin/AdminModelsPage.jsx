@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
 	Eye, Pencil, Power, PowerOff, Star, Trash2, X,
 } from 'lucide-react';
-import { AdminHero, StatusPill } from '@/components/admin/AdminUi';
+import { AdminHero, StatusPill, AdminPagination } from '@/components/admin/AdminUi';
 import { MOCK_MODELS } from '@/pages/admin/mockData';
 
 const PAGE_SIZE = 6;
@@ -107,7 +107,7 @@ export default function AdminModelsPage() {
 				description="Manage available AI models across all providers. Providers stay in /admin/providers — this page is models only."
 			/>
 
-			<div className="admin-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))' }}>
+			<div className="admin-stats admin-stats--compact">
 				{[
 					{ label: 'Total Models', value: stats.total },
 					{ label: 'Active Models', value: stats.active },
@@ -224,17 +224,14 @@ export default function AdminModelsPage() {
 					</table>
 				</div>
 
-				{filtered.length === 0 ? (
-					<p className="admin-note">No models match the current filters.</p>
-				) : (
-					<div className="mt-3 flex items-center justify-between gap-2">
-						<p className="admin-note m-0">{filtered.length} models · page {page} of {totalPages}</p>
-						<div className="flex gap-2">
-							<button type="button" className="admin-btn" disabled={page <= 1} onClick={() => setPage((prev) => prev - 1)}>Previous</button>
-							<button type="button" className="admin-btn" disabled={page >= totalPages} onClick={() => setPage((prev) => prev + 1)}>Next</button>
-						</div>
-					</div>
-				)}
+				<AdminPagination
+					total={filtered.length}
+					page={page}
+					totalPages={totalPages}
+					noun="models"
+					onPrev={() => setPage((prev) => prev - 1)}
+					onNext={() => setPage((prev) => prev + 1)}
+				/>
 			</section>
 
 			{selected ? (

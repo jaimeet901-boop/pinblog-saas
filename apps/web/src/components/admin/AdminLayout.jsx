@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import {
 	LayoutDashboard, Users, Building2, CreditCard, Coins, Cpu, Boxes, Globe, Pin,
 	BarChart3, ListOrdered, Briefcase, ScrollText, Bell, Settings, Activity,
-	Menu, X, LogOut, ArrowLeftRight, Shield,
+	Menu, X, LogOut, ArrowLeftRight, Shield, ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_NAV } from '@/lib/adminRbac';
@@ -41,7 +41,7 @@ function NavItems({ onNavigate }) {
 						onClick={onNavigate}
 						className={({ isActive }) => (isActive ? 'is-active' : undefined)}
 					>
-						<Icon size={15} />
+						<Icon size={15} aria-hidden="true" />
 						{item.label}
 					</NavLink>
 				);
@@ -56,11 +56,11 @@ export default function AdminLayout() {
 	const navigate = useNavigate();
 	const location = useLocation();
 
-	const currentLabel = useMemo(() => {
+	const current = useMemo(() => {
 		const match = ADMIN_NAV.find((item) => (
 			item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)
 		));
-		return match?.label || 'Admin Console';
+		return match || { to: '/admin/dashboard', label: 'Admin Console' };
 	}, [location.pathname]);
 
 	const handleLogout = () => {
@@ -70,7 +70,7 @@ export default function AdminLayout() {
 
 	const brand = (
 		<Link to="/admin/dashboard" className="admin-sidebar__brand" onClick={() => setMobileOpen(false)}>
-			<span className="admin-sidebar__mark"><Shield size={16} /></span>
+			<span className="admin-sidebar__mark"><Shield size={16} aria-hidden="true" /></span>
 			<span>
 				<span className="admin-sidebar__tag">Super User</span>
 				<span className="admin-sidebar__name">Admin Console</span>
@@ -84,13 +84,19 @@ export default function AdminLayout() {
 				{brand}
 				<NavItems />
 				<button type="button" className="admin-btn" onClick={() => navigate('/app')}>
-					<ArrowLeftRight size={14} /> Open Workspace
+					<ArrowLeftRight size={14} aria-hidden="true" /> Open Workspace
 				</button>
 			</aside>
 
 			{mobileOpen ? (
-				<div className="admin-drawer lg:hidden" role="dialog" aria-modal="true">
-					<div className="admin-drawer__panel">
+				<div
+					className="admin-drawer"
+					role="dialog"
+					aria-modal="true"
+					aria-label="Admin navigation"
+					onClick={() => setMobileOpen(false)}
+				>
+					<div className="admin-drawer__panel" onClick={(event) => event.stopPropagation()}>
 						<div className="flex items-center justify-between gap-2">
 							{brand}
 							<button type="button" className="admin-icon-btn" onClick={() => setMobileOpen(false)} aria-label="Close menu">
@@ -99,7 +105,7 @@ export default function AdminLayout() {
 						</div>
 						<NavItems onNavigate={() => setMobileOpen(false)} />
 						<button type="button" className="admin-btn" onClick={() => { setMobileOpen(false); navigate('/app'); }}>
-							<ArrowLeftRight size={14} /> Open Workspace
+							<ArrowLeftRight size={14} aria-hidden="true" /> Open Workspace
 						</button>
 					</div>
 				</div>
@@ -107,12 +113,17 @@ export default function AdminLayout() {
 
 			<div className="admin-main">
 				<header className="admin-header">
-					<div className="flex items-center gap-2">
-						<button type="button" className="admin-icon-btn lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+					<div className="flex items-center gap-2 min-w-0">
+						<button type="button" className="admin-icon-btn admin-only-mobile" onClick={() => setMobileOpen(true)} aria-label="Open menu">
 							<Menu size={16} />
 						</button>
-						<div>
-							<p className="admin-header__title">{currentLabel}</p>
+						<div className="min-w-0">
+							<nav className="admin-breadcrumb" aria-label="Breadcrumb">
+								<Link to="/admin/dashboard">Admin</Link>
+								<ChevronRight size={12} aria-hidden="true" />
+								<span aria-current="page">{current.label}</span>
+							</nav>
+							<p className="admin-header__title">{current.label}</p>
 							<p className="admin-header__meta">Chef IA platform · {user?.email || 'administrator'}</p>
 						</div>
 					</div>
@@ -121,7 +132,8 @@ export default function AdminLayout() {
 							<Bell size={15} />
 						</button>
 						<button type="button" className="admin-btn" onClick={handleLogout}>
-							<LogOut size={14} /> Sign out
+							<LogOut size={14} aria-hidden="true" />
+							<span className="admin-btn-label">Sign out</span>
 						</button>
 					</div>
 				</header>

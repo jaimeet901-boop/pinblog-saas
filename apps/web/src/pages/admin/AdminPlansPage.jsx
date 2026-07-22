@@ -47,7 +47,7 @@ export default function AdminPlansPage() {
 				description="Manage subscription plans, limits, and credit allocations. Mock catalog only — billing APIs unchanged."
 			/>
 
-			<div className="admin-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))' }}>
+			<div className="admin-stats admin-stats--compact">
 				{[
 					{ label: 'Total Plans', value: stats.total },
 					{ label: 'Active Plans', value: stats.active },
