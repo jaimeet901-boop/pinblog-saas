@@ -1,5 +1,6 @@
 import { getEnv } from '../utils/env.js';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
+import { writeSecurityEvent } from '../services/audit/write.js';
 
 function httpError(status, message, errorCode) {
 	const error = new Error(message);
@@ -22,6 +23,16 @@ export async function requireAdmin(req, res, next) {
 		const user = await pocketbaseClient.collection('users').getOne(userId);
 		const role = String(user?.role || '').toLowerCase();
 		if (role !== 'admin') {
+			writeSecurityEvent({
+				eventType: 'permission_denied',
+				title: 'Permission Denied',
+				detail: `Non-admin user attempted admin API (${req.originalUrl || req.url || ''})`,
+				actorUserId: userId,
+				actorLabel: user?.name || user?.email || userId,
+				ip: String(req.ip || req.headers['x-forwarded-for'] || '').split(',')[0].trim(),
+				severity: 'warn',
+				meta: { path: req.originalUrl || req.url || '', role },
+			}).catch(() => null);
 			return next(httpError(403, 'Admin access required.', 'ADMIN_REQUIRED'));
 		}
 

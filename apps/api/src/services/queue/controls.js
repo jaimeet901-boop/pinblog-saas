@@ -4,6 +4,7 @@ import logger from '../../utils/logger.js';
 import { appendQueueEvent, httpError, updateQueueJob } from './jobs.js';
 import { NATIVE_JOB_TYPES, PRIORITY_WEIGHT, nextRetryAt } from './types.js';
 import { isQueuePaused } from './metrics.js';
+import { writeQueueAudit } from '../audit/write.js';
 
 async function syncSourceStatus(job, status, extra = {}) {
 	if (!job.source_collection || !job.source_id) return;
@@ -238,7 +239,7 @@ export async function loadClaimableNativeJobs(limit = 10) {
 export async function completeNativeJob(job, outputs = {}) {
 	const started = job.started_at ? new Date(job.started_at).getTime() : Date.now();
 	const durationMs = Math.max(0, Date.now() - started);
-	return updateQueueJob(job.id, {
+	const updated = await updateQueueJob(job.id, {
 		status: 'completed',
 		progress: 100,
 		outputs,
@@ -248,6 +249,13 @@ export async function completeNativeJob(job, outputs = {}) {
 		failure_reason: '',
 		claim_token: '',
 	}, 'Job completed');
+	await writeQueueAudit({
+		job: { ...job, ...updated, duration_ms: durationMs, status: 'completed' },
+		action: `Completed ${job.type}`,
+		severity: 'success',
+		result: 'ok',
+	}).catch(() => null);
+	return updated;
 }
 
 export async function failNativeJob(job, error) {
@@ -256,7 +264,7 @@ export async function failNativeJob(job, error) {
 	const message = error?.message || String(error || 'Job failed');
 
 	if (attempt < maxAttempts) {
-		return updateQueueJob(job.id, {
+		const updated = await updateQueueJob(job.id, {
 			status: 'retrying',
 			attempt_count: attempt,
 			error: message,
@@ -266,9 +274,17 @@ export async function failNativeJob(job, error) {
 			claim_token: '',
 			progress: 0,
 		}, `Retry scheduled (${attempt}/${maxAttempts})`);
+		await writeQueueAudit({
+			job: { ...job, ...updated, status: 'retrying' },
+			action: `Retrying ${job.type}`,
+			severity: 'warn',
+			result: 'queued',
+			message,
+		}).catch(() => null);
+		return updated;
 	}
 
-	return updateQueueJob(job.id, {
+	const updated = await updateQueueJob(job.id, {
 		status: 'failed',
 		attempt_count: attempt,
 		error: message,
@@ -278,6 +294,14 @@ export async function failNativeJob(job, error) {
 		worker_id: '',
 		claim_token: '',
 	}, 'Moved to dead letter queue');
+	await writeQueueAudit({
+		job: { ...job, ...updated, status: 'failed' },
+		action: `Failed ${job.type}`,
+		severity: 'error',
+		result: 'failed',
+		message,
+	}).catch(() => null);
+	return updated;
 }
 
 export async function processNativeJob(job) {

@@ -1,9 +1,10 @@
 import { mapSourceStatusToQueue } from './types.js';
 import { upsertMirroredJob } from './jobs.js';
+import { writeQueueAudit } from '../audit/write.js';
 
 export async function mirrorWordpressJob(job, eventMessage = '') {
 	if (!job?.id) return null;
-	return upsertMirroredJob({
+	const mirrored = await upsertMirroredJob({
 		sourceCollection: 'publish_jobs',
 		sourceId: job.id,
 		owner: job.owner,
@@ -38,11 +39,21 @@ export async function mirrorWordpressJob(job, eventMessage = '') {
 		workerId: job.status === 'publishing' ? 'worker-wordpress-publish' : '',
 		eventMessage,
 	});
+	if (mirrored && (job.status === 'published' || job.status === 'failed')) {
+		await writeQueueAudit({
+			job: mirrored,
+			action: job.status === 'published' ? 'WordPress publish completed' : 'WordPress publish failed',
+			severity: job.status === 'published' ? 'success' : 'error',
+			result: job.status === 'published' ? 'ok' : 'failed',
+			message: eventMessage || job.last_error || '',
+		}).catch(() => null);
+	}
+	return mirrored;
 }
 
 export async function mirrorPinterestJob(job, pin = null, eventMessage = '') {
 	if (!job?.id) return null;
-	return upsertMirroredJob({
+	const mirrored = await upsertMirroredJob({
 		sourceCollection: 'pinterest_publish_jobs',
 		sourceId: job.id,
 		owner: job.owner,
@@ -77,6 +88,16 @@ export async function mirrorPinterestJob(job, pin = null, eventMessage = '') {
 		workerId: job.status === 'publishing' ? 'worker-pinterest-publish' : '',
 		eventMessage,
 	});
+	if (mirrored && (job.status === 'published' || job.status === 'failed')) {
+		await writeQueueAudit({
+			job: mirrored,
+			action: job.status === 'published' ? 'Pinterest pin published' : 'Pinterest publish failed',
+			severity: job.status === 'published' ? 'success' : 'error',
+			result: job.status === 'published' ? 'ok' : 'failed',
+			message: eventMessage || job.last_error || '',
+		}).catch(() => null);
+	}
+	return mirrored;
 }
 
 export async function mirrorImageJob(job, eventMessage = '') {

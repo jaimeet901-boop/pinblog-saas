@@ -158,7 +158,7 @@ function decodeXml(value) {
 
 function getTagValue(xml, tagNames) {
 	for (const tagName of tagNames) {
-		const regex = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\/${tagName}>`, 'i');
+		const regex = new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)</${tagName}>`, 'i');
 		const match = xml.match(regex);
 		if (match?.[1]) {
 			return decodeXml(match[1]);

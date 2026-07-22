@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-	RefreshCw, Download, Eye, Copy, Filter, Bookmark, X,
+	RefreshCw, Download, Eye, Copy, Filter, Bookmark, X, Loader2,
 } from 'lucide-react';
 import { AdminHero, StatusPill, AdminPagination } from '@/components/admin/AdminUi';
-import { MOCK_AUDIT_LOGS as DATA } from '@/pages/admin/auditLogsMock';
+import apiServerClient from '@/lib/apiServerClient';
 import { useToast } from '@/hooks/use-toast';
 
 const PAGE_SIZE = 8;
-const BACKEND_READY = false;
 
 const CATEGORIES = [
 	'Authentication',
@@ -29,6 +28,15 @@ const CATEGORIES = [
 
 const SEVERITIES = ['Info', 'Success', 'Warning', 'Error', 'Critical'];
 
+const EMPTY = {
+	summary: { totalToday: 0, warnings: 0, errors: 0, critical: 0, security: 0, adminActions: 0 },
+	events: [],
+	securityEvents: [],
+	adminActivity: [],
+	systemLogs: [],
+	filters: { workspaces: [], users: [], services: [], providers: [] },
+};
+
 function SeverityPill({ severity }) {
 	const value = String(severity || '').toLowerCase();
 	let tone = '';
@@ -37,6 +45,15 @@ function SeverityPill({ severity }) {
 	else if (value === 'error' || value === 'critical') tone = 'admin-pill--red';
 	else tone = 'admin-pill--blue';
 	return <span className={`admin-pill ${tone}`}>{severity}</span>;
+}
+
+async function readApiError(response) {
+	try {
+		const data = await response.json();
+		return data?.message || `Request failed (${response.status})`;
+	} catch {
+		return `Request failed (${response.status})`;
+	}
 }
 
 export default function AdminLogsPage() {
@@ -51,57 +68,77 @@ export default function AdminLogsPage() {
 	const [provider, setProvider] = useState('');
 	const [page, setPage] = useState(1);
 	const [selectedId, setSelectedId] = useState('');
+	const [selected, setSelected] = useState(null);
 	const [autoRefresh, setAutoRefresh] = useState(false);
 	const [refreshedAt, setRefreshedAt] = useState(() => new Date().toLocaleTimeString());
-	const [tick, setTick] = useState(0);
 	const [bookmarks, setBookmarks] = useState(() => new Set());
+	const [data, setData] = useState(EMPTY);
+	const [loading, setLoading] = useState(true);
+	const [exporting, setExporting] = useState(false);
+	const [error, setError] = useState('');
 
-	const workspaceOptions = useMemo(
-		() => [...new Set(DATA.events.map((event) => event.workspace).filter((value) => value && value !== '—'))].sort(),
-		[],
-	);
-	const userOptions = useMemo(
-		() => [...new Set(DATA.events.map((event) => event.user).filter((value) => value && value !== 'unknown' && value !== 'system'))].sort(),
-		[],
-	);
-	const serviceOptions = useMemo(
-		() => [...new Set(DATA.events.map((event) => event.service))].sort(),
-		[],
-	);
-	const providerOptions = useMemo(
-		() => [...new Set(DATA.events.map((event) => event.provider).filter((value) => value && value !== '—'))].sort(),
-		[],
-	);
+	const load = useCallback(async () => {
+		setLoading(true);
+		setError('');
+		try {
+			const params = new URLSearchParams({
+				page: String(page),
+				perPage: String(PAGE_SIZE),
+			});
+			if (search.trim()) params.set('q', search.trim());
+			if (dateRange) params.set('date', dateRange);
+			if (logType) params.set('type', logType);
+			if (severity) params.set('severity', severity);
+			if (workspace) params.set('workspace', workspace);
+			if (user) params.set('user', user);
+			if (service) params.set('service', service);
+			if (provider) params.set('provider', provider);
 
-	const filtered = useMemo(() => {
-		const q = search.trim().toLowerCase();
-		return DATA.events.filter((event) => {
-			if (logType && event.category !== logType) return false;
-			if (severity && event.severity !== severity) return false;
-			if (workspace && event.workspace !== workspace) return false;
-			if (user && event.user !== user) return false;
-			if (service && event.service !== service) return false;
-			if (provider && event.provider !== provider) return false;
-			if (dateRange === 'today' && !String(event.timestamp).startsWith('2026-07-22')) return false;
-			if (!q) return true;
-			const haystack = [
-				event.id,
-				event.category,
-				event.user,
-				event.workspace,
-				event.service,
-				event.action,
-				event.provider,
-				event.ip,
-				event.correlationId,
-			].join(' ').toLowerCase();
-			return haystack.includes(q);
-		});
-	}, [search, dateRange, logType, severity, workspace, user, service, provider, tick]);
+			const response = await apiServerClient.fetch(`/admin/v1/logs?${params.toString()}`);
+			if (!response.ok) throw new Error(await readApiError(response));
+			const payload = await response.json();
+			setData({
+				...EMPTY,
+				...payload,
+				summary: { ...EMPTY.summary, ...(payload.summary || {}) },
+				filters: { ...EMPTY.filters, ...(payload.filters || {}) },
+			});
+			setRefreshedAt(new Date().toLocaleTimeString());
+		} catch (err) {
+			setError(err.message);
+			toast({ variant: 'destructive', title: 'Logs failed', description: err.message });
+		} finally {
+			setLoading(false);
+		}
+	}, [page, search, dateRange, logType, severity, workspace, user, service, provider, toast]);
 
-	const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-	const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-	const selected = DATA.events.find((event) => event.id === selectedId) || null;
+	useEffect(() => {
+		load();
+	}, [load]);
+
+	useEffect(() => {
+		if (!selectedId) {
+			setSelected(null);
+			return;
+		}
+		const local = data.events.find((event) => event.id === selectedId);
+		if (local) {
+			setSelected(local);
+			return;
+		}
+		apiServerClient.fetch(`/admin/v1/logs/${selectedId}`)
+			.then(async (response) => {
+				if (!response.ok) throw new Error(await readApiError(response));
+				setSelected(await response.json());
+			})
+			.catch((err) => {
+				toast({ variant: 'destructive', title: 'Event load failed', description: err.message });
+			});
+	}, [selectedId, data.events, toast]);
+
+	const totalPages = Math.max(1, Number(data.totalPages) || 1);
+	const totalItems = Number(data.totalItems) || data.events.length;
+	const rows = data.events;
 
 	useEffect(() => {
 		if (page > totalPages) setPage(totalPages);
@@ -109,12 +146,48 @@ export default function AdminLogsPage() {
 
 	useEffect(() => {
 		if (!autoRefresh) return undefined;
-		const id = window.setInterval(() => {
-			setTick((value) => value + 1);
-			setRefreshedAt(new Date().toLocaleTimeString());
-		}, 10000);
-		return () => window.clearInterval(id);
-	}, [autoRefresh]);
+		let cancelled = false;
+		let abort;
+		let retryTimer;
+
+		const connect = async () => {
+			abort = new AbortController();
+			try {
+				const response = await apiServerClient.fetch('/admin/v1/logs/stream', {
+					signal: abort.signal,
+					headers: { Accept: 'text/event-stream' },
+				});
+				if (!response.ok || !response.body) throw new Error('SSE unavailable');
+				const reader = response.body.getReader();
+				const decoder = new TextDecoder();
+				let buffer = '';
+				while (!cancelled) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					buffer += decoder.decode(value, { stream: true });
+					const chunks = buffer.split('\n\n');
+					buffer = chunks.pop() || '';
+					for (const chunk of chunks) {
+						if (chunk.includes('event: logs')) {
+							load();
+							break;
+						}
+					}
+				}
+			} catch {
+				if (!cancelled) {
+					retryTimer = window.setTimeout(connect, 10000);
+				}
+			}
+		};
+
+		connect();
+		return () => {
+			cancelled = true;
+			abort?.abort();
+			if (retryTimer) window.clearTimeout(retryTimer);
+		};
+	}, [autoRefresh, load]);
 
 	useEffect(() => {
 		if (!selected) return undefined;
@@ -125,10 +198,22 @@ export default function AdminLogsPage() {
 		return () => window.removeEventListener('keydown', onKeyDown);
 	}, [selected]);
 
-	const refresh = () => {
-		setTick((value) => value + 1);
-		setRefreshedAt(new Date().toLocaleTimeString());
-	};
+	const workspaceOptions = useMemo(
+		() => data.filters.workspaces || [],
+		[data.filters.workspaces],
+	);
+	const userOptions = useMemo(
+		() => data.filters.users || [],
+		[data.filters.users],
+	);
+	const serviceOptions = useMemo(
+		() => data.filters.services || [],
+		[data.filters.services],
+	);
+	const providerOptions = useMemo(
+		() => data.filters.providers || [],
+		[data.filters.providers],
+	);
 
 	const copyEvent = async (event) => {
 		try {
@@ -156,42 +241,75 @@ export default function AdminLogsPage() {
 		});
 	};
 
+	const exportLogs = async () => {
+		setExporting(true);
+		try {
+			const params = new URLSearchParams({ format: 'json' });
+			if (search.trim()) params.set('q', search.trim());
+			if (dateRange) params.set('date', dateRange);
+			if (logType) params.set('type', logType);
+			if (severity) params.set('severity', severity);
+			if (workspace) params.set('workspace', workspace);
+			if (user) params.set('user', user);
+			if (service) params.set('service', service);
+			if (provider) params.set('provider', provider);
+			const response = await apiServerClient.fetch(`/admin/v1/logs/export?${params.toString()}`);
+			if (!response.ok) throw new Error(await readApiError(response));
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			anchor.href = url;
+			anchor.download = 'audit-logs.json';
+			anchor.click();
+			URL.revokeObjectURL(url);
+			toast({ title: 'Exported', description: 'Audit logs downloaded.' });
+		} catch (err) {
+			toast({ variant: 'destructive', title: 'Export failed', description: err.message });
+		} finally {
+			setExporting(false);
+		}
+	};
+
 	return (
 		<div>
 			<AdminHero
 				title="Logs & Audit Trail"
-				description="Inspect platform events, user actions, security events and system logs. Mock audit stream only."
+				description="Inspect platform events, user actions, security events and system logs from the live audit platform."
 				action={(
 					<div className="admin-analytics-controls">
 						<label className="admin-check" style={{ color: 'var(--admin-muted)', marginBottom: '0.35rem' }}>
 							<input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
 							<span>Auto Refresh</span>
 						</label>
-						<button type="button" className="admin-btn" onClick={refresh}>
-							<RefreshCw size={13} /> Refresh
+						<button type="button" className="admin-btn" onClick={() => load()} disabled={loading}>
+							{loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Refresh
 						</button>
-						<button type="button" className="admin-btn admin-btn--primary" disabled={!BACKEND_READY} title="Backend not available">
-							<Download size={13} /> Export Logs
+						<button type="button" className="admin-btn admin-btn--primary" onClick={exportLogs} disabled={exporting || loading}>
+							{exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Export Logs
 						</button>
 					</div>
 				)}
 			/>
 
-			<p className="admin-note mt-0 mb-3">Last refreshed {refreshedAt}{autoRefresh ? ' · auto every 10s (UI pulse)' : ''}</p>
+			<p className="admin-note mt-0 mb-3">
+				Last refreshed {refreshedAt}
+				{autoRefresh ? ' · auto every 10s' : ''}
+			</p>
+			{error ? <p className="admin-note" style={{ color: 'var(--admin-danger, #b91c1c)' }}>{error}</p> : null}
 
 			<div className="admin-stats admin-stats--compact">
 				{[
-					{ label: 'Total Events Today', value: DATA.summary.totalToday },
-					{ label: 'Warnings', value: DATA.summary.warnings },
-					{ label: 'Errors', value: DATA.summary.errors },
-					{ label: 'Critical Events', value: DATA.summary.critical },
-					{ label: 'Security Events', value: DATA.summary.security },
-					{ label: 'Admin Actions', value: DATA.summary.adminActions },
+					{ label: 'Total Events Today', value: data.summary.totalToday },
+					{ label: 'Warnings', value: data.summary.warnings },
+					{ label: 'Errors', value: data.summary.errors },
+					{ label: 'Critical Events', value: data.summary.critical },
+					{ label: 'Security Events', value: data.summary.security },
+					{ label: 'Admin Actions', value: data.summary.adminActions },
 				].map((card) => (
 					<div key={card.label} className="admin-stat">
 						<p className="admin-stat__label">{card.label}</p>
-						<p className="admin-stat__value">{card.value.toLocaleString()}</p>
-						<p className="admin-stat__hint">Mock</p>
+						<p className="admin-stat__value">{Number(card.value || 0).toLocaleString()}</p>
+						<p className="admin-stat__hint">{loading ? 'Loading' : 'Live'}</p>
 					</div>
 				))}
 			</div>
@@ -276,7 +394,13 @@ export default function AdminLogsPage() {
 							</tr>
 						</thead>
 						<tbody>
-							{rows.map((event) => (
+							{rows.length === 0 ? (
+								<tr>
+									<td colSpan={12} style={{ textAlign: 'center', color: 'var(--admin-muted)' }}>
+										{loading ? 'Loading audit events…' : 'No events match the current filters.'}
+									</td>
+								</tr>
+							) : rows.map((event) => (
 								<tr
 									key={event.id}
 									className={selectedId === event.id ? 'is-selected' : ''}
@@ -309,7 +433,7 @@ export default function AdminLogsPage() {
 					</table>
 				</div>
 				<AdminPagination
-					total={filtered.length}
+					total={totalItems}
 					page={page}
 					totalPages={totalPages}
 					noun="events"
@@ -322,7 +446,9 @@ export default function AdminLogsPage() {
 				<section className="admin-card">
 					<h3>Security Events</h3>
 					<div className="admin-list">
-						{DATA.securityEvents.map((item) => (
+						{(data.securityEvents || []).length === 0 ? (
+							<p className="text-sm" style={{ color: 'var(--admin-muted)' }}>{loading ? 'Loading…' : 'No security events yet.'}</p>
+						) : data.securityEvents.map((item) => (
 							<div key={item.id} className="admin-list__item">
 								<span>
 									<strong className="block text-sm">{item.title}</strong>
@@ -337,7 +463,9 @@ export default function AdminLogsPage() {
 				<section className="admin-card">
 					<h3>Admin Activity</h3>
 					<div className="admin-analytics-timeline">
-						{DATA.adminActivity.map((item) => (
+						{(data.adminActivity || []).length === 0 ? (
+							<p className="text-sm" style={{ color: 'var(--admin-muted)' }}>{loading ? 'Loading…' : 'No admin activity yet.'}</p>
+						) : data.adminActivity.map((item) => (
 							<div key={item.id} className="admin-analytics-timeline__item">
 								<span className="admin-analytics-timeline__dot" aria-hidden="true" />
 								<div>
@@ -353,7 +481,9 @@ export default function AdminLogsPage() {
 			<section className="admin-card mt-4">
 				<h3>System Logs</h3>
 				<div className="admin-queue-logs">
-					{DATA.systemLogs.map((line) => (
+					{(data.systemLogs || []).length === 0 ? (
+						<code>{loading ? 'Loading system logs…' : 'No system log lines yet.'}</code>
+					) : data.systemLogs.map((line) => (
 						<code key={line}>{line}</code>
 					))}
 				</div>
@@ -428,10 +558,10 @@ export default function AdminLogsPage() {
 						</section>
 
 						<div className="admin-user-drawer__actions">
-							<button type="button" className="admin-btn" onClick={() => {}}>
+							<button type="button" className="admin-btn" onClick={() => load()}>
 								<Eye size={13} /> View Details
 							</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+							<button type="button" className="admin-btn" onClick={exportLogs} disabled={exporting}>
 								<Download size={13} /> Export
 							</button>
 							<button type="button" className="admin-btn" onClick={() => copyEvent(selected)}>
@@ -444,7 +574,7 @@ export default function AdminLogsPage() {
 								<Bookmark size={13} /> {bookmarks.has(selected.id) ? 'Bookmarked' : 'Bookmark'}
 							</button>
 						</div>
-						<p className="admin-note">Export stays disabled until admin log APIs exist. Bookmark is local UI state only.</p>
+						<p className="admin-note">Bookmark is local UI state only. Secrets are redacted server-side.</p>
 					</aside>
 				</div>
 			) : null}

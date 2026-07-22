@@ -15,12 +15,19 @@ import { startPinterestAnalyticsSync, stopPinterestAnalyticsSync } from './servi
 import { startWordpressPublishQueue, stopWordpressPublishQueue } from './services/wordpress-publish-queue.js';
 import { startQueueEngine, stopQueueEngine } from './services/queue/engine.js';
 import { startAnalyticsRefreshWorker, stopAnalyticsRefreshWorker } from './services/analytics/refresh.js';
+import { startAuditRetentionWorker, stopAuditRetentionWorker } from './services/audit/retention.js';
 
 const app = express();
 
 function sanitizeValue(value) {
 	if (typeof value === 'string') {
-		return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+		return [...value]
+			.filter((ch) => {
+				const code = ch.charCodeAt(0);
+				return !(code <= 8 || code === 11 || code === 12 || (code >= 14 && code <= 31) || code === 127);
+			})
+			.join('')
+			.trim();
 	}
 	if (Array.isArray(value)) {
 		return value.map((item) => sanitizeValue(item));
@@ -67,6 +74,7 @@ process.on('SIGINT', async () => {
 	stopWordpressPublishQueue();
 	stopQueueEngine();
 	stopAnalyticsRefreshWorker();
+	stopAuditRetentionWorker();
 	process.exit(0);
 });
 
@@ -78,6 +86,7 @@ process.on('SIGTERM', async () => {
 	stopWordpressPublishQueue();
 	stopQueueEngine();
 	stopAnalyticsRefreshWorker();
+	stopAuditRetentionWorker();
 
 	await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -123,6 +132,7 @@ app.listen(port, () => {
 	startWordpressPublishQueue();
 	startQueueEngine();
 	startAnalyticsRefreshWorker();
+	startAuditRetentionWorker();
 });
 
 export default app;

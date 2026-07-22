@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import Pocketbase from 'pocketbase';
 import logger from '../utils/logger.js';
 import { getEnv } from '../utils/env.js';
+import { writeLoginHistory, writeSecurityEvent } from '../services/audit/write.js';
 
 const PB_BASE_URL = getEnv('PB_BASE_URL', 'http://localhost:8090');
 
@@ -94,6 +95,22 @@ export async function pocketbaseAuth(req, res, next) {
 		return next();
 	} catch (error) {
 		logger.warn('Authentication failed: invalid or expired token');
+		// Passive security/audit only — does not change auth outcomes or UX.
+		writeSecurityEvent({
+			eventType: 'failed_login',
+			title: 'Failed Login',
+			detail: 'Invalid or expired session token presented to API',
+			ip: String(req.ip || req.headers['x-forwarded-for'] || '').split(',')[0].trim(),
+			severity: 'warn',
+			meta: { path: req.originalUrl || req.url || '' },
+		}).catch(() => null);
+		writeLoginHistory({
+			event: 'failed_login',
+			success: false,
+			ip: String(req.ip || req.headers['x-forwarded-for'] || '').split(',')[0].trim(),
+			userAgent: req.headers['user-agent'] || '',
+			reason: 'invalid_or_expired_token',
+		}).catch(() => null);
 		return next(unauthorizedError('Your session has expired. Please sign in again.'));
 	}
 }
