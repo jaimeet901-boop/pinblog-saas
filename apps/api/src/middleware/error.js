@@ -18,6 +18,7 @@ const errorMiddleware = (err, req, res, next) => {
 
 	res.status(status).json({
 		message,
+		errorCode: err.errorCode || (status === 401 ? 'UNAUTHENTICATED' : status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : status === 422 ? 'VALIDATION_ERROR' : 'INTERNAL_ERROR'),
 		...(process.env.NODE_ENV !== NodeEnv.Production && {
 			error: {
 				status,
