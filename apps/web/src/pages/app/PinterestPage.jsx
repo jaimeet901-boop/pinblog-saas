@@ -1,9 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Link2, Loader2, Pin, RefreshCw, Unlink, Pencil, Star } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import {
+	Link2, Loader2, Pin, RefreshCw, Unlink, Pencil, Star, Search,
+	Download, LayoutGrid, ListOrdered, CalendarClock, BarChart3, AlertTriangle,
+	Eye, Coins,
+} from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
-import { Badge, Button, Card, Empty, Input, PageHeader, Select, Spinner } from '@/components/kit';
+import { Badge, Button, Input, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import './PinterestPage.css';
+
+const TABS = [
+	{ id: 'accounts', label: 'Accounts', icon: Pin },
+	{ id: 'boards', label: 'Boards', icon: LayoutGrid },
+	{ id: 'queue', label: 'Publishing Queue', icon: ListOrdered },
+	{ id: 'scheduled', label: 'Scheduled', icon: CalendarClock },
+	{ id: 'analytics', label: 'Analytics', icon: BarChart3 },
+	{ id: 'failed', label: 'Failed Jobs', icon: AlertTriangle },
+];
 
 function parseErrorMessage(payload, fallback) {
 	if (typeof payload === 'string' && payload.trim()) {
@@ -15,10 +29,33 @@ function parseErrorMessage(payload, fallback) {
 	return fallback;
 }
 
+function statusTone(status) {
+	if (status === 'connected' || status === 'syncing') return 'green';
+	if (status === 'expired') return 'amber';
+	return 'red';
+}
+
+function formatStatusLabel(status) {
+	if (status === 'connected') return 'Connected';
+	if (status === 'expired') return 'Expired';
+	if (status === 'syncing') return 'Syncing';
+	if (status === 'disconnected') return 'Disconnected';
+	return status || 'Unknown';
+}
+
+function displayAccountStatus(account, processingAccountId) {
+	if (processingAccountId === account.id) return 'syncing';
+	if (account.status === 'connected') return 'connected';
+	if (account.status === 'expired') return 'expired';
+	if (account.status === 'disconnected' || account.status === 'error') return account.status === 'error' ? 'disconnected' : account.status;
+	return account.status || 'disconnected';
+}
+
 export default function PinterestPage() {
 	const { toast } = useToast();
 	const navigate = useNavigate();
 	const location = useLocation();
+	const searchRef = useRef(null);
 
 	const [loading, setLoading] = useState(true);
 	const [filter, setFilter] = useState('');
@@ -30,10 +67,52 @@ export default function PinterestPage() {
 	const [summary, setSummary] = useState({ totalAccounts: 0, totalBoards: 0, totalPublishedPins: 0 });
 	const [boardsByAccount, setBoardsByAccount] = useState({});
 
+	const [tab, setTab] = useState('accounts');
+	const [searchQuery, setSearchQuery] = useState('');
+	const [accountFilter, setAccountFilter] = useState('');
+	const [boardFilter, setBoardFilter] = useState('');
+	const [dateFilter, setDateFilter] = useState('');
+	const [expandedLogId, setExpandedLogId] = useState('');
+
 	const connectedCount = useMemo(
 		() => accounts.filter((account) => account.status === 'connected').length,
 		[accounts],
 	);
+
+	const allBoards = useMemo(() => {
+		const rows = [];
+		for (const account of accounts) {
+			const boards = boardsByAccount[account.id] || [];
+			for (const board of boards) {
+				rows.push({
+					...board,
+					accountId: account.id,
+					accountLabel: account.label || account.accountName || account.username || 'Account',
+				});
+			}
+		}
+		return rows;
+	}, [accounts, boardsByAccount]);
+
+	const lastSyncLabel = useMemo(() => {
+		const stamps = accounts
+			.map((account) => account.connectedAt || account.updated || account.updatedAt)
+			.filter(Boolean)
+			.map((value) => new Date(value).getTime())
+			.filter((value) => !Number.isNaN(value));
+		if (!stamps.length) return '—';
+		return new Date(Math.max(...stamps)).toLocaleString();
+	}, [accounts]);
+
+	const dashboard = useMemo(() => ({
+		connectedAccounts: connectedCount,
+		totalBoards: summary.totalBoards || allBoards.length,
+		publishedPins: summary.totalPublishedPins || 0,
+		scheduledPins: 0,
+		queueJobs: 0,
+		failedJobs: 0,
+		lastSync: lastSyncLabel,
+	}), [connectedCount, summary, allBoards.length, lastSyncLabel]);
 
 	const load = async () => {
 		setLoading(true);
@@ -262,168 +341,570 @@ export default function PinterestPage() {
 		}
 	};
 
-	const statusTone = (status) => {
-		if (status === 'connected') {
-			return 'green';
+	const syncAllConnected = async () => {
+		const connected = accounts.filter((account) => account.status === 'connected');
+		if (!connected.length) {
+			toast({ variant: 'destructive', title: 'No connected accounts', description: 'Connect a Pinterest account first.' });
+			return;
 		}
-		if (status === 'expired') {
-			return 'amber';
+		for (const account of connected) {
+			await syncAccountBoards(account);
 		}
-		return 'red';
+	};
+
+	const exportSnapshot = () => {
+		const payload = {
+			exportedAt: new Date().toISOString(),
+			summary,
+			accounts,
+			boardsByAccount,
+		};
+		const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement('a');
+		anchor.href = url;
+		anchor.download = 'pinterest-hub-export.json';
+		anchor.click();
+		URL.revokeObjectURL(url);
+		toast({ title: 'Exported', description: 'Local Pinterest hub snapshot downloaded.' });
+	};
+
+	const filteredAccounts = useMemo(() => {
+		const query = searchQuery.trim().toLowerCase();
+		return accounts.filter((account) => {
+			if (accountFilter && account.id !== accountFilter) return false;
+			if (dateFilter === 'today') {
+				const stamp = account.connectedAt ? new Date(account.connectedAt) : null;
+				if (!stamp) return false;
+				const start = new Date();
+				start.setHours(0, 0, 0, 0);
+				if (stamp < start) return false;
+			}
+			if (dateFilter === 'week') {
+				const stamp = account.connectedAt ? new Date(account.connectedAt).getTime() : 0;
+				if (stamp < Date.now() - 7 * 24 * 60 * 60 * 1000) return false;
+			}
+			if (!query) return true;
+			const haystack = [
+				account.label,
+				account.accountName,
+				account.username,
+				account.status,
+			].join(' ').toLowerCase();
+			return haystack.includes(query);
+		});
+	}, [accounts, searchQuery, accountFilter, dateFilter]);
+
+	const filteredBoards = useMemo(() => {
+		const query = searchQuery.trim().toLowerCase();
+		return allBoards.filter((board) => {
+			if (accountFilter && board.accountId !== accountFilter) return false;
+			if (boardFilter && board.id !== boardFilter) return false;
+			if (!query) return true;
+			return `${board.name} ${board.accountLabel} ${board.boardId || ''}`.toLowerCase().includes(query);
+		});
+	}, [allBoards, searchQuery, accountFilter, boardFilter]);
+
+	const demoAnalytics = useMemo(() => ({
+		publishedPins: summary.totalPublishedPins || 0,
+		clicks: '—',
+		saves: '—',
+		impressions: '—',
+		bestBoard: filteredBoards[0]?.name || allBoards[0]?.name || '—',
+		bestPin: '—',
+		activity: connectedCount > 0 ? 'Accounts connected — open Publishing History for live activity.' : 'Connect an account to unlock activity.',
+	}), [summary.totalPublishedPins, filteredBoards, allBoards, connectedCount]);
+
+	useEffect(() => {
+		const onKeyDown = (event) => {
+			if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+				const tag = document.activeElement?.tagName?.toLowerCase();
+				if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+				event.preventDefault();
+				searchRef.current?.focus();
+			}
+			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r') {
+				event.preventDefault();
+				load();
+			}
+		};
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
+	}, [filter]);
+
+	const viewBoardsForAccount = (accountId) => {
+		setAccountFilter(accountId);
+		setTab('boards');
+	};
+
+	const placeholderAction = (label) => {
+		toast({
+			title: `${label} (hub UI)`,
+			description: 'Queue actions live on Publishing History. Account sync & OAuth stay on this page.',
+		});
 	};
 
 	return (
-		<div>
-			<PageHeader
-				title="Pinterest Accounts"
-				subtitle="Connect and manage multiple Pinterest accounts for publishing and automation."
-				action={
-					<Button onClick={connectPinterest} disabled={connecting || loading}>
-						{connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 size={16} />} Connect New Account
-					</Button>
-				}
-			/>
-
-			<div className="mb-4 grid gap-4 md:grid-cols-4">
-				<Card>
-					<p className="text-xs text-muted-foreground">Total Accounts</p>
-					<p className="mt-1 text-2xl font-bold tabular-nums">{summary.totalAccounts}</p>
-				</Card>
-				<Card>
-					<p className="text-xs text-muted-foreground">Connected Accounts</p>
-					<p className="mt-1 text-2xl font-bold tabular-nums">{connectedCount}</p>
-				</Card>
-				<Card>
-					<p className="text-xs text-muted-foreground">Total Boards</p>
-					<p className="mt-1 text-2xl font-bold tabular-nums">{summary.totalBoards}</p>
-				</Card>
-				<Card>
-					<p className="text-xs text-muted-foreground">Published Pins</p>
-					<p className="mt-1 text-2xl font-bold tabular-nums">{summary.totalPublishedPins}</p>
-				</Card>
+		<div className="pin-hub">
+			<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+				<div>
+					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
+					<h1 className="font-display text-3xl font-semibold tracking-tight">Pinterest Hub</h1>
+					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+						Connect accounts, sync boards, and manage your Pinterest publishing workspace in one atelier.
+					</p>
+				</div>
+				<Link to="/app/pinterest-history">
+					<Button variant="outline" size="sm"><ListOrdered size={14} /> Publishing History</Button>
+				</Link>
 			</div>
 
-			<Card className="mb-6">
-				<div className="grid gap-3 md:grid-cols-3">
-					<Select label="Filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
+			<div className="pin-hub__actions">
+				<div className="flex flex-wrap items-center gap-2">
+					<span className="text-sm font-medium">Pinterest management</span>
+					<span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] text-muted-foreground">
+						{summary.totalAccounts} accounts
+					</span>
+					<span className="hidden text-[11px] text-muted-foreground sm:inline">/ search · Ctrl+R refresh</span>
+				</div>
+				<div className="flex flex-wrap gap-2">
+					<Button size="sm" onClick={connectPinterest} disabled={connecting || loading}>
+						{connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 size={14} />}
+						Connect Account
+					</Button>
+					<Button size="sm" variant="outline" onClick={syncAllConnected} disabled={loading || !connectedCount}>
+						<RefreshCw size={14} /> Sync
+					</Button>
+					<Button size="sm" variant="outline" onClick={load} disabled={loading}>
+						{loading ? <Spinner className="h-4 w-4" /> : <RefreshCw size={14} />}
+						Refresh
+					</Button>
+					<Button size="sm" variant="ghost" onClick={exportSnapshot} disabled={loading}>
+						<Download size={14} /> Export
+					</Button>
+					<div className="relative min-w-[10rem]">
+						<Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+						<input
+							ref={searchRef}
+							className="w-full rounded-xl border border-input bg-background py-2 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+							placeholder="Search…"
+							value={searchQuery}
+							onChange={(e) => setSearchQuery(e.target.value)}
+						/>
+					</div>
+				</div>
+			</div>
+
+			<div className="pin-hub__stats">
+				<div className="pin-stat">
+					<p className="pin-stat__label">Connected Accounts</p>
+					<p className="pin-stat__value">{dashboard.connectedAccounts}</p>
+				</div>
+				<div className="pin-stat">
+					<p className="pin-stat__label">Total Boards</p>
+					<p className="pin-stat__value">{dashboard.totalBoards}</p>
+				</div>
+				<div className="pin-stat">
+					<p className="pin-stat__label">Published Pins</p>
+					<p className="pin-stat__value">{dashboard.publishedPins}</p>
+				</div>
+				<div className="pin-stat">
+					<p className="pin-stat__label">Scheduled Pins</p>
+					<p className="pin-stat__value">{dashboard.scheduledPins}</p>
+					<p className="pin-stat__hint">See Publishing History</p>
+				</div>
+				<div className="pin-stat">
+					<p className="pin-stat__label">Queue Jobs</p>
+					<p className="pin-stat__value">{dashboard.queueJobs}</p>
+					<p className="pin-stat__hint">UI placeholder</p>
+				</div>
+				<div className="pin-stat">
+					<p className="pin-stat__label">Failed Jobs</p>
+					<p className="pin-stat__value">{dashboard.failedJobs}</p>
+					<p className="pin-stat__hint">UI placeholder</p>
+				</div>
+				<div className="pin-stat">
+					<p className="pin-stat__label">Last Sync</p>
+					<p className="pin-stat__value" style={{ fontSize: '0.95rem', lineHeight: 1.35 }}>{dashboard.lastSync}</p>
+				</div>
+			</div>
+
+			<div className="pin-hub__connect">
+				<div>
+					<p className="font-display text-lg font-semibold">Connect Pinterest Account</p>
+					<p className="mt-1 text-sm text-muted-foreground">
+						Link another profile for multi-account publishing. OAuth flow is unchanged.
+					</p>
+				</div>
+				<Button size="lg" onClick={connectPinterest} disabled={connecting || loading}>
+					{connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 size={16} />}
+					Connect Pinterest Account
+				</Button>
+			</div>
+
+			<div className="pin-hub__workspace">
+				<div className="pin-tabs" role="tablist" aria-label="Pinterest hub tabs">
+					{TABS.map((item) => {
+						const Icon = item.icon;
+						return (
+							<button
+								key={item.id}
+								type="button"
+								role="tab"
+								aria-selected={tab === item.id}
+								className={`pin-tab ${tab === item.id ? 'is-active' : ''}`}
+								onClick={() => setTab(item.id)}
+							>
+								<span className="inline-flex items-center gap-1.5">
+									<Icon size={13} />
+									{item.label}
+								</span>
+							</button>
+						);
+					})}
+				</div>
+
+				<div className="pin-filters">
+					<div className="relative">
+						<label className="mb-1.5 block text-sm font-medium">Global search</label>
+						<Search size={14} className="pointer-events-none absolute left-3 top-[2.55rem] text-muted-foreground" />
+						<input
+							className="w-full rounded-xl border border-input bg-background py-2.5 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+							placeholder="Search accounts or boards…"
+							value={searchQuery}
+							onChange={(e) => setSearchQuery(e.target.value)}
+						/>
+					</div>
+					<Select label="Account" value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)}>
+						<option value="">All accounts</option>
+						{accounts.map((account) => (
+							<option key={account.id} value={account.id}>
+								{account.label || account.accountName || account.username || account.id}
+							</option>
+						))}
+					</Select>
+					<Select label="Board" value={boardFilter} onChange={(e) => setBoardFilter(e.target.value)}>
+						<option value="">All boards</option>
+						{allBoards.map((board) => (
+							<option key={board.id} value={board.id}>{board.name}</option>
+						))}
+					</Select>
+					<Select label="Status" value={filter} onChange={(e) => setFilter(e.target.value)}>
 						<option value="">All</option>
 						<option value="connected">Connected</option>
 						<option value="expired">Expired</option>
 						<option value="active">Active</option>
 						<option value="error">Error</option>
 					</Select>
-					<div className="md:col-span-2 flex items-end">
-						<p className="text-sm text-muted-foreground">Manage account labels, reconnect expired accounts, and sync boards per account.</p>
-					</div>
+					<Select label="Date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)}>
+						<option value="">Any time</option>
+						<option value="today">Today</option>
+						<option value="week">This week</option>
+					</Select>
 				</div>
-			</Card>
 
-			{loading ? (
-				<div className="flex items-center justify-center py-10 text-muted-foreground"><Spinner className="mr-2 h-4 w-4" /> Loading Pinterest accounts...</div>
-			) : accounts.length === 0 ? (
-				<Empty icon={Pin} title="No connected Pinterest accounts" subtitle="Connect your first Pinterest account to start publishing." />
-			) : (
-				<div className="space-y-4">
-					{accounts.map((account) => (
-						<Card key={account.id}>
-							<div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-								<div className="flex min-w-0 gap-3">
-									<div className="h-14 w-14 overflow-hidden rounded-xl border border-border bg-secondary/30">
-										{account.profileImageUrl ? (
-											<img src={account.profileImageUrl} alt={account.accountName || account.username} loading="lazy" decoding="async" className="h-full w-full object-cover" />
-										) : (
-											<div className="flex h-full items-center justify-center text-muted-foreground"><Pin size={20} /></div>
-										)}
-									</div>
-									<div className="min-w-0">
-										<div className="flex flex-wrap items-center gap-2">
-											<p className="truncate font-semibold">{account.label || account.accountName || account.username || 'Pinterest account'}</p>
-											{account.isDefault ? <Badge tone="blue">Default</Badge> : null}
-										</div>
-										<p className="truncate text-sm text-muted-foreground">{account.accountName || 'Unnamed account'} • @{account.username || 'unknown'}</p>
-										<p className="text-xs text-muted-foreground">Connected: {account.connectedAt ? new Date(account.connectedAt).toLocaleString() : '—'}</p>
-										<p className="text-xs text-muted-foreground">Published Pins: {account.publishedPins || 0} • Boards: {account.boardCount || 0}</p>
-										{account.statusError ? <p className="mt-1 text-xs text-red-600">{account.statusError}</p> : null}
-									</div>
-								</div>
+				<div className="pin-panel">
+					{loading ? (
+						<div className="grid gap-3 md:grid-cols-2">
+							{[0, 1, 2, 3].map((i) => <div key={i} className="pin-skeleton" />)}
+						</div>
+					) : null}
 
-								<div className="flex flex-wrap items-center gap-2">
-									<Badge tone={statusTone(account.status)}>{account.status}</Badge>
-									{!account.isDefault ? (
-										<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => setDefaultAccount(account)}>
-											<Star size={14} /> Set Default
-										</Button>
-									) : null}
-									<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => syncAccountBoards(account)}>
-										{processingAccountId === account.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw size={14} />} Sync Boards
-									</Button>
-									<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => reconnectAccount(account)}>
-										<Link2 size={14} /> Reconnect
-									</Button>
-									<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => {
-										setEditingLabelId(account.id);
-										setLabelDraft(account.label || account.accountName || account.username || '');
-									}}>
-										<Pencil size={14} /> Rename
-									</Button>
-									<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => disconnectAccount(account)}>
-										<Unlink size={14} /> Disconnect
-									</Button>
-								</div>
+					{!loading && tab === 'accounts' ? (
+						filteredAccounts.length === 0 ? (
+							<div className="pin-empty">
+								<div className="pin-empty__icon"><Pin size={22} /></div>
+								<p className="font-display text-xl font-semibold">No connected Pinterest accounts</p>
+								<p className="mt-2 max-w-md text-sm text-muted-foreground">
+									Connect your first Pinterest account to start publishing and syncing boards.
+								</p>
+								<Button className="mt-5" onClick={connectPinterest} disabled={connecting}>
+									{connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 size={15} />}
+									Connect Pinterest Account
+								</Button>
 							</div>
+						) : (
+							<div className="pin-account-grid">
+								{filteredAccounts.map((account) => {
+									const uiStatus = displayAccountStatus(account, processingAccountId);
+									const boardsCount = (boardsByAccount[account.id] || []).length || account.boardCount || 0;
+									return (
+										<div key={account.id} className="pin-account">
+											<div className="flex gap-3">
+												<div className="pin-account__avatar">
+													{account.profileImageUrl ? (
+														<img src={account.profileImageUrl} alt={account.accountName || account.username} loading="lazy" decoding="async" />
+													) : (
+														<div className="flex h-full items-center justify-center text-muted-foreground"><Pin size={20} /></div>
+													)}
+												</div>
+												<div className="min-w-0 flex-1">
+													<div className="flex flex-wrap items-center gap-2">
+														<p className="truncate font-semibold">
+															{account.label || account.accountName || account.username || 'Pinterest account'}
+														</p>
+														<Badge tone={statusTone(uiStatus)}>{formatStatusLabel(uiStatus)}</Badge>
+														{account.isDefault ? <Badge tone="blue">Default</Badge> : null}
+													</div>
+													<p className="truncate text-sm text-muted-foreground">
+														{account.accountName || 'Unnamed account'} · @{account.username || 'unknown'}
+													</p>
+													<p className="mt-1 text-xs text-muted-foreground">
+														Boards: {boardsCount} · Published: {account.publishedPins || 0}
+													</p>
+													<p className="text-xs text-muted-foreground">
+														Last sync: {account.connectedAt ? new Date(account.connectedAt).toLocaleString() : '—'}
+													</p>
+													{account.statusError ? <p className="mt-1 text-xs text-red-600">{account.statusError}</p> : null}
+												</div>
+											</div>
 
-							{editingLabelId === account.id ? (
-								<div className="mt-3 flex flex-col gap-2 md:flex-row">
-									<div className="flex-1">
-										<Input label="Custom Label" value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} />
-									</div>
-									<div className="flex items-end gap-2">
-										<Button size="sm" onClick={() => renameAccount(account.id)} disabled={processingAccountId === account.id}>Save Label</Button>
-										<Button size="sm" variant="outline" onClick={() => setEditingLabelId('')}>Cancel</Button>
-									</div>
-								</div>
-							) : null}
+											<div className="mt-3 flex flex-wrap gap-2">
+												{!account.isDefault ? (
+													<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => setDefaultAccount(account)}>
+														<Star size={14} /> Set Default
+													</Button>
+												) : null}
+												<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => reconnectAccount(account)}>
+													<Link2 size={14} /> Reconnect
+												</Button>
+												<Button size="sm" variant="outline" disabled={processingAccountId === account.id} onClick={() => syncAccountBoards(account)}>
+													{processingAccountId === account.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw size={14} />}
+													Sync Boards
+												</Button>
+												<Button size="sm" variant="outline" onClick={() => viewBoardsForAccount(account.id)}>
+													<Eye size={14} /> View Boards
+												</Button>
+												<Button
+													size="sm"
+													variant="outline"
+													disabled={processingAccountId === account.id}
+													onClick={() => {
+														setEditingLabelId(account.id);
+														setLabelDraft(account.label || account.accountName || account.username || '');
+													}}
+												>
+													<Pencil size={14} /> Rename
+												</Button>
+												<Button size="sm" variant="ghost" disabled={processingAccountId === account.id} onClick={() => disconnectAccount(account)}>
+													<Unlink size={14} /> Disconnect
+												</Button>
+											</div>
 
-							<div className="mt-3">
-								<p className="mb-2 text-xs font-medium text-muted-foreground">Boards</p>
-								{(boardsByAccount[account.id] || []).length === 0 ? (
-									<p className="text-xs text-muted-foreground">No boards loaded.</p>
-								) : (
-									<>
-										<div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-											{(boardsByAccount[account.id] || []).map((board) => (
-												<div key={board.id} className="rounded-xl border border-border p-2">
-													<div className="flex items-start justify-between gap-2">
-														<div className="min-w-0">
-															<p className="truncate text-sm font-medium">{board.name}</p>
-															<p className="truncate text-xs text-muted-foreground">{board.boardId}</p>
-														</div>
-														{board.isDefault ? (
-															<Badge tone="blue">Default</Badge>
-														) : (
-															<Button
-																size="sm"
-																variant="outline"
-																disabled={processingAccountId === account.id}
-																onClick={() => setDefaultBoard(account, board)}
-															>
-																<Star size={12} /> Default
-															</Button>
-														)}
+											{editingLabelId === account.id ? (
+												<div className="mt-3 flex flex-col gap-2 md:flex-row">
+													<div className="flex-1">
+														<Input label="Custom Label" value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} />
+													</div>
+													<div className="flex items-end gap-2">
+														<Button size="sm" onClick={() => renameAccount(account.id)} disabled={processingAccountId === account.id}>Save Label</Button>
+														<Button size="sm" variant="outline" onClick={() => setEditingLabelId('')}>Cancel</Button>
 													</div>
 												</div>
-											))}
+											) : null}
+
+											<div className="mt-3">
+												<p className="mb-2 text-xs font-medium text-muted-foreground">Boards preview</p>
+												{(boardsByAccount[account.id] || []).length === 0 ? (
+													<p className="text-xs text-muted-foreground">No boards loaded.</p>
+												) : (
+													<div className="grid gap-2 sm:grid-cols-2">
+														{(boardsByAccount[account.id] || []).slice(0, 4).map((board) => (
+															<div key={board.id} className="rounded-xl border border-border p-2">
+																<div className="flex items-start justify-between gap-2">
+																	<div className="min-w-0">
+																		<p className="truncate text-sm font-medium">{board.name}</p>
+																		<p className="truncate text-xs text-muted-foreground">{board.boardId}</p>
+																	</div>
+																	{board.isDefault ? (
+																		<Badge tone="blue">Default</Badge>
+																	) : (
+																		<Button
+																			size="sm"
+																			variant="outline"
+																			disabled={processingAccountId === account.id}
+																			onClick={() => setDefaultBoard(account, board)}
+																		>
+																			<Star size={12} /> Default
+																		</Button>
+																	)}
+																</div>
+															</div>
+														))}
+													</div>
+												)}
+											</div>
 										</div>
-										<p className="mt-2 text-xs text-muted-foreground">
-											{(boardsByAccount[account.id] || []).length} boards
-										</p>
-									</>
-								)}
+									);
+								})}
 							</div>
-						</Card>
-					))}
+						)
+					) : null}
+
+					{!loading && tab === 'boards' ? (
+						filteredBoards.length === 0 ? (
+							<div className="pin-empty">
+								<div className="pin-empty__icon"><LayoutGrid size={22} /></div>
+								<p className="font-display text-xl font-semibold">No boards to show</p>
+								<p className="mt-2 max-w-md text-sm text-muted-foreground">
+									Connect an account and sync boards, or adjust your filters.
+								</p>
+							</div>
+						) : (
+							<div className="pin-board-grid">
+								{filteredBoards.map((board) => {
+									const account = accounts.find((item) => item.id === board.accountId);
+									return (
+										<div key={`${board.accountId}-${board.id}`} className="pin-board">
+											<div className="pin-board__cover">
+												{board.coverImageUrl || board.imageUrl ? (
+													<img src={board.coverImageUrl || board.imageUrl} alt="" loading="lazy" decoding="async" />
+												) : (
+													<LayoutGrid size={22} />
+												)}
+											</div>
+											<div className="pin-board__body">
+												<div className="flex items-start justify-between gap-2">
+													<p className="truncate text-sm font-semibold">{board.name}</p>
+													{board.isDefault ? <Badge tone="blue">Default</Badge> : null}
+												</div>
+												<p className="mt-1 truncate text-xs text-muted-foreground">{board.accountLabel}</p>
+												<p className="mt-2 text-xs text-muted-foreground">
+													Pins: {board.pinCount ?? board.pinsCount ?? '—'} · Last published: —
+												</p>
+												{account && !board.isDefault ? (
+													<Button
+														size="sm"
+														variant="outline"
+														className="mt-2"
+														disabled={processingAccountId === account.id}
+														onClick={() => setDefaultBoard(account, board)}
+													>
+														<Star size={12} /> Set Default
+													</Button>
+												) : null}
+											</div>
+										</div>
+									);
+								})}
+							</div>
+						)
+					) : null}
+
+					{!loading && tab === 'queue' ? (
+						<div className="space-y-3">
+							<div className="pin-table-wrap">
+								<table className="pin-table">
+									<thead>
+										<tr>
+											<th>Preview</th>
+											<th>Article</th>
+											<th>Board</th>
+											<th>Scheduled</th>
+											<th>Status</th>
+											<th>Progress</th>
+											<th>Actions</th>
+										</tr>
+									</thead>
+									<tbody>
+										<tr>
+											<td colSpan={7}>
+												<div className="py-8 text-center text-sm text-muted-foreground">
+													No live queue jobs on this page. Use Publishing History for publish / retry / cancel.
+												</div>
+											</td>
+										</tr>
+									</tbody>
+								</table>
+							</div>
+							<div className="flex flex-wrap gap-2">
+								<Button size="sm" variant="outline" onClick={() => placeholderAction('Publish Now')}>Publish Now</Button>
+								<Button size="sm" variant="outline" onClick={() => placeholderAction('Retry')}>Retry</Button>
+								<Button size="sm" variant="ghost" onClick={() => placeholderAction('Cancel')}>Cancel</Button>
+								<Link to="/app/pinterest-history"><Button size="sm">Open Publishing History</Button></Link>
+							</div>
+						</div>
+					) : null}
+
+					{!loading && tab === 'scheduled' ? (
+						<div className="pin-timeline">
+							<div className="pin-empty">
+								<div className="pin-empty__icon"><CalendarClock size={22} /></div>
+								<p className="font-display text-xl font-semibold">No scheduled pins here</p>
+								<p className="mt-2 max-w-md text-sm text-muted-foreground">
+									Schedule pins from AI Pins. Track them in Publishing History — this tab is a hub preview.
+								</p>
+								<Link to="/app/pinterest-history" className="mt-5"><Button size="sm">View scheduled jobs</Button></Link>
+							</div>
+						</div>
+					) : null}
+
+					{!loading && tab === 'analytics' ? (
+						<div className="space-y-3">
+							<div className="pin-analytics">
+								<div className="pin-analytics__card">
+									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Published Pins</p>
+									<p className="pin-analytics__value">{demoAnalytics.publishedPins}</p>
+								</div>
+								<div className="pin-analytics__card">
+									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Clicks</p>
+									<p className="pin-analytics__value">{demoAnalytics.clicks}</p>
+									<p className="mt-1 text-[11px] text-muted-foreground">Placeholder until analytics feed is available</p>
+								</div>
+								<div className="pin-analytics__card">
+									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Saves</p>
+									<p className="pin-analytics__value">{demoAnalytics.saves}</p>
+									<p className="mt-1 text-[11px] text-muted-foreground">Placeholder</p>
+								</div>
+								<div className="pin-analytics__card">
+									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Impressions</p>
+									<p className="pin-analytics__value">{demoAnalytics.impressions}</p>
+									<p className="mt-1 text-[11px] text-muted-foreground">Placeholder</p>
+								</div>
+								<div className="pin-analytics__card">
+									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Best Board</p>
+									<p className="pin-analytics__value" style={{ fontSize: '1.15rem' }}>{demoAnalytics.bestBoard}</p>
+								</div>
+								<div className="pin-analytics__card">
+									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Best Pin</p>
+									<p className="pin-analytics__value" style={{ fontSize: '1.15rem' }}>{demoAnalytics.bestPin}</p>
+								</div>
+							</div>
+							<div className="pin-analytics__card">
+								<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground inline-flex items-center gap-1">
+									<Coins size={12} /> Publishing Activity
+								</p>
+								<p className="mt-2 text-sm text-muted-foreground">{demoAnalytics.activity}</p>
+							</div>
+						</div>
+					) : null}
+
+					{!loading && tab === 'failed' ? (
+						<div className="space-y-3">
+							<div className="pin-empty">
+								<div className="pin-empty__icon"><AlertTriangle size={22} /></div>
+								<p className="font-display text-xl font-semibold">No failed jobs on this hub</p>
+								<p className="mt-2 max-w-md text-sm text-muted-foreground">
+									Failed publish jobs are managed from Publishing History with retry support.
+								</p>
+								<div className="mt-5 flex flex-wrap justify-center gap-2">
+									<Button size="sm" variant="outline" onClick={() => {
+										setExpandedLogId(expandedLogId ? '' : 'demo');
+									}}>
+										Log Viewer
+									</Button>
+									<Link to="/app/pinterest-history"><Button size="sm">Open failed jobs</Button></Link>
+								</div>
+								{expandedLogId === 'demo' ? (
+									<div className="pin-log w-full max-w-xl text-left">
+										{`[${new Date().toISOString()}] Hub UI log viewer\nNo failed job payload loaded on /app/pinterest.\nUse /app/pinterest-history for live retry + cancel actions.`}
+									</div>
+								) : null}
+							</div>
+						</div>
+					) : null}
 				</div>
-			)}
+			</div>
 		</div>
 	);
 }
