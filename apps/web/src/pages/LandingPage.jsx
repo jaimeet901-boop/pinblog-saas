@@ -2,19 +2,35 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
 	Sparkles, PenLine, Image as ImageIcon, Globe, CalendarDays, Pin, BarChart3, Check, ArrowRight,
+	Shield, Zap, Search, Send, Palette, Share2,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-
-const HERO = 'https://images.hostinger.com/4660b445-da4c-4dc0-909d-6989c99d6a67.png';
-const DASH = 'https://images.hostinger.com/46300e6d-cd67-4301-a912-3e627554ce18.png';
+import './auth/AuthShell.css';
 
 const FEATURES = [
-	{ icon: PenLine, title: 'SEO AI Writer', desc: 'Full recipe articles with titles, meta, FAQ and JSON-LD schema in one click.' },
-	{ icon: ImageIcon, title: 'Pinterest Images', desc: 'Generate square, portrait and landscape pins that stop the scroll.' },
-	{ icon: Globe, title: 'WordPress Publisher', desc: 'Push drafts or scheduled posts to unlimited WordPress sites via REST API.' },
-	{ icon: Pin, title: 'Pinterest Scheduler', desc: 'Connect boards and auto-schedule pins to grow your traffic on autopilot.' },
+	{ icon: PenLine, title: 'AI Writer', desc: 'Full recipe articles with titles, meta, FAQ and JSON-LD schema in one click.' },
+	{ icon: ImageIcon, title: 'AI Image Generator', desc: 'Generate square, portrait and landscape pins that stop the scroll.' },
+	{ icon: Pin, title: 'AI Pins Studio', desc: 'Design branded pins with templates and brand kits in minutes.' },
+	{ icon: Send, title: 'Publishing Center', desc: 'Push drafts or scheduled posts to WordPress and Pinterest from one queue.' },
 	{ icon: CalendarDays, title: 'Content Calendar', desc: 'A single monthly view for every scheduled article and pin.' },
-	{ icon: BarChart3, title: 'Analytics', desc: 'Track articles, images, published and scheduled content over time.' },
+	{ icon: BarChart3, title: 'Analytics Center', desc: 'Track articles, images, published and scheduled content over time.' },
+	{ icon: Palette, title: 'Brand Kit', desc: 'Keep colors, fonts, and watermarks consistent across every generation.' },
+	{ icon: Share2, title: 'Pinterest Hub', desc: 'Connect boards and grow traffic with multi-account publishing.' },
+];
+
+const TRUST = [
+	{ icon: Sparkles, label: 'AI Powered' },
+	{ icon: Shield, label: 'Secure Workspace' },
+	{ icon: Zap, label: 'Fast Publishing' },
+	{ icon: Globe, label: 'Multi Website Support' },
+	{ icon: Pin, label: 'Pinterest Ready' },
+	{ icon: Search, label: 'SEO Optimized' },
+];
+
+const WHY = [
+	{ title: 'AI Writing', body: 'Generate SEO articles in minutes.' },
+	{ title: 'AI Design', body: 'Generate Pinterest images automatically.' },
+	{ title: 'AI Publishing', body: 'Publish content to Pinterest and WordPress.' },
 ];
 
 const PLANS = [
@@ -24,22 +40,29 @@ const PLANS = [
 	{ name: 'Agency', price: '$129', items: ['Unlimited articles', 'Unlimited websites', 'Team & API access'], cta: 'Choose Agency' },
 ];
 
+const FOOTER_LINKS = [
+	{ label: 'Privacy Policy', href: '#privacy' },
+	{ label: 'Terms', href: '#terms' },
+	{ label: 'Documentation', href: '#docs' },
+	{ label: 'Support', href: '#support' },
+	{ label: 'Contact', href: '#contact' },
+];
+
 export default function LandingPage() {
 	const { isAuthed } = useAuth();
 	const cta = isAuthed ? '/app' : '/signup';
 
 	return (
-		<div className="min-h-[100dvh] bg-background text-foreground">
-			<header className="sticky top-0 z-30 border-b border-border/60 bg-background/80 backdrop-blur">
+		<div className="welcome-atelier text-foreground">
+			<header className="welcome-nav">
 				<div className="mx-auto flex max-w-[76rem] items-center justify-between px-5 py-4">
-					<div className="flex items-center gap-2">
-						<span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-							<Sparkles size={18} />
-						</span>
-						<span className="font-display text-xl font-600">Chef IA</span>
-					</div>
+					<Link to="/" className="auth-brand">
+						<span className="auth-brand__mark"><Sparkles size={18} /></span>
+						<span className="auth-brand__name">Chef IA</span>
+					</Link>
 					<nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
 						<a href="#features" className="hover:text-foreground">Features</a>
+						<a href="#why" className="hover:text-foreground">Why Chef IA</a>
 						<a href="#pricing" className="hover:text-foreground">Pricing</a>
 					</nav>
 					<div className="flex items-center gap-2">
@@ -51,53 +74,82 @@ export default function LandingPage() {
 				</div>
 			</header>
 
-			{/* Hero */}
-			<section className="relative overflow-hidden">
-				<div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-accent/30 blur-3xl" />
-				<div className="pointer-events-none absolute -left-20 top-40 h-64 w-64 rounded-full bg-primary/20 blur-3xl" />
-				<div className="mx-auto grid max-w-[76rem] items-center gap-10 px-5 py-16 md:grid-cols-2 md:py-24">
+			<section className="welcome-hero">
+				<span className="auth-hero__glow auth-hero__glow--a" aria-hidden="true" />
+				<span className="auth-hero__glow auth-hero__glow--b" aria-hidden="true" />
+				<div className="welcome-hero__grid relative z-[1]">
 					<motion.div
-						initial={{ opacity: 0, y: 24 }}
+						initial={{ opacity: 0, y: 18 }}
 						animate={{ opacity: 1, y: 0 }}
-						transition={{ duration: 0.6, ease: 'easeOut' }}
+						transition={{ duration: 0.55, ease: 'easeOut' }}
 					>
-						<span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-							<Sparkles size={13} className="text-primary" /> AI content engine for food bloggers
-						</span>
-						<h1 className="mt-5 font-display text-4xl font-600 leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
-							Cook up SEO articles &<br />
-							<span className="text-primary">Pinterest pins</span> in minutes.
-						</h1>
-						<p className="mt-5 max-w-md text-lg text-muted-foreground">
-							Chef IA writes recipe-ready, SEO-optimized blog posts, generates scroll-stopping pins, and publishes to WordPress and Pinterest automatically.
+						<p className="auth-hero__eyebrow">Welcome to Chef IA</p>
+						<h1 className="auth-hero__title">Create, Design & Publish Pinterest Content with AI</h1>
+						<p className="auth-hero__desc">
+							Chef IA writes SEO-ready posts, generates scroll-stopping pins, and publishes to WordPress and Pinterest — all in one warm Atelier workspace.
 						</p>
-						<div className="mt-8 flex flex-wrap gap-3">
+						<div className="mt-7 flex flex-wrap gap-3">
 							<Link to={cta} className="inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3 font-medium text-primary-foreground hover:opacity-90">
-								Start free <ArrowRight size={17} />
+								Create your first workspace <ArrowRight size={17} />
 							</Link>
-							<a href="#features" className="inline-flex items-center gap-2 rounded-xl border border-border px-6 py-3 font-medium hover:bg-secondary">
-								See features
-							</a>
+							<Link to="/login" className="inline-flex items-center gap-2 rounded-xl border border-border px-6 py-3 font-medium hover:bg-secondary">
+								Sign in
+							</Link>
+						</div>
+						<div className="auth-trust mt-7">
+							{TRUST.map(({ icon: Icon, label }) => (
+								<span key={label} className="auth-trust__pill"><Icon size={12} /> {label}</span>
+							))}
 						</div>
 					</motion.div>
+
 					<motion.div
-						initial={{ opacity: 0, scale: 0.95 }}
+						initial={{ opacity: 0, scale: 0.97 }}
 						animate={{ opacity: 1, scale: 1 }}
-						transition={{ duration: 0.7, ease: 'easeOut', delay: 0.15 }}
-						className="relative"
+						transition={{ duration: 0.65, ease: 'easeOut', delay: 0.12 }}
+						className="auth-mock"
+						aria-hidden="true"
 					>
-						<img src={HERO} alt="Food blog dish flat-lay" className="animate-float-slow w-full rounded-3xl border border-border object-cover shadow-2xl" />
+						<div className="auth-mock__stage min-h-[16rem]">
+							<div className="auth-mock__blur" />
+							<div className="auth-mock__panels" style={{ gridTemplateColumns: '1.1fr 1fr', minHeight: '12rem' }}>
+								<div className="auth-mock__panel">
+									<strong>Dashboard</strong>
+									<div className="auth-mock__bars">
+										<span className="auth-mock__bar" />
+										<span className="auth-mock__bar" />
+										<span className="auth-mock__bar" />
+										<span className="auth-mock__bar" />
+									</div>
+								</div>
+								<div className="auth-mock__panel">
+									<strong>Analytics · Writer · Pins · Calendar</strong>
+									<div className="auth-mock__dots">
+										{Array.from({ length: 10 }).map((_, i) => (
+											<span key={i} className="auth-mock__dot" />
+										))}
+									</div>
+								</div>
+							</div>
+							<div className="auth-features mt-3" style={{ position: 'relative', zIndex: 1 }}>
+								{FEATURES.slice(0, 4).map(({ icon: Icon, title }) => (
+									<div key={title} className="auth-feature">
+										<span className="auth-feature__icon"><Icon size={14} /></span>
+										<p className="auth-feature__title">{title}</p>
+									</div>
+								))}
+							</div>
+						</div>
 					</motion.div>
 				</div>
 			</section>
 
-			{/* Features */}
-			<section id="features" className="mx-auto max-w-[76rem] px-5 py-16">
-				<h2 className="font-display text-3xl font-600 tracking-tight">Everything a food blog needs</h2>
-				<p className="mt-2 max-w-lg text-muted-foreground">From keyword to published post — one workflow, fully automated.</p>
-				<div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			<section id="features" className="welcome-panel">
+				<h2 className="font-display text-3xl font-semibold tracking-tight">Everything in the Atelier</h2>
+				<p className="mt-2 max-w-lg text-muted-foreground">From keyword to published pin — one premium workflow.</p>
+				<div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{FEATURES.map(({ icon: Icon, title, desc }) => (
-						<div key={title} className="rounded-2xl border border-border bg-card p-6 transition-transform hover:-translate-y-1">
+						<div key={title} className="welcome-card">
 							<span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
 								<Icon size={20} />
 							</span>
@@ -108,25 +160,42 @@ export default function LandingPage() {
 				</div>
 			</section>
 
-			{/* Showcase */}
-			<section className="mx-auto max-w-[76rem] px-5 py-8">
-				<div className="overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-primary/10 to-accent/10 p-6 md:p-10">
-					<img src={DASH} alt="Chef IA dashboard" className="w-full rounded-2xl border border-border shadow-xl" />
+			<section id="why" className="welcome-panel pt-0">
+				<h2 className="font-display text-3xl font-semibold tracking-tight">Why Chef IA</h2>
+				<p className="mt-2 text-muted-foreground">Three pillars of the generation-to-publish loop.</p>
+				<div className="auth-why mt-8">
+					{WHY.map((item) => (
+						<div key={item.title} className="auth-why__card">
+							<h3>{item.title}</h3>
+							<p>{item.body}</p>
+						</div>
+					))}
+				</div>
+				<div className="auth-onboard mt-8">
+					<p className="auth-onboard__title">Onboarding preview</p>
+					<div className="auth-onboard__steps">
+						{['Create Workspace', 'Add Website', 'Connect WordPress', 'Connect Pinterest', 'Ready to Start'].map((step, index) => (
+							<span key={step} className="auth-onboard__step">
+								<span>{index + 1}</span>
+								{step}
+							</span>
+						))}
+					</div>
+					<p className="mt-2 text-[11px] text-muted-foreground">Guided setup preview — coming soon in your workspace.</p>
 				</div>
 			</section>
 
-			{/* Pricing */}
-			<section id="pricing" className="mx-auto max-w-[76rem] px-5 py-16">
-				<h2 className="font-display text-3xl font-600 tracking-tight">Simple, scalable pricing</h2>
+			<section id="pricing" className="welcome-panel pt-0">
+				<h2 className="font-display text-3xl font-semibold tracking-tight">Simple, scalable pricing</h2>
 				<p className="mt-2 text-muted-foreground">Start free. Upgrade as your traffic grows.</p>
-				<div className="mt-10 grid gap-4 md:grid-cols-4">
+				<div className="mt-8 grid gap-4 md:grid-cols-4">
 					{PLANS.map((p) => (
 						<div
 							key={p.name}
-							className={`flex flex-col rounded-2xl border p-6 ${p.highlight ? 'border-primary bg-card shadow-lg ring-1 ring-primary/30' : 'border-border bg-card'}`}
+							className={`welcome-card flex flex-col ${p.highlight ? 'border-primary ring-1 ring-primary/30' : ''}`}
 						>
-							{p.highlight && <span className="mb-2 inline-block w-fit rounded-full bg-primary px-2.5 py-0.5 text-xs font-medium text-primary-foreground">Popular</span>}
-							<h3 className="font-display text-lg font-600">{p.name}</h3>
+							{p.highlight ? <span className="mb-2 inline-block w-fit rounded-full bg-primary px-2.5 py-0.5 text-xs font-medium text-primary-foreground">Popular</span> : null}
+							<h3 className="font-display text-lg font-semibold">{p.name}</h3>
 							<p className="mt-2 text-3xl font-bold">{p.price}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
 							<ul className="mt-5 flex-1 space-y-2 text-sm">
 								{p.items.map((i) => (
@@ -141,13 +210,18 @@ export default function LandingPage() {
 				</div>
 			</section>
 
-			<footer className="border-t border-border">
-				<div className="mx-auto flex max-w-[76rem] flex-col items-center justify-between gap-3 px-5 py-8 text-sm text-muted-foreground sm:flex-row">
+			<footer className="border-t border-border/80">
+				<div className="mx-auto flex max-w-[76rem] flex-col gap-4 px-5 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
 					<div className="flex items-center gap-2">
-						<Sparkles size={16} className="text-primary" />
-						<span className="font-display font-600 text-foreground">Chef IA</span>
+						<span className="auth-brand__mark !h-8 !w-8"><Sparkles size={14} /></span>
+						<span className="font-display font-semibold text-foreground">Chef IA</span>
+						<span className="text-xs">Version 0.0.0</span>
 					</div>
-					<p>© {new Date().getFullYear()} Chef IA. Built for recipe creators.</p>
+					<div className="auth-footer__links">
+						{FOOTER_LINKS.map((link) => (
+							<a key={link.label} href={link.href}>{link.label}</a>
+						))}
+					</div>
 				</div>
 			</footer>
 		</div>

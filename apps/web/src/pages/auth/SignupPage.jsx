@@ -14,7 +14,7 @@ function OAuthButton({ provider, disabled, loading, onClick }) {
 			variant="outline"
 			disabled={disabled || loading}
 			onClick={onClick}
-			className="h-12 w-full justify-between border-border/70 bg-card px-4 text-left shadow-sm hover:bg-secondary/70"
+			className="h-12 w-full justify-between border-border/70 bg-card/80 px-4 text-left shadow-sm hover:bg-secondary/70"
 		>
 			<span className="flex items-center gap-3">
 				<span className={`flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm ${provider.accent}`}>
@@ -34,13 +34,20 @@ export default function SignupPage() {
 	const { signup, loginWithOAuth, authMethods } = useAuth();
 	const navigate = useNavigate();
 	const { toast } = useToast();
-	const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' });
+	const [form, setForm] = useState({
+		name: '',
+		workspaceName: '',
+		email: '',
+		password: '',
+		confirmPassword: '',
+		acceptTerms: false,
+	});
 	const [loading, setLoading] = useState(false);
 	const [oauthLoading, setOauthLoading] = useState('');
 
 	const enabledProviders = useMemo(() => new Set((authMethods?.oauth2?.providers || []).map((provider) => provider.name)), [authMethods]);
 
-	const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+	const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
 
 	const startOAuth = async (provider) => {
 		const popup = window.open('', 'pb-oauth', 'popup=yes,width=560,height=720');
@@ -66,7 +73,16 @@ export default function SignupPage() {
 
 	const submit = async (e) => {
 		e.preventDefault();
-		const validationErrors = validateSignupForm(form);
+		if (!form.acceptTerms) {
+			toast({ variant: 'destructive', title: 'Terms required', description: 'Please accept the Terms to create your workspace.' });
+			return;
+		}
+		const validationErrors = validateSignupForm({
+			name: form.name,
+			email: form.email,
+			password: form.password,
+			confirmPassword: form.confirmPassword,
+		});
 		if (validationErrors.length > 0) {
 			toast({ variant: 'destructive', title: 'Check your details', description: validationErrors[0] });
 			return;
@@ -85,8 +101,8 @@ export default function SignupPage() {
 
 	return (
 		<AuthShell
-			title="Create your account"
-			subtitle="Start generating SEO content for free."
+			title="Create your workspace"
+			subtitle="Start generating SEO content and Pinterest pins for free."
 			footer={<>Already have an account? <Link to="/login" className="font-medium text-primary hover:underline">Sign in</Link></>}
 		>
 			<div className="space-y-4">
@@ -105,19 +121,28 @@ export default function SignupPage() {
 					/>
 				</div>
 
-				<div className="flex items-center gap-3">
-					<div className="h-px flex-1 bg-border" />
-					<span className="text-xs font-semibold tracking-[0.24em] text-muted-foreground">OR</span>
-					<div className="h-px flex-1 bg-border" />
-				</div>
+				<div className="auth-divider"><span>OR</span></div>
 
 				<form onSubmit={submit} className="space-y-4">
 					<Input label="Full Name" required value={form.name} onChange={set('name')} placeholder="Jamie Rivera" />
+					<Input
+						label="Workspace Name"
+						value={form.workspaceName}
+						onChange={set('workspaceName')}
+						placeholder="My Food Blog"
+					/>
 					<Input label="Email" type="email" required value={form.email} onChange={set('email')} placeholder="you@blog.com" />
 					<Input label="Password" type="password" required value={form.password} onChange={set('password')} placeholder="At least 10 characters" />
 					<Input label="Confirm Password" type="password" required value={form.confirmPassword} onChange={set('confirmPassword')} placeholder="Repeat your password" />
+					<label className="auth-check">
+						<input type="checkbox" checked={form.acceptTerms} onChange={set('acceptTerms')} />
+						<span>
+							I agree to the <a href="#terms" className="text-primary hover:underline">Terms</a> and{' '}
+							<a href="#privacy" className="text-primary hover:underline">Privacy Policy</a>.
+						</span>
+					</label>
 					<Button type="submit" disabled={loading} className="w-full">
-						{loading ? <Spinner /> : 'Create account with email'}
+						{loading ? <Spinner /> : 'Create Workspace'}
 					</Button>
 				</form>
 			</div>
