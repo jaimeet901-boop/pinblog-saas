@@ -269,14 +269,18 @@ export default function WriterPage() {
 	const editorRef = useRef(null);
 
 	useEffect(() => {
-		pb.collection('websites')
-			.getFullList({ sort: '-created' })
-			.then((rows) => {
+		(async () => {
+			try {
+				const response = await apiServerClient.fetch('/websites', { method: 'GET' });
+				const payload = await response.json().catch(() => ([]));
+				const rows = Array.isArray(payload) ? payload : (payload.items || []);
 				setSites(rows);
-				const connected = rows.find((r) => r.status === 'connected') || rows[0];
+				const connected = rows.find((r) => r.status === 'connected' || r.status === 'active') || rows[0];
 				if (connected) setSiteId(connected.id);
-			})
-			.catch(() => {});
+			} catch {
+				setSites([]);
+			}
+		})();
 	}, []);
 
 	const loadRecentDrafts = async () => {
@@ -429,7 +433,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 		}
 	};
 
-	const publishToWp = async (wpStatus) => {
+	const publishToWp = async (wpStatus, extras = {}) => {
 		if (!article) return;
 		const site = sites.find((s) => s.id === siteId);
 		if (!site) {
@@ -438,20 +442,36 @@ Respond ONLY with the JSON object described in your instructions.`;
 		}
 		setPublishing(true);
 		try {
-			const res = await apiServerClient.fetch('/wordpress/publish', {
+			const endpoint = extras.scheduledAt ? '/wordpress/schedule' : '/wordpress/publish';
+			const res = await apiServerClient.fetch(endpoint, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					siteId: site.id,
+					websiteId: site.id,
 					title: article.seo_title || form.keyword,
 					content: composeHtml(article),
 					slug: article.slug,
 					excerpt: article.meta_description,
-					status: wpStatus,
+					metaDescription: article.meta_description,
+					status: extras.scheduledAt ? 'future' : wpStatus,
+					scheduledAt: extras.scheduledAt || undefined,
+					categories: form.wpCategory ? [form.wpCategory] : [],
+					tags: form.tags,
+					featuredImageUrl: article.featured_image || article.image_url || '',
+					seo: {
+						title: article.seo_title,
+						metaDescription: article.meta_description,
+					},
+					recipeCard: options.recipe ? (article.recipe || article.recipe_card || { enabled: true }) : null,
+					idempotencyKey: `writer-${site.id}-${article.slug || form.keyword}-${wpStatus}-${extras.scheduledAt || 'now'}`,
 				}),
 			});
-			const data = await res.json();
-			if (!res.ok || !data.ok) throw new Error(data.error || 'Publish failed');
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok || data.ok === false) {
+				throw new Error(data.message || data.error || 'Publish failed');
+			}
+
 			await pb.collection('articles').create({
 				owner: pb.authStore.record.id,
 				keyword: form.keyword,
@@ -462,12 +482,22 @@ Respond ONLY with the JSON object described in your instructions.`;
 				country: form.country,
 				tone: form.tone,
 				body: article,
-				status: wpStatus === 'publish' ? 'published' : 'draft',
+				status: extras.scheduledAt ? 'scheduled' : (wpStatus === 'publish' ? 'published' : 'draft'),
 			}).catch(() => {});
-			toast({
-				title: wpStatus === 'publish' ? 'Published to WordPress' : 'Draft sent to WordPress',
-				description: data.link ? data.link : `Post #${data.id} created.`,
-			});
+
+			if (data.queued && !data.link) {
+				toast({
+					title: 'Publish queued',
+					description: 'WordPress job is processing in the background. Check history shortly.',
+				});
+			} else {
+				toast({
+					title: extras.scheduledAt
+						? 'Scheduled on WordPress'
+						: (wpStatus === 'publish' ? 'Published to WordPress' : 'Draft sent to WordPress'),
+					description: data.link || data.url || (data.id ? `Post #${data.id} created.` : 'Job accepted.'),
+				});
+			}
 			setArticleBaseline(article);
 			await loadRecentDrafts();
 		} catch (err) {
@@ -475,6 +505,18 @@ Respond ONLY with the JSON object described in your instructions.`;
 		} finally {
 			setPublishing(false);
 		}
+	};
+
+	const scheduleToWp = async () => {
+		if (!article) return;
+		const when = window.prompt('Schedule publish time (ISO or local datetime)', new Date(Date.now() + 3600000).toISOString().slice(0, 16));
+		if (!when) return;
+		const scheduledAt = new Date(when);
+		if (Number.isNaN(scheduledAt.getTime())) {
+			toast({ variant: 'destructive', title: 'Invalid date', description: 'Enter a valid schedule time.' });
+			return;
+		}
+		await publishToWp('future', { scheduledAt: scheduledAt.toISOString() });
 	};
 
 	const copyArticle = async () => {
@@ -615,7 +657,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 								) : (
 									sites.map((s) => (
 										<option key={s.id} value={s.id}>
-											{s.name} {s.status === 'connected' ? '(connected)' : `(${s.status})`}
+											{s.name} {s.status === 'connected' || s.status === 'active' ? '(connected)' : `(${s.status})`}
 										</option>
 									))
 								)}
@@ -689,9 +731,9 @@ Respond ONLY with the JSON object described in your instructions.`;
 						</Section>
 
 						<Section id="publishing" open={openSections.publishing} onToggle={toggleSection}>
-							<Input label="WordPress category" value={form.wpCategory} onChange={set('wpCategory')} placeholder="Recipes (UI only)" />
+							<Input label="WordPress category" value={form.wpCategory} onChange={set('wpCategory')} placeholder="Recipes" />
 							<Input label="Tags" value={form.tags} onChange={set('tags')} placeholder="vegan, dinner, meal-prep" />
-							<p className="text-[11px] text-muted-foreground -mt-1">Category & tags are UI-only until WP fields are supported.</p>
+							<p className="text-[11px] text-muted-foreground -mt-1">Category and tags are sent to WordPress on publish.</p>
 							<div className="flex flex-wrap gap-2">
 								<Button type="button" size="sm" variant="outline" disabled={!article || publishing} onClick={() => publishToWp('draft')}>
 									{publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload size={14} />}
@@ -703,7 +745,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 								</Button>
 							</div>
 							<div className="flex flex-wrap gap-2 pt-1">
-								<Button type="button" size="sm" variant="ghost" disabled={!article || saving} onClick={() => save('scheduled')}>
+								<Button type="button" size="sm" variant="ghost" disabled={!article || publishing} onClick={scheduleToWp}>
 									Schedule
 								</Button>
 								<Button type="button" size="sm" variant="ghost" disabled={!article || saving} onClick={() => save('published')}>

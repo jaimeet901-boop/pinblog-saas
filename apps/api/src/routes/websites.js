@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { encryptSecret, isEncryptedSecret } from '../utils/secretCrypto.js';
+import { ensureWordpressSiteFromWebsite } from '../services/wordpress-sites.js';
 import logger from '../utils/logger.js';
 import { scanWebsiteArticles, countWebsiteArticles, listWebsiteArticles, repairOrphanWebsiteArticles } from '../services/website-article-discovery.js';
 import { getCache, setCache } from '../utils/cache.js';
@@ -935,6 +936,7 @@ router.post('/', async (req, res) => {
 	});
 
 	res.status(201).json(mapWebsite(persistedRecord));
+	ensureWordpressSiteFromWebsite(persistedRecord, req.pocketbaseUserId).catch(() => null);
 });
 
 router.post('/:websiteId/scan', async (req, res) => {
@@ -1181,6 +1183,7 @@ router.patch('/:websiteId', async (req, res) => {
 		context: 'websites:patch:update',
 	});
 
+	ensureWordpressSiteFromWebsite(updated, req.pocketbaseUserId).catch(() => null);
 	res.json(mapWebsite(updated));
 });
 
