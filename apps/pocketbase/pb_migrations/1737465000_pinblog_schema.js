@@ -1,74 +1,38 @@
 /// <reference path="../pb_data/types.d.ts" />
 /**
  * Pinblog schema (collections + fields + indexes only).
- * All API rules stay null until 1737465001_pinblog_api_rules.js runs.
+ * PocketBase v0.38.0 — see apps/pocketbase/.pocketbase-version
+ *
+ * New Collection() field definitions MUST be plain objects (type/name/...).
+ * Passing Field class instances in Collection.fields is not supported on v0.38:
+ * custom fields are dropped on save (only the system id field remains).
+ *
+ * https://pocketbase.io/docs/js-migrations/
+ * https://pocketbase.io/docs/js-collections/
+ *
+ * API rules stay null until 1737465001_pinblog_api_rules.js runs.
  */
 
-const coreNS = typeof core !== "undefined" ? core : {};
-
-function pickCtor(...ctors) {
-	for (const ctor of ctors) {
-		if (typeof ctor === "function") {
-			return ctor;
-		}
-	}
-	return null;
-}
-
-function toField(def) {
-	if (!def || typeof def !== "object" || typeof def.type !== "string") {
-		return def;
-	}
-
-	const ctorByType = {
-		text: pickCtor(typeof TextField !== "undefined" ? TextField : null, coreNS.TextField),
-		url: pickCtor(
-			typeof URLField !== "undefined" ? URLField : null,
-			typeof UrlField !== "undefined" ? UrlField : null,
-			coreNS.URLField,
-			coreNS.UrlField,
-		),
-		relation: pickCtor(typeof RelationField !== "undefined" ? RelationField : null, coreNS.RelationField),
-		select: pickCtor(typeof SelectField !== "undefined" ? SelectField : null, coreNS.SelectField),
-		json: pickCtor(typeof JSONField !== "undefined" ? JSONField : null, coreNS.JSONField),
-		date: pickCtor(typeof DateField !== "undefined" ? DateField : null, coreNS.DateField),
-		number: pickCtor(typeof NumberField !== "undefined" ? NumberField : null, coreNS.NumberField),
-		bool: pickCtor(typeof BoolField !== "undefined" ? BoolField : null, coreNS.BoolField),
-	};
-
-	const type = def.type;
-	const payload = { ...def };
-	delete payload.type;
-
-	const Ctor = ctorByType[type];
-	if (!Ctor) {
-		throw new Error(`Unsupported migration field type: ${type}`);
-	}
-
-	return new Ctor(payload);
-}
-
-function ownerField(users) {
-	return toField({
-		type: "relation",
-		name: "owner",
-		required: true,
-		maxSelect: 1,
-		collectionId: users.id,
-		cascadeDelete: true,
-	});
-}
-
-function rel(name, collectionId, options = {}) {
-	return toField({
-		type: "relation",
+function relationField(name, collectionId, options = {}) {
+	return {
 		name,
+		type: "relation",
 		required: options.required === true,
 		maxSelect: options.maxSelect ?? 1,
 		collectionId,
 		cascadeDelete: options.cascadeDelete === true,
-	});
+	};
 }
+
+function ownerField(users) {
+	return relationField("owner", users.id, { required: true, cascadeDelete: true });
+}
+
+/** Plain autodate defs (required for DB columns referenced in indexes). */
+const AUTODATE_FIELDS = [
+	{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
+	{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
+];
 
 function saveSchemaCollection(app, collection, { requireOwner = false } = {}) {
 	collection.listRule = null;
@@ -96,7 +60,7 @@ function newBaseCollection(name, fields, indexes = []) {
 		updateRule: null,
 		deleteRule: null,
 		indexes,
-		fields,
+		fields: fields.concat(AUTODATE_FIELDS),
 	});
 }
 
@@ -123,10 +87,10 @@ migrate(
 			);
 		}
 		if (!users.fields.getByName("ai_credits_used")) {
-			users.fields.add(toField({ type: "number", name: "ai_credits_used", min: 0 }));
+			users.fields.add(new NumberField({ name: "ai_credits_used", min: 0 }));
 		}
 		if (!users.fields.getByName("image_credits_used")) {
-			users.fields.add(toField({ type: "number", name: "image_credits_used", min: 0 }));
+			users.fields.add(new NumberField({ name: "image_credits_used", min: 0 }));
 		}
 		app.save(users);
 
@@ -135,19 +99,19 @@ migrate(
 		const websites = saveSchemaCollection(
 			app,
 			newBaseCollection("websites", [
-				toField({ type: "text", name: "name", required: true, max: 120 }),
-				toField({ type: "url", name: "url" }),
-				toField({ type: "text", name: "wp_username", max: 120 }),
-				toField({ type: "text", name: "wp_app_password", max: 200 }),
-				toField({
+				{ type: "text", name: "name", required: true, max: 120 },
+				{ type: "url", name: "url" },
+				{ type: "text", name: "wp_username", max: 120 },
+				{ type: "text", name: "wp_app_password", max: 200 },
+				{
 					type: "select",
 					name: "status",
 					maxSelect: 1,
 					values: ["untested", "connected", "failed"],
-				}),
-				toField({ type: "date", name: "last_scan_at" }),
-				toField({ type: "date", name: "next_scan_at" }),
-				toField({ type: "json", name: "last_scan_summary", maxSize: 200000 }),
+				},
+				{ type: "date", name: "last_scan_at" },
+				{ type: "date", name: "next_scan_at" },
+				{ type: "json", name: "last_scan_summary", maxSize: 200000 },
 				owner,
 			]),
 			{ requireOwner: true },
@@ -156,21 +120,21 @@ migrate(
 		saveSchemaCollection(
 			app,
 			newBaseCollection("articles", [
-				toField({ type: "text", name: "keyword", max: 200 }),
-				toField({ type: "text", name: "seo_title", max: 200 }),
-				toField({ type: "text", name: "meta_description", max: 400 }),
-				toField({ type: "text", name: "slug", max: 200 }),
-				toField({ type: "text", name: "language", max: 40 }),
-				toField({ type: "text", name: "country", max: 60 }),
-				toField({ type: "text", name: "tone", max: 60 }),
-				toField({ type: "json", name: "body", maxSize: 2000000 }),
-				toField({
+				{ type: "text", name: "keyword", max: 200 },
+				{ type: "text", name: "seo_title", max: 200 },
+				{ type: "text", name: "meta_description", max: 400 },
+				{ type: "text", name: "slug", max: 200 },
+				{ type: "text", name: "language", max: 40 },
+				{ type: "text", name: "country", max: 60 },
+				{ type: "text", name: "tone", max: 60 },
+				{ type: "json", name: "body", maxSize: 2000000 },
+				{
 					type: "select",
 					name: "status",
 					maxSelect: 1,
 					values: ["draft", "scheduled", "published"],
-				}),
-				toField({ type: "date", name: "scheduled_at" }),
+				},
+				{ type: "date", name: "scheduled_at" },
 				owner,
 			]),
 			{ requireOwner: true },
@@ -179,22 +143,22 @@ migrate(
 		saveSchemaCollection(
 			app,
 			newBaseCollection("pins", [
-				toField({ type: "text", name: "title", max: 200 }),
-				toField({ type: "text", name: "image_url", max: 500 }),
-				toField({ type: "text", name: "board", max: 120 }),
-				toField({
+				{ type: "text", name: "title", max: 200 },
+				{ type: "text", name: "image_url", max: 500 },
+				{ type: "text", name: "board", max: 120 },
+				{
 					type: "select",
 					name: "format",
 					maxSelect: 1,
 					values: ["square", "portrait", "landscape"],
-				}),
-				toField({
+				},
+				{
 					type: "select",
 					name: "status",
 					maxSelect: 1,
 					values: ["draft", "scheduled", "published"],
-				}),
-				toField({ type: "date", name: "scheduled_at" }),
+				},
+				{ type: "date", name: "scheduled_at" },
 				owner,
 			]),
 			{ requireOwner: true },
@@ -203,12 +167,12 @@ migrate(
 		saveSchemaCollection(
 			app,
 			newBaseCollection("user_settings", [
-				toField({ type: "text", name: "openai_key", max: 300 }),
-				toField({ type: "text", name: "gemini_key", max: 300 }),
-				toField({ type: "text", name: "fal_key", max: 300 }),
-				toField({ type: "text", name: "pinterest_token", max: 500 }),
-				toField({ type: "bool", name: "pinterest_connected" }),
-				toField({ type: "text", name: "email_from", max: 200 }),
+				{ type: "text", name: "openai_key", max: 300 },
+				{ type: "text", name: "gemini_key", max: 300 },
+				{ type: "text", name: "fal_key", max: 300 },
+				{ type: "text", name: "pinterest_token", max: 500 },
+				{ type: "bool", name: "pinterest_connected" },
+				{ type: "text", name: "email_from", max: 200 },
 				owner,
 			]),
 			{ requireOwner: true },
@@ -219,27 +183,27 @@ migrate(
 			newBaseCollection(
 				"website_articles",
 				[
-					rel("websiteId", websites.id, { required: true, cascadeDelete: true }),
+					relationField("websiteId", websites.id, { required: true, cascadeDelete: true }),
 					owner,
-					toField({ type: "text", name: "url", required: true, max: 1000 }),
-					toField({ type: "text", name: "slug", max: 255 }),
-					toField({ type: "text", name: "title", max: 500 }),
-					toField({ type: "text", name: "meta_description", max: 2000 }),
-					toField({ type: "text", name: "featured_image", max: 1000 }),
-					toField({ type: "date", name: "publish_date" }),
-					toField({ type: "date", name: "last_modified_date" }),
-					toField({ type: "text", name: "category", max: 255 }),
-					toField({ type: "text", name: "author", max: 255 }),
-					toField({ type: "text", name: "language", max: 32 }),
-					toField({
+					{ type: "text", name: "url", required: true, max: 1000 },
+					{ type: "text", name: "slug", max: 255 },
+					{ type: "text", name: "title", max: 500 },
+					{ type: "text", name: "meta_description", max: 2000 },
+					{ type: "text", name: "featured_image", max: 1000 },
+					{ type: "date", name: "publish_date" },
+					{ type: "date", name: "last_modified_date" },
+					{ type: "text", name: "category", max: 255 },
+					{ type: "text", name: "author", max: 255 },
+					{ type: "text", name: "language", max: 32 },
+					{
 						type: "select",
 						name: "status",
 						required: true,
 						maxSelect: 1,
 						values: ["new", "imported", "published"],
-					}),
-					toField({ type: "text", name: "source", max: 64 }),
-					toField({ type: "text", name: "scan_run_id", max: 64 }),
+					},
+					{ type: "text", name: "source", max: 64 },
+					{ type: "text", name: "scan_run_id", max: 64 },
 				],
 				[
 					"CREATE UNIQUE INDEX `idx_website_articles_unique_url` ON `website_articles` (`websiteId`, `url`)",
@@ -257,17 +221,17 @@ migrate(
 				"brand_kits",
 				[
 					owner,
-					toField({ type: "text", name: "name", required: true, max: 120 }),
-					toField({ type: "text", name: "logo_url", max: 1000 }),
-					toField({ type: "text", name: "primary_color", max: 32 }),
-					toField({ type: "text", name: "secondary_color", max: 32 }),
-					toField({ type: "text", name: "accent_color", max: 32 }),
-					toField({ type: "text", name: "font_heading", max: 120 }),
-					toField({ type: "text", name: "font_body", max: 120 }),
-					toField({ type: "text", name: "watermark_text", max: 120 }),
-					toField({ type: "text", name: "watermark_url", max: 1000 }),
-					toField({ type: "text", name: "website_url", max: 500 }),
-					toField({ type: "bool", name: "is_default" }),
+					{ type: "text", name: "name", required: true, max: 120 },
+					{ type: "text", name: "logo_url", max: 1000 },
+					{ type: "text", name: "primary_color", max: 32 },
+					{ type: "text", name: "secondary_color", max: 32 },
+					{ type: "text", name: "accent_color", max: 32 },
+					{ type: "text", name: "font_heading", max: 120 },
+					{ type: "text", name: "font_body", max: 120 },
+					{ type: "text", name: "watermark_text", max: 120 },
+					{ type: "text", name: "watermark_url", max: 1000 },
+					{ type: "text", name: "website_url", max: 500 },
+					{ type: "bool", name: "is_default" },
 				],
 				["CREATE INDEX `idx_brand_kits_owner` ON `brand_kits` (`owner`)"],
 			),
@@ -279,58 +243,58 @@ migrate(
 			newBaseCollection(
 				"ai_pins",
 				[
-					rel("articleId", websiteArticles.id, { required: true, cascadeDelete: true }),
-					rel("websiteId", websites.id, { required: true, cascadeDelete: true }),
+					relationField("articleId", websiteArticles.id, { required: true, cascadeDelete: true }),
+					relationField("websiteId", websites.id, { required: true, cascadeDelete: true }),
 					owner,
-					rel("brand_kit", brandKits.id, { cascadeDelete: false }),
-					toField({ type: "text", name: "image_prompt", max: 4000 }),
-					toField({ type: "text", name: "overlay_text", max: 600 }),
-					toField({ type: "text", name: "title", required: true, max: 300 }),
-					toField({ type: "text", name: "description", max: 2000 }),
-					toField({ type: "json", name: "suggested_keywords", maxSize: 10000 }),
-					toField({ type: "json", name: "suggested_hashtags", maxSize: 10000 }),
-					toField({ type: "text", name: "target_audience", max: 200 }),
-					toField({ type: "text", name: "tone_of_voice", max: 100 }),
-					toField({ type: "text", name: "language", max: 60 }),
-					toField({
+					relationField("brand_kit", brandKits.id, { cascadeDelete: false }),
+					{ type: "text", name: "image_prompt", max: 4000 },
+					{ type: "text", name: "overlay_text", max: 600 },
+					{ type: "text", name: "title", required: true, max: 300 },
+					{ type: "text", name: "description", max: 2000 },
+					{ type: "json", name: "suggested_keywords", maxSize: 10000 },
+					{ type: "json", name: "suggested_hashtags", maxSize: 10000 },
+					{ type: "text", name: "target_audience", max: 200 },
+					{ type: "text", name: "tone_of_voice", max: 100 },
+					{ type: "text", name: "language", max: 60 },
+					{
 						type: "select",
 						name: "status",
 						required: true,
 						maxSelect: 1,
 						values: ["draft", "scheduled", "publishing", "published", "failed"],
-					}),
-					toField({ type: "text", name: "image_url", max: 1000 }),
-					toField({ type: "date", name: "scheduled_at" }),
-					toField({ type: "text", name: "scheduled_timezone", max: 80 }),
-					toField({ type: "text", name: "pinterest_board_id", max: 120 }),
-					toField({ type: "text", name: "pinterest_board_name", max: 300 }),
-					toField({ type: "text", name: "pinterest_pin_id", max: 120 }),
-					toField({ type: "text", name: "pinterest_pin_url", max: 1000 }),
-					toField({ type: "text", name: "publish_job_id", max: 120 }),
-					toField({ type: "date", name: "published_at" }),
-					toField({ type: "text", name: "publish_error", max: 3000 }),
-					toField({ type: "json", name: "performance", maxSize: 100000 }),
-					toField({
+					},
+					{ type: "text", name: "image_url", max: 1000 },
+					{ type: "date", name: "scheduled_at" },
+					{ type: "text", name: "scheduled_timezone", max: 80 },
+					{ type: "text", name: "pinterest_board_id", max: 120 },
+					{ type: "text", name: "pinterest_board_name", max: 300 },
+					{ type: "text", name: "pinterest_pin_id", max: 120 },
+					{ type: "text", name: "pinterest_pin_url", max: 1000 },
+					{ type: "text", name: "publish_job_id", max: 120 },
+					{ type: "date", name: "published_at" },
+					{ type: "text", name: "publish_error", max: 3000 },
+					{ type: "json", name: "performance", maxSize: 100000 },
+					{
 						type: "select",
 						name: "image_source",
 						maxSelect: 1,
 						values: ["featured", "ai_generated", "featured_fallback"],
-					}),
-					toField({
+					},
+					{
 						type: "select",
 						name: "image_generation_status",
 						maxSelect: 1,
 						values: ["idle", "queued", "processing", "completed", "failed", "fallback"],
-					}),
-					toField({ type: "text", name: "image_generation_error", max: 3000 }),
-					toField({ type: "text", name: "image_job_id", max: 120 }),
-					toField({ type: "json", name: "analysis", maxSize: 100000 }),
-					toField({ type: "text", name: "cta", max: 300 }),
-					toField({ type: "text", name: "pinterest_category", max: 120 }),
-					toField({ type: "text", name: "style", max: 64 }),
-					toField({ type: "json", name: "editor_state", maxSize: 200000 }),
-					toField({ type: "number", name: "ai_credits_used", min: 0 }),
-					toField({ type: "number", name: "image_credits_used", min: 0 }),
+					},
+					{ type: "text", name: "image_generation_error", max: 3000 },
+					{ type: "text", name: "image_job_id", max: 120 },
+					{ type: "json", name: "analysis", maxSize: 100000 },
+					{ type: "text", name: "cta", max: 300 },
+					{ type: "text", name: "pinterest_category", max: 120 },
+					{ type: "text", name: "style", max: 64 },
+					{ type: "json", name: "editor_state", maxSize: 200000 },
+					{ type: "number", name: "ai_credits_used", min: 0 },
+					{ type: "number", name: "image_credits_used", min: 0 },
 				],
 				[
 					"CREATE INDEX `idx_ai_pins_owner` ON `ai_pins` (`owner`)",
@@ -348,10 +312,10 @@ migrate(
 				"ai_pin_templates",
 				[
 					owner,
-					toField({ type: "text", name: "name", required: true, max: 180 }),
-					toField({ type: "text", name: "thumbnail", max: 4000 }),
-					toField({ type: "json", name: "configuration", required: true, maxSize: 300000 }),
-					toField({ type: "bool", name: "is_default" }),
+					{ type: "text", name: "name", required: true, max: 180 },
+					{ type: "text", name: "thumbnail", max: 4000 },
+					{ type: "json", name: "configuration", required: true, maxSize: 300000 },
+					{ type: "bool", name: "is_default" },
 				],
 				[
 					"CREATE INDEX `idx_ai_pin_templates_owner` ON `ai_pin_templates` (`owner`)",
@@ -367,40 +331,40 @@ migrate(
 				"ai_pin_image_jobs",
 				[
 					owner,
-					rel("ai_pin", aiPins.id, { cascadeDelete: false }),
-					rel("websiteId", websites.id, { cascadeDelete: false }),
-					rel("articleId", websiteArticles.id, { cascadeDelete: false }),
-					toField({ type: "text", name: "client_token", max: 120 }),
-					toField({
+					relationField("ai_pin", aiPins.id, { cascadeDelete: false }),
+					relationField("websiteId", websites.id, { cascadeDelete: false }),
+					relationField("articleId", websiteArticles.id, { cascadeDelete: false }),
+					{ type: "text", name: "client_token", max: 120 },
+					{
 						type: "select",
 						name: "source_type",
 						required: true,
 						maxSelect: 1,
 						values: ["preview", "pin"],
-					}),
-					toField({
+					},
+					{
 						type: "select",
 						name: "image_mode",
 						required: true,
 						maxSelect: 1,
 						values: ["generate_ai", "use_featured"],
-					}),
-					toField({ type: "text", name: "prompt", max: 5000 }),
-					toField({ type: "json", name: "prompt_payload", maxSize: 200000 }),
-					toField({ type: "text", name: "featured_image_url", max: 1000 }),
-					toField({ type: "text", name: "image_url", max: 1000 }),
-					toField({
+					},
+					{ type: "text", name: "prompt", max: 5000 },
+					{ type: "json", name: "prompt_payload", maxSize: 200000 },
+					{ type: "text", name: "featured_image_url", max: 1000 },
+					{ type: "text", name: "image_url", max: 1000 },
+					{
 						type: "select",
 						name: "status",
 						required: true,
 						maxSelect: 1,
 						values: ["queued", "processing", "completed", "failed", "fallback"],
-					}),
-					toField({ type: "number", name: "attempt_count", min: 0, max: 20, noDecimal: true }),
-					toField({ type: "number", name: "max_attempts", min: 1, max: 20, noDecimal: true }),
-					toField({ type: "date", name: "next_retry_at" }),
-					toField({ type: "text", name: "last_error", max: 3000 }),
-					toField({ type: "date", name: "completed_at" }),
+					},
+					{ type: "number", name: "attempt_count", min: 0, max: 20, noDecimal: true },
+					{ type: "number", name: "max_attempts", min: 1, max: 20, noDecimal: true },
+					{ type: "date", name: "next_retry_at" },
+					{ type: "text", name: "last_error", max: 3000 },
+					{ type: "date", name: "completed_at" },
 				],
 				[
 					"CREATE INDEX `idx_ai_pin_image_jobs_owner_status` ON `ai_pin_image_jobs` (`owner`, `status`)",
@@ -417,22 +381,22 @@ migrate(
 				"ai_pin_generation_history",
 				[
 					owner,
-					rel("ai_pin", aiPins.id, { cascadeDelete: false }),
-					rel("articleId", websiteArticles.id, { cascadeDelete: false }),
-					rel("websiteId", websites.id, { cascadeDelete: false }),
-					toField({
+					relationField("ai_pin", aiPins.id, { cascadeDelete: false }),
+					relationField("articleId", websiteArticles.id, { cascadeDelete: false }),
+					relationField("websiteId", websites.id, { cascadeDelete: false }),
+					{
 						type: "select",
 						name: "event_type",
 						required: true,
 						maxSelect: 1,
 						values: ["analyze", "prompt", "image", "save", "edit", "bulk"],
-					}),
-					toField({ type: "text", name: "prompt", max: 8000 }),
-					toField({ type: "text", name: "image_url", max: 1000 }),
-					toField({ type: "json", name: "analysis", maxSize: 100000 }),
-					toField({ type: "json", name: "metadata", maxSize: 100000 }),
-					toField({ type: "number", name: "ai_credits_used", min: 0 }),
-					toField({ type: "number", name: "image_credits_used", min: 0 }),
+					},
+					{ type: "text", name: "prompt", max: 8000 },
+					{ type: "text", name: "image_url", max: 1000 },
+					{ type: "json", name: "analysis", maxSize: 100000 },
+					{ type: "json", name: "metadata", maxSize: 100000 },
+					{ type: "number", name: "ai_credits_used", min: 0 },
+					{ type: "number", name: "image_credits_used", min: 0 },
 				],
 				[
 					"CREATE INDEX `idx_ai_pin_history_owner` ON `ai_pin_generation_history` (`owner`)",
@@ -448,15 +412,15 @@ migrate(
 				"pinterest_accounts",
 				[
 					owner,
-					toField({ type: "text", name: "pinterest_user_id", max: 120 }),
-					toField({ type: "text", name: "username", max: 255 }),
-					toField({ type: "text", name: "access_token", max: 4000 }),
-					toField({ type: "text", name: "refresh_token", max: 4000 }),
-					toField({ type: "date", name: "token_expires_at" }),
-					toField({ type: "text", name: "scope", max: 1000 }),
-					toField({ type: "bool", name: "connected" }),
-					toField({ type: "date", name: "last_sync_at" }),
-					toField({ type: "bool", name: "is_default" }),
+					{ type: "text", name: "pinterest_user_id", max: 120 },
+					{ type: "text", name: "username", max: 255 },
+					{ type: "text", name: "access_token", max: 4000 },
+					{ type: "text", name: "refresh_token", max: 4000 },
+					{ type: "date", name: "token_expires_at" },
+					{ type: "text", name: "scope", max: 1000 },
+					{ type: "bool", name: "connected" },
+					{ type: "date", name: "last_sync_at" },
+					{ type: "bool", name: "is_default" },
 				],
 				[
 					"CREATE UNIQUE INDEX `idx_pinterest_accounts_owner` ON `pinterest_accounts` (`owner`)",
@@ -472,13 +436,13 @@ migrate(
 				"pinterest_boards",
 				[
 					owner,
-					rel("account", pinterestAccounts.id, { required: true, cascadeDelete: true }),
-					toField({ type: "text", name: "board_id", required: true, max: 120 }),
-					toField({ type: "text", name: "name", required: true, max: 300 }),
-					toField({ type: "text", name: "thumbnail_url", max: 1000 }),
-					toField({ type: "text", name: "description", max: 1000 }),
-					toField({ type: "text", name: "privacy", max: 50 }),
-					toField({ type: "bool", name: "is_default" }),
+					relationField("account", pinterestAccounts.id, { required: true, cascadeDelete: true }),
+					{ type: "text", name: "board_id", required: true, max: 120 },
+					{ type: "text", name: "name", required: true, max: 300 },
+					{ type: "text", name: "thumbnail_url", max: 1000 },
+					{ type: "text", name: "description", max: 1000 },
+					{ type: "text", name: "privacy", max: 50 },
+					{ type: "bool", name: "is_default" },
 				],
 				[
 					"CREATE UNIQUE INDEX `idx_pinterest_boards_owner_board` ON `pinterest_boards` (`owner`, `board_id`)",
@@ -494,31 +458,31 @@ migrate(
 				"pinterest_publish_jobs",
 				[
 					owner,
-					rel("ai_pin", aiPins.id, { required: true, cascadeDelete: true }),
-					rel("websiteId", websites.id, { cascadeDelete: false }),
-					rel("articleId", websiteArticles.id, { cascadeDelete: false }),
-					toField({ type: "text", name: "board_id", required: true, max: 120 }),
-					toField({ type: "text", name: "board_name", max: 300 }),
-					toField({ type: "date", name: "scheduled_at", required: true }),
-					toField({ type: "text", name: "timezone", max: 80 }),
-					toField({
+					relationField("ai_pin", aiPins.id, { required: true, cascadeDelete: true }),
+					relationField("websiteId", websites.id, { cascadeDelete: false }),
+					relationField("articleId", websiteArticles.id, { cascadeDelete: false }),
+					{ type: "text", name: "board_id", required: true, max: 120 },
+					{ type: "text", name: "board_name", max: 300 },
+					{ type: "date", name: "scheduled_at", required: true },
+					{ type: "text", name: "timezone", max: 80 },
+					{
 						type: "select",
 						name: "status",
 						required: true,
 						maxSelect: 1,
 						values: ["scheduled", "publishing", "published", "failed", "cancelled"],
-					}),
-					toField({ type: "number", name: "attempt_count", min: 0, max: 100, noDecimal: true }),
-					toField({ type: "number", name: "max_attempts", min: 1, max: 100, noDecimal: true }),
-					toField({ type: "date", name: "next_retry_at" }),
-					toField({ type: "text", name: "last_error", max: 3000 }),
-					toField({ type: "text", name: "pinterest_pin_id", max: 120 }),
-					toField({ type: "text", name: "pinterest_pin_url", max: 1000 }),
-					toField({ type: "date", name: "published_at" }),
-					toField({ type: "json", name: "performance", maxSize: 100000 }),
-					toField({ type: "text", name: "claim_token", max: 120 }),
-					toField({ type: "number", name: "claim_version", min: 0, max: 1000000000, noDecimal: true }),
-					toField({ type: "date", name: "analytics_synced_at" }),
+					},
+					{ type: "number", name: "attempt_count", min: 0, max: 100, noDecimal: true },
+					{ type: "number", name: "max_attempts", min: 1, max: 100, noDecimal: true },
+					{ type: "date", name: "next_retry_at" },
+					{ type: "text", name: "last_error", max: 3000 },
+					{ type: "text", name: "pinterest_pin_id", max: 120 },
+					{ type: "text", name: "pinterest_pin_url", max: 1000 },
+					{ type: "date", name: "published_at" },
+					{ type: "json", name: "performance", maxSize: 100000 },
+					{ type: "text", name: "claim_token", max: 120 },
+					{ type: "number", name: "claim_version", min: 0, max: 1000000000, noDecimal: true },
+					{ type: "date", name: "analytics_synced_at" },
 				],
 				[
 					"CREATE INDEX `idx_pinterest_publish_jobs_status_sched` ON `pinterest_publish_jobs` (`status`, `scheduled_at`)",
@@ -535,10 +499,10 @@ migrate(
 				"pinterest_publish_events",
 				[
 					owner,
-					rel("job", publishJobs.id, { required: true, cascadeDelete: true }),
-					toField({ type: "text", name: "event_type", required: true, max: 80 }),
-					toField({ type: "text", name: "message", max: 2000 }),
-					toField({ type: "json", name: "payload", maxSize: 100000 }),
+					relationField("job", publishJobs.id, { required: true, cascadeDelete: true }),
+					{ type: "text", name: "event_type", required: true, max: 80 },
+					{ type: "text", name: "message", max: 2000 },
+					{ type: "json", name: "payload", maxSize: 100000 },
 				],
 				[
 					"CREATE INDEX `idx_pinterest_publish_events_job` ON `pinterest_publish_events` (`job`)",
@@ -554,9 +518,9 @@ migrate(
 				"pinterest_oauth_states",
 				[
 					owner,
-					toField({ type: "text", name: "state", required: true, max: 200 }),
-					toField({ type: "date", name: "expires_at", required: true }),
-					toField({ type: "bool", name: "used" }),
+					{ type: "text", name: "state", required: true, max: 200 },
+					{ type: "date", name: "expires_at", required: true },
+					{ type: "bool", name: "used" },
 				],
 				[
 					"CREATE UNIQUE INDEX `idx_pinterest_oauth_states_state` ON `pinterest_oauth_states` (`state`)",
@@ -572,9 +536,9 @@ migrate(
 				"pinterest_account_secrets",
 				[
 					owner,
-					rel("account", pinterestAccounts.id, { required: true, cascadeDelete: true }),
-					toField({ type: "text", name: "access_token", max: 4000 }),
-					toField({ type: "text", name: "refresh_token", max: 4000 }),
+					relationField("account", pinterestAccounts.id, { required: true, cascadeDelete: true }),
+					{ type: "text", name: "access_token", max: 4000 },
+					{ type: "text", name: "refresh_token", max: 4000 },
 				],
 				[
 					"CREATE UNIQUE INDEX `idx_pinterest_account_secrets_account` ON `pinterest_account_secrets` (`account`)",
