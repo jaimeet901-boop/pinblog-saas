@@ -88,6 +88,7 @@ export default function PublishingHistoryPage() {
 
 	const [loading, setLoading] = useState(true);
 	const [retryingId, setRetryingId] = useState('');
+	const [publishingNowId, setPublishingNowId] = useState('');
 	const [cancellingId, setCancellingId] = useState('');
 	const [bulkRetrying, setBulkRetrying] = useState(false);
 	const [statusFilter, setStatusFilter] = useState('');
@@ -158,6 +159,23 @@ export default function PublishingHistoryPage() {
 			toast({ variant: 'destructive', title: 'Cancel failed', description: error.message });
 		} finally {
 			setCancellingId('');
+		}
+	};
+
+	const publishNow = async (jobId) => {
+		setPublishingNowId(jobId);
+		try {
+			const response = await apiServerClient.fetch(`/pinterest/jobs/${jobId}/publish-now`, { method: 'POST' });
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload?.message || `Failed to publish now (${response.status})`);
+			}
+			toast({ title: 'Publish queued', description: 'Job was moved to the immediate publish queue.' });
+			await load();
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Publish now failed', description: error.message });
+		} finally {
+			setPublishingNowId('');
 		}
 	};
 
@@ -373,6 +391,7 @@ export default function PublishingHistoryPage() {
 	const renderRowActions = (item, compact = false) => {
 		const canRetry = item.status === 'failed';
 		const canCancel = item.status === 'scheduled';
+		const canPublishNow = item.status === 'scheduled' || item.status === 'failed';
 		const canCopy = Boolean(item.pinterestPinUrl);
 		const canOpenPin = Boolean(item.pinterestPinUrl);
 		const canOpenArticle = Boolean(item.pin?.destinationUrl || item.destinationUrl);
@@ -392,8 +411,14 @@ export default function PublishingHistoryPage() {
 					{retryingId === item.id ? <Spinner className="h-3.5 w-3.5" /> : <RefreshCw size={13} />}
 					{!compact ? 'Retry' : null}
 				</Button>
-				<Button size="sm" variant="outline" disabled onClick={() => unavailable('Publish Now')}>
-					<Send size={13} /> {!compact ? 'Publish Now' : null}
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={!canPublishNow || publishingNowId === item.id}
+					onClick={() => (canPublishNow ? publishNow(item.id) : unavailable('Publish Now'))}
+				>
+					{publishingNowId === item.id ? <Spinner className="h-3.5 w-3.5" /> : <Send size={13} />}
+					{!compact ? 'Publish Now' : null}
 				</Button>
 				<Button
 					size="sm"
@@ -726,6 +751,12 @@ export default function PublishingHistoryPage() {
 									<Button size="sm" onClick={() => retryFailed(selected.id)} disabled={retryingId === selected.id}>
 										{retryingId === selected.id ? <Spinner className="h-4 w-4" /> : <RefreshCw size={14} />}
 										Retry
+									</Button>
+								) : null}
+								{selected.status === 'scheduled' || selected.status === 'failed' ? (
+									<Button size="sm" variant="outline" onClick={() => publishNow(selected.id)} disabled={publishingNowId === selected.id}>
+										{publishingNowId === selected.id ? <Spinner className="h-4 w-4" /> : <Send size={14} />}
+										Publish Now
 									</Button>
 								) : null}
 								{selected.status === 'scheduled' ? (

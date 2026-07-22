@@ -17,6 +17,7 @@ import {
 	sanitizeCollectionPayload,
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
+import { writePinterestPublishHistory } from './pinterest-publish-history.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.PINTEREST_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.PINTEREST_QUEUE_BATCH || '10', 10);
@@ -96,6 +97,7 @@ async function claimScheduledJob(jobId) {
 
 async function processJob(job) {
 	const owner = job.owner;
+	const startedMs = Date.now();
 
 	const pin = await pocketbaseClient.collection('ai_pins').getOne(job.ai_pin).catch(() => null);
 	if (!pin || pin.owner !== owner) {
@@ -135,6 +137,21 @@ async function processJob(job) {
 			eventType: 'published',
 			message: 'Pin already published; skipped duplicate create',
 			payload: { pinterestPinId: existingPinId, pinterestPinUrl },
+		});
+		await writePinterestPublishHistory({
+			owner,
+			accountId: job.account,
+			jobId: job.id,
+			title: pin.title || 'Pin',
+			boardId: job.board_id,
+			boardName: job.board_name,
+			result: 'published',
+			pinterestPinId: existingPinId,
+			pinterestPinUrl,
+			publishedAt,
+			durationMs: Date.now() - startedMs,
+			attemptCount: job.attempt_count || 0,
+			meta: { idempotent: true },
 		});
 		return;
 	}
@@ -250,6 +267,21 @@ async function processJob(job) {
 			pinterestPinId,
 			pinterestPinUrl,
 		},
+	});
+
+	await writePinterestPublishHistory({
+		owner,
+		accountId: job.account,
+		jobId: job.id,
+		title: pin.title || 'Pin',
+		boardId: job.board_id,
+		boardName: job.board_name,
+		result: 'published',
+		pinterestPinId,
+		pinterestPinUrl,
+		publishedAt,
+		durationMs: Date.now() - startedMs,
+		attemptCount: (job.attempt_count || 0) + 1,
 	});
 }
 
@@ -374,6 +406,22 @@ async function processDueJobs() {
 						nextRetryAt,
 					},
 				});
+
+				if (!shouldRetry) {
+					await writePinterestPublishHistory({
+						owner: locked.owner,
+						accountId: locked.account,
+						jobId: locked.id,
+						title: '',
+						boardId: locked.board_id,
+						boardName: locked.board_name,
+						result: 'failed',
+						error: normalized.message,
+						attemptCount: nextAttempts,
+						publishedAt: new Date().toISOString(),
+						meta: { maxAttempts },
+					});
+				}
 			}
 		}
 	} catch (error) {

@@ -66,6 +66,10 @@ export default function PinterestPage() {
 	const [accounts, setAccounts] = useState([]);
 	const [summary, setSummary] = useState({ totalAccounts: 0, totalBoards: 0, totalPublishedPins: 0 });
 	const [boardsByAccount, setBoardsByAccount] = useState({});
+	const [jobs, setJobs] = useState([]);
+	const [analytics, setAnalytics] = useState(null);
+	const [selectedJobId, setSelectedJobId] = useState('');
+	const [jobActionId, setJobActionId] = useState('');
 
 	const [tab, setTab] = useState('accounts');
 	const [searchQuery, setSearchQuery] = useState('');
@@ -104,20 +108,47 @@ export default function PinterestPage() {
 		return new Date(Math.max(...stamps)).toLocaleString();
 	}, [accounts]);
 
-	const dashboard = useMemo(() => ({
-		connectedAccounts: connectedCount,
-		totalBoards: summary.totalBoards || allBoards.length,
-		publishedPins: summary.totalPublishedPins || 0,
-		scheduledPins: 0,
-		queueJobs: 0,
-		failedJobs: 0,
-		lastSync: lastSyncLabel,
-	}), [connectedCount, summary, allBoards.length, lastSyncLabel]);
+	const dashboard = useMemo(() => {
+		const scheduledPins = jobs.filter((job) => job.status === 'scheduled').length;
+		const queueJobs = jobs.filter((job) => job.status === 'scheduled' || job.status === 'publishing').length;
+		const failedJobs = jobs.filter((job) => job.status === 'failed').length;
+		return {
+			connectedAccounts: connectedCount,
+			totalBoards: summary.totalBoards || allBoards.length,
+			publishedPins: analytics?.summary?.published || summary.totalPublishedPins || 0,
+			scheduledPins,
+			queueJobs,
+			failedJobs,
+			lastSync: lastSyncLabel,
+		};
+	}, [connectedCount, summary, allBoards.length, lastSyncLabel, jobs, analytics]);
+
+	const queueJobs = useMemo(
+		() => jobs.filter((job) => job.status === 'scheduled' || job.status === 'publishing'),
+		[jobs],
+	);
+	const scheduledJobs = useMemo(
+		() => jobs.filter((job) => job.status === 'scheduled'),
+		[jobs],
+	);
+	const failedJobs = useMemo(
+		() => jobs.filter((job) => job.status === 'failed'),
+		[jobs],
+	);
+	const selectedJob = useMemo(
+		() => jobs.find((job) => job.id === selectedJobId) || queueJobs[0] || scheduledJobs[0] || failedJobs[0] || null,
+		[jobs, selectedJobId, queueJobs, scheduledJobs, failedJobs],
+	);
 
 	const load = async () => {
 		setLoading(true);
 		try {
-			const accountsRes = await apiServerClient.fetch(`/pinterest/accounts${filter ? `?filter=${encodeURIComponent(filter)}` : ''}`, { method: 'GET' });
+			const [accountsRes, jobsRes, analyticsRes] = await Promise.all([
+				apiServerClient.fetch(`/pinterest/accounts${filter ? `?filter=${encodeURIComponent(filter)}` : ''}`, { method: 'GET' }),
+				apiServerClient.fetch('/pinterest/jobs?page=1&perPage=100', { method: 'GET' }),
+				apiServerClient.fetch('/pinterest/analytics', { method: 'GET' }),
+			]);
+
 			const accountsPayload = await accountsRes.json().catch(() => ({}));
 			if (!accountsRes.ok) {
 				throw new Error(parseErrorMessage(accountsPayload, `Failed to load Pinterest accounts (${accountsRes.status})`));
@@ -126,6 +157,14 @@ export default function PinterestPage() {
 			const accountItems = Array.isArray(accountsPayload.items) ? accountsPayload.items : [];
 			setAccounts(accountItems);
 			setSummary(accountsPayload.summary || { totalAccounts: 0, totalBoards: 0, totalPublishedPins: 0 });
+
+			const jobsPayload = await jobsRes.json().catch(() => ({}));
+			const jobItems = jobsRes.ok && Array.isArray(jobsPayload.items) ? jobsPayload.items : [];
+			setJobs(jobItems);
+			setSelectedJobId((prev) => (jobItems.some((item) => item.id === prev) ? prev : jobItems[0]?.id || ''));
+
+			const analyticsPayload = await analyticsRes.json().catch(() => ({}));
+			setAnalytics(analyticsRes.ok ? analyticsPayload : null);
 
 			const connectedAccounts = accountItems.filter((account) => account.status === 'connected');
 			const boardsEntries = await Promise.all(connectedAccounts.map(async (account) => {
@@ -405,15 +444,20 @@ export default function PinterestPage() {
 		});
 	}, [allBoards, searchQuery, accountFilter, boardFilter]);
 
-	const demoAnalytics = useMemo(() => ({
-		publishedPins: summary.totalPublishedPins || 0,
-		clicks: '—',
-		saves: '—',
-		impressions: '—',
-		bestBoard: filteredBoards[0]?.name || allBoards[0]?.name || '—',
-		bestPin: '—',
-		activity: connectedCount > 0 ? 'Accounts connected — open Publishing History for live activity.' : 'Connect an account to unlock activity.',
-	}), [summary.totalPublishedPins, filteredBoards, allBoards, connectedCount]);
+	const liveAnalytics = useMemo(() => {
+		const summaryStats = analytics?.summary || {};
+		return {
+			publishedPins: summaryStats.published || summary.totalPublishedPins || 0,
+			clicks: summaryStats.clicks ?? 0,
+			saves: summaryStats.saves ?? 0,
+			impressions: summaryStats.impressions ?? 0,
+			bestBoard: summaryStats.bestBoard || filteredBoards[0]?.name || allBoards[0]?.name || '—',
+			bestPin: summaryStats.bestPin || '—',
+			activity: connectedCount > 0
+				? `${summaryStats.scheduled || 0} scheduled · ${summaryStats.failed || 0} failed · live from Pinterest jobs`
+				: 'Connect an account to unlock activity.',
+		};
+	}, [analytics, summary.totalPublishedPins, filteredBoards, allBoards, connectedCount]);
 
 	useEffect(() => {
 		const onKeyDown = (event) => {
@@ -437,11 +481,34 @@ export default function PinterestPage() {
 		setTab('boards');
 	};
 
-	const placeholderAction = (label) => {
-		toast({
-			title: `${label} (hub UI)`,
-			description: 'Queue actions live on Publishing History. Account sync & OAuth stay on this page.',
-		});
+	const runJobAction = async (action, jobId) => {
+		const targetId = jobId || selectedJob?.id;
+		if (!targetId) {
+			toast({ variant: 'destructive', title: 'No job selected', description: 'Select a queue job first.' });
+			return;
+		}
+		setJobActionId(`${action}-${targetId}`);
+		try {
+			const path = action === 'publish'
+				? `/pinterest/jobs/${targetId}/publish-now`
+				: action === 'retry'
+					? `/pinterest/jobs/${targetId}/retry`
+					: `/pinterest/jobs/${targetId}/cancel`;
+			const response = await apiServerClient.fetch(path, { method: 'POST' });
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(parseErrorMessage(payload, `${action} failed`));
+			}
+			toast({
+				title: action === 'publish' ? 'Publish queued' : action === 'retry' ? 'Retry queued' : 'Job cancelled',
+				description: action === 'cancel' ? 'The scheduled job was cancelled.' : 'The Pinterest queue will process this job shortly.',
+			});
+			await load();
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Action failed', description: error.message });
+		} finally {
+			setJobActionId('');
+		}
 	};
 
 	return (
@@ -516,12 +583,12 @@ export default function PinterestPage() {
 				<div className="pin-stat">
 					<p className="pin-stat__label">Queue Jobs</p>
 					<p className="pin-stat__value">{dashboard.queueJobs}</p>
-					<p className="pin-stat__hint">UI placeholder</p>
+					<p className="pin-stat__hint">Scheduled + publishing</p>
 				</div>
 				<div className="pin-stat">
 					<p className="pin-stat__label">Failed Jobs</p>
 					<p className="pin-stat__value">{dashboard.failedJobs}</p>
-					<p className="pin-stat__hint">UI placeholder</p>
+					<p className="pin-stat__hint">Retry from hub or history</p>
 				</div>
 				<div className="pin-stat">
 					<p className="pin-stat__label">Last Sync</p>
@@ -802,25 +869,44 @@ export default function PinterestPage() {
 											<th>Board</th>
 											<th>Scheduled</th>
 											<th>Status</th>
-											<th>Progress</th>
+											<th>Attempts</th>
 											<th>Actions</th>
 										</tr>
 									</thead>
 									<tbody>
-										<tr>
-											<td colSpan={7}>
-												<div className="py-8 text-center text-sm text-muted-foreground">
-													No live queue jobs on this page. Use Publishing History for publish / retry / cancel.
-												</div>
-											</td>
-										</tr>
+										{queueJobs.length === 0 ? (
+											<tr>
+												<td colSpan={7}>
+													<div className="py-8 text-center text-sm text-muted-foreground">
+														No queue jobs yet. Publish or schedule pins from AI Pins.
+													</div>
+												</td>
+											</tr>
+										) : (
+											queueJobs.map((job) => (
+												<tr key={job.id} className={selectedJobId === job.id ? 'bg-secondary/40' : ''} onClick={() => setSelectedJobId(job.id)}>
+													<td>{job.pin?.imageUrl ? <img src={job.pin.imageUrl} alt="" className="h-10 w-10 rounded-lg object-cover" /> : <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-secondary"><Pin size={14} /></span>}</td>
+													<td className="max-w-[12rem] truncate">{job.pin?.title || 'Untitled pin'}</td>
+													<td>{job.boardName || job.boardId || '—'}</td>
+													<td>{job.scheduledAt ? new Date(job.scheduledAt).toLocaleString() : '—'}</td>
+													<td><Badge tone={job.status === 'publishing' ? 'amber' : 'default'}>{job.status}</Badge></td>
+													<td>{job.attemptCount || 0}/{job.maxAttempts || 3}</td>
+													<td>
+														<div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
+															<Button size="sm" variant="outline" disabled={jobActionId.startsWith('publish')} onClick={() => runJobAction('publish', job.id)}>Publish Now</Button>
+															<Button size="sm" variant="ghost" disabled={job.status !== 'scheduled' || jobActionId.startsWith('cancel')} onClick={() => runJobAction('cancel', job.id)}>Cancel</Button>
+														</div>
+													</td>
+												</tr>
+											))
+										)}
 									</tbody>
 								</table>
 							</div>
 							<div className="flex flex-wrap gap-2">
-								<Button size="sm" variant="outline" onClick={() => placeholderAction('Publish Now')}>Publish Now</Button>
-								<Button size="sm" variant="outline" onClick={() => placeholderAction('Retry')}>Retry</Button>
-								<Button size="sm" variant="ghost" onClick={() => placeholderAction('Cancel')}>Cancel</Button>
+								<Button size="sm" variant="outline" disabled={!selectedJob || jobActionId.startsWith('publish')} onClick={() => runJobAction('publish')}>Publish Now</Button>
+								<Button size="sm" variant="outline" disabled={!selectedJob || selectedJob.status !== 'failed' || jobActionId.startsWith('retry')} onClick={() => runJobAction('retry')}>Retry</Button>
+								<Button size="sm" variant="ghost" disabled={!selectedJob || selectedJob.status !== 'scheduled' || jobActionId.startsWith('cancel')} onClick={() => runJobAction('cancel')}>Cancel</Button>
 								<Link to="/app/pinterest-history"><Button size="sm">Open Publishing History</Button></Link>
 							</div>
 						</div>
@@ -828,79 +914,75 @@ export default function PinterestPage() {
 
 					{!loading && tab === 'scheduled' ? (
 						<div className="pin-timeline">
-							<div className="pin-empty">
-								<div className="pin-empty__icon"><CalendarClock size={22} /></div>
-								<p className="font-display text-xl font-semibold">No scheduled pins here</p>
-								<p className="mt-2 max-w-md text-sm text-muted-foreground">
-									Schedule pins from AI Pins. Track them in Publishing History — this tab is a hub preview.
-								</p>
-								<Link to="/app/pinterest-history" className="mt-5"><Button size="sm">View scheduled jobs</Button></Link>
-							</div>
+							{scheduledJobs.length === 0 ? (
+								<div className="pin-empty">
+									<div className="pin-empty__icon"><CalendarClock size={22} /></div>
+									<p className="font-display text-xl font-semibold">No scheduled pins</p>
+									<p className="mt-2 max-w-md text-sm text-muted-foreground">Schedule pins from AI Pins. They appear here and in the Calendar.</p>
+									<Link to="/app/calendar" className="mt-5"><Button size="sm">Open Calendar</Button></Link>
+								</div>
+							) : (
+								<div className="space-y-2">
+									{scheduledJobs.map((job) => (
+										<div key={job.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/70 px-3 py-2">
+											<div className="min-w-0">
+												<p className="truncate text-sm font-medium">{job.pin?.title || 'Scheduled pin'}</p>
+												<p className="text-xs text-muted-foreground">{job.scheduledAt ? new Date(job.scheduledAt).toLocaleString() : '—'} · {job.boardName || 'Board'}</p>
+											</div>
+											<div className="flex gap-1">
+												<Button size="sm" variant="outline" onClick={() => runJobAction('publish', job.id)}>Publish Now</Button>
+												<Button size="sm" variant="ghost" onClick={() => runJobAction('cancel', job.id)}>Cancel</Button>
+											</div>
+										</div>
+									))}
+								</div>
+							)}
 						</div>
 					) : null}
 
 					{!loading && tab === 'analytics' ? (
 						<div className="space-y-3">
 							<div className="pin-analytics">
-								<div className="pin-analytics__card">
-									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Published Pins</p>
-									<p className="pin-analytics__value">{demoAnalytics.publishedPins}</p>
-								</div>
-								<div className="pin-analytics__card">
-									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Clicks</p>
-									<p className="pin-analytics__value">{demoAnalytics.clicks}</p>
-									<p className="mt-1 text-[11px] text-muted-foreground">Placeholder until analytics feed is available</p>
-								</div>
-								<div className="pin-analytics__card">
-									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Saves</p>
-									<p className="pin-analytics__value">{demoAnalytics.saves}</p>
-									<p className="mt-1 text-[11px] text-muted-foreground">Placeholder</p>
-								</div>
-								<div className="pin-analytics__card">
-									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Impressions</p>
-									<p className="pin-analytics__value">{demoAnalytics.impressions}</p>
-									<p className="mt-1 text-[11px] text-muted-foreground">Placeholder</p>
-								</div>
-								<div className="pin-analytics__card">
-									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Best Board</p>
-									<p className="pin-analytics__value" style={{ fontSize: '1.15rem' }}>{demoAnalytics.bestBoard}</p>
-								</div>
-								<div className="pin-analytics__card">
-									<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Best Pin</p>
-									<p className="pin-analytics__value" style={{ fontSize: '1.15rem' }}>{demoAnalytics.bestPin}</p>
-								</div>
+								<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Published Pins</p><p className="pin-analytics__value">{liveAnalytics.publishedPins}</p></div>
+								<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Clicks</p><p className="pin-analytics__value">{liveAnalytics.clicks}</p></div>
+								<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Saves</p><p className="pin-analytics__value">{liveAnalytics.saves}</p></div>
+								<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Impressions</p><p className="pin-analytics__value">{liveAnalytics.impressions}</p></div>
+								<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Best Board</p><p className="pin-analytics__value" style={{ fontSize: '1.15rem' }}>{liveAnalytics.bestBoard}</p></div>
+								<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Best Pin</p><p className="pin-analytics__value" style={{ fontSize: '1.15rem' }}>{liveAnalytics.bestPin}</p></div>
 							</div>
 							<div className="pin-analytics__card">
-								<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground inline-flex items-center gap-1">
-									<Coins size={12} /> Publishing Activity
-								</p>
-								<p className="mt-2 text-sm text-muted-foreground">{demoAnalytics.activity}</p>
+								<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground inline-flex items-center gap-1"><Coins size={12} /> Publishing Activity</p>
+								<p className="mt-2 text-sm text-muted-foreground">{liveAnalytics.activity}</p>
 							</div>
 						</div>
 					) : null}
 
 					{!loading && tab === 'failed' ? (
 						<div className="space-y-3">
-							<div className="pin-empty">
-								<div className="pin-empty__icon"><AlertTriangle size={22} /></div>
-								<p className="font-display text-xl font-semibold">No failed jobs on this hub</p>
-								<p className="mt-2 max-w-md text-sm text-muted-foreground">
-									Failed publish jobs are managed from Publishing History with retry support.
-								</p>
-								<div className="mt-5 flex flex-wrap justify-center gap-2">
-									<Button size="sm" variant="outline" onClick={() => {
-										setExpandedLogId(expandedLogId ? '' : 'demo');
-									}}>
-										Log Viewer
-									</Button>
-									<Link to="/app/pinterest-history"><Button size="sm">Open failed jobs</Button></Link>
+							{failedJobs.length === 0 ? (
+								<div className="pin-empty">
+									<div className="pin-empty__icon"><AlertTriangle size={22} /></div>
+									<p className="font-display text-xl font-semibold">No failed jobs</p>
+									<p className="mt-2 max-w-md text-sm text-muted-foreground">Failed publish jobs will appear here with retry support.</p>
 								</div>
-								{expandedLogId === 'demo' ? (
-									<div className="pin-log w-full max-w-xl text-left">
-										{`[${new Date().toISOString()}] Hub UI log viewer\nNo failed job payload loaded on /app/pinterest.\nUse /app/pinterest-history for live retry + cancel actions.`}
+							) : (
+								failedJobs.map((job) => (
+									<div key={job.id} className="rounded-xl border border-border/70 px-3 py-3">
+										<div className="flex items-start justify-between gap-3">
+											<div className="min-w-0">
+												<p className="truncate text-sm font-medium">{job.pin?.title || 'Failed pin'}</p>
+												<p className="mt-1 text-xs text-destructive">{job.lastError || 'Publish failed'}</p>
+											</div>
+											<Button size="sm" variant="outline" onClick={() => runJobAction('retry', job.id)}>
+												{jobActionId === `retry-${job.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw size={14} />} Retry
+											</Button>
+										</div>
+										{expandedLogId === job.id ? <div className="pin-log mt-3 text-left text-xs text-muted-foreground">Attempts {job.attemptCount}/{job.maxAttempts} · Board {job.boardName || job.boardId || '—'}</div> : null}
+										<Button size="sm" variant="ghost" className="mt-2" onClick={() => setExpandedLogId(expandedLogId === job.id ? '' : job.id)}>Log Viewer</Button>
 									</div>
-								) : null}
-							</div>
+								))
+							)}
+							<div className="flex justify-center"><Link to="/app/pinterest-history"><Button size="sm">Open Publishing History</Button></Link></div>
 						</div>
 					) : null}
 				</div>

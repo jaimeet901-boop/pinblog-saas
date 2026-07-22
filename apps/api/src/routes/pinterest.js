@@ -1106,9 +1106,14 @@ router.get('/calendar', async (req, res) => {
 
 router.get('/history', async (req, res) => {
 	const owner = req.pocketbaseUserId;
-	const statuses = ['published', 'failed', 'scheduled'];
 	const page = normalizePositiveInt(req.query.page, DEFAULT_PAGE);
 	const perPage = normalizePositiveInt(req.query.perPage, DEFAULT_PER_PAGE, 100);
+	const requestedStatus = normalizeString(req.query.status, 'status', { max: 60 });
+	const allowed = ['published', 'failed', 'scheduled', 'cancelled', 'publishing'];
+	const statuses = requestedStatus && allowed.includes(requestedStatus)
+		? [requestedStatus]
+		: ['published', 'failed', 'scheduled', 'cancelled', 'publishing'];
+
 	const historyFilter = await buildSchemaSafeFilter({
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest:history',
@@ -1135,6 +1140,37 @@ router.get('/history', async (req, res) => {
 		totalPages: result.totalPages,
 		items: result.items.map((item) => mapJob(item, item.expand?.ai_pin || null)),
 	});
+});
+
+router.post('/jobs/:jobId/publish-now', async (req, res) => {
+	const owner = req.pocketbaseUserId;
+	const job = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null);
+	if (!job) {
+		throw httpError(404, 'Scheduled job not found');
+	}
+	if (job.owner !== owner) {
+		throw httpError(403, 'You do not have access to this scheduled job');
+	}
+	if (!['scheduled', 'failed'].includes(job.status)) {
+		throw httpError(422, 'Only scheduled or failed jobs can be published now');
+	}
+
+	const updated = await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, {
+		status: 'scheduled',
+		scheduled_at: new Date().toISOString(),
+		next_retry_at: '',
+		last_error: '',
+	});
+
+	await pocketbaseClient.collection('pinterest_publish_events').create({
+		owner,
+		job: job.id,
+		event_type: 'publish_now',
+		message: 'Job moved to immediate publish queue',
+		payload: null,
+	}).catch(() => null);
+
+	res.json(mapJob(updated));
 });
 
 router.get('/analytics', async (req, res) => {
@@ -1192,6 +1228,11 @@ router.get('/analytics', async (req, res) => {
 			published: published.length,
 			failed: failedCount.totalItems,
 			scheduled: scheduledCount.totalItems,
+			clicks: published.reduce((sum, item) => sum + Number(item.performance?.outboundClicks || item.performance?.clicks || 0), 0),
+			saves: published.reduce((sum, item) => sum + Number(item.performance?.saves || 0), 0),
+			impressions: published.reduce((sum, item) => sum + Number(item.performance?.impressions || 0), 0),
+			bestBoard: published[0]?.board_name || '',
+			bestPin: published[0]?.expand?.ai_pin?.title || published[0]?.pinterest_pin_url || '',
 		},
 		items: published.map((item) => mapJob(item, item.expand?.ai_pin || null)),
 	});

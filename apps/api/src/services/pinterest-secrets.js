@@ -22,27 +22,74 @@ export async function getPinterestAccountSecretRecord(accountId) {
 	}
 }
 
+async function getPinterestTokenRecord(accountId) {
+	if (!accountId) return null;
+	try {
+		return await pocketbaseClient.collection('pinterest_tokens').getFirstListItem(
+			pocketbaseClient.filter('account = {:accountId}', { accountId }),
+		);
+	} catch {
+		return null;
+	}
+}
+
 export async function hydratePinterestAccountSecrets(account) {
 	if (!account?.id) {
 		return account;
 	}
 
 	const secret = await getPinterestAccountSecretRecord(account.id);
-	if (!secret) {
-		// Legacy fallback while migration is rolling out.
+	if (secret) {
 		return {
 			...account,
-			access_token: account.access_token || '',
-			refresh_token: account.refresh_token || '',
+			access_token: secret.access_token || '',
+			refresh_token: secret.refresh_token || '',
+			_secretRecordId: secret.id,
 		};
 	}
 
+	const token = await getPinterestTokenRecord(account.id);
+	if (token) {
+		return {
+			...account,
+			access_token: token.access_ciphertext || '',
+			refresh_token: token.refresh_ciphertext || '',
+			_tokenRecordId: token.id,
+		};
+	}
+
+	// Legacy fallback while migration is rolling out.
 	return {
 		...account,
-		access_token: secret.access_token || '',
-		refresh_token: secret.refresh_token || '',
-		_secretRecordId: secret.id,
+		access_token: account.access_token || '',
+		refresh_token: account.refresh_token || '',
 	};
+}
+
+async function upsertPinterestTokensRow({
+	owner,
+	accountId,
+	accessCiphertext,
+	refreshCiphertext,
+	expiresAt,
+}) {
+	const existing = await getPinterestTokenRecord(accountId);
+	const payload = {
+		owner,
+		account: accountId,
+		access_ciphertext: accessCiphertext || existing?.access_ciphertext || '',
+		refresh_ciphertext: refreshCiphertext || existing?.refresh_ciphertext || '',
+		kek_version: 'v1',
+		rotated_at: new Date().toISOString(),
+		expires_at: expiresAt || existing?.expires_at || '',
+	};
+
+	if (!payload.access_ciphertext) return null;
+
+	if (existing) {
+		return pocketbaseClient.collection('pinterest_tokens').update(existing.id, payload).catch(() => null);
+	}
+	return pocketbaseClient.collection('pinterest_tokens').create(payload).catch(() => null);
 }
 
 export async function upsertPinterestAccountSecrets({
@@ -51,6 +98,7 @@ export async function upsertPinterestAccountSecrets({
 	accessToken,
 	refreshToken,
 	preserveRefreshToken = true,
+	expiresAt = '',
 }) {
 	if (!owner || !accountId) {
 		throw httpError(500, 'owner and accountId are required to store Pinterest secrets');
@@ -74,6 +122,14 @@ export async function upsertPinterestAccountSecrets({
 	} else {
 		await pocketbaseClient.collection('pinterest_account_secrets').create(payload);
 	}
+
+	await upsertPinterestTokensRow({
+		owner,
+		accountId,
+		accessCiphertext: nextAccess,
+		refreshCiphertext: nextRefresh,
+		expiresAt,
+	});
 
 	// Keep legacy columns empty so client-readable account rows never expose tokens.
 	await pocketbaseClient.collection('pinterest_accounts').update(accountId, {
