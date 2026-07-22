@@ -152,16 +152,16 @@ export default function ImagesPage() {
 					const payload = await response.json().catch(() => []);
 					return response.ok && Array.isArray(payload) ? payload : [];
 				}).catch(() => []),
-				pb.collection('ai_pin_templates').getFullList({
-					sort: '-created',
-					filter: pb.filter('owner = {:owner}', { owner: pb.authStore.record?.id || '' }),
+				apiServerClient.fetch('/workspace/v1/templates?category=pin', { method: 'GET' }).then(async (response) => {
+					const payload = await response.json().catch(() => ({}));
+					return response.ok && Array.isArray(payload.items) ? payload.items : [];
 				}).catch(() => []),
 			]);
 			setBrandKits(kitsRes);
 			setTemplates(templateRows);
 			if (!brandKitId && kitsRes[0]?.id) setBrandKitId(kitsRes.find((k) => k.isDefault)?.id || kitsRes[0].id);
 			if (!templateId && templateRows[0]?.id) {
-				const preferred = templateRows.find((t) => t.is_default) || templateRows[0];
+				const preferred = templateRows.find((t) => t.isDefault || t.is_default) || templateRows[0];
 				setTemplateId(preferred.id);
 			}
 		} catch {

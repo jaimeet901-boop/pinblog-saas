@@ -28,9 +28,6 @@ const TABS = [
 	{ id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
 ];
 
-const PREFS_KEY = 'chefia-workspace-prefs';
-const PLAN_QUOTA = { free: 5, starter: 50, pro: 200, agency: 1000 };
-
 const defaultPrefs = {
 	workspaceName: '',
 	workspaceLogo: '',
@@ -48,16 +45,6 @@ const defaultPrefs = {
 	dateFormat: 'locale',
 	timeFormat: '24h',
 };
-
-function loadPrefs() {
-	try {
-		const raw = localStorage.getItem(PREFS_KEY);
-		const parsed = raw ? JSON.parse(raw) : {};
-		return { ...defaultPrefs, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
-	} catch {
-		return { ...defaultPrefs };
-	}
-}
 
 function SwitchRow({ label, checked, onChange, hint }) {
 	return (
@@ -82,9 +69,12 @@ export default function SettingsPage() {
 	const [providerAction, setProviderAction] = useState('');
 	const [websites, setWebsites] = useState([]);
 	const [pinterestAccounts, setPinterestAccounts] = useState([]);
+	const [notifications, setNotifications] = useState([]);
+	const [creditsRemaining, setCreditsRemaining] = useState(0);
+	const [planSlug, setPlanSlug] = useState(user?.plan || 'free');
 	const [name, setName] = useState(user?.name || '');
-	const [prefs, setPrefs] = useState(() => loadPrefs());
-	const [baseline, setBaseline] = useState(() => ({ name: user?.name || '', prefs: loadPrefs() }));
+	const [prefs, setPrefs] = useState(() => ({ ...defaultPrefs }));
+	const [baseline, setBaseline] = useState(() => ({ name: user?.name || '', prefs: { ...defaultPrefs } }));
 	const [passwordForm, setPasswordForm] = useState({ oldPassword: '', password: '', passwordConfirm: '' });
 
 	const enabledProviders = useMemo(() => getEnabledProviderNames(authMethods), [authMethods]);
@@ -101,15 +91,28 @@ export default function SettingsPage() {
 		name !== baseline.name || JSON.stringify(prefs) !== JSON.stringify(baseline.prefs)
 	), [name, prefs, baseline]);
 
-	const creditsRemaining = useMemo(() => {
-		const quota = PLAN_QUOTA[user?.plan || 'free'] || 5;
-		return quota;
-	}, [user?.plan]);
-
 	const loadWorkspaceData = async () => {
 		setLoading(true);
 		try {
-			const [websiteRows, accountsRes] = await Promise.all([
+			const [settingsRes, creditsRes, notificationsRes, websiteRows, accountsRes] = await Promise.all([
+				apiServerClient.fetch('/workspace/v1/settings', { method: 'GET' })
+					.then(async (response) => {
+						const payload = await response.json().catch(() => ({}));
+						if (!response.ok) throw new Error(payload.message || 'Failed to load settings');
+						return payload;
+					}),
+				apiServerClient.fetch('/workspace/v1/credits', { method: 'GET' })
+					.then(async (response) => {
+						const payload = await response.json().catch(() => ({}));
+						return response.ok ? payload : null;
+					})
+					.catch(() => null),
+				apiServerClient.fetch('/workspace/v1/notifications?perPage=10', { method: 'GET' })
+					.then(async (response) => {
+						const payload = await response.json().catch(() => ({}));
+						return response.ok && Array.isArray(payload.items) ? payload.items : [];
+					})
+					.catch(() => []),
 				pb.collection('websites').getFullList({ sort: '-created', requestKey: 'settings-websites' }).catch(() => []),
 				apiServerClient.fetch('/pinterest/accounts?filter=active', { method: 'GET' })
 					.then(async (response) => {
@@ -118,15 +121,20 @@ export default function SettingsPage() {
 					})
 					.catch(() => []),
 			]);
+
 			setWebsites(websiteRows);
 			setPinterestAccounts(accountsRes);
+			setNotifications(notificationsRes);
 			setName(user?.name || '');
 			const nextPrefs = {
-				...loadPrefs(),
-				workspaceName: loadPrefs().workspaceName || user?.name || 'Chef IA Workspace',
+				...defaultPrefs,
+				...(settingsRes.prefs || {}),
+				workspaceName: settingsRes.prefs?.workspaceName || settingsRes.workspace?.name || user?.name || 'Chef IA Workspace',
 			};
 			setPrefs(nextPrefs);
 			setBaseline({ name: user?.name || '', prefs: nextPrefs });
+			setCreditsRemaining(Number(creditsRes?.remaining ?? creditsRes?.balance) || 0);
+			setPlanSlug(settingsRes.workspace?.planSlug || user?.plan || 'free');
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Error', description: error?.message || 'Failed to load workspace settings' });
 		} finally {
@@ -153,11 +161,36 @@ export default function SettingsPage() {
 		setSaving(true);
 		try {
 			if (name.trim() && name.trim() !== (user?.name || '')) {
-				await pb.collection('users').update(user.id, { name: name.trim() });
+				const profileRes = await apiServerClient.fetch('/workspace/v1/profile', {
+					method: 'PATCH',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ name: name.trim() }),
+				});
+				const profilePayload = await profileRes.json().catch(() => ({}));
+				if (!profileRes.ok) throw new Error(profilePayload.message || 'Could not update profile');
 				await refresh();
 			}
-			localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-			setBaseline({ name: name.trim() || user?.name || '', prefs: { ...prefs } });
+
+			const response = await apiServerClient.fetch('/workspace/v1/settings', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					prefs,
+					notificationPrefs: {
+						emailNotifications: prefs.emailNotifications,
+						publishingNotifications: prefs.publishingNotifications,
+						failureAlerts: prefs.failureAlerts,
+						weeklyReports: prefs.weeklyReports,
+						marketingEmails: prefs.marketingEmails,
+					},
+				}),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.message || 'Could not save settings');
+
+			const nextPrefs = { ...defaultPrefs, ...(payload.prefs || prefs) };
+			setPrefs(nextPrefs);
+			setBaseline({ name: name.trim() || user?.name || '', prefs: nextPrefs });
 			toast({ title: 'Settings saved', description: 'Workspace preferences were updated.' });
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Error', description: error?.message || 'Could not save settings.' });
@@ -263,15 +296,25 @@ export default function SettingsPage() {
 		}
 	};
 
-	const resetPreferences = () => {
+	const resetPreferences = async () => {
 		const next = {
 			...defaultPrefs,
 			workspaceName: user?.name || 'Chef IA Workspace',
 		};
 		setPrefs(next);
-		localStorage.setItem(PREFS_KEY, JSON.stringify(next));
-		setBaseline({ name: user?.name || '', prefs: next });
-		toast({ title: 'Preferences reset' });
+		try {
+			const response = await apiServerClient.fetch('/workspace/v1/settings', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ prefs: next }),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.message || 'Could not reset preferences');
+			setBaseline({ name: user?.name || '', prefs: payload.prefs || next });
+			toast({ title: 'Preferences reset' });
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Error', description: error?.message || 'Could not reset preferences.' });
+		}
 	};
 
 	const unavailable = (label) => {
@@ -296,7 +339,7 @@ export default function SettingsPage() {
 						<h1 className="set-hero__title">{prefs.workspaceName || user?.name || 'Workspace'}</h1>
 						<div className="set-hero__meta">
 							<span className="set-avatar">{initials}</span>
-							<span className="set-pill"><Crown size={12} /> {(user?.plan || 'free').toString()} plan</span>
+							<span className="set-pill"><Crown size={12} /> {planSlug} plan</span>
 							<span className="set-pill"><Globe size={12} /> {primaryWebsite?.name || primaryWebsite?.domain || 'No website yet'}</span>
 							<span className="set-pill"><Mail size={12} /> {user?.email || '—'}</span>
 							{isDirty ? (
@@ -613,7 +656,7 @@ export default function SettingsPage() {
 							<div className="set-section">
 								<div className="set-card">
 									<h3>Notification preferences</h3>
-									<p className="hint">Stored locally for this workspace until a notification service is connected.</p>
+									<p className="hint">Saved to your workspace and applied across publishing and alerts.</p>
 									<div className="mt-3">
 										<SwitchRow label="Email notifications" checked={prefs.emailNotifications} onChange={(v) => updatePref('emailNotifications', v)} />
 										<SwitchRow label="Publishing notifications" checked={prefs.publishingNotifications} onChange={(v) => updatePref('publishingNotifications', v)} />
@@ -621,6 +664,21 @@ export default function SettingsPage() {
 										<SwitchRow label="Weekly reports" checked={prefs.weeklyReports} onChange={(v) => updatePref('weeklyReports', v)} />
 										<SwitchRow label="Marketing emails" checked={prefs.marketingEmails} onChange={(v) => updatePref('marketingEmails', v)} />
 									</div>
+								</div>
+								<div className="set-card">
+									<h3>Recent notifications</h3>
+									{notifications.length === 0 ? (
+										<p className="hint">No workspace notifications yet.</p>
+									) : (
+										<div className="mt-3 space-y-2">
+											{notifications.map((item) => (
+												<div key={item.id} className="rounded-xl border border-border/70 px-3 py-2">
+													<p className="text-sm font-medium">{item.title}</p>
+													<p className="text-xs text-muted-foreground">{item.body || item.priority}</p>
+												</div>
+											))}
+										</div>
+									)}
 								</div>
 							</div>
 						) : null}

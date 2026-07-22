@@ -5,13 +5,11 @@ import {
 	PenLine, Sparkles, Pin, LayoutTemplate, Palette, ListOrdered,
 	Settings, Wand2, Clock, ArrowUpRight, CheckCircle2, AlertTriangle,
 } from 'lucide-react';
-import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 import './DashboardPage.css';
-
-const PLAN_QUOTA = { free: 5, starter: 50, pro: 200, agency: 1000 };
 
 const QUICK_ACTIONS = [
 	{ label: 'Write Article', to: '/app/writer', icon: PenLine },
@@ -38,88 +36,59 @@ function sameDay(dateA, dateB) {
 }
 
 function statusTone(status) {
-	if (status === 'published' || status === 'connected') return 'green';
-	if (status === 'failed' || status === 'error') return 'red';
-	if (status === 'scheduled' || status === 'queued') return 'amber';
+	if (status === 'published' || status === 'connected' || status === 'healthy' || status === 'operational') return 'green';
+	if (status === 'failed' || status === 'error' || status === 'down') return 'red';
+	if (status === 'scheduled' || status === 'queued' || status === 'degraded') return 'amber';
 	return 'default';
-}
-
-function websiteLabel(websites, websiteId) {
-	if (!websiteId) return '—';
-	const match = websites.find((site) => site.id === websiteId);
-	return match?.name || match?.domain || websiteId;
 }
 
 export default function DashboardPage() {
 	const { user } = useAuth();
-	const [stats, setStats] = useState(null);
-	const [recent, setRecent] = useState([]);
-	const [pins, setPins] = useState([]);
-	const [websites, setWebsites] = useState([]);
-	const [calendarJobs, setCalendarJobs] = useState([]);
-	const [pinterestAccounts, setPinterestAccounts] = useState([]);
-	const [historyJobs, setHistoryJobs] = useState([]);
+	const { toast } = useToast();
+	const [dashboard, setDashboard] = useState(null);
 	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState('');
 
 	useEffect(() => {
-		const owner = pb.authStore.record?.id;
-		if (!owner) {
-			setLoading(false);
-			return;
-		}
 		(async () => {
+			setLoading(true);
+			setError('');
 			try {
-				const [websiteRows, articles, pinRows] = await Promise.all([
-					pb.collection('websites').getFullList({ requestKey: 'd-w' }),
-					pb.collection('articles').getFullList({ sort: '-created', requestKey: 'd-a' }),
-					pb.collection('pins').getFullList({ requestKey: 'd-p' }),
-				]);
-				const now = new Date();
-				const monthArticles = articles.filter((a) => new Date(a.created).getMonth() === now.getMonth()
-					&& new Date(a.created).getFullYear() === now.getFullYear());
-				setWebsites(websiteRows);
-				setPins(pinRows);
-				setStats({
-					websites: websiteRows.length,
-					articles: articles.length,
-					pins: pinRows.length,
-					scheduled: [...articles, ...pinRows].filter((x) => x.status === 'scheduled').length,
-					usage: monthArticles.length,
-				});
-				setRecent(articles.slice(0, 5));
-
-				const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-				const [accountsRes, calendarRes, historyRes] = await Promise.allSettled([
-					apiServerClient.fetch('/pinterest/accounts?filter=active', { method: 'GET' }),
-					apiServerClient.fetch(`/pinterest/calendar?month=${monthKey}`, { method: 'GET' }),
-					apiServerClient.fetch('/pinterest/history?page=1&perPage=50', { method: 'GET' }),
-				]);
-
-				if (accountsRes.status === 'fulfilled' && accountsRes.value.ok) {
-					const payload = await accountsRes.value.json().catch(() => ({}));
-					setPinterestAccounts(Array.isArray(payload.items) ? payload.items : []);
+				const response = await apiServerClient.fetch('/workspace/v1/dashboard', { method: 'GET' });
+				const payload = await response.json().catch(() => ({}));
+				if (!response.ok) {
+					throw new Error(payload.message || 'Failed to load dashboard');
 				}
-				if (calendarRes.status === 'fulfilled' && calendarRes.value.ok) {
-					const payload = await calendarRes.value.json().catch(() => []);
-					setCalendarJobs(Array.isArray(payload) ? payload : []);
-				}
-				if (historyRes.status === 'fulfilled' && historyRes.value.ok) {
-					const payload = await historyRes.value.json().catch(() => ({}));
-					setHistoryJobs(Array.isArray(payload.items) ? payload.items : []);
-				}
-			} catch (_) {
-				setStats({ websites: 0, articles: 0, pins: 0, scheduled: 0, usage: 0 });
+				setDashboard(payload);
+			} catch (err) {
+				setError(err?.message || 'Failed to load dashboard');
+				setDashboard(null);
+				toast({ variant: 'destructive', title: 'Dashboard error', description: err?.message || 'Could not load workspace data.' });
 			} finally {
 				setLoading(false);
 			}
 		})();
-	}, []);
+	}, [toast]);
 
-	const quota = PLAN_QUOTA[user?.plan || 'free'];
-	const creditsRemaining = Math.max(0, quota - (stats?.usage ?? 0));
+	const stats = dashboard?.statistics || {};
+	const credits = dashboard?.credits || {};
+	const plan = dashboard?.plan || {};
+	const websites = dashboard?.websites || [];
+	const calendarJobs = dashboard?.calendarJobs || [];
+	const recent = dashboard?.recentArticles || [];
+	const recentImages = (dashboard?.recentImages || []).map((item) => ({
+		...item,
+		image_url: item.imageUrl || item.image_url,
+	}));
+	const recentPins = recentImages;
+	const activityTimeline = dashboard?.recentActivity || [];
+	const quota = Number(credits.quota) || Number(plan.credits) || 0;
+	const creditsRemaining = Number(credits.remaining ?? credits.balance) || 0;
+	const usageCount = Number(credits.used) || Number(stats.monthArticles) || 0;
 	const firstName = user?.name?.split(' ')[0] || 'Chef';
 	const now = new Date();
 	const greeting = greetingForHour(now.getHours());
+	const planLabel = plan.slug || plan.name || user?.plan || 'free';
 
 	const primaryWebsite = useMemo(() => {
 		const connected = websites.find((site) => site.status === 'connected');
@@ -133,117 +102,36 @@ export default function DashboardPage() {
 			.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
 	}, [calendarJobs]);
 
-	const recentImages = useMemo(() => (
-		[...pins]
-			.filter((pin) => pin.image_url)
-			.sort((a, b) => new Date(b.created || 0) - new Date(a.created || 0))
-			.slice(0, 6)
-	), [pins]);
-
-	const recentPins = useMemo(() => (
-		[...pins]
-			.sort((a, b) => new Date(b.created || 0) - new Date(a.created || 0))
-			.slice(0, 5)
-	), [pins]);
-
-	const publishedPins = useMemo(
-		() => historyJobs.filter((job) => job.status === 'published').length
-			|| pins.filter((pin) => pin.status === 'published').length,
-		[historyJobs, pins],
-	);
-
-	const failedJobs = useMemo(
-		() => historyJobs.filter((job) => job.status === 'failed').length
-			|| [...pins, ...recent].filter((item) => item.status === 'failed').length,
-		[historyJobs, pins, recent],
-	);
-
-	const scheduledJobs = useMemo(() => {
-		const fromHistory = historyJobs.filter((job) => job.status === 'scheduled').length;
-		const fromCalendar = calendarJobs.filter((job) => job.status === 'scheduled').length;
-		return fromHistory || fromCalendar || stats?.scheduled || 0;
-	}, [historyJobs, calendarJobs, stats]);
-
-	const connectedPinterest = useMemo(
-		() => pinterestAccounts.filter((account) => account.status === 'connected').length || pinterestAccounts.length,
-		[pinterestAccounts],
-	);
-
-	const successRate = useMemo(() => {
-		const published = publishedPins;
-		const failed = failedJobs;
-		const total = published + failed;
-		if (!total) return null;
-		return Math.round((published / total) * 100);
-	}, [publishedPins, failedJobs]);
-
-	const activityTimeline = useMemo(() => {
-		const events = [];
-		for (const article of recent) {
-			events.push({
-				id: `article-${article.id}`,
-				type: 'Article Generated',
-				title: article.seo_title || article.keyword || 'Untitled article',
-				at: article.created,
-				tone: 'default',
-			});
-		}
-		for (const pin of recentPins.slice(0, 5)) {
-			events.push({
-				id: `pin-${pin.id}`,
-				type: pin.status === 'published' ? 'Published' : pin.status === 'scheduled' ? 'Scheduled' : pin.status === 'failed' ? 'Failed' : 'Pins Generated',
-				title: pin.title || 'Untitled pin',
-				at: pin.created || pin.updated,
-				tone: statusTone(pin.status),
-			});
-		}
-		for (const job of historyJobs.slice(0, 8)) {
-			events.push({
-				id: `job-${job.id}`,
-				type: job.status === 'published' ? 'Published' : job.status === 'scheduled' ? 'Scheduled' : job.status === 'failed' ? 'Failed' : 'Pins Generated',
-				title: job.pin?.title || 'Pinterest job',
-				at: job.publishedAt || job.scheduledAt || job.updatedAt || job.createdAt,
-				tone: statusTone(job.status),
-			});
-		}
-		for (const image of recentImages.slice(0, 4)) {
-			events.push({
-				id: `image-${image.id}`,
-				type: 'Image Created',
-				title: image.title || 'Generated image',
-				at: image.created,
-				tone: 'default',
-			});
-		}
-		return events
-			.filter((event) => event.at)
-			.sort((a, b) => new Date(b.at) - new Date(a.at))
-			.slice(0, 10);
-	}, [recent, recentPins, historyJobs, recentImages]);
+	const publishedPins = stats.publishedPins || 0;
+	const failedJobs = stats.failedJobs || 0;
+	const scheduledJobs = stats.scheduledJobs || 0;
+	const connectedPinterest = stats.pinterestAccounts || 0;
+	const successRate = stats.successRate;
 
 	const systemStatus = useMemo(() => {
+		const providers = dashboard?.providerStatus || [];
+		const healthyProviders = providers.filter((item) => item.status === 'healthy' || item.enabled).length;
 		const wpConnected = websites.some((site) => site.status === 'connected');
-		const pinConnected = connectedPinterest > 0;
 		return [
-			{ label: 'PocketBase', status: pb.authStore.isValid ? 'operational' : 'check auth', tone: pb.authStore.isValid ? 'green' : 'amber' },
+			{ label: 'Workspace', status: dashboard?.workspace?.status || 'active', tone: 'green' },
 			{ label: 'WordPress', status: wpConnected ? 'connected' : websites.length ? 'ready' : 'no sites', tone: wpConnected ? 'green' : 'default' },
-			{ label: 'Pinterest', status: pinConnected ? 'connected' : 'not linked', tone: pinConnected ? 'green' : 'amber' },
-			{ label: 'AI Services', status: 'operational', tone: 'green' },
-			{ label: 'Storage', status: 'ready', tone: 'green' },
+			{ label: 'Pinterest', status: connectedPinterest ? 'connected' : 'not linked', tone: connectedPinterest ? 'green' : 'amber' },
+			{ label: 'AI Providers', status: providers.length ? `${healthyProviders}/${providers.length} ready` : 'checking', tone: healthyProviders ? 'green' : 'amber' },
+			{ label: 'Publishing', status: dashboard?.publishingStatus?.queue ? `${dashboard.publishingStatus.queue} queued` : 'idle', tone: scheduledJobs ? 'amber' : 'green' },
 			{ label: 'Queue', status: scheduledJobs ? `${scheduledJobs} pending` : 'idle', tone: scheduledJobs ? 'amber' : 'green' },
 		];
-	}, [websites, connectedPinterest, scheduledJobs]);
+	}, [dashboard, websites, connectedPinterest, scheduledJobs]);
 
 	const statCards = [
-		{ label: 'Articles Created', value: stats?.articles, to: '/app/writer', hint: null },
-		{ label: 'Pins Generated', value: stats?.pins, to: '/app/ai-pins', hint: null },
-		{ label: 'Images Generated', value: recentImages.length || stats?.pins, to: '/app/images', hint: 'From pin library' },
+		{ label: 'Articles Created', value: stats.articles, to: '/app/writer', hint: null },
+		{ label: 'Pins Generated', value: stats.pins, to: '/app/ai-pins', hint: null },
+		{ label: 'Images Generated', value: stats.images || recentImages.length, to: '/app/images', hint: 'From pin library' },
 		{ label: 'Published Pins', value: publishedPins, to: '/app/pinterest-history', hint: null },
 		{ label: 'Scheduled Jobs', value: scheduledJobs, to: '/app/calendar', hint: null },
 		{ label: 'Failed Jobs', value: failedJobs, to: '/app/pinterest-history', hint: null },
-		{ label: 'Connected Websites', value: stats?.websites, to: '/app/websites', hint: null },
+		{ label: 'Connected Websites', value: stats.websites, to: '/app/websites', hint: null },
 		{ label: 'Pinterest Accounts', value: connectedPinterest || '—', to: '/app/pinterest', hint: connectedPinterest ? null : 'Connect in Hub' },
-		{ label: 'Credits Remaining', value: creditsRemaining, to: '/app/subscription', hint: `${stats?.usage ?? 0}/${quota} used` },
+		{ label: 'Credits Remaining', value: creditsRemaining, to: '/app/subscription', hint: `${usageCount}/${quota || '—'} used` },
 		{ label: 'Success Rate', value: successRate == null ? '—' : `${successRate}%`, to: '/app/analytics', hint: successRate == null ? 'Needs publish history' : null },
 	];
 
@@ -255,10 +143,13 @@ export default function DashboardPage() {
 				<p className="mt-2 max-w-2xl text-sm text-muted-foreground">
 					Here&apos;s what&apos;s cooking across writing, imagery, and Pinterest publishing in your workspace.
 				</p>
+				{error ? (
+					<p className="mt-2 text-sm text-destructive">{error}</p>
+				) : null}
 				<div className="dash-hero__meta">
-					<span className="dash-pill"><Sparkles size={12} /> {user?.name || 'Chef IA'} workspace</span>
+					<span className="dash-pill"><Sparkles size={12} /> {dashboard?.workspace?.name || user?.name || 'Chef IA'} workspace</span>
 					<span className="dash-pill"><Globe size={12} /> {primaryWebsite?.name || primaryWebsite?.domain || 'No website yet'}</span>
-					<span className="dash-pill"><Gauge size={12} /> {(user?.plan || 'free').toString()} plan</span>
+					<span className="dash-pill"><Gauge size={12} /> {planLabel} plan</span>
 					<span className="dash-pill"><CheckCircle2 size={12} /> {creditsRemaining} credits left</span>
 					<span className="dash-pill"><Clock size={12} /> {now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</span>
 				</div>
@@ -307,17 +198,13 @@ export default function DashboardPage() {
 								<div className="dash-list">
 									{todaysSchedule.map((job) => (
 										<div key={job.id} className="dash-row">
-											{job.pin?.imageUrl ? (
-												<img className="dash-thumb" src={job.pin.imageUrl} alt="" loading="lazy" decoding="async" />
-											) : (
-												<span className="dash-thumb flex items-center justify-center text-muted-foreground"><Pin size={12} /></span>
-											)}
+											<span className="dash-thumb flex items-center justify-center text-muted-foreground"><Pin size={12} /></span>
 											<div className="min-w-0 flex-1">
-												<p className="truncate text-sm font-medium">{job.pin?.title || 'Scheduled pin'}</p>
+												<p className="truncate text-sm font-medium">{job.title || 'Scheduled pin'}</p>
 												<p className="text-xs text-muted-foreground">
 													{new Date(job.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
 													{' · '}
-													{job.boardName || job.boardId || 'Board'}
+													{job.eventType || 'schedule'}
 												</p>
 											</div>
 											<Badge tone={statusTone(job.status)}>{job.status || 'scheduled'}</Badge>
@@ -347,10 +234,8 @@ export default function DashboardPage() {
 												<FileText size={15} />
 											</span>
 											<div className="min-w-0 flex-1">
-												<p className="truncate text-sm font-medium">{article.seo_title || article.keyword || 'Untitled'}</p>
+												<p className="truncate text-sm font-medium">{article.title || 'Untitled'}</p>
 												<p className="text-xs text-muted-foreground">
-													{websiteLabel(websites, article.website || article.websiteId)}
-													{' · '}
 													{article.created ? new Date(article.created).toLocaleDateString() : '—'}
 												</p>
 											</div>
@@ -381,8 +266,6 @@ export default function DashboardPage() {
 											<img src={pin.image_url} alt={pin.title || 'Generated'} loading="lazy" decoding="async" />
 											<p>
 												{pin.created ? new Date(pin.created).toLocaleString() : '—'}
-												{' · '}
-												{websiteLabel(websites, pin.website || pin.websiteId)}
 											</p>
 										</div>
 									))}
@@ -414,12 +297,10 @@ export default function DashboardPage() {
 											<div className="min-w-0 flex-1">
 												<p className="truncate text-sm font-medium">{pin.title || 'Untitled pin'}</p>
 												<p className="text-xs text-muted-foreground">
-													{pin.board_name || pin.board || pin.format || 'Board —'}
-													{' · '}
 													{pin.created ? new Date(pin.created).toLocaleDateString() : '—'}
 												</p>
 											</div>
-											<Badge tone={statusTone(pin.status)}>{pin.status || 'draft'}</Badge>
+											<Badge tone="default">image</Badge>
 											<Link to="/app/ai-pins"><Button size="sm" variant="ghost">View</Button></Link>
 										</div>
 									))}
@@ -450,7 +331,7 @@ export default function DashboardPage() {
 										<div className="rounded-xl border border-border/80 bg-background/45 px-3 py-2">
 											<div className="flex items-center justify-between gap-2">
 												<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{event.type}</p>
-												<span className="text-[11px] text-muted-foreground">{new Date(event.at).toLocaleString()}</span>
+												<span className="text-[11px] text-muted-foreground">{event.at ? new Date(event.at).toLocaleString() : '—'}</span>
 											</div>
 											<p className="mt-1 truncate text-sm font-medium">{event.title}</p>
 										</div>
@@ -490,11 +371,11 @@ export default function DashboardPage() {
 							</div>
 						</div>
 						<div className="flex items-baseline justify-between">
-							<p className="text-sm text-muted-foreground">{stats?.usage ?? 0} / {quota} articles</p>
+							<p className="text-sm text-muted-foreground">{usageCount} / {quota || '—'} credits</p>
 							<span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{creditsRemaining} left</span>
 						</div>
 						<div className="dash-meter mt-2">
-							<span style={{ width: `${Math.min(100, ((stats?.usage ?? 0) / quota) * 100)}%` }} />
+							<span style={{ width: `${Math.min(100, quota ? (usageCount / quota) * 100 : 0)}%` }} />
 						</div>
 						<Link to="/app/subscription" className="mt-3 inline-block text-sm font-medium text-primary hover:underline">Upgrade plan</Link>
 					</section>
@@ -539,7 +420,7 @@ export default function DashboardPage() {
 									<div key={`side-${event.id}`} className="dash-row">
 										<div className="min-w-0 flex-1">
 											<p className="truncate text-sm font-medium">{event.title}</p>
-											<p className="text-xs text-muted-foreground">{event.type} · {new Date(event.at).toLocaleDateString()}</p>
+											<p className="text-xs text-muted-foreground">{event.type} · {event.at ? new Date(event.at).toLocaleDateString() : '—'}</p>
 										</div>
 									</div>
 								))}

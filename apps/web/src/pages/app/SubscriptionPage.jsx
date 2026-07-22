@@ -9,21 +9,11 @@ import {
 	ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
 	XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
-import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import './SubscriptionPage.css';
-
-const PLAN_QUOTA = { free: 5, starter: 50, pro: 200, agency: 1000 };
-
-const PLANS = [
-	{ id: 'free', name: 'Free', price: 0, credits: 5, items: ['5 articles / month', '1 website', '10 images', 'Community support'] },
-	{ id: 'starter', name: 'Starter', price: 19, credits: 50, items: ['50 articles / month', '3 websites', '200 images', 'Email support'] },
-	{ id: 'pro', name: 'Pro', price: 49, popular: true, credits: 200, items: ['200 articles / month', '10 websites', 'Pinterest scheduler', 'Priority support'] },
-	{ id: 'agency', name: 'Agency', price: 129, credits: 1000, items: ['Unlimited articles', 'Unlimited websites', 'Team & API access', 'Dedicated manager'] },
-];
 
 const PLACEHOLDER_PLANS = [
 	{
@@ -59,11 +49,38 @@ const CURRENT_FEATURES = [
 	{ label: 'Monthly Credits', key: 'credits' },
 ];
 
+function planItemsFromDto(plan) {
+	const limits = plan.limits || {};
+	return [
+		`${limits.articlesPerMonth >= 999999 ? 'Unlimited' : (limits.articlesPerMonth || plan.credits || 0)} articles / month`,
+		`${limits.wordpressSites >= 999999 ? 'Unlimited' : (limits.wordpressSites || 1)} website${(limits.wordpressSites || 1) === 1 ? '' : 's'}`,
+		`${limits.imagesPerMonth >= 999999 ? 'Unlimited' : (limits.imagesPerMonth || 0)} images`,
+		plan.support || 'Support included',
+	];
+}
+
+function mapPlanCard(plan) {
+	return {
+		id: plan.slug || plan.id,
+		planId: plan.id,
+		name: plan.name,
+		price: Number(plan.monthlyPrice ?? plan.price) || 0,
+		credits: plan.credits,
+		popular: Boolean(plan.highlight),
+		items: planItemsFromDto(plan),
+		placeholder: false,
+	};
+}
+
 export default function SubscriptionPage() {
 	const { user, refresh } = useAuth();
 	const { toast } = useToast();
 	const [busy, setBusy] = useState(null);
 	const [loadingUsage, setLoadingUsage] = useState(true);
+	const [plans, setPlans] = useState([]);
+	const [subscription, setSubscription] = useState(null);
+	const [planDto, setPlanDto] = useState(null);
+	const [credits, setCredits] = useState({ balance: 0, quota: 0, used: 0, remaining: 0 });
 	const [usage, setUsage] = useState({
 		articles: 0,
 		images: 0,
@@ -73,58 +90,56 @@ export default function SubscriptionPage() {
 		monthArticles: 0,
 	});
 
-	const choose = async (plan) => {
-		if (plan === user?.plan) return;
-		setBusy(plan);
-		// Stripe Checkout would be initiated here via a secure backend session.
+	const choose = async (planSlug) => {
+		if (planSlug === (subscription?.planSlug || user?.plan)) return;
+		setBusy(planSlug);
 		try {
-			await pb.collection('users').update(pb.authStore.record.id, { plan });
+			const response = await apiServerClient.fetch('/workspace/v1/subscription/change', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ planSlug }),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload.message || 'Could not update plan');
+			}
+			await applySubscriptionPayload(payload);
 			await refresh();
-			toast({ title: 'Plan updated', description: `You are now on the ${plan} plan.` });
+			toast({ title: 'Plan updated', description: `You are now on the ${payload.plan?.name || planSlug} plan.` });
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Error', description: err?.message });
-		} finally { setBusy(null); }
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	const applySubscriptionPayload = (payload) => {
+		setSubscription(payload.subscription || null);
+		setPlanDto(payload.plan || null);
+		setPlans((payload.plans || []).map(mapPlanCard));
+		setCredits(payload.credits || { balance: 0, quota: 0, used: 0, remaining: 0 });
+		const totals = payload.usage?.totals || {};
+		setUsage({
+			articles: totals.articles || 0,
+			images: totals.images || 0,
+			pins: totals.pins || 0,
+			websites: totals.websites || 0,
+			pinterestAccounts: totals.pinterestAccounts || 0,
+			monthArticles: totals.monthArticles || 0,
+		});
 	};
 
 	const loadUsage = async () => {
 		setLoadingUsage(true);
 		try {
-			const owner = pb.authStore.record?.id;
-			if (!owner) {
-				setLoadingUsage(false);
-				return;
+			const response = await apiServerClient.fetch('/workspace/v1/subscription', { method: 'GET' });
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload.message || 'Failed to load subscription');
 			}
-			const [websites, articles, pins] = await Promise.all([
-				pb.collection('websites').getFullList({ requestKey: 'sub-w' }),
-				pb.collection('articles').getFullList({ sort: '-created', requestKey: 'sub-a' }),
-				pb.collection('pins').getFullList({ requestKey: 'sub-p' }),
-			]);
-			const now = new Date();
-			const monthArticles = articles.filter((article) => {
-				const created = new Date(article.created);
-				return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
-			}).length;
-
-			let pinterestAccounts = 0;
-			try {
-				const response = await apiServerClient.fetch('/pinterest/accounts?filter=active', { method: 'GET' });
-				const payload = await response.json().catch(() => ({}));
-				if (response.ok && Array.isArray(payload.items)) {
-					pinterestAccounts = payload.items.length;
-				}
-			} catch {
-				pinterestAccounts = 0;
-			}
-
-			setUsage({
-				articles: articles.length,
-				images: pins.filter((pin) => pin.image_url).length,
-				pins: pins.length,
-				websites: websites.length,
-				pinterestAccounts,
-				monthArticles,
-			});
-		} catch {
+			applySubscriptionPayload(payload);
+		} catch (err) {
+			toast({ variant: 'destructive', title: 'Error', description: err?.message || 'Failed to load subscription' });
 			setUsage({
 				articles: 0,
 				images: 0,
@@ -142,19 +157,23 @@ export default function SubscriptionPage() {
 		loadUsage();
 	}, []);
 
-	const currentPlanId = user?.plan || 'free';
-	const currentPlan = PLANS.find((plan) => plan.id === currentPlanId) || PLANS[0];
-	const quota = PLAN_QUOTA[currentPlanId] ?? currentPlan.credits ?? 5;
-	const creditsUsed = usage.monthArticles;
-	const creditsRemaining = Math.max(0, quota - creditsUsed);
+	const currentPlanId = subscription?.planSlug || planDto?.slug || user?.plan || 'free';
+	const currentPlan = plans.find((plan) => plan.id === currentPlanId)
+		|| (planDto ? mapPlanCard(planDto) : { id: currentPlanId, name: currentPlanId, price: 0, credits: credits.quota || 0, items: [] });
+	const quota = Number(credits.quota) || Number(currentPlan.credits) || 0;
+	const creditsUsed = Number(credits.used) || usage.monthArticles;
+	const creditsRemaining = Number(credits.remaining ?? credits.balance) || Math.max(0, quota - creditsUsed);
 	const usagePct = Math.min(100, Math.round((creditsUsed / Math.max(1, quota)) * 100));
 
 	const renewalDate = useMemo(() => {
+		if (subscription?.currentPeriodEnd) {
+			return new Date(subscription.currentPeriodEnd);
+		}
 		const base = user?.updated || user?.created || new Date().toISOString();
 		const date = new Date(base);
 		date.setMonth(date.getMonth() + 1);
 		return date;
-	}, [user]);
+	}, [subscription, user]);
 
 	const creditsUsageChart = useMemo(() => {
 		const points = [];
@@ -185,18 +204,22 @@ export default function SubscriptionPage() {
 
 	const chartsArePlaceholder = !usage.articles && !usage.pins && !usage.images && !creditsUsed;
 
-	const featureValues = useMemo(() => ({
-		writer: currentPlanId === 'free' ? 'Included' : 'Included',
-		images: currentPlanId === 'free' ? 'Limited' : 'Included',
-		pins: currentPlanId === 'free' || currentPlanId === 'starter' ? 'Basic' : 'Full',
-		templates: 'Included',
-		brand: currentPlanId === 'free' ? 'Basic' : 'Included',
-		analytics: currentPlanId === 'free' ? 'Basic' : 'Included',
-		pinterest: usage.pinterestAccounts ? `${usage.pinterestAccounts} linked` : (currentPlanId === 'pro' || currentPlanId === 'agency' ? 'Scheduler ready' : 'Connect in Hub'),
-		websites: `${usage.websites} connected`,
-		storage: 'Workspace ready',
-		credits: `${quota}/mo`,
-	}), [currentPlanId, usage, quota]);
+	const featureValues = useMemo(() => {
+		const features = planDto?.features || {};
+		const limits = planDto?.limits || {};
+		return {
+			writer: features.aiWriter ? 'Included' : 'Unavailable',
+			images: features.aiImages ? 'Included' : (currentPlanId === 'free' ? 'Limited' : 'Included'),
+			pins: features.pinterest ? 'Full' : (currentPlanId === 'free' || currentPlanId === 'starter' ? 'Basic' : 'Full'),
+			templates: features.templates ? 'Included' : 'Included',
+			brand: features.brandKit ? 'Included' : (currentPlanId === 'free' ? 'Basic' : 'Included'),
+			analytics: features.analytics ? 'Included' : (currentPlanId === 'free' ? 'Basic' : 'Included'),
+			pinterest: usage.pinterestAccounts ? `${usage.pinterestAccounts} linked` : (features.calendar ? 'Scheduler ready' : 'Connect in Hub'),
+			websites: `${usage.websites} connected`,
+			storage: limits.storageGb ? `${limits.storageGb} GB` : 'Workspace ready',
+			credits: `${quota}/mo`,
+		};
+	}, [currentPlanId, usage, quota, planDto]);
 
 	const recommendations = useMemo(() => {
 		const tips = [];
@@ -222,7 +245,7 @@ export default function SubscriptionPage() {
 	}, [usagePct, creditsRemaining, currentPlan, currentPlanId, renewalDate, usage.pinterestAccounts]);
 
 	const billingHistory = [];
-	const allPlanCards = [...PLANS, ...PLACEHOLDER_PLANS];
+	const allPlanCards = [...plans, ...PLACEHOLDER_PLANS];
 
 	const notifyBillingPlaceholder = (action) => {
 		toast({
@@ -287,7 +310,7 @@ export default function SubscriptionPage() {
 					{ label: 'Articles Generated', value: usage.articles, hint: 'All time' },
 					{ label: 'Images Generated', value: usage.images, hint: 'From pin library' },
 					{ label: 'Pins Generated', value: usage.pins, hint: null },
-					{ label: 'Storage Used', value: '—', hint: 'Placeholder' },
+					{ label: 'Storage Used', value: planDto?.limits?.storageGb ? `0/${planDto.limits.storageGb} GB` : '—', hint: 'Workspace allocation' },
 					{ label: 'Connected Websites', value: usage.websites, hint: null },
 					{ label: 'Pinterest Accounts', value: usage.pinterestAccounts || '—', hint: usage.pinterestAccounts ? null : 'None linked' },
 				].map((card) => (

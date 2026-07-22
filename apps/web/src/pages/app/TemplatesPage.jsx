@@ -4,7 +4,7 @@ import {
 	Type, Palette, Image as ImageIcon, Layers, MapPin, Sparkles, SlidersHorizontal,
 	Maximize2, Ratio,
 } from 'lucide-react';
-import pb from '@/lib/pocketbaseClient';
+import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Input, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import TemplatePreviewCard from '@/components/ai-pins/TemplatePreviewCard';
@@ -35,21 +35,10 @@ function mapTemplate(record) {
 		name: record.name,
 		thumbnail: record.thumbnail || '',
 		configuration: normalizeTemplateConfig(record.configuration || {}),
-		isDefault: Boolean(record.is_default),
-		createdAt: record.created,
-		updatedAt: record.updated,
+		isDefault: Boolean(record.isDefault ?? record.is_default),
+		createdAt: record.createdAt || record.created,
+		updatedAt: record.updatedAt || record.updated,
 	};
-}
-
-async function clearDefault(ownerId, exceptId = '') {
-	const templates = await pb.collection('ai_pin_templates').getFullList({
-		filter: pb.filter('owner = {:owner}', { owner: ownerId }),
-	});
-	await Promise.all(
-		templates
-			.filter((template) => template.id !== exceptId && template.is_default)
-			.map((template) => pb.collection('ai_pin_templates').update(template.id, { is_default: false })),
-	);
 }
 
 function Section({ id, open, onToggle, children }) {
@@ -124,12 +113,14 @@ export default function TemplatesPage() {
 	const loadTemplates = async () => {
 		setLoading(true);
 		try {
-			const owner = pb.authStore.record?.id;
-			const records = await pb.collection('ai_pin_templates').getFullList({
-				sort: '-is_default,-updated',
-				filter: pb.filter('owner = {:owner}', { owner }),
-			});
-			const mapped = records.map(mapTemplate);
+			const response = await apiServerClient.fetch('/workspace/v1/templates?category=pin', { method: 'GET' });
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload.message || 'Failed to load templates');
+			}
+			const mapped = (payload.items || [])
+				.filter((item) => item.source !== 'templates')
+				.map(mapTemplate);
 			setTemplates(mapped);
 			if (mapped.length > 0) {
 				const preferred = mapped.find((template) => template.isDefault) || mapped[0];
@@ -191,29 +182,32 @@ export default function TemplatesPage() {
 
 		setSaving(true);
 		try {
-			const owner = pb.authStore.record?.id;
-			if (!owner) {
-				throw new Error('You must be authenticated');
-			}
-
-			if (isDefault) {
-				await clearDefault(owner, selectedTemplateId || '');
-			}
-
 			const payload = {
-				owner,
 				name: draftName.trim(),
 				thumbnail: createTemplateThumbnail(draftConfig),
 				configuration: normalizeTemplateConfig(draftConfig),
-				is_default: isDefault,
+				isDefault,
+				category: 'pin',
 			};
 
 			if (selectedTemplateId) {
-				await pb.collection('ai_pin_templates').update(selectedTemplateId, payload);
+				const response = await apiServerClient.fetch(`/workspace/v1/templates/${selectedTemplateId}`, {
+					method: 'PATCH',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload),
+				});
+				const body = await response.json().catch(() => ({}));
+				if (!response.ok) throw new Error(body.message || 'Save failed');
 				toast({ title: 'Template updated', description: 'Your template was saved successfully.' });
 			} else {
-				const created = await pb.collection('ai_pin_templates').create(payload);
-				setSelectedTemplateId(created.id);
+				const response = await apiServerClient.fetch('/workspace/v1/templates', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload),
+				});
+				const body = await response.json().catch(() => ({}));
+				if (!response.ok) throw new Error(body.message || 'Create failed');
+				setSelectedTemplateId(body.id);
 				toast({ title: 'Template created', description: 'A new pin template has been created.' });
 			}
 
@@ -227,15 +221,11 @@ export default function TemplatesPage() {
 
 	const duplicateTemplate = async (template) => {
 		try {
-			const owner = pb.authStore.record?.id;
-			const payload = {
-				owner,
-				name: `${template.name} Copy`,
-				thumbnail: template.thumbnail,
-				configuration: normalizeTemplateConfig(template.configuration),
-				is_default: false,
-			};
-			await pb.collection('ai_pin_templates').create(payload);
+			const response = await apiServerClient.fetch(`/workspace/v1/templates/${template.id}/duplicate`, {
+				method: 'POST',
+			});
+			const body = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(body.message || 'Duplicate failed');
 			toast({ title: 'Template duplicated' });
 			await loadTemplates();
 		} catch (error) {
@@ -245,7 +235,11 @@ export default function TemplatesPage() {
 
 	const deleteTemplate = async (template) => {
 		try {
-			await pb.collection('ai_pin_templates').delete(template.id);
+			const response = await apiServerClient.fetch(`/workspace/v1/templates/${template.id}`, {
+				method: 'DELETE',
+			});
+			const body = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(body.message || 'Delete failed');
 			toast({ title: 'Template deleted' });
 			if (selectedTemplateId === template.id) {
 				handleCreateNew();
@@ -258,9 +252,13 @@ export default function TemplatesPage() {
 
 	const setDefaultTemplate = async (template) => {
 		try {
-			const owner = pb.authStore.record?.id;
-			await clearDefault(owner, template.id);
-			await pb.collection('ai_pin_templates').update(template.id, { is_default: true });
+			const response = await apiServerClient.fetch(`/workspace/v1/templates/${template.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ isDefault: true }),
+			});
+			const body = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(body.message || 'Failed');
 			toast({ title: 'Default template updated' });
 			await loadTemplates();
 		} catch (error) {
