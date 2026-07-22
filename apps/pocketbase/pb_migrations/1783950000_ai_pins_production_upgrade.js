@@ -40,6 +40,36 @@ function ensureField(collection, def) {
 	}
 }
 
+function applyOwnerRules(collection, ownerRules) {
+	collection.listRule = ownerRules.listRule;
+	collection.viewRule = ownerRules.viewRule;
+	collection.createRule = ownerRules.createRule;
+	collection.updateRule = ownerRules.updateRule;
+	collection.deleteRule = ownerRules.deleteRule;
+}
+
+/**
+ * Persist schema first, reload, then attach rules that reference owner.
+ * PocketBase rejects owner-based rules until the owner field is saved.
+ */
+function saveCollectionThenApplyOwnerRules(app, collection, ownerRules) {
+	// 1-2. Ensure fields (including owner) are persisted before rule validation.
+	app.save(collection);
+
+	// 3. Reload so field metadata is available for rule parsing.
+	let persisted = app.findCollectionByNameOrId(collection.id || collection.name);
+	if (!persisted.fields.getByName("owner")) {
+		throw new Error(`Collection ${persisted.name} is missing required owner field after save`);
+	}
+
+	// 4. Apply rules only after owner exists on the reloaded collection.
+	applyOwnerRules(persisted, ownerRules);
+
+	// 5. Save again with rules.
+	app.save(persisted);
+	return app.findCollectionByNameOrId(persisted.id || persisted.name);
+}
+
 migrate(
 	(app) => {
 		const users = app.findCollectionByNameOrId("users");
@@ -102,15 +132,28 @@ migrate(
 					{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 				].map(toField),
 			});
-			app.save(brandKits);
-			brandKits = app.findCollectionByNameOrId("brand_kits");
-			brandKits.listRule = ownerRules.listRule;
-			brandKits.viewRule = ownerRules.viewRule;
-			brandKits.createRule = ownerRules.createRule;
-			brandKits.updateRule = ownerRules.updateRule;
-			brandKits.deleteRule = ownerRules.deleteRule;
-			app.save(brandKits);
 		}
+
+		ensureField(brandKits, {
+			name: "owner",
+			type: "relation",
+			required: true,
+			maxSelect: 1,
+			collectionId: users.id,
+			cascadeDelete: true,
+		});
+		ensureField(brandKits, { name: "name", type: "text", required: true, max: 120 });
+		ensureField(brandKits, { name: "logo_url", type: "text", max: 1000 });
+		ensureField(brandKits, { name: "primary_color", type: "text", max: 32 });
+		ensureField(brandKits, { name: "secondary_color", type: "text", max: 32 });
+		ensureField(brandKits, { name: "accent_color", type: "text", max: 32 });
+		ensureField(brandKits, { name: "font_heading", type: "text", max: 120 });
+		ensureField(brandKits, { name: "font_body", type: "text", max: 120 });
+		ensureField(brandKits, { name: "watermark_text", type: "text", max: 120 });
+		ensureField(brandKits, { name: "watermark_url", type: "text", max: 1000 });
+		ensureField(brandKits, { name: "website_url", type: "text", max: 500 });
+		ensureField(brandKits, { name: "is_default", type: "bool" });
+		brandKits = saveCollectionThenApplyOwnerRules(app, brandKits, ownerRules);
 
 		ensureField(aiPins, {
 			name: "brand_kit",
@@ -177,15 +220,48 @@ migrate(
 					{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
 				].map(toField),
 			});
-			app.save(history);
-			history = app.findCollectionByNameOrId("ai_pin_generation_history");
-			history.listRule = ownerRules.listRule;
-			history.viewRule = ownerRules.viewRule;
-			history.createRule = ownerRules.createRule;
-			history.updateRule = ownerRules.updateRule;
-			history.deleteRule = ownerRules.deleteRule;
-			app.save(history);
 		}
+
+		ensureField(history, {
+			name: "owner",
+			type: "relation",
+			required: true,
+			maxSelect: 1,
+			collectionId: users.id,
+			cascadeDelete: true,
+		});
+		ensureField(history, {
+			name: "ai_pin",
+			type: "relation",
+			required: false,
+			maxSelect: 1,
+			collectionId: aiPins.id,
+			cascadeDelete: false,
+		});
+		ensureField(history, {
+			name: "articleId",
+			type: "relation",
+			required: false,
+			maxSelect: 1,
+			collectionId: websiteArticles.id,
+			cascadeDelete: false,
+		});
+		ensureField(history, {
+			name: "websiteId",
+			type: "relation",
+			required: false,
+			maxSelect: 1,
+			collectionId: websites.id,
+			cascadeDelete: false,
+		});
+		ensureField(history, { name: "event_type", type: "select", required: true, maxSelect: 1, values: ["analyze", "prompt", "image", "save", "edit", "bulk"] });
+		ensureField(history, { name: "prompt", type: "text", max: 8000 });
+		ensureField(history, { name: "image_url", type: "text", max: 1000 });
+		ensureField(history, { name: "analysis", type: "json", maxSize: 100000 });
+		ensureField(history, { name: "metadata", type: "json", maxSize: 100000 });
+		ensureField(history, { name: "ai_credits_used", type: "number", min: 0 });
+		ensureField(history, { name: "image_credits_used", type: "number", min: 0 });
+		saveCollectionThenApplyOwnerRules(app, history, ownerRules);
 	},
 	(app) => {
 		try { app.delete(app.findCollectionByNameOrId("ai_pin_generation_history")); } catch (_) {}
