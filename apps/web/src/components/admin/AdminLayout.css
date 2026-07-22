@@ -572,8 +572,123 @@
 	to { opacity: 1; transform: translateY(0); }
 }
 
+.admin-avatar {
+	display: inline-grid;
+	place-items: center;
+	height: 2rem;
+	width: 2rem;
+	border-radius: 999px;
+	background: linear-gradient(135deg, rgba(232, 168, 124, 0.35), rgba(126, 184, 218, 0.28));
+	border: 1px solid var(--admin-border);
+	font-size: 0.68rem;
+	font-weight: 700;
+	letter-spacing: 0.02em;
+	color: var(--admin-text);
+	flex-shrink: 0;
+}
+
+.admin-avatar--lg {
+	height: 3.25rem;
+	width: 3.25rem;
+	font-size: 0.95rem;
+}
+
+.admin-table tr.is-selected {
+	background: rgba(232, 168, 124, 0.08);
+}
+
+.admin-table tr {
+	cursor: pointer;
+	transition: background 140ms ease;
+}
+
+.admin-table tr:hover {
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.admin-drawer-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 50;
+	background: rgba(0, 0, 0, 0.55);
+	backdrop-filter: blur(2px);
+	display: flex;
+	justify-content: flex-end;
+	animation: admin-rise 180ms ease;
+}
+
+.admin-user-drawer {
+	width: min(28rem, 100vw);
+	height: 100%;
+	overflow: auto;
+	border-left: 1px solid var(--admin-border);
+	background:
+		radial-gradient(90% 50% at 100% 0%, rgba(232, 168, 124, 0.12), transparent 50%),
+		rgba(14, 16, 22, 0.96);
+	backdrop-filter: blur(16px);
+	padding: 1.15rem 1.1rem 1.5rem;
+	box-shadow: -24px 0 48px -32px rgba(0, 0, 0, 0.8);
+}
+
+.admin-user-drawer__head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 0.75rem;
+	margin-bottom: 1rem;
+}
+
+.admin-user-drawer__section {
+	border-radius: 1rem;
+	border: 1px solid var(--admin-border);
+	background: rgba(255, 255, 255, 0.03);
+	padding: 0.85rem 0.9rem;
+	margin-bottom: 0.75rem;
+}
+
+.admin-user-drawer__section h3 {
+	margin: 0 0 0.65rem;
+	font-size: 0.72rem;
+	font-weight: 700;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--admin-muted);
+}
+
+.admin-user-drawer__actions {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.45rem;
+	margin-top: 0.85rem;
+}
+
+.admin-btn--danger {
+	border-color: rgba(248, 113, 113, 0.35);
+	background: rgba(248, 113, 113, 0.12);
+	color: var(--admin-danger);
+}
+
+.admin-meta-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 0.75rem;
+	font-size: 0.8rem;
+	padding: 0.35rem 0;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.admin-meta-row:last-child {
+	border-bottom: 0;
+}
+
+.admin-meta-row span:last-child {
+	color: var(--admin-muted);
+	text-align: right;
+}
+
 @media (prefers-reduced-motion: reduce) {
-	.admin-page-hero {
+	.admin-page-hero,
+	.admin-drawer-overlay {
 		animation: none;
 	}
 }
