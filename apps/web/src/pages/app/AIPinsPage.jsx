@@ -1,19 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Wand2, Sparkles, RefreshCw, Trash2, Pencil, Search, Globe, FileText, Send, CalendarClock, CheckSquare, Square, Download, Image as ImageIcon, Images } from 'lucide-react';
+import {
+	Wand2, Sparkles, RefreshCw, Trash2, Pencil, Search, Globe, Send, CalendarClock,
+	CheckSquare, Square, Download, Image as ImageIcon, Images, Layers, Shuffle,
+	ChevronDown, History, LayoutTemplate, Palette, X, FileStack, PenLine, ListChecks,
+} from 'lucide-react';
 import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
 import { generateText, extractJson } from '@/lib/aiGenerate';
-import { Badge, Button, Card, Empty, Input, PageHeader, Select, Spinner, Textarea } from '@/components/kit';
+import { Badge, Button, Card, Empty, Input, Select, Spinner, Textarea } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import TemplatePreviewCard from '@/components/ai-pins/TemplatePreviewCard';
-import ArticlePicker from '@/components/ai-pins/ArticlePicker';
 import ArticlePreviewDrawer from '@/components/ai-pins/ArticlePreviewDrawer';
 import ManualArticleForm from '@/components/ai-pins/ManualArticleForm';
 import { createDefaultTemplateConfig, normalizeTemplateConfig } from '@/lib/pinTemplates';
+import './AIPinsPage.css';
 
 const PIN_COUNTS = [1, 3, 5];
 const PIN_STYLES = ['Food', 'Recipe', 'Fitness', 'Travel', 'DIY', 'Home', 'Beauty', 'Fashion', 'Technology', 'Business', 'Lifestyle'];
+const CREATE_MODES = [
+	{ id: 'single', label: 'Single Page', icon: FileStack },
+	{ id: 'bulk', label: 'Bulk Create', icon: Layers },
+	{ id: 'prompt', label: 'Prompt Only', icon: PenLine },
+];
+const IMAGE_QUALITIES = [
+	{ id: 'premium', label: 'Premium', hint: 'AI · OpenAI', imageMode: 'generate_ai', imageProvider: 'openai' },
+	{ id: 'legacy', label: 'Studio', hint: 'AI · Fal', imageMode: 'generate_ai', imageProvider: 'fal' },
+	{ id: 'budget', label: 'Featured', hint: 'Article image', imageMode: 'use_featured', imageProvider: 'openai' },
+];
+const ASPECT_RATIOS = [
+	{ id: 'tall', label: 'Tall', ratio: '1:2', frame: 'tall' },
+	{ id: 'pinterest', label: 'Pinterest', ratio: '2:3', frame: 'pin' },
+	{ id: 'classic', label: 'Classic', ratio: '3:4', frame: 'classic' },
+	{ id: 'custom', label: 'Custom', ratio: 'Free', frame: 'custom' },
+];
 
 function truncate(value, max = 160) {
 	if (!value) {
@@ -207,6 +227,19 @@ export default function AIPinsPage() {
 	const [bulkProgress, setBulkProgress] = useState({ active: false, current: 0, total: 0, message: '' });
 	const [brandKits, setBrandKits] = useState([]);
 	const [selectedBrandKitId, setSelectedBrandKitId] = useState('');
+	const [createMode, setCreateMode] = useState('single');
+	const [workspaceTab, setWorkspaceTab] = useState('studio');
+	const [advancedOpen, setAdvancedOpen] = useState(false);
+	const [includeWebsiteUrl, setIncludeWebsiteUrl] = useState(true);
+	const [imageQuality, setImageQuality] = useState('premium');
+	const [aspectRatio, setAspectRatio] = useState('pinterest');
+	const [imageType, setImageType] = useState('pin');
+	const [promptOnlyText, setPromptOnlyText] = useState('');
+	const [referenceImages, setReferenceImages] = useState([]);
+	const [selectedPreviewTempId, setSelectedPreviewTempId] = useState('');
+	const [pinFilter, setPinFilter] = useState('all');
+	const [pinSearch, setPinSearch] = useState('');
+	const referenceInputRef = useRef(null);
 
 	const activeArticle = useMemo(
 		() => articles.find((article) => article.id === activeArticleId) || null,
@@ -231,6 +264,51 @@ export default function AIPinsPage() {
 	const selectedTemplate = useMemo(
 		() => templates.find((template) => template.id === selectedTemplateId) || null,
 		[templates, selectedTemplateId],
+	);
+
+	const selectedBrandKit = useMemo(
+		() => brandKits.find((kit) => kit.id === selectedBrandKitId) || null,
+		[brandKits, selectedBrandKitId],
+	);
+
+	const filteredSavedPins = useMemo(() => {
+		const query = pinSearch.trim().toLowerCase();
+		return savedPins.filter((pin) => {
+			if (pinFilter === 'draft' && pin.status !== 'draft') return false;
+			if (pinFilter === 'failed' && pin.status !== 'failed') return false;
+			if (pinFilter === 'scheduled' && pin.status !== 'scheduled') return false;
+			if (pinFilter === 'published' && pin.status !== 'published') return false;
+			if (!query) return true;
+			return [pin.title, pin.description, pin.imageUrl, pin.boardName]
+				.filter(Boolean)
+				.some((value) => String(value).toLowerCase().includes(query));
+		});
+	}, [savedPins, pinFilter, pinSearch]);
+
+	const failedPins = useMemo(
+		() => savedPins.filter((pin) => pin.status === 'failed'),
+		[savedPins],
+	);
+
+	const inspectorPin = useMemo(() => {
+		if (editingPinId) {
+			return savedPins.find((pin) => pin.id === editingPinId) || null;
+		}
+		if (selectedPreviewTempId) {
+			return generatedPreviewPins.find((pin) => pin.tempId === selectedPreviewTempId) || null;
+		}
+		return null;
+	}, [editingPinId, savedPins, selectedPreviewTempId, generatedPreviewPins]);
+
+	const estimatedCredits = useMemo(() => {
+		const perPin = imageQuality === 'budget' ? 0 : imageQuality === 'legacy' ? 0.5 : 0.7;
+		const articleFactor = createMode === 'bulk' ? Math.max(1, selectedArticleIds.size) : 1;
+		return Number((perPin * panel.count * articleFactor).toFixed(2));
+	}, [imageQuality, panel.count, createMode, selectedArticleIds.size]);
+
+	const activeWebsite = useMemo(
+		() => websites.find((site) => site.id === websiteId) || null,
+		[websites, websiteId],
 	);
 
 	const loadWebsites = async () => {
@@ -731,8 +809,8 @@ export default function AIPinsPage() {
 		setGeneratingImages(false);
 	};
 
-	const startPreviewImageGeneration = async (pins) => {
-		if (panel.imageMode !== 'generate_ai') {
+	const startPreviewImageGeneration = async (pins, imageModeOverride = panel.imageMode) => {
+		if (imageModeOverride !== 'generate_ai') {
 			setGeneratedPreviewPins((prev) => prev.map((pin) => ({
 				...pin,
 				imageUrl: pin.featuredImage || pin.imageUrl || '',
@@ -758,8 +836,8 @@ export default function AIPinsPage() {
 		await pollPreviewImageJobs(jobIds);
 	};
 
-	const generatePinsForArticle = async (article, count) => {
-		const prompt = buildPinPrompt({ article, count, panel });
+	const generatePinsForArticle = async (article, count, panelOverride = panel) => {
+		const prompt = buildPinPrompt({ article, count, panel: panelOverride });
 		const { text } = await generateText(prompt);
 		let pins = parsePinsFromText(text);
 
@@ -767,10 +845,10 @@ export default function AIPinsPage() {
 			pins = Array.from({ length: count }).map((_, index) => ({
 				title: `${article.title} | Pinterest Pin ${index + 1}`,
 				description: article.metaDescription || `Discover insights from ${article.title}`,
-				overlayText: truncate(panel.textOverlay || article.title || article.slug || 'Read now', 48),
+				overlayText: truncate(panelOverride.textOverlay || article.title || article.slug || 'Read now', 48),
 				suggestedKeywords: [article.category || 'content strategy', 'pinterest seo', 'blog traffic'],
 				suggestedHashtags: ['#pinteresttips', '#blogstrategy', '#contentmarketing'],
-				imagePrompt: `Pinterest vertical pin, high-contrast composition, focus on ${article.title}, category ${article.category || 'blog'}, audience ${panel.targetAudience}, tone ${panel.toneOfVoice}, language ${panel.language}`,
+				imagePrompt: `Pinterest vertical pin, high-contrast composition, focus on ${article.title}, category ${article.category || 'blog'}, audience ${panelOverride.targetAudience}, tone ${panelOverride.toneOfVoice}, language ${panelOverride.language}`,
 			}));
 		}
 
@@ -783,14 +861,83 @@ export default function AIPinsPage() {
 			return;
 		}
 
-		const targets = selectedArticles.length > 0 ? selectedArticles : (activeArticle ? [activeArticle] : []);
-		if (targets.length === 0) {
-			toast({ variant: 'destructive', title: 'Select article', description: 'Choose at least one imported article.' });
-			return;
+		const quality = IMAGE_QUALITIES.find((item) => item.id === imageQuality) || IMAGE_QUALITIES[0];
+		const ratio = ASPECT_RATIOS.find((item) => item.id === aspectRatio);
+		const websiteLabel = activeWebsite?.domain || activeWebsite?.url || activeWebsite?.name || '';
+
+		let workingPanel = {
+			...panel,
+			imageMode: quality.imageMode,
+			imageProvider: quality.imageProvider,
+		};
+
+		if (createMode === 'prompt') {
+			const promptSeed = promptOnlyText.trim();
+			if (!promptSeed) {
+				toast({ variant: 'destructive', title: 'Prompt required', description: 'Describe the pin you want to create.' });
+				return;
+			}
+			workingPanel = {
+				...workingPanel,
+				pinTitle: workingPanel.pinTitle || truncate(promptSeed, 80),
+				pinDescription: workingPanel.pinDescription || promptSeed,
+				textOverlay: workingPanel.textOverlay || truncate(promptSeed, 48),
+			};
+		}
+
+		if (includeWebsiteUrl && websiteLabel) {
+			workingPanel = {
+				...workingPanel,
+				textOverlay: workingPanel.textOverlay
+					? `${workingPanel.textOverlay} · ${websiteLabel}`
+					: websiteLabel,
+			};
+		}
+
+		if (ratio) {
+			workingPanel = {
+				...workingPanel,
+				toneOfVoice: `${workingPanel.toneOfVoice} | format:${imageType} | aspect:${ratio.ratio}`,
+			};
+		}
+
+		setPanel((prev) => ({
+			...prev,
+			imageMode: workingPanel.imageMode,
+			imageProvider: workingPanel.imageProvider,
+			pinTitle: workingPanel.pinTitle,
+			pinDescription: workingPanel.pinDescription,
+			textOverlay: workingPanel.textOverlay,
+		}));
+
+		let targets = [];
+		if (createMode === 'bulk') {
+			targets = selectedArticles;
+			if (targets.length === 0) {
+				toast({ variant: 'destructive', title: 'Select articles', description: 'Choose one or more articles for bulk create.' });
+				return;
+			}
+		} else if (createMode === 'single') {
+			targets = activeArticle ? [activeArticle] : [];
+			if (targets.length === 0) {
+				toast({ variant: 'destructive', title: 'Select article', description: 'Choose a page/article to generate from.' });
+				return;
+			}
+		} else {
+			targets = activeArticle ? [activeArticle] : (selectedArticles[0] ? [selectedArticles[0]] : []);
+			if (targets.length === 0) {
+				toast({
+					variant: 'destructive',
+					title: 'Anchor article needed',
+					description: 'Prompt Only still saves pins to a website article. Select or add one article as an anchor.',
+				});
+				return;
+			}
 		}
 
 		setGenerating(true);
-		setBulkProgress({ active: true, current: 0, total: targets.length, message: 'Starting bulk generation...' });
+		setWorkspaceTab('studio');
+		setBulkProgress({ active: true, current: 0, total: targets.length, message: 'Starting generation...' });
 		try {
 			const generatedRecords = [];
 			const activeAccount = accounts.find((account) => account.id === selectedAccountId);
@@ -805,17 +952,17 @@ export default function AIPinsPage() {
 					total: targets.length,
 					message: `Generating pins for ${article.title || article.slug || 'article'}...`,
 				});
-				const generatedPins = await generatePinsForArticle(article, panel.count);
+				const generatedPins = await generatePinsForArticle(article, workingPanel.count, workingPanel);
 				generatedRecords.push(
 					...generatedPins.map((pin, index) => ({
 						tempId: `${article.id}-${Date.now()}-${index}`,
 						articleId: article.id,
 						websiteId: article.websiteId,
 						title: String(pin.title || analysis?.title || article.title || article.slug || 'Draft AI Pin').trim(),
-						description: String(pin.description || analysis?.seoDescription || '').trim(),
-						overlayText: String(pin.overlayText || analysis?.cta || '').trim(),
+						description: String(pin.description || analysis?.seoDescription || workingPanel.pinDescription || '').trim(),
+						overlayText: String(pin.overlayText || analysis?.cta || workingPanel.textOverlay || '').trim(),
 						imagePrompt: String(pin.imagePrompt || '').trim(),
-						imageUrl: panel.imageMode === 'use_featured' ? (article.featuredImage || '') : '',
+						imageUrl: workingPanel.imageMode === 'use_featured' ? (article.featuredImage || '') : '',
 						suggestedKeywords: safeArray(pin.suggestedKeywords?.length ? pin.suggestedKeywords : analysis?.keywords),
 						suggestedHashtags: safeArray(pin.suggestedHashtags?.length ? pin.suggestedHashtags : analysis?.hashtags),
 						accountId: selectedAccountId,
@@ -840,11 +987,11 @@ export default function AIPinsPage() {
 						website: selectedBrand?.websiteUrl || websites.find((site) => site.id === article.websiteId)?.name || '',
 						author: article.author,
 						featuredImage: article.featuredImage || '',
-						imageSource: panel.imageMode === 'use_featured' ? 'featured' : 'ai_generated',
-						imageGenerationStatus: panel.imageMode === 'use_featured' ? 'completed' : 'queued',
+						imageSource: workingPanel.imageMode === 'use_featured' ? 'featured' : 'ai_generated',
+						imageGenerationStatus: workingPanel.imageMode === 'use_featured' ? 'completed' : 'queued',
 						imageGenerationError: '',
 						imageJobId: '',
-						style: panel.style,
+						style: workingPanel.style,
 						cta: analysis?.cta || '',
 						analysis: analysis || null,
 						brandKitId: selectedBrandKitId || '',
@@ -853,8 +1000,10 @@ export default function AIPinsPage() {
 			}
 
 			setGeneratedPreviewPins(generatedRecords);
-			await startPreviewImageGeneration(generatedRecords);
-			toast({ title: 'Preview ready', description: `${generatedRecords.length} pins generated. Review template preview and save when ready.` });
+			setSelectedPreviewTempId(generatedRecords[0]?.tempId || '');
+			setEditingPinId('');
+			await startPreviewImageGeneration(generatedRecords, workingPanel.imageMode);
+			toast({ title: 'Preview ready', description: `${generatedRecords.length} pins generated. Review and save when ready.` });
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Generation failed', description: error.message });
 		} finally {
@@ -1146,313 +1295,769 @@ export default function AIPinsPage() {
 		}));
 	};
 
-	return (
-		<div>
-			<PageHeader
-				title="AI Pins"
-				subtitle="Select articles, analyze, generate prompts/images, edit, and publish Pinterest drafts."
-				action={(
-					<div className="flex flex-wrap gap-2">
-						<Link to="/app/ai-pins/brand-kit"><Button variant="outline">Brand Kit</Button></Link>
-						<Link to="/app/ai-pins/history"><Button variant="outline">History</Button></Link>
-						<Link to="/app/ai-pins/templates"><Button variant="outline">Templates</Button></Link>
-						<Button onClick={handleGenerate} disabled={generating || loadingArticles || loadingPins}><Wand2 size={16} /> {generating ? 'Generating...' : 'Generate Pins'}</Button>
-					</div>
-				)}
-			/>
+	const selectAllArticles = () => {
+		setSelectedArticleIds(new Set(articles.map((article) => article.id)));
+	};
 
-			{credits ? (
-				<div className="mb-4 grid gap-3 sm:grid-cols-2">
-					<Card><p className="text-xs text-muted-foreground">AI credits</p><p className="mt-1 text-lg font-semibold">{credits.ai?.remaining ?? 0} / {credits.ai?.limit ?? 0}</p></Card>
-					<Card><p className="text-xs text-muted-foreground">Image credits</p><p className="mt-1 text-lg font-semibold">{credits.image?.remaining ?? 0} / {credits.image?.limit ?? 0}</p></Card>
+	const clearArticleSelection = () => {
+		setSelectedArticleIds(new Set());
+	};
+
+	const selectRandomArticles = (count = 1) => {
+		if (articles.length === 0) return;
+		const shuffled = [...articles].sort(() => Math.random() - 0.5);
+		setSelectedArticleIds(new Set(shuffled.slice(0, Math.min(count, shuffled.length)).map((article) => article.id)));
+	};
+
+	const applyImageQuality = (qualityId) => {
+		setImageQuality(qualityId);
+		const quality = IMAGE_QUALITIES.find((item) => item.id === qualityId);
+		if (!quality) return;
+		setPanel((prev) => ({
+			...prev,
+			imageMode: quality.imageMode,
+			imageProvider: quality.imageProvider,
+		}));
+	};
+
+	const handleReferenceUpload = (event) => {
+		const files = Array.from(event.target.files || []).slice(0, 6);
+		const next = files.map((file) => ({
+			id: `${file.name}-${file.lastModified}`,
+			name: file.name,
+			url: URL.createObjectURL(file),
+		}));
+		setReferenceImages((prev) => {
+			prev.forEach((item) => URL.revokeObjectURL(item.url));
+			return next;
+		});
+		event.target.value = '';
+	};
+
+	const removeReferenceImage = (id) => {
+		setReferenceImages((prev) => {
+			const target = prev.find((item) => item.id === id);
+			if (target) URL.revokeObjectURL(target.url);
+			return prev.filter((item) => item.id !== id);
+		});
+	};
+
+	const openInspectorForSaved = (pinId) => {
+		setEditingPinId(pinId);
+		setSelectedPreviewTempId('');
+	};
+
+	const openInspectorForPreview = (tempId) => {
+		setSelectedPreviewTempId(tempId);
+		setEditingPinId('');
+	};
+
+	const closeInspector = () => {
+		setEditingPinId('');
+		setSelectedPreviewTempId('');
+	};
+
+	const updateInspectorField = (key, value) => {
+		if (editingPinId) {
+			updatePinField(editingPinId, key, value);
+			return;
+		}
+		if (selectedPreviewTempId) {
+			updateGeneratedPreviewField(selectedPreviewTempId, key, value);
+		}
+	};
+
+	const generateLabel = createMode === 'bulk'
+		? `Generate ${Math.max(1, selectedArticleIds.size) * panel.count} Pins`
+		: panel.count > 1
+			? `Generate ${panel.count} Pins`
+			: 'Generate Pin';
+
+	return (
+		<div className="ai-pins-atelier">
+			<div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+				<div>
+					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
+					<h1 className="font-display text-3xl font-semibold tracking-tight">AI Pins Atelier</h1>
+					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+						Compose Pinterest-ready drafts from pages, bulk catalogs, or free prompts — then refine title, description, keywords, and imagery before publishing.
+					</p>
+				</div>
+				<div className="flex flex-wrap items-center gap-2">
+					<Link to="/app/ai-pins/brand-kit"><Button variant="outline" size="sm"><Palette size={14} /> Brand Kit</Button></Link>
+					<Link to="/app/ai-pins/templates"><Button variant="outline" size="sm"><LayoutTemplate size={14} /> Templates</Button></Link>
+					<Link to="/app/ai-pins/history"><Button variant="outline" size="sm"><History size={14} /> History</Button></Link>
+					{credits ? (
+						<div className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium shadow-sm">
+							<span className="text-muted-foreground">AI </span>{credits.ai?.remaining ?? 0}
+							<span className="mx-1.5 text-border">·</span>
+							<span className="text-muted-foreground">Img </span>{credits.image?.remaining ?? 0}
+						</div>
+					) : null}
+				</div>
+			</div>
+
+			{accounts.length === 0 && !loadingAccounts ? (
+				<div className="mb-4 flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<p className="text-sm text-foreground/90">Connect Pinterest to schedule and publish pins from this studio.</p>
+					<Link to="/app/pinterest"><Button size="sm">Connect Pinterest</Button></Link>
 				</div>
 			) : null}
 
 			{bulkProgress.active ? (
-				<Card className="mb-4">
-					<p className="text-sm font-medium">Bulk generation progress</p>
-					<p className="mt-1 text-xs text-muted-foreground">{bulkProgress.message}</p>
-					<div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
-						<div className="h-full bg-primary transition-all" style={{ width: `${Math.round((bulkProgress.current / Math.max(1, bulkProgress.total)) * 100)}%` }} />
+				<div className="mb-4 rounded-2xl border border-border bg-card p-4">
+					<div className="mb-2 flex items-center justify-between gap-3">
+						<p className="text-sm font-medium">{bulkProgress.message || 'Working…'}</p>
+						<span className="text-xs text-muted-foreground">{bulkProgress.current}/{bulkProgress.total}</span>
 					</div>
-					<p className="mt-2 text-xs text-muted-foreground">{bulkProgress.current} / {bulkProgress.total}</p>
-				</Card>
+					<div className="ai-pins-progress">
+						<span style={{ width: `${Math.round((bulkProgress.current / Math.max(1, bulkProgress.total)) * 100)}%` }} />
+					</div>
+				</div>
 			) : null}
 
-			<div className="grid gap-4 lg:grid-cols-3">
-				<Card className="lg:col-span-2">
-					<ArticlePicker
-						websites={websites}
-						websiteId={websiteId}
-						onWebsiteChange={setWebsiteId}
-						articles={articles}
-						loading={loadingWebsites || loadingArticles}
-						search={articleSearch}
-						onSearchChange={setArticleSearch}
-						status={articleStatus}
-						onStatusChange={(value) => { setArticleStatus(value); setArticlePage(1); }}
-						category={articleCategory}
-						onCategoryChange={(value) => { setArticleCategory(value); setArticlePage(1); }}
-						categories={articleCategories}
-						page={articlePage}
-						totalPages={articleTotalPages}
-						onPageChange={setArticlePage}
-						selectedIds={selectedArticleIds}
-						activeId={activeArticleId}
-						onToggleSelect={toggleArticleSelection}
-						onSelectActive={setActiveArticleId}
-						onPreview={setPreviewArticle}
-						onOpenManual={() => setManualOpen(true)}
-					/>
-				</Card>
-
-				<Card>
-					<h3 className="font-semibold">Generation Panel</h3>
-					<p className="mt-1 text-xs text-muted-foreground">Analyze, style, and generate pin drafts for one or many articles.</p>
-					<div className="mt-4 space-y-3">
-						<Select label="Template" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} disabled={loadingTemplates || templates.length === 0}>
-							<option value="">System default template</option>
-							{templates.map((template) => (
-								<option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' (Default)' : ''}</option>
-							))}
-						</Select>
-						<Select label="Brand Kit" value={selectedBrandKitId} onChange={(e) => setSelectedBrandKitId(e.target.value)}>
-							<option value="">No brand kit</option>
-							{brandKits.map((kit) => (
-								<option key={kit.id} value={kit.id}>{kit.name}{kit.isDefault ? ' (Default)' : ''}</option>
-							))}
-						</Select>
-						<Select label="Pin Style" value={panel.style} onChange={(e) => setPanel((prev) => ({ ...prev, style: e.target.value }))}>
-							{PIN_STYLES.map((style) => <option key={style} value={style}>{style}</option>)}
-						</Select>
-						<div className="flex gap-2">
-							<Button type="button" variant="outline" className="flex-1" onClick={handleAnalyzeArticle} disabled={analyzing || !activeArticle}>{analyzing ? 'Analyzing...' : 'Analyze'}</Button>
-							<Button type="button" variant="outline" className="flex-1" onClick={handleGeneratePrompt} disabled={!activeArticle}>Prompt</Button>
+			<div className={`ai-pins-atelier__shell ${inspectorPin ? 'is-inspecting' : ''}`}>
+				<aside className="ai-pins-atelier__rail p-4">
+					<div className="mb-4 flex items-start justify-between gap-2">
+						<div>
+							<h2 className="font-display text-xl font-semibold">Create</h2>
+							<p className="text-xs text-muted-foreground">Chef IA pin workflow</p>
 						</div>
-						{analysis ? (
-							<div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground space-y-1">
-								<p><span className="font-medium text-foreground">CTA:</span> {analysis.cta || '—'}</p>
-								<p><span className="font-medium text-foreground">Category:</span> {analysis.pinterestCategory || '—'}</p>
-								<p><span className="font-medium text-foreground">Audience:</span> {analysis.targetAudience || '—'}</p>
-								<p><span className="font-medium text-foreground">Keywords:</span> {(analysis.keywords || []).join(', ') || '—'}</p>
+						{credits ? (
+							<span className="rounded-full bg-accent/20 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">
+								{(credits.ai?.remaining ?? 0)} credits
+							</span>
+						) : null}
+					</div>
+
+					<div className="ai-pins-mode-tabs mb-4">
+						{CREATE_MODES.map(({ id, label, icon: Icon }) => (
+							<button
+								key={id}
+								type="button"
+								className={createMode === id ? 'is-active' : ''}
+								onClick={() => setCreateMode(id)}
+							>
+								<Icon size={13} className="mx-auto mb-1" />
+								{label}
+							</button>
+						))}
+					</div>
+
+					<div className="space-y-4">
+						<Select label="Website" value={websiteId} onChange={(e) => setWebsiteId(e.target.value)} disabled={loadingWebsites}>
+							<option value="">Select website</option>
+							{websites.map((website) => (
+								<option key={website.id} value={website.id}>{website.name || website.domain || website.id}</option>
+							))}
+						</Select>
+
+						{createMode === 'prompt' ? (
+							<>
+								<Textarea
+									label="Prompt"
+									rows={5}
+									value={promptOnlyText}
+									onChange={(e) => setPromptOnlyText(e.target.value)}
+									placeholder="Describe the pin idea, mood, cuisine, and CTA…"
+								/>
+								<Input
+									label="Pin text overlay"
+									value={panel.textOverlay}
+									onChange={(e) => setPanel((prev) => ({ ...prev, textOverlay: e.target.value }))}
+									placeholder="Short overlay text"
+								/>
+								<div className="rounded-xl border border-dashed border-border bg-background/60 p-3 text-xs text-muted-foreground">
+									Prompt Only still anchors to one article for saving. Select an article below if needed.
+								</div>
+								<Select label="Anchor article" value={activeArticleId} onChange={(e) => setActiveArticleId(e.target.value)}>
+									<option value="">Select article</option>
+									{articles.map((article) => (
+										<option key={article.id} value={article.id}>{article.title || article.slug || article.url}</option>
+									))}
+								</Select>
+							</>
+						) : null}
+
+						{createMode === 'single' ? (
+							<>
+								<Select label="Article" value={activeArticleId} onChange={(e) => setActiveArticleId(e.target.value)}>
+									<option value="">Select article</option>
+									{articles.map((article) => (
+										<option key={article.id} value={article.id}>{article.title || article.slug || article.url}</option>
+									))}
+								</Select>
+								<Input
+									label="Pin text overlay"
+									value={panel.textOverlay}
+									onChange={(e) => setPanel((prev) => ({ ...prev, textOverlay: e.target.value }))}
+								/>
+								<div className="flex gap-2">
+									<Button type="button" size="sm" variant="outline" className="flex-1" onClick={handleAnalyzeArticle} disabled={analyzing || !activeArticle}>
+										{analyzing ? 'Analyzing…' : 'Analyze'}
+									</Button>
+									<Button type="button" size="sm" variant="outline" className="flex-1" onClick={handleGeneratePrompt} disabled={!activeArticle}>
+										Prompt
+									</Button>
+								</div>
+							</>
+						) : null}
+
+						{createMode === 'bulk' ? (
+							<div className="space-y-3 rounded-2xl border border-border bg-background/55 p-3">
+								<div className="flex items-center gap-2">
+									<Search size={14} className="text-muted-foreground" />
+									<input
+										className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+										value={articleSearch}
+										onChange={(e) => setArticleSearch(e.target.value)}
+										placeholder="Search articles…"
+									/>
+								</div>
+								<div className="flex flex-wrap gap-2">
+									<Select value={articleStatus} onChange={(e) => { setArticleStatus(e.target.value); setArticlePage(1); }} className="min-w-[7rem]">
+										<option value="">All</option>
+										<option value="new">New</option>
+										<option value="imported">Imported</option>
+										<option value="published">Published</option>
+									</Select>
+									<Select value={articleCategory} onChange={(e) => { setArticleCategory(e.target.value); setArticlePage(1); }} className="min-w-[7rem]">
+										<option value="">Categories</option>
+										{articleCategories.map((item) => <option key={item} value={item}>{item}</option>)}
+									</Select>
+								</div>
+								<div className="flex flex-wrap gap-1.5 text-[11px]">
+									<button type="button" className="rounded-full border border-border px-2.5 py-1 hover:bg-secondary" onClick={selectAllArticles}>Select all</button>
+									<button type="button" className="rounded-full border border-border px-2.5 py-1 hover:bg-secondary" onClick={() => selectRandomArticles(1)}>Random 1</button>
+									<button type="button" className="rounded-full border border-border px-2.5 py-1 hover:bg-secondary" onClick={() => selectRandomArticles(3)}>Random 3</button>
+									<button type="button" className="rounded-full border border-border px-2.5 py-1 hover:bg-secondary" onClick={clearArticleSelection}>Clear</button>
+									<span className="ml-auto self-center text-muted-foreground">{selectedArticleIds.size} selected</span>
+								</div>
+								<div className="max-h-52 overflow-auto rounded-xl border border-border/80">
+									{loadingArticles ? (
+										<div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground"><Spinner className="h-4 w-4" /> Loading…</div>
+									) : articles.length === 0 ? (
+										<p className="p-4 text-xs text-muted-foreground">No articles found for this website.</p>
+									) : articles.map((article) => {
+										const checked = selectedArticleIds.has(article.id);
+										const active = activeArticleId === article.id;
+										return (
+											<label key={article.id} className={`flex cursor-pointer items-start gap-2 border-b border-border/70 px-2.5 py-2 last:border-0 ${active ? 'bg-primary/5' : ''}`}>
+												<input type="checkbox" className="mt-1" checked={checked} onChange={() => toggleArticleSelection(article.id)} />
+												<button type="button" className="min-w-0 flex-1 text-left" onClick={() => setActiveArticleId(article.id)}>
+													<p className="truncate text-xs font-medium">{article.title || article.slug}</p>
+													<p className="truncate text-[11px] text-muted-foreground">{article.url}</p>
+												</button>
+											</label>
+										);
+									})}
+								</div>
+								<div className="flex items-center justify-between gap-2">
+									<Button type="button" size="sm" variant="outline" onClick={() => setManualOpen(true)} disabled={!websiteId}>Add article</Button>
+									<div className="flex gap-1">
+										<Button type="button" size="sm" variant="ghost" disabled={articlePage <= 1} onClick={() => setArticlePage((p) => Math.max(1, p - 1))}>Prev</Button>
+										<span className="self-center text-[11px] text-muted-foreground">{articlePage}/{articleTotalPages}</span>
+										<Button type="button" size="sm" variant="ghost" disabled={articlePage >= articleTotalPages} onClick={() => setArticlePage((p) => p + 1)}>Next</Button>
+									</div>
+								</div>
 							</div>
 						) : null}
-						<Input label="Pin Title" value={panel.pinTitle} onChange={(e) => setPanel((prev) => ({ ...prev, pinTitle: e.target.value }))} />
-						<Textarea label="Pin Description" rows={3} value={panel.pinDescription} onChange={(e) => setPanel((prev) => ({ ...prev, pinDescription: e.target.value }))} />
-						<Input label="Text Overlay" value={panel.textOverlay} onChange={(e) => setPanel((prev) => ({ ...prev, textOverlay: e.target.value }))} />
-						<Input label="Target Audience" value={panel.targetAudience} onChange={(e) => setPanel((prev) => ({ ...prev, targetAudience: e.target.value }))} />
-						<Input label="Tone of Voice" value={panel.toneOfVoice} onChange={(e) => setPanel((prev) => ({ ...prev, toneOfVoice: e.target.value }))} />
-						<Input label="Language" value={panel.language} onChange={(e) => setPanel((prev) => ({ ...prev, language: e.target.value }))} />
-						<Select label="Image Source" value={panel.imageMode} onChange={(e) => setPanel((prev) => ({ ...prev, imageMode: e.target.value }))}>
-							<option value="use_featured">Use Featured Image</option>
-							<option value="generate_ai">Generate AI Image</option>
-						</Select>
-						<Select label="Image Provider" value={panel.imageProvider} onChange={(e) => setPanel((prev) => ({ ...prev, imageProvider: e.target.value }))} disabled={panel.imageMode !== 'generate_ai'}>
-							<option value="openai">OpenAI Images</option>
-							<option value="fal">Fal.ai</option>
-							<option value="flux">FLUX (via Fal)</option>
-						</Select>
-						<Select label="Generate" value={String(panel.count)} onChange={(e) => setPanel((prev) => ({ ...prev, count: Number(e.target.value) }))}>
-							{PIN_COUNTS.map((count) => <option key={count} value={count}>Generate {count} Pin{count > 1 ? 's' : ''}</option>)}
-						</Select>
-						<div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
-							<div className="flex items-center gap-1"><Search size={12} /> Selected for bulk: {selectedArticleIds.size}</div>
-							<div className="mt-1">Fallback target: {activeArticle ? activeArticle.title : 'No article selected'}</div>
+
+						{(createMode === 'single' || createMode === 'prompt') ? (
+							<div className="flex justify-end">
+								<Button type="button" size="sm" variant="outline" onClick={() => setManualOpen(true)} disabled={!websiteId}>Add manual article</Button>
+							</div>
+						) : null}
+
+						<label className="flex items-center gap-2 text-sm">
+							<input type="checkbox" checked={includeWebsiteUrl} onChange={(e) => setIncludeWebsiteUrl(e.target.checked)} />
+							Include website URL on pin
+						</label>
+
+						<div className="grid grid-cols-2 gap-3">
+							<Select label="Image type" value={imageType} onChange={(e) => setImageType(e.target.value)}>
+								<option value="pin">Pin</option>
+								<option value="story">Story</option>
+								<option value="carousel">Carousel frame</option>
+							</Select>
+							<Select label="Number of pins" value={String(panel.count)} onChange={(e) => setPanel((prev) => ({ ...prev, count: Number(e.target.value) }))}>
+								{PIN_COUNTS.map((count) => <option key={count} value={count}>{count}</option>)}
+							</Select>
 						</div>
-					</div>
-				</Card>
-			</div>
 
-			<div className="mt-6">
-				<div className="mb-3 flex items-center justify-between">
-					<h3 className="font-semibold">Generated Pins Preview</h3>
-					{loadingPins ? <Spinner className="h-4 w-4 text-primary" /> : <span className="text-sm text-muted-foreground">{savedPins.length} Draft Pins</span>}
-				</div>
-
-				{generatedPreviewPins.length > 0 ? (
-					<Card className="mb-4">
-						<div className="mb-3 flex items-center justify-between">
-							<p className="font-semibold">Final Pin Preview (Before Save)</p>
-							<div className="flex gap-2">
-								{generatingImages ? <div className="flex items-center text-xs text-muted-foreground"><Spinner className="mr-1 h-4 w-4" /> Generating images...</div> : null}
-								<Button variant="outline" onClick={() => setGeneratedPreviewPins([])}>Discard</Button>
-								<Button onClick={saveGeneratedPreviewPins} disabled={savingGenerated}>{savingGenerated ? <Spinner className="h-4 w-4" /> : null} Save Generated Pins</Button>
+						<div>
+							<p className="mb-1.5 text-sm font-medium">Image quality</p>
+							<div className="ai-pins-chip-row">
+								{IMAGE_QUALITIES.map((item) => (
+									<button
+										key={item.id}
+										type="button"
+										className={`ai-pins-chip ${imageQuality === item.id ? 'is-active' : ''}`}
+										onClick={() => applyImageQuality(item.id)}
+									>
+										<p className="text-xs font-semibold">{item.label}</p>
+										<p className="mt-0.5 text-[10px] text-muted-foreground">{item.hint}</p>
+									</button>
+								))}
 							</div>
 						</div>
-						<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-							{generatedPreviewPins.map((pin) => (
-								<Card key={pin.tempId}>
-									<TemplatePreviewCard
-										config={pin.templateConfig}
-										context={{
-											title: pin.title,
-											description: pin.description,
-											category: pin.category,
-											website: pin.website,
-											author: pin.author,
-											overlayText: pin.overlayText,
-										}}
-									/>
-									<div className="mt-3 space-y-2">
-										<p className="text-xs text-muted-foreground">Template: {pin.templateName}</p>
-										<p className="text-xs text-muted-foreground">Image mode: {panel.imageMode === 'generate_ai' ? 'Generate AI Image' : 'Use Featured Image'}</p>
-										<p className="text-xs text-muted-foreground">Image status: {pin.imageGenerationStatus || 'idle'}</p>
-										{pin.imageGenerationError ? <p className="text-xs text-amber-700">{pin.imageGenerationError}</p> : null}
-										<div className="grid gap-2 md:grid-cols-2">
-											<div className="rounded-lg border border-border bg-secondary/20 p-2">
-												<p className="mb-1 text-[11px] text-muted-foreground">Generated / Selected Image</p>
-												{pin.imageUrl ? <img src={pin.imageUrl} alt={pin.title} className="h-40 w-full rounded-md object-cover" loading="lazy" decoding="async" /> : <div className="flex h-40 items-center justify-center text-xs text-muted-foreground"><ImageIcon size={14} className="mr-1" /> Waiting image...</div>}
-											</div>
-											<div className="rounded-lg border border-border bg-secondary/20 p-2">
-												<p className="mb-1 text-[11px] text-muted-foreground">Original Article Featured Image</p>
-												{pin.featuredImage ? <img src={pin.featuredImage} alt="Featured" className="h-40 w-full rounded-md object-cover" loading="lazy" decoding="async" /> : <div className="flex h-40 items-center justify-center text-xs text-muted-foreground"><Images size={14} className="mr-1" /> No featured image</div>}
-											</div>
-										</div>
-										<Input label="Image URL (optional now, required before publish)" value={pin.imageUrl} onChange={(e) => updateGeneratedPreviewField(pin.tempId, 'imageUrl', e.target.value)} />
-										<div className="flex gap-2">
-											<Button size="sm" variant="outline" onClick={() => regeneratePreviewImage(pin)} disabled={panel.imageMode !== 'generate_ai' || generatingImages}><RefreshCw size={14} /> Regenerate</Button>
-											<Button size="sm" variant="outline" onClick={() => downloadImage(pin.imageUrl, pin.title)} disabled={!pin.imageUrl}><Download size={14} /> Download</Button>
-										</div>
+
+						<div>
+							<p className="mb-1.5 text-sm font-medium">Pinterest size</p>
+							<div className="grid grid-cols-4 gap-2">
+								{ASPECT_RATIOS.map((item) => (
+									<button
+										key={item.id}
+										type="button"
+										className={`ai-pins-ratio ${aspectRatio === item.id ? 'is-active' : ''}`}
+										onClick={() => setAspectRatio(item.id)}
+									>
+										<span className={`ai-pins-ratio__frame ${item.frame}`} />
+										<span>{item.label}</span>
+										<span className="text-[10px] font-normal text-muted-foreground">{item.ratio}</span>
+									</button>
+								))}
+							</div>
+						</div>
+
+						<div>
+							<div className="mb-1.5 flex items-center justify-between">
+								<p className="text-sm font-medium">Reference images</p>
+								<button type="button" className="text-xs text-primary" onClick={() => referenceInputRef.current?.click()}>Upload</button>
+							</div>
+							<input ref={referenceInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleReferenceUpload} />
+							<div className="flex flex-wrap gap-2">
+								{referenceImages.length === 0 ? (
+									<button type="button" onClick={() => referenceInputRef.current?.click()} className="flex h-16 w-16 items-center justify-center rounded-xl border border-dashed border-border text-muted-foreground hover:bg-secondary">
+										<Images size={16} />
+									</button>
+								) : referenceImages.map((image) => (
+									<div key={image.id} className="relative h-16 w-16 overflow-hidden rounded-xl border border-border">
+										<img src={image.url} alt={image.name} className="h-full w-full object-cover" />
+										<button type="button" className="absolute right-0.5 top-0.5 rounded-full bg-background/90 p-0.5" onClick={() => removeReferenceImage(image.id)}>
+											<X size={10} />
+										</button>
 									</div>
-								</Card>
+								))}
+							</div>
+						</div>
+
+						<button
+							type="button"
+							className="flex w-full items-center justify-between rounded-xl border border-border bg-background/50 px-3 py-2.5 text-sm font-medium"
+							onClick={() => setAdvancedOpen((open) => !open)}
+						>
+							Advanced settings
+							<ChevronDown size={16} className={`transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+						</button>
+
+						{advancedOpen ? (
+							<div className="space-y-3 rounded-2xl border border-border bg-background/60 p-3">
+								<Select label="Template" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} disabled={loadingTemplates}>
+									<option value="">System default</option>
+									{templates.map((template) => (
+										<option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' (Default)' : ''}</option>
+									))}
+								</Select>
+								<Select label="Brand Kit" value={selectedBrandKitId} onChange={(e) => setSelectedBrandKitId(e.target.value)}>
+									<option value="">No brand kit</option>
+									{brandKits.map((kit) => (
+										<option key={kit.id} value={kit.id}>{kit.name}{kit.isDefault ? ' (Default)' : ''}</option>
+									))}
+								</Select>
+								<Select label="Pin style" value={panel.style} onChange={(e) => setPanel((prev) => ({ ...prev, style: e.target.value }))}>
+									{PIN_STYLES.map((style) => <option key={style} value={style}>{style}</option>)}
+								</Select>
+								<Input label="Pin title seed" value={panel.pinTitle} onChange={(e) => setPanel((prev) => ({ ...prev, pinTitle: e.target.value }))} />
+								<Textarea label="Description seed" rows={3} value={panel.pinDescription} onChange={(e) => setPanel((prev) => ({ ...prev, pinDescription: e.target.value }))} />
+								<Input label="Target audience" value={panel.targetAudience} onChange={(e) => setPanel((prev) => ({ ...prev, targetAudience: e.target.value }))} />
+								<Input label="Tone of voice" value={panel.toneOfVoice} onChange={(e) => setPanel((prev) => ({ ...prev, toneOfVoice: e.target.value }))} />
+								<Input label="Language" value={panel.language} onChange={(e) => setPanel((prev) => ({ ...prev, language: e.target.value }))} />
+								<Select label="Image provider" value={panel.imageProvider} onChange={(e) => setPanel((prev) => ({ ...prev, imageProvider: e.target.value }))} disabled={panel.imageMode !== 'generate_ai'}>
+									<option value="openai">OpenAI Images</option>
+									<option value="fal">Fal.ai</option>
+									<option value="flux">FLUX (via Fal)</option>
+								</Select>
+								{analysis ? (
+									<div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground space-y-1">
+										<p><span className="font-medium text-foreground">CTA:</span> {analysis.cta || '—'}</p>
+										<p><span className="font-medium text-foreground">Category:</span> {analysis.pinterestCategory || '—'}</p>
+										<p><span className="font-medium text-foreground">Keywords:</span> {(analysis.keywords || []).join(', ') || '—'}</p>
+									</div>
+								) : null}
+							</div>
+						) : null}
+					</div>
+
+					<div className="sticky bottom-0 mt-5 space-y-2 border-t border-border/80 bg-gradient-to-t from-card via-card to-transparent pt-4">
+						<p className="text-xs text-muted-foreground">
+							This will use ~{estimatedCredits} credits
+							{credits?.ai?.remaining != null ? ` · ${Math.max(0, Number((credits.ai.remaining - estimatedCredits).toFixed(2)))} left` : ''}.
+						</p>
+						<Button className="w-full" onClick={handleGenerate} disabled={generating || loadingArticles}>
+							{generating ? <Spinner className="h-4 w-4" /> : <Wand2 size={16} />}
+							{generating ? 'Generating…' : generateLabel}
+						</Button>
+					</div>
+				</aside>
+
+				<section className="ai-pins-atelier__canvas p-4 sm:p-5">
+					<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<div className="flex flex-wrap gap-1 rounded-xl border border-border bg-background/70 p-1">
+							{[
+								{ id: 'studio', label: 'Studio', icon: Sparkles },
+								{ id: 'library', label: 'Library', icon: Images },
+								{ id: 'queue', label: 'Queue', icon: ListChecks },
+							].map(({ id, label, icon: Icon }) => (
+								<button
+									key={id}
+									type="button"
+									onClick={() => setWorkspaceTab(id)}
+									className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${workspaceTab === id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}
+								>
+									<Icon size={13} /> {label}
+								</button>
 							))}
 						</div>
-					</Card>
-				) : null}
-
-				<Card className="mb-4">
-					<div className="grid gap-3 md:grid-cols-4">
-						<Select label="Pinterest Account" value={selectedAccountId} onChange={(e) => setSelectedAccountId(e.target.value)} disabled={loadingAccounts || accounts.length === 0}>
-							<option value="">Select account</option>
-							{accounts.map((account) => (
-								<option key={account.id} value={account.id}>
-									{account.label || account.accountName || account.username}
-									{account.isDefault ? ' (Default)' : ''}
-								</option>
-							))}
-						</Select>
-						<Select label="Target Board" value={selectedBoardId} onChange={(e) => setSelectedBoardId(e.target.value)} disabled={loadingBoards || boards.length === 0}>
-							<option value="">Select board</option>
-							{boards.map((board) => (
-								<option key={board.id} value={board.boardId}>
-									{board.name}
-									{board.isDefault ? ' (Default)' : ''}
-								</option>
-							))}
-						</Select>
-						<Input label="Schedule Date & Time" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
-						<Input label="Timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
-						<div className="flex items-end gap-2 md:col-span-1">
-							<Button className="flex-1" onClick={() => runPublishAction('publish')} disabled={publishing || selectedDraftPins.length === 0 || boards.length === 0}><Send size={15} /> Publish now</Button>
-							<Button variant="outline" className="flex-1" onClick={() => runPublishAction('schedule')} disabled={publishing || selectedDraftPins.length === 0 || boards.length === 0}><CalendarClock size={15} /> Schedule</Button>
+						<div className="flex flex-wrap items-center gap-2">
+							{generatingImages ? <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Spinner className="h-3.5 w-3.5" /> Rendering images…</span> : null}
+							{generatedPreviewPins.length > 0 ? (
+								<>
+									<Button size="sm" variant="outline" onClick={() => setGeneratedPreviewPins([])}>Discard</Button>
+									<Button size="sm" onClick={saveGeneratedPreviewPins} disabled={savingGenerated}>
+										{savingGenerated ? <Spinner className="h-4 w-4" /> : null} Save drafts
+									</Button>
+								</>
+							) : null}
 						</div>
 					</div>
-					<div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-						<div>Selected pins: {selectedDraftPins.length}</div>
-						<div className="flex gap-2">
-							<Button size="sm" variant="outline" onClick={selectAllDraftPins}><CheckSquare size={14} /> Select all</Button>
-							<Button size="sm" variant="outline" onClick={clearDraftPinSelection}><Square size={14} /> Clear</Button>
-						</div>
-					</div>
-				</Card>
 
-				{savedPins.length === 0 ? (
-					<Empty icon={Sparkles} title="No generated pins yet" subtitle="Generate pins from imported articles and they will appear here as drafts." />
-				) : (
-					<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-						{savedPins.map((pin) => {
-							const editing = editingPinId === pin.id;
-							const checked = selectedDraftPinIds.has(pin.id);
-							return (
-								<Card key={pin.id}>
-									<div className="mb-2 flex items-center justify-between">
-										<label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-											<input type="checkbox" checked={checked} onChange={() => toggleDraftPinSelection(pin.id)} disabled={pin.status === 'published'} />
-											Select
-										</label>
-										<Badge tone={pin.status === 'published' ? 'green' : pin.status === 'failed' ? 'red' : pin.status === 'scheduled' ? 'amber' : 'blue'}>{pin.status}</Badge>
-									</div>
-									<div className="rounded-xl border border-dashed border-border bg-secondary/30 p-3">
-										{pin.imageUrl ? (
-											<img src={pin.imageUrl} alt={pin.title} className="h-40 w-full rounded-lg object-cover" loading="lazy" decoding="async" />
-										) : (
-											<div className="flex h-40 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 via-accent/20 to-secondary text-center">
-												<div>
-													<Globe className="mx-auto h-6 w-6 text-muted-foreground" />
-													<p className="mt-2 text-xs text-muted-foreground">Image URL required for publishing</p>
-												</div>
-											</div>
-										)}
-									</div>
-
-									<div className="mt-3 space-y-2">
-										{editing ? (
-											<>
-												<Input label="Pin Title" value={pin.title} onChange={(e) => updatePinField(pin.id, 'title', e.target.value)} />
-												<Textarea label="Description" rows={3} value={pin.description} onChange={(e) => updatePinField(pin.id, 'description', e.target.value)} />
-												<Input label="Overlay Text" value={pin.overlayText} onChange={(e) => updatePinField(pin.id, 'overlayText', e.target.value)} />
-												<Textarea label="Image Prompt" rows={3} value={pin.imagePrompt} onChange={(e) => updatePinField(pin.id, 'imagePrompt', e.target.value)} />
-												<Input label="Image URL (required to publish)" value={pin.imageUrl} onChange={(e) => updatePinField(pin.id, 'imageUrl', e.target.value)} placeholder="https://..." />
-												<Input label="Suggested Keywords" value={safeArray(pin.suggestedKeywords).join(', ')} onChange={(e) => updatePinField(pin.id, 'suggestedKeywords', safeArray(e.target.value))} />
-												<Input label="Suggested Hashtags" value={safeArray(pin.suggestedHashtags).join(', ')} onChange={(e) => updatePinField(pin.id, 'suggestedHashtags', safeArray(e.target.value))} />
-												<Select label="Target Account (for bulk publish/schedule)" value={pin.accountId || ''} onChange={(e) => setPinTargetAccount(pin.id, e.target.value)}>
-													<option value="">Use global account</option>
-													{accounts.map((account) => (
-														<option key={account.id} value={account.id}>
-															{account.label || account.accountName || account.username}
-															{account.isDefault ? ' (Default)' : ''}
-														</option>
-													))}
-												</Select>
-												<Select label="Target Board (for bulk publish/schedule)" value={pin.boardId || ''} onChange={(e) => updatePinField(pin.id, 'boardId', e.target.value)}>
-													<option value="">Use global board</option>
-													{(boardsByAccount[pin.accountId || selectedAccountId] || boards).map((board) => (
-														<option key={board.id} value={board.boardId}>
-															{board.name}
-															{board.isDefault ? ' (Default)' : ''}
-														</option>
-													))}
-												</Select>
-											</>
-										) : (
-											<>
-												<h4 className="line-clamp-2 font-semibold">{pin.title}</h4>
-												<p className="line-clamp-3 text-sm text-muted-foreground">{pin.description}</p>
-												<p className="text-xs"><span className="font-medium">Overlay:</span> {pin.overlayText || '—'}</p>
-												<p className="text-xs"><span className="font-medium">Image URL:</span> {pin.imageUrl || '—'}</p>
-												<p className="text-xs"><span className="font-medium">Target Account:</span> {accounts.find((account) => account.id === pin.accountId)?.label || accounts.find((account) => account.id === pin.accountId)?.username || 'Global account'}</p>
-												<p className="text-xs"><span className="font-medium">Target Board:</span> {pin.boardName || pin.boardId || 'Global board'}</p>
-												<p className="line-clamp-3 text-xs text-muted-foreground"><span className="font-medium text-foreground">Prompt:</span> {pin.imagePrompt || '—'}</p>
-												<p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Keywords:</span> {safeArray(pin.suggestedKeywords).join(', ') || '—'}</p>
-												<p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Hashtags:</span> {safeArray(pin.suggestedHashtags).join(' ') || '—'}</p>
-												{pin.scheduledAt ? <p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Scheduled:</span> {new Date(pin.scheduledAt).toLocaleString()} ({pin.scheduledTimezone || 'UTC'})</p> : null}
-												{pin.pinterestPinUrl ? <a href={pin.pinterestPinUrl} target="_blank" rel="noreferrer" className="text-xs text-primary underline">Open Pinterest pin</a> : null}
-												{pin.publishError ? <p className="text-xs text-red-600">Error: {pin.publishError}</p> : null}
-											</>
-										)}
-
-										<div className="mt-3 flex items-center justify-between gap-2">
-											<div className="flex gap-2">
-												{editing ? (
-													<>
-														<Button size="sm" onClick={() => handleSaveEdit(pin)}>Save</Button>
-														<Button size="sm" variant="outline" onClick={() => setEditingPinId('')}>Cancel</Button>
-													</>
+					{workspaceTab === 'studio' ? (
+						<>
+							{generating && generatedPreviewPins.length === 0 ? (
+								<div className="ai-pins-grid">
+									{[0, 1, 2].map((item) => (
+										<div key={item} className="ai-pins-skeleton" style={{ animationDelay: `${item * 80}ms` }}>
+											<div className="ai-pins-skeleton__shine" />
+										</div>
+									))}
+								</div>
+							) : generatedPreviewPins.length > 0 ? (
+								<div className="ai-pins-grid">
+									{generatedPreviewPins.map((pin, index) => (
+										<article
+											key={pin.tempId}
+											className={`ai-pins-card ${selectedPreviewTempId === pin.tempId ? 'is-selected' : ''}`}
+											style={{ animationDelay: `${index * 45}ms` }}
+											onClick={() => openInspectorForPreview(pin.tempId)}
+										>
+											<div className="ai-pins-card__media">
+												{pin.imageUrl ? (
+													<img src={pin.imageUrl} alt={pin.title} loading="lazy" decoding="async" />
 												) : (
-													<>
-														<Button size="sm" variant="outline" onClick={() => setEditingPinId(pin.id)}><Pencil size={14} /> Edit</Button>
-														<Button size="sm" variant="outline" onClick={() => handleRegeneratePin(pin)} disabled={generating}><RefreshCw size={14} /> Regenerate</Button>
-														<Button size="sm" variant="ghost" onClick={() => handleDeletePin(pin.id)}><Trash2 size={14} /></Button>
-													</>
+													<div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
+														<TemplatePreviewCard
+															config={pin.templateConfig}
+															context={{
+																title: pin.title,
+																description: pin.description,
+																category: pin.category,
+																website: pin.website,
+																author: pin.author,
+																overlayText: pin.overlayText,
+															}}
+														/>
+													</div>
 												)}
 											</div>
-										</div>
+											<div className="space-y-2 p-3">
+												<div className="flex items-center justify-between gap-2">
+													<Badge tone={pin.imageGenerationStatus === 'failed' ? 'red' : pin.imageGenerationStatus === 'completed' ? 'green' : 'amber'}>
+														{pin.imageGenerationStatus || 'draft'}
+													</Badge>
+													<span className="truncate text-[10px] text-muted-foreground">{pin.templateName}</span>
+												</div>
+												<h3 className="line-clamp-2 font-display text-sm font-semibold leading-snug">{pin.title}</h3>
+												<p className="line-clamp-2 text-xs text-muted-foreground">{pin.description}</p>
+												<div className="flex gap-1.5 pt-1">
+													<Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); regeneratePreviewImage(pin); }} disabled={panel.imageMode !== 'generate_ai' || generatingImages}>
+														<RefreshCw size={12} /> Retry
+													</Button>
+													<Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); downloadImage(pin.imageUrl, pin.title); }} disabled={!pin.imageUrl}>
+														<Download size={12} />
+													</Button>
+												</div>
+											</div>
+										</article>
+									))}
+								</div>
+							) : (
+								<div className="flex min-h-[28rem] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/40 px-6 text-center">
+									<div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+										<Wand2 size={28} />
 									</div>
-								</Card>
-							);
-						})}
-					</div>
-				)}
+									<h3 className="font-display text-2xl font-semibold">Your pin canvas is ready</h3>
+									<p className="mt-2 max-w-md text-sm text-muted-foreground">
+										Pick a mode on the left, tune quality and size, then generate. Previews appear here as tall Pinterest cards with live progress.
+									</p>
+									<div className="mt-5 flex flex-wrap justify-center gap-2">
+										<span className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">{createMode === 'bulk' ? `${selectedArticleIds.size} pages selected` : (activeArticle?.title || 'No page selected')}</span>
+										{selectedBrandKit ? <span className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">Brand: {selectedBrandKit.name}</span> : null}
+									</div>
+								</div>
+							)}
+						</>
+					) : null}
+
+					{workspaceTab === 'library' ? (
+						<>
+							<div className="mb-4 flex flex-col gap-3 rounded-2xl border border-border bg-background/50 p-3 lg:flex-row lg:items-end">
+								<Select label="Pinterest account" value={selectedAccountId} onChange={(e) => setSelectedAccountId(e.target.value)} disabled={loadingAccounts || accounts.length === 0}>
+									<option value="">Select account</option>
+									{accounts.map((account) => (
+										<option key={account.id} value={account.id}>
+											{account.label || account.accountName || account.username}
+											{account.isDefault ? ' (Default)' : ''}
+										</option>
+									))}
+								</Select>
+								<Select label="Board" value={selectedBoardId} onChange={(e) => setSelectedBoardId(e.target.value)} disabled={loadingBoards || boards.length === 0}>
+									<option value="">Select board</option>
+									{boards.map((board) => (
+										<option key={board.id} value={board.boardId}>
+											{board.name}
+											{board.isDefault ? ' (Default)' : ''}
+										</option>
+									))}
+								</Select>
+								<Input label="Schedule" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+								<Input label="Timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
+								<div className="flex gap-2">
+									<Button className="flex-1" onClick={() => runPublishAction('publish')} disabled={publishing || selectedDraftPins.length === 0 || boards.length === 0}><Send size={14} /> Publish</Button>
+									<Button variant="outline" className="flex-1" onClick={() => runPublishAction('schedule')} disabled={publishing || selectedDraftPins.length === 0 || boards.length === 0}><CalendarClock size={14} /> Schedule</Button>
+								</div>
+							</div>
+
+							<div className="mb-3 flex flex-wrap items-center gap-2">
+								<select className="rounded-xl border border-input bg-background px-3 py-2 text-xs" value={pinFilter} onChange={(e) => setPinFilter(e.target.value)}>
+									<option value="all">All pins</option>
+									<option value="draft">Drafts</option>
+									<option value="scheduled">Scheduled</option>
+									<option value="published">Published</option>
+									<option value="failed">Failed</option>
+								</select>
+								<div className="relative min-w-[12rem] flex-1">
+									<Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+									<input
+										className="w-full rounded-xl border border-input bg-background py-2 pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+										placeholder="Filter by title or URL…"
+										value={pinSearch}
+										onChange={(e) => setPinSearch(e.target.value)}
+									/>
+								</div>
+								<Button size="sm" variant="outline" onClick={selectAllDraftPins}><CheckSquare size={13} /> Select drafts</Button>
+								<Button size="sm" variant="ghost" onClick={clearDraftPinSelection}><Square size={13} /> Clear</Button>
+								{loadingPins ? <Spinner className="h-4 w-4" /> : <span className="text-xs text-muted-foreground">{filteredSavedPins.length} pins</span>}
+							</div>
+
+							{filteredSavedPins.length === 0 ? (
+								<Empty icon={Sparkles} title="No pins in this view" subtitle="Generate and save drafts to fill your library." />
+							) : (
+								<div className="ai-pins-grid">
+									{filteredSavedPins.map((pin, index) => {
+										const checked = selectedDraftPinIds.has(pin.id);
+										return (
+											<article
+												key={pin.id}
+												className={`ai-pins-card ${editingPinId === pin.id ? 'is-selected' : ''}`}
+												style={{ animationDelay: `${index * 40}ms` }}
+												onClick={() => openInspectorForSaved(pin.id)}
+											>
+												<div className="absolute left-2 top-2 z-10">
+													<input
+														type="checkbox"
+														checked={checked}
+														disabled={pin.status === 'published'}
+														onClick={(e) => e.stopPropagation()}
+														onChange={() => toggleDraftPinSelection(pin.id)}
+														className="h-4 w-4 rounded border-border"
+													/>
+												</div>
+												<div className="ai-pins-card__media">
+													{pin.imageUrl ? (
+														<img src={pin.imageUrl} alt={pin.title} loading="lazy" decoding="async" />
+													) : (
+														<div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground">
+															<Globe size={22} />
+															<p className="text-xs">Image required to publish</p>
+														</div>
+													)}
+												</div>
+												<div className="space-y-2 p-3">
+													<div className="flex items-center justify-between">
+														<Badge tone={pin.status === 'published' ? 'green' : pin.status === 'failed' ? 'red' : pin.status === 'scheduled' ? 'amber' : 'blue'}>{pin.status}</Badge>
+														<span className="text-[10px] text-muted-foreground">{pin.boardName || 'No board'}</span>
+													</div>
+													<h3 className="line-clamp-2 font-display text-sm font-semibold">{pin.title}</h3>
+													<p className="line-clamp-2 text-xs text-muted-foreground">{pin.description}</p>
+													<div className="flex gap-1.5">
+														<Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openInspectorForSaved(pin.id); }}><Pencil size={12} /> Edit</Button>
+														<Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleRegeneratePin(pin); }} disabled={generating}><RefreshCw size={12} /></Button>
+														<Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); handleDeletePin(pin.id); }}><Trash2 size={12} /></Button>
+													</div>
+												</div>
+											</article>
+										);
+									})}
+								</div>
+							)}
+						</>
+					) : null}
+
+					{workspaceTab === 'queue' ? (
+						<div className="space-y-4">
+							<div className="rounded-2xl border border-border bg-background/60 p-4">
+								<h3 className="font-semibold">Publishing queue</h3>
+								<p className="mt-1 text-xs text-muted-foreground">Track scheduled and failed drafts. Retry regenerates content with the current studio settings.</p>
+							</div>
+							{failedPins.length === 0 && savedPins.filter((pin) => pin.status === 'scheduled' || pin.status === 'publishing').length === 0 ? (
+								<Empty icon={ListChecks} title="Queue is clear" subtitle="Failed or scheduled pins will appear here." />
+							) : (
+								<div className="space-y-3">
+									{savedPins.filter((pin) => pin.status === 'failed' || pin.status === 'scheduled' || pin.status === 'publishing').map((pin) => (
+										<Card key={pin.id} className="flex flex-col gap-3 sm:flex-row sm:items-center">
+											<div className="h-20 w-16 shrink-0 overflow-hidden rounded-xl bg-secondary">
+												{pin.imageUrl ? <img src={pin.imageUrl} alt="" className="h-full w-full object-cover" /> : null}
+											</div>
+											<div className="min-w-0 flex-1">
+												<div className="mb-1 flex items-center gap-2">
+													<Badge tone={pin.status === 'failed' ? 'red' : 'amber'}>{pin.status}</Badge>
+													<p className="truncate text-sm font-medium">{pin.title}</p>
+												</div>
+												{pin.publishError ? <p className="text-xs text-destructive">{pin.publishError}</p> : null}
+												{pin.scheduledAt ? <p className="text-xs text-muted-foreground">Scheduled {new Date(pin.scheduledAt).toLocaleString()}</p> : null}
+											</div>
+											<div className="flex gap-2">
+												<Button size="sm" variant="outline" onClick={() => openInspectorForSaved(pin.id)}>Open</Button>
+												{pin.status === 'failed' ? (
+													<Button size="sm" onClick={() => handleRegeneratePin(pin)} disabled={generating}><RefreshCw size={13} /> Retry</Button>
+												) : null}
+											</div>
+										</Card>
+									))}
+								</div>
+							)}
+						</div>
+					) : null}
+				</section>
+
+				{inspectorPin ? (
+					<aside className="ai-pins-atelier__inspector p-4">
+						<div className="mb-4 flex items-start justify-between gap-2">
+							<div>
+								<p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Inspector</p>
+								<h3 className="font-display text-lg font-semibold">Pin details</h3>
+							</div>
+							<button type="button" className="rounded-lg border border-border p-1.5 hover:bg-secondary" onClick={closeInspector}>
+								<X size={14} />
+							</button>
+						</div>
+
+						<div className="mb-4 overflow-hidden rounded-2xl border border-border">
+							<div className="aspect-[2/3] bg-secondary">
+								{inspectorPin.imageUrl ? (
+									<img src={inspectorPin.imageUrl} alt={inspectorPin.title} className="h-full w-full object-cover" />
+								) : inspectorPin.templateConfig ? (
+									<div className="p-2">
+										<TemplatePreviewCard
+											config={inspectorPin.templateConfig}
+											context={{
+												title: inspectorPin.title,
+												description: inspectorPin.description,
+												category: inspectorPin.category,
+												website: inspectorPin.website,
+												author: inspectorPin.author,
+												overlayText: inspectorPin.overlayText,
+											}}
+										/>
+									</div>
+								) : (
+									<div className="flex h-full items-center justify-center text-xs text-muted-foreground"><ImageIcon size={16} className="mr-1" /> No image</div>
+								)}
+							</div>
+						</div>
+
+						<div className="space-y-3">
+							<Input label="Title" value={inspectorPin.title || ''} onChange={(e) => updateInspectorField('title', e.target.value)} />
+							<Textarea label="Description" rows={4} value={inspectorPin.description || ''} onChange={(e) => updateInspectorField('description', e.target.value)} />
+							<Input label="Overlay" value={inspectorPin.overlayText || ''} onChange={(e) => updateInspectorField('overlayText', e.target.value)} />
+							<Textarea label="Image prompt" rows={4} value={inspectorPin.imagePrompt || ''} onChange={(e) => updateInspectorField('imagePrompt', e.target.value)} />
+							<Input
+								label="Keywords"
+								value={safeArray(inspectorPin.suggestedKeywords).join(', ')}
+								onChange={(e) => updateInspectorField('suggestedKeywords', safeArray(e.target.value))}
+							/>
+							<Input
+								label="Hashtags"
+								value={safeArray(inspectorPin.suggestedHashtags).join(', ')}
+								onChange={(e) => updateInspectorField('suggestedHashtags', safeArray(e.target.value))}
+							/>
+							<Input label="Image URL" value={inspectorPin.imageUrl || ''} onChange={(e) => updateInspectorField('imageUrl', e.target.value)} />
+
+							<Select label="Brand Kit" value={inspectorPin.brandKitId || selectedBrandKitId} onChange={(e) => {
+								updateInspectorField('brandKitId', e.target.value);
+								setSelectedBrandKitId(e.target.value);
+							}}>
+								<option value="">No brand kit</option>
+								{brandKits.map((kit) => (
+									<option key={kit.id} value={kit.id}>{kit.name}</option>
+								))}
+							</Select>
+
+							{editingPinId ? (
+								<>
+									<Select label="Template" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)}>
+										<option value="">System default</option>
+										{templates.map((template) => (
+											<option key={template.id} value={template.id}>{template.name}</option>
+										))}
+									</Select>
+									<Select label="Target account" value={inspectorPin.accountId || ''} onChange={(e) => setPinTargetAccount(inspectorPin.id, e.target.value)}>
+										<option value="">Use global account</option>
+										{accounts.map((account) => (
+											<option key={account.id} value={account.id}>{account.label || account.accountName || account.username}</option>
+										))}
+									</Select>
+									<Select label="Target board" value={inspectorPin.boardId || ''} onChange={(e) => updatePinField(inspectorPin.id, 'boardId', e.target.value)}>
+										<option value="">Use global board</option>
+										{(boardsByAccount[inspectorPin.accountId || selectedAccountId] || boards).map((board) => (
+											<option key={board.id} value={board.boardId}>{board.name}</option>
+										))}
+									</Select>
+								</>
+							) : null}
+
+							<div className="flex flex-wrap gap-2 pt-2">
+								{editingPinId ? (
+									<>
+										<Button className="flex-1" onClick={() => handleSaveEdit(inspectorPin)}>Save changes</Button>
+										<Button variant="outline" onClick={() => handleRegeneratePin(inspectorPin)} disabled={generating}><RefreshCw size={14} /></Button>
+										<Button variant="ghost" onClick={() => handleDeletePin(inspectorPin.id)}><Trash2 size={14} /></Button>
+									</>
+								) : (
+									<>
+										<Button className="flex-1" variant="outline" onClick={() => regeneratePreviewImage(inspectorPin)} disabled={panel.imageMode !== 'generate_ai' || generatingImages}>
+											<RefreshCw size={14} /> Regenerate image
+										</Button>
+										<Button variant="outline" onClick={() => downloadImage(inspectorPin.imageUrl, inspectorPin.title)} disabled={!inspectorPin.imageUrl}>
+											<Download size={14} />
+										</Button>
+									</>
+								)}
+							</div>
+						</div>
+					</aside>
+				) : null}
 			</div>
 
 			<ArticlePreviewDrawer

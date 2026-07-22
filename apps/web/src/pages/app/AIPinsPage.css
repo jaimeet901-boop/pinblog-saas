@@ -1,0 +1,237 @@
+/* Chef IA — AI Pins atelier (page-scoped) */
+.ai-pins-atelier {
+	--atelier-rail: 22rem;
+	--atelier-inspector: 22rem;
+	isolation: isolate;
+}
+
+.ai-pins-atelier__shell {
+	display: grid;
+	gap: 1rem;
+	align-items: start;
+}
+
+@media (min-width: 1100px) {
+	.ai-pins-atelier__shell {
+		grid-template-columns: var(--atelier-rail) minmax(0, 1fr);
+	}
+
+	.ai-pins-atelier__shell.is-inspecting {
+		grid-template-columns: var(--atelier-rail) minmax(0, 1fr) var(--atelier-inspector);
+	}
+}
+
+.ai-pins-atelier__rail {
+	position: sticky;
+	top: 0.75rem;
+	max-height: calc(100dvh - 6rem);
+	overflow: auto;
+	border-radius: 1.35rem;
+	border: 1px solid hsl(var(--border) / 0.9);
+	background:
+		radial-gradient(120% 80% at 0% 0%, hsl(var(--primary) / 0.08), transparent 55%),
+		linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--secondary) / 0.45) 100%);
+	box-shadow: 0 18px 40px -28px hsl(var(--foreground) / 0.35);
+	scrollbar-width: thin;
+}
+
+.ai-pins-atelier__canvas {
+	min-width: 0;
+	border-radius: 1.35rem;
+	border: 1px solid hsl(var(--border) / 0.85);
+	background:
+		linear-gradient(160deg, hsl(var(--secondary) / 0.55), transparent 42%),
+		hsl(var(--card) / 0.72);
+	box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.4);
+}
+
+.ai-pins-atelier__inspector {
+	border-radius: 1.35rem;
+	border: 1px solid hsl(var(--border) / 0.9);
+	background: hsl(var(--card));
+	box-shadow: 0 20px 48px -32px hsl(var(--foreground) / 0.4);
+	max-height: calc(100dvh - 6rem);
+	overflow: auto;
+	position: sticky;
+	top: 0.75rem;
+}
+
+.ai-pins-mode-tabs {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 0.35rem;
+	padding: 0.35rem;
+	border-radius: 1rem;
+	background: hsl(var(--background) / 0.75);
+	border: 1px solid hsl(var(--border) / 0.8);
+}
+
+.ai-pins-mode-tabs button {
+	border-radius: 0.8rem;
+	padding: 0.55rem 0.4rem;
+	font-size: 0.72rem;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	color: hsl(var(--muted-foreground));
+	transition: background 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.ai-pins-mode-tabs button.is-active {
+	background: hsl(var(--primary));
+	color: hsl(var(--primary-foreground));
+	box-shadow: 0 8px 18px -10px hsl(var(--primary) / 0.9);
+}
+
+.ai-pins-mode-tabs button:hover:not(.is-active) {
+	background: hsl(var(--secondary));
+	color: hsl(var(--foreground));
+}
+
+.ai-pins-chip-row {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 0.4rem;
+}
+
+.ai-pins-chip,
+.ai-pins-ratio {
+	border: 1px solid hsl(var(--border));
+	background: hsl(var(--background) / 0.7);
+	border-radius: 0.9rem;
+	padding: 0.55rem 0.4rem;
+	text-align: center;
+	transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.ai-pins-chip.is-active,
+.ai-pins-ratio.is-active {
+	border-color: hsl(var(--primary));
+	background: hsl(var(--primary) / 0.1);
+	box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.25);
+}
+
+.ai-pins-ratio {
+	display: grid;
+	place-items: center;
+	gap: 0.25rem;
+	min-height: 4.2rem;
+	font-size: 0.68rem;
+	font-weight: 600;
+}
+
+.ai-pins-ratio__frame {
+	width: 1.15rem;
+	border: 1.5px solid currentColor;
+	border-radius: 0.2rem;
+	opacity: 0.75;
+}
+
+.ai-pins-ratio__frame.tall { height: 1.7rem; }
+.ai-pins-ratio__frame.pin { height: 1.55rem; }
+.ai-pins-ratio__frame.classic { height: 1.35rem; }
+.ai-pins-ratio__frame.custom { height: 1.15rem; width: 1.35rem; }
+
+.ai-pins-grid {
+	display: grid;
+	gap: 1rem;
+	grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+
+.ai-pins-card {
+	position: relative;
+	overflow: hidden;
+	border-radius: 1.15rem;
+	border: 1px solid hsl(var(--border) / 0.9);
+	background: hsl(var(--card));
+	transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+	animation: ai-pins-rise 420ms ease both;
+}
+
+.ai-pins-card:hover {
+	transform: translateY(-3px);
+	box-shadow: 0 22px 36px -28px hsl(var(--foreground) / 0.45);
+	border-color: hsl(var(--primary) / 0.35);
+}
+
+.ai-pins-card.is-selected {
+	border-color: hsl(var(--primary));
+	box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2);
+}
+
+.ai-pins-card__media {
+	aspect-ratio: 2 / 3;
+	background:
+		radial-gradient(circle at 30% 20%, hsl(var(--accent) / 0.25), transparent 50%),
+		linear-gradient(160deg, hsl(var(--primary) / 0.18), hsl(var(--secondary)));
+	overflow: hidden;
+}
+
+.ai-pins-card__media img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.ai-pins-skeleton {
+	border-radius: 1.15rem;
+	overflow: hidden;
+	border: 1px solid hsl(var(--border) / 0.7);
+	background: hsl(var(--secondary) / 0.5);
+}
+
+.ai-pins-skeleton__shine {
+	height: 100%;
+	min-height: 18rem;
+	background: linear-gradient(
+		110deg,
+		transparent 30%,
+		hsl(var(--background) / 0.55) 45%,
+		transparent 60%
+	);
+	background-size: 200% 100%;
+	animation: ai-pins-shimmer 1.4s ease-in-out infinite;
+}
+
+.ai-pins-progress {
+	height: 0.4rem;
+	border-radius: 999px;
+	overflow: hidden;
+	background: hsl(var(--secondary));
+}
+
+.ai-pins-progress > span {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--accent)));
+	transition: width 280ms ease;
+}
+
+@keyframes ai-pins-rise {
+	from { opacity: 0; transform: translateY(10px) scale(0.985); }
+	to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes ai-pins-shimmer {
+	0% { background-position: 120% 0; }
+	100% { background-position: -40% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ai-pins-card,
+	.ai-pins-skeleton__shine {
+		animation: none;
+	}
+	.ai-pins-card:hover {
+		transform: none;
+	}
+}
+
+@media (max-width: 1099px) {
+	.ai-pins-atelier__rail,
+	.ai-pins-atelier__inspector {
+		position: relative;
+		top: auto;
+		max-height: none;
+	}
+}
