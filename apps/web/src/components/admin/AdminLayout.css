@@ -1177,6 +1177,53 @@
 .admin-system-dot--warning { background: var(--admin-warn); }
 .admin-system-dot--critical { background: var(--admin-danger); }
 
+.admin-settings-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	border-radius: 0.85rem;
+	border: 1px solid var(--admin-border);
+	background: rgba(255, 255, 255, 0.03);
+	padding: 0.65rem 0.8rem;
+	font-size: 0.8rem;
+}
+
+.admin-settings-toggle input,
+.admin-settings-flag input {
+	accent-color: hsl(var(--primary, 24 90% 55%));
+	width: 1.05rem;
+	height: 1.05rem;
+}
+
+.admin-settings-flags {
+	display: grid;
+	gap: 0.55rem;
+	grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+.admin-settings-flag {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.65rem;
+	border-radius: 0.95rem;
+	border: 1px solid var(--admin-border);
+	background: rgba(255, 255, 255, 0.03);
+	padding: 0.75rem 0.85rem;
+}
+
+.admin-settings-flag strong {
+	display: block;
+	font-size: 0.84rem;
+}
+
+.admin-settings-flag p {
+	margin-top: 0.2rem;
+	font-size: 0.7rem;
+	color: var(--admin-muted);
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.admin-page-hero,
 	.admin-drawer-overlay,
