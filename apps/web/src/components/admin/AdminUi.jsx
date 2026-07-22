@@ -16,9 +16,9 @@ export function AdminHero({ eyebrow = 'Chef IA Admin', title, description, actio
 export function StatusPill({ status }) {
 	const value = String(status || '').toLowerCase();
 	let tone = '';
-	if (['active', 'healthy', 'connected', 'completed', 'enabled', 'operational', 'success'].includes(value)) tone = 'admin-pill--green';
-	else if (['waiting', 'trial', 'warn', 'warning', 'degraded', 'retry', 'invited', 'ready', 'pending'].includes(value)) tone = 'admin-pill--amber';
-	else if (['failed', 'error', 'suspended', 'disabled', 'danger', 'disconnected'].includes(value)) tone = 'admin-pill--red';
-	else if (['running', 'info', 'pro', 'agency', 'admin', 'user', 'text', 'image'].includes(value)) tone = 'admin-pill--blue';
+	if (['active', 'healthy', 'connected', 'completed', 'enabled', 'operational', 'success', 'online'].includes(value)) tone = 'admin-pill--green';
+	else if (['waiting', 'trial', 'warn', 'warning', 'degraded', 'retry', 'retrying', 'invited', 'ready', 'pending', 'queued', 'paused'].includes(value)) tone = 'admin-pill--amber';
+	else if (['failed', 'error', 'suspended', 'disabled', 'danger', 'disconnected', 'cancelled', 'offline'].includes(value)) tone = 'admin-pill--red';
+	else if (['running', 'info', 'pro', 'agency', 'admin', 'user', 'text', 'image', 'high', 'normal', 'low'].includes(value)) tone = 'admin-pill--blue';
 	return <span className={`admin-pill ${tone}`}>{status}</span>;
 }

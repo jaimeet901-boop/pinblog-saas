@@ -1021,13 +1021,78 @@
 	text-decoration: none;
 }
 
+.admin-queue-progress {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 0.4rem;
+	align-items: center;
+	min-width: 6.5rem;
+}
+
+.admin-queue-progress__track {
+	height: 0.4rem;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.08);
+	overflow: hidden;
+}
+
+.admin-queue-progress__fill {
+	height: 100%;
+	border-radius: 999px;
+	background: linear-gradient(90deg, var(--admin-primary), var(--admin-accent));
+	box-shadow: 0 0 12px rgba(232, 168, 124, 0.35);
+	animation: admin-pulse 1.8s ease-in-out infinite;
+}
+
+.admin-queue-progress span {
+	font-size: 0.68rem;
+	color: var(--admin-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.admin-queue-logs {
+	display: grid;
+	gap: 0.35rem;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.72rem;
+	color: var(--admin-muted);
+}
+
+.admin-queue-logs code {
+	display: block;
+	padding: 0.35rem 0.5rem;
+	border-radius: 0.5rem;
+	background: rgba(0, 0, 0, 0.28);
+	border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.admin-queue-json {
+	margin: 0;
+	padding: 0.65rem 0.7rem;
+	border-radius: 0.7rem;
+	background: rgba(0, 0, 0, 0.28);
+	border: 1px solid rgba(255, 255, 255, 0.04);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.72rem;
+	color: var(--admin-muted);
+	overflow: auto;
+	max-height: 10rem;
+	white-space: pre-wrap;
+}
+
+@keyframes admin-pulse {
+	0%, 100% { filter: brightness(1); }
+	50% { filter: brightness(1.15); }
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.admin-page-hero,
 	.admin-drawer-overlay,
 	.admin-modal-overlay,
 	.admin-plan-card,
 	.admin-analytics-kpi,
-	.admin-analytics-chart__fill {
+	.admin-analytics-chart__fill,
+	.admin-queue-progress__fill {
 		animation: none;
 		transition: none;
 	}
