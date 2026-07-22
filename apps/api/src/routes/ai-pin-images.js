@@ -8,6 +8,7 @@ import {
 	sanitizeCollectionPayload,
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
+import { mirrorImageJob } from '../services/queue/mirrors.js';
 
 const router = Router();
 
@@ -200,6 +201,8 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 				image_job_id: job.id,
 			});
 		}
+
+		await mirrorImageJob(job, 'Image generation queued').catch(() => null);
 
 		jobs.push(job);
 	}

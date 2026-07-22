@@ -18,6 +18,7 @@ import {
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
 import { writePinterestPublishHistory } from './pinterest-publish-history.js';
+import { mirrorPinterestJob } from './queue/mirrors.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.PINTEREST_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.PINTEREST_QUEUE_BATCH || '10', 10);
@@ -92,6 +93,7 @@ async function claimScheduledJob(jobId) {
 		return null;
 	}
 
+	await mirrorPinterestJob(verified, null, 'Worker claimed Pinterest job').catch(() => null);
 	return verified;
 }
 
@@ -283,6 +285,16 @@ async function processJob(job) {
 		durationMs: Date.now() - startedMs,
 		attemptCount: (job.attempt_count || 0) + 1,
 	});
+
+	await mirrorPinterestJob({
+		...job,
+		status: 'published',
+		attempt_count: (job.attempt_count || 0) + 1,
+		published_at: publishedAt,
+		pinterest_pin_id: pinterestPinId,
+		pinterest_pin_url: pinterestPinUrl,
+		last_error: '',
+	}, pin, 'Pinterest pin published').catch(() => null);
 }
 
 function isRetryDue(job, nowMs) {
@@ -389,6 +401,14 @@ async function processDueJobs() {
 				});
 
 				await pocketbaseClient.collection('pinterest_publish_jobs').update(locked.id, retryPayload);
+
+				await mirrorPinterestJob({
+					...locked,
+					status: shouldRetry ? 'scheduled' : 'failed',
+					attempt_count: nextAttempts,
+					last_error: normalized.message,
+					next_retry_at: nextRetryAt,
+				}, null, shouldRetry ? 'Pinterest publish retry scheduled' : 'Pinterest publish failed').catch(() => null);
 
 				await markPinStatus(locked.ai_pin, {
 					status: shouldRetry ? 'scheduled' : 'failed',

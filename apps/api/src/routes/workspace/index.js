@@ -41,10 +41,12 @@ import {
 } from '../../services/workspace-calendar.js';
 import { getWorkspaceHistory } from '../../services/workspace-history.js';
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
+import queueRouter from './queue.js';
 
 const router = Router();
 
 router.use(pocketbaseAuth, resolveWorkspace);
+router.use('/queue', queueRouter);
 
 router.get('/me', async (req, res) => {
 	res.json({

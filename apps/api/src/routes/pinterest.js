@@ -33,6 +33,7 @@ import {
 } from '../utils/pocketbase-safe-query.js';
 import { resolveScheduledAtUtc } from '../utils/timezone.js';
 import { listPublishProviders, setPublishProvider, getPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
+import { mirrorPinterestJob } from '../services/queue/mirrors.js';
 
 const router = Router();
 const DEFAULT_PAGE = 1;
@@ -299,6 +300,8 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 			message: 'Pin scheduled for publishing',
 			payload: { scheduledAt, timezone, boardId: board.board_id, accountId: account.id },
 		});
+
+		await mirrorPinterestJob(job, pin, 'Pinterest publish job scheduled').catch(() => null);
 
 		jobs.push(job);
 	}

@@ -7,6 +7,7 @@ import {
 } from './wordpress-client.js';
 import { getSiteCredentialsPlain } from './wordpress-sites.js';
 import { writePublishHistory } from './wordpress-publish.js';
+import { mirrorWordpressJob } from './queue/mirrors.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.WORDPRESS_QUEUE_POLL_MS || '10000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.WORDPRESS_QUEUE_BATCH || '5', 10);
@@ -49,6 +50,7 @@ async function claimJob(jobId) {
 	if (!verified || verified.status !== 'publishing' || verified.claim_token !== claimToken) {
 		return null;
 	}
+	await mirrorWordpressJob(verified, 'Worker claimed WordPress job').catch(() => null);
 	return verified;
 }
 
@@ -149,6 +151,17 @@ async function processJob(job) {
 		dead_letter: false,
 	});
 
+	await mirrorWordpressJob({
+		...job,
+		status: 'published',
+		progress: 100,
+		wp_post_id: result.id,
+		wp_post_url: result.link,
+		completed_at: completedAt,
+		last_error: '',
+		dead_letter: false,
+	}, 'WordPress publish completed').catch(() => null);
+
 	await writePublishHistory({
 		ownerId,
 		workspaceKey: job.workspace_key,
@@ -198,6 +211,14 @@ async function failOrRetry(job, error) {
 			progress: 0,
 			claim_token: '',
 		});
+		await mirrorWordpressJob({
+			...job,
+			status: job.scheduled_at ? 'scheduled' : 'queued',
+			attempt_count: attempt,
+			next_retry_at: nextRetryDate(attempt),
+			last_error: error.message,
+			progress: 0,
+		}, 'WordPress publish retry scheduled').catch(() => null);
 		return;
 	}
 
@@ -211,6 +232,15 @@ async function failOrRetry(job, error) {
 		dead_letter: true,
 		claim_token: '',
 	});
+	await mirrorWordpressJob({
+		...job,
+		status: 'failed',
+		attempt_count: attempt,
+		last_error: error.message,
+		completed_at: completedAt,
+		progress: 100,
+		dead_letter: true,
+	}, 'WordPress publish failed').catch(() => null);
 
 	await writePublishHistory({
 		ownerId: job.owner,

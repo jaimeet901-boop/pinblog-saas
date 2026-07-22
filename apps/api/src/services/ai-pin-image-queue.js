@@ -9,6 +9,7 @@ import {
 	sanitizeCollectionPayload,
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
+import { mirrorImageJob } from './queue/mirrors.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_POLL_MS || '12000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.AI_IMAGE_QUEUE_BATCH || '5', 10);
@@ -87,6 +88,14 @@ async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' 
 	});
 
 	await pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, payload);
+
+	await mirrorImageJob({
+		...job,
+		status,
+		image_url: imageUrl,
+		last_error: lastError,
+		completed_at: completedAt,
+	}, status === 'failed' ? 'Image generation failed' : 'Image generation completed').catch(() => null);
 
 	if (job.ai_pin) {
 		await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
@@ -260,6 +269,8 @@ async function processDueJobs() {
 			if (!locked || locked.status !== 'processing') {
 				continue;
 			}
+
+			await mirrorImageJob(locked, 'Image worker claimed job').catch(() => null);
 
 			if (locked.ai_pin) {
 				await pocketbaseClient.collection('ai_pins').update(locked.ai_pin, {

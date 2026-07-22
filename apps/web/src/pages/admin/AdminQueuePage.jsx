@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-	RefreshCw, Download, Eye, RotateCcw, Ban, Pause, Play, ScrollText, Trash2, ListRestart, X,
+	RefreshCw, Download, Eye, RotateCcw, Ban, Pause, Play, ScrollText, Trash2, ListRestart, X, Loader2,
 } from 'lucide-react';
 import { AdminHero, StatusPill, AdminPagination, AdminProgressBar } from '@/components/admin/AdminUi';
-import { MOCK_QUEUE_MONITOR as DATA } from '@/pages/admin/queueMonitorMock';
+import apiServerClient from '@/lib/apiServerClient';
+import { useToast } from '@/hooks/use-toast';
 
 const PAGE_SIZE = 8;
-const BACKEND_READY = false;
 
 const JOB_TYPES = [
 	'AI Article Generation',
@@ -25,7 +25,36 @@ const JOB_TYPES = [
 
 const STATUSES = ['queued', 'waiting', 'running', 'completed', 'failed', 'retrying', 'paused', 'cancelled'];
 
+const EMPTY_SUMMARY = {
+	running: 0,
+	queued: 0,
+	completedToday: 0,
+	failed: 0,
+	retry: 0,
+	avgProcessingTime: '—',
+	workersOnline: '0 / 0',
+	jobsPerMinute: 0,
+	paused: false,
+	health: {
+		avgQueueTime: '—',
+		longestWaiting: '—',
+		oldestRunning: '—',
+		queueCapacity: '0%',
+		workerUtilization: '0%',
+	},
+};
+
+async function readApiError(response) {
+	try {
+		const data = await response.json();
+		return data?.message || `Request failed (${response.status})`;
+	} catch {
+		return `Request failed (${response.status})`;
+	}
+}
+
 export default function AdminQueuePage() {
+	const { toast } = useToast();
 	const [search, setSearch] = useState('');
 	const [jobType, setJobType] = useState('');
 	const [status, setStatus] = useState('');
@@ -35,37 +64,91 @@ export default function AdminQueuePage() {
 	const [dateRange, setDateRange] = useState('');
 	const [page, setPage] = useState(1);
 	const [selectedId, setSelectedId] = useState('');
+	const [selected, setSelected] = useState(null);
 	const [autoRefresh, setAutoRefresh] = useState(false);
 	const [refreshedAt, setRefreshedAt] = useState(() => new Date().toLocaleTimeString());
-	const [tick, setTick] = useState(0);
+	const [loading, setLoading] = useState(true);
+	const [actionId, setActionId] = useState('');
+	const [summary, setSummary] = useState(EMPTY_SUMMARY);
+	const [jobs, setJobs] = useState([]);
+	const [totalItems, setTotalItems] = useState(0);
+	const [totalPages, setTotalPages] = useState(1);
+	const [workers, setWorkers] = useState([]);
+	const [activity, setActivity] = useState([]);
+	const [providerOptions, setProviderOptions] = useState([]);
+	const [workspaceOptions, setWorkspaceOptions] = useState([]);
 
-	const providerOptions = useMemo(
-		() => [...new Set(DATA.jobs.map((job) => job.provider).filter((value) => value && value !== '—'))].sort(),
-		[],
-	);
-	const workspaceOptions = useMemo(
-		() => [...new Set(DATA.jobs.map((job) => job.workspace))].sort(),
-		[],
-	);
+	const load = useCallback(async () => {
+		setLoading(true);
+		try {
+			const params = new URLSearchParams({
+				page: String(page),
+				perPage: String(PAGE_SIZE),
+			});
+			if (search.trim()) params.set('q', search.trim());
+			if (jobType) params.set('type', jobType);
+			if (status) params.set('status', status);
+			if (priority) params.set('priority', priority);
+			if (provider) params.set('provider', provider);
+			if (workspace) params.set('workspace', workspace);
+			if (dateRange) params.set('date', dateRange);
 
-	const filtered = useMemo(() => {
-		const q = search.trim().toLowerCase();
-		return DATA.jobs.filter((job) => {
-			if (jobType && job.type !== jobType) return false;
-			if (status && job.status !== status) return false;
-			if (priority && job.priority !== priority) return false;
-			if (provider && job.provider !== provider) return false;
-			if (workspace && job.workspace !== workspace) return false;
-			if (dateRange === 'today' && !String(job.created).startsWith('2026-07-22')) return false;
-			if (!q) return true;
-			const haystack = [job.id, job.type, job.workspace, job.owner, job.provider, job.worker].join(' ').toLowerCase();
-			return haystack.includes(q);
-		});
-	}, [search, jobType, status, priority, provider, workspace, dateRange, tick]);
+			const [summaryRes, jobsRes] = await Promise.all([
+				apiServerClient.fetch('/admin/v1/queue/summary'),
+				apiServerClient.fetch(`/admin/v1/queue/jobs?${params.toString()}`),
+			]);
 
-	const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-	const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-	const selected = DATA.jobs.find((job) => job.id === selectedId) || null;
+			if (!summaryRes.ok) throw new Error(await readApiError(summaryRes));
+			if (!jobsRes.ok) throw new Error(await readApiError(jobsRes));
+
+			const summaryPayload = await summaryRes.json();
+			const jobsPayload = await jobsRes.json();
+
+			setSummary({
+				...EMPTY_SUMMARY,
+				...summaryPayload,
+				health: { ...EMPTY_SUMMARY.health, ...(summaryPayload.health || {}) },
+			});
+			setWorkers(Array.isArray(summaryPayload.workers) ? summaryPayload.workers : []);
+			setActivity(Array.isArray(summaryPayload.activity) ? summaryPayload.activity : []);
+			setJobs(Array.isArray(jobsPayload.items) ? jobsPayload.items : []);
+			setTotalItems(Number(jobsPayload.totalItems) || 0);
+			setTotalPages(Math.max(1, Number(jobsPayload.totalPages) || 1));
+
+			const nextProviders = [...new Set((jobsPayload.items || []).map((job) => job.provider).filter((value) => value && value !== '—'))];
+			const nextWorkspaces = [...new Set((jobsPayload.items || []).map((job) => job.workspace).filter(Boolean))];
+			setProviderOptions((prev) => [...new Set([...prev, ...nextProviders])].sort());
+			setWorkspaceOptions((prev) => [...new Set([...prev, ...nextWorkspaces])].sort());
+			setRefreshedAt(new Date().toLocaleTimeString());
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Queue load failed', description: error.message });
+		} finally {
+			setLoading(false);
+		}
+	}, [page, search, jobType, status, priority, provider, workspace, dateRange, toast]);
+
+	const loadSelected = useCallback(async (id) => {
+		if (!id) {
+			setSelected(null);
+			return;
+		}
+		try {
+			const response = await apiServerClient.fetch(`/admin/v1/queue/jobs/${id}`);
+			if (!response.ok) throw new Error(await readApiError(response));
+			setSelected(await response.json());
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Job detail failed', description: error.message });
+		}
+	}, [toast]);
+
+	useEffect(() => {
+		load();
+	}, [load]);
+
+	useEffect(() => {
+		if (selectedId) loadSelected(selectedId);
+		else setSelected(null);
+	}, [selectedId, loadSelected]);
 
 	useEffect(() => {
 		if (page > totalPages) setPage(totalPages);
@@ -74,11 +157,11 @@ export default function AdminQueuePage() {
 	useEffect(() => {
 		if (!autoRefresh) return undefined;
 		const id = window.setInterval(() => {
-			setTick((value) => value + 1);
-			setRefreshedAt(new Date().toLocaleTimeString());
+			load();
+			if (selectedId) loadSelected(selectedId);
 		}, 8000);
 		return () => window.clearInterval(id);
-	}, [autoRefresh]);
+	}, [autoRefresh, load, loadSelected, selectedId]);
 
 	useEffect(() => {
 		if (!selected) return undefined;
@@ -89,26 +172,62 @@ export default function AdminQueuePage() {
 		return () => window.removeEventListener('keydown', onKeyDown);
 	}, [selected]);
 
-	const refresh = () => {
-		setTick((value) => value + 1);
-		setRefreshedAt(new Date().toLocaleTimeString());
+	const runAction = async (action, jobId) => {
+		const id = jobId || selectedId;
+		if (!id) return;
+		setActionId(`${action}-${id}`);
+		try {
+			const path = action === 'pause-queue'
+				? '/admin/v1/queue/pause'
+				: action === 'resume-queue'
+					? '/admin/v1/queue/resume'
+					: `/admin/v1/queue/jobs/${id}/${action}`;
+			const method = action === 'delete' ? 'DELETE' : 'POST';
+			const response = await apiServerClient.fetch(path, { method });
+			if (!response.ok) throw new Error(await readApiError(response));
+			toast({ title: 'Queue updated', description: `${action} completed.` });
+			await load();
+			if (action === 'delete') setSelectedId('');
+			else await loadSelected(id);
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Action failed', description: error.message });
+		} finally {
+			setActionId('');
+		}
 	};
+
+	const healthCards = useMemo(() => ([
+		{ label: 'Average Queue Time', value: summary.health?.avgQueueTime || '—' },
+		{ label: 'Longest Waiting Job', value: summary.health?.longestWaiting || '—' },
+		{ label: 'Oldest Running Job', value: summary.health?.oldestRunning || '—' },
+		{ label: 'Queue Capacity', value: summary.health?.queueCapacity || '—' },
+		{ label: 'Worker Utilization', value: summary.health?.workerUtilization || '—' },
+	]), [summary.health]);
 
 	return (
 		<div>
 			<AdminHero
 				title="Queue & Jobs Monitor"
-				description="Monitor all background jobs running across the Chef IA platform. Mock telemetry only."
+				description="Monitor all background jobs running across the Chef IA platform."
 				action={(
 					<div className="admin-analytics-controls">
 						<label className="admin-check" style={{ color: 'var(--admin-muted)', marginBottom: '0.35rem' }}>
 							<input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
 							<span>Auto Refresh</span>
 						</label>
-						<button type="button" className="admin-btn" onClick={refresh}>
-							<RefreshCw size={13} /> Refresh
+						<button type="button" className="admin-btn" onClick={() => load()} disabled={loading}>
+							{loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Refresh
 						</button>
-						<button type="button" className="admin-btn admin-btn--primary" disabled title="UI only">
+						<button
+							type="button"
+							className="admin-btn"
+							onClick={() => runAction(summary.paused ? 'resume-queue' : 'pause-queue')}
+							disabled={Boolean(actionId)}
+						>
+							{summary.paused ? <Play size={13} /> : <Pause size={13} />}
+							{summary.paused ? 'Resume Queue' : 'Pause Queue'}
+						</button>
+						<button type="button" className="admin-btn admin-btn--primary" disabled title="Export comes in a later phase">
 							<Download size={13} /> Export
 						</button>
 					</div>
@@ -117,24 +236,25 @@ export default function AdminQueuePage() {
 
 			<p className="admin-note mt-0 mb-3">
 				Last refreshed {refreshedAt}
-				{autoRefresh ? ' · auto every 8s (UI pulse only)' : ''}
+				{autoRefresh ? ' · auto every 8s' : ''}
+				{summary.paused ? ' · queue paused' : ''}
 			</p>
 
 			<div className="admin-stats admin-stats--compact">
 				{[
-					{ label: 'Running Jobs', value: DATA.summary.running },
-					{ label: 'Queued Jobs', value: DATA.summary.queued },
-					{ label: 'Completed Today', value: DATA.summary.completedToday },
-					{ label: 'Failed Jobs', value: DATA.summary.failed },
-					{ label: 'Retry Queue', value: DATA.summary.retry },
-					{ label: 'Average Processing Time', value: DATA.summary.avgProcessingTime },
-					{ label: 'Workers Online', value: DATA.summary.workersOnline },
-					{ label: 'Jobs Per Minute', value: DATA.summary.jobsPerMinute },
+					{ label: 'Running Jobs', value: summary.running },
+					{ label: 'Queued Jobs', value: summary.queued },
+					{ label: 'Completed Today', value: summary.completedToday },
+					{ label: 'Failed Jobs', value: summary.failed },
+					{ label: 'Retry Queue', value: summary.retry },
+					{ label: 'Average Processing Time', value: summary.avgProcessingTime },
+					{ label: 'Workers Online', value: summary.workersOnline },
+					{ label: 'Jobs Per Minute', value: summary.jobsPerMinute },
 				].map((card) => (
 					<div key={card.label} className="admin-stat">
 						<p className="admin-stat__label">{card.label}</p>
 						<p className="admin-stat__value">{typeof card.value === 'number' ? card.value.toLocaleString() : card.value}</p>
-						<p className="admin-stat__hint">Mock</p>
+						<p className="admin-stat__hint">Live</p>
 					</div>
 				))}
 			</div>
@@ -215,7 +335,13 @@ export default function AdminQueuePage() {
 							</tr>
 						</thead>
 						<tbody>
-							{rows.map((job) => (
+							{jobs.length === 0 ? (
+								<tr>
+									<td colSpan={13} style={{ textAlign: 'center', color: 'var(--admin-muted)' }}>
+										{loading ? 'Loading queue…' : 'No jobs match the current filters.'}
+									</td>
+								</tr>
+							) : jobs.map((job) => (
 								<tr
 									key={job.id}
 									className={selectedId === job.id ? 'is-selected' : ''}
@@ -238,10 +364,10 @@ export default function AdminQueuePage() {
 											<button type="button" className="admin-btn" onClick={() => setSelectedId(job.id)}>
 												<Eye size={12} /> View
 											</button>
-											<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+											<button type="button" className="admin-btn" disabled={actionId.startsWith('retry')} onClick={() => runAction('retry', job.id)}>
 												<RotateCcw size={12} /> Retry
 											</button>
-											<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+											<button type="button" className="admin-btn" disabled={actionId.startsWith('cancel')} onClick={() => runAction('cancel', job.id)}>
 												<Ban size={12} /> Cancel
 											</button>
 										</div>
@@ -252,7 +378,7 @@ export default function AdminQueuePage() {
 					</table>
 				</div>
 				<AdminPagination
-					total={filtered.length}
+					total={totalItems}
 					page={page}
 					totalPages={totalPages}
 					noun="jobs"
@@ -265,7 +391,9 @@ export default function AdminQueuePage() {
 				<section className="admin-card">
 					<h3>Live Activity</h3>
 					<div className="admin-analytics-timeline">
-						{DATA.activity.map((item) => (
+						{activity.length === 0 ? (
+							<p className="text-sm" style={{ color: 'var(--admin-muted)' }}>No recent queue events.</p>
+						) : activity.map((item) => (
 							<div key={item.id} className="admin-analytics-timeline__item">
 								<span className="admin-analytics-timeline__dot" aria-hidden="true" />
 								<div>
@@ -280,13 +408,7 @@ export default function AdminQueuePage() {
 				<section className="admin-card">
 					<h3>Queue Health</h3>
 					<div className="admin-analytics-mini">
-						{[
-							{ label: 'Average Queue Time', value: DATA.health.avgQueueTime },
-							{ label: 'Longest Waiting Job', value: DATA.health.longestWaiting },
-							{ label: 'Oldest Running Job', value: DATA.health.oldestRunning },
-							{ label: 'Queue Capacity', value: DATA.health.queueCapacity },
-							{ label: 'Worker Utilization', value: DATA.health.workerUtilization },
-						].map((card) => (
+						{healthCards.map((card) => (
 							<div key={card.label} className="admin-stat">
 								<p className="admin-stat__label">{card.label}</p>
 								<p className="admin-stat__value" style={{ fontSize: '1.05rem' }}>{card.value}</p>
@@ -312,7 +434,11 @@ export default function AdminQueuePage() {
 							</tr>
 						</thead>
 						<tbody>
-							{DATA.workers.map((worker) => (
+							{workers.length === 0 ? (
+								<tr>
+									<td colSpan={7} style={{ color: 'var(--admin-muted)' }}>Workers will appear once the queue engine starts.</td>
+								</tr>
+							) : workers.map((worker) => (
 								<tr key={worker.id}>
 									<td className="font-medium">{worker.id}</td>
 									<td><StatusPill status={worker.status} /></td>
@@ -398,15 +524,14 @@ export default function AdminQueuePage() {
 						</section>
 
 						<div className="admin-user-drawer__actions">
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available"><RotateCcw size={13} /> Retry</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available"><Ban size={13} /> Cancel</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available"><Pause size={13} /> Pause</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available"><Play size={13} /> Resume</button>
-							<button type="button" className="admin-btn" onClick={() => {}}><ScrollText size={13} /> View Logs</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available"><ListRestart size={13} /> Requeue</button>
-							<button type="button" className="admin-btn admin-btn--danger" disabled={!BACKEND_READY} title="Backend not available"><Trash2 size={13} /> Delete Job</button>
+							<button type="button" className="admin-btn" disabled={Boolean(actionId)} onClick={() => runAction('retry')}><RotateCcw size={13} /> Retry</button>
+							<button type="button" className="admin-btn" disabled={Boolean(actionId)} onClick={() => runAction('cancel')}><Ban size={13} /> Cancel</button>
+							<button type="button" className="admin-btn" disabled={Boolean(actionId)} onClick={() => runAction('pause')}><Pause size={13} /> Pause</button>
+							<button type="button" className="admin-btn" disabled={Boolean(actionId)} onClick={() => runAction('resume')}><Play size={13} /> Resume</button>
+							<button type="button" className="admin-btn" onClick={() => loadSelected(selected.id)}><ScrollText size={13} /> View Logs</button>
+							<button type="button" className="admin-btn" disabled={Boolean(actionId)} onClick={() => runAction('requeue')}><ListRestart size={13} /> Requeue</button>
+							<button type="button" className="admin-btn admin-btn--danger" disabled={Boolean(actionId)} onClick={() => runAction('delete')}><Trash2 size={13} /> Delete Job</button>
 						</div>
-						<p className="admin-note">Mutation actions stay disabled until Admin Console APIs are implemented.</p>
 					</aside>
 				</div>
 			) : null}

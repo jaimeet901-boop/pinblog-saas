@@ -3,6 +3,7 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { httpError } from '../middleware/require-admin.js';
 import { mapWpStatus } from './wordpress-client.js';
 import { resolvePublishSite } from './wordpress-sites.js';
+import { mirrorWordpressJob } from './queue/mirrors.js';
 
 function workspaceKeyFor(userId) {
 	return String(userId || '').trim();
@@ -133,6 +134,8 @@ export async function enqueueWordpressPublish(ownerId, payload = {}) {
 		claim_version: 0,
 		media_ids: [],
 	});
+
+	await mirrorWordpressJob(job, 'WordPress publish job enqueued').catch(() => null);
 
 	return mapPublishJob(job);
 }
