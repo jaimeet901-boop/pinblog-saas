@@ -1,0 +1,431 @@
+/* Chef IA — Billing & Credits Center (page-scoped) */
+.bill-atelier {
+	isolation: isolate;
+}
+
+.bill-hero {
+	position: relative;
+	overflow: hidden;
+	border-radius: 1.5rem;
+	border: 1px solid hsl(var(--border) / 0.9);
+	background:
+		radial-gradient(120% 90% at 0% 0%, hsl(var(--primary) / 0.18), transparent 50%),
+		radial-gradient(90% 80% at 100% 10%, hsl(var(--accent) / 0.2), transparent 45%),
+		linear-gradient(165deg, hsl(var(--card)), hsl(var(--secondary) / 0.45));
+	box-shadow: 0 22px 44px -32px hsl(var(--foreground) / 0.4);
+	padding: 1.35rem 1.4rem 1.5rem;
+	margin-bottom: 1rem;
+	animation: bill-rise 320ms ease;
+}
+
+.bill-hero__eyebrow {
+	font-size: 0.7rem;
+	font-weight: 700;
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	color: hsl(var(--primary));
+}
+
+.bill-hero__title {
+	margin-top: 0.35rem;
+	font-family: var(--font-display, Georgia, serif);
+	font-size: clamp(1.7rem, 3vw, 2.25rem);
+	font-weight: 600;
+	letter-spacing: -0.03em;
+}
+
+.bill-hero__grid {
+	display: grid;
+	gap: 0.75rem;
+	margin-top: 1rem;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 720px) {
+	.bill-hero__grid {
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+	}
+}
+
+.bill-hero__metric {
+	border-radius: 1rem;
+	border: 1px solid hsl(var(--border) / 0.85);
+	background: hsl(var(--card) / 0.7);
+	padding: 0.75rem 0.85rem;
+}
+
+.bill-hero__metric span {
+	display: block;
+	font-size: 0.65rem;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: hsl(var(--muted-foreground));
+}
+
+.bill-hero__metric strong {
+	display: block;
+	margin-top: 0.25rem;
+	font-family: var(--font-display, Georgia, serif);
+	font-size: 1.15rem;
+	font-weight: 600;
+}
+
+.bill-stats {
+	display: grid;
+	gap: 0.75rem;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	margin-bottom: 1rem;
+}
+
+@media (min-width: 720px) {
+	.bill-stats {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+@media (min-width: 1100px) {
+	.bill-stats {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+@media (min-width: 1200px) {
+	.bill-stats {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+.bill-stats {
+	grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+}
+
+.bill-stat {
+	border-radius: 1.15rem;
+	border: 1px solid hsl(var(--border) / 0.9);
+	background:
+		radial-gradient(120% 80% at 0% 0%, hsl(var(--primary) / 0.07), transparent 55%),
+		hsl(var(--card));
+	box-shadow: 0 16px 32px -28px hsl(var(--foreground) / 0.35);
+	padding: 0.9rem 1rem;
+	animation: bill-rise 280ms ease;
+}
+
+.bill-stat__label {
+	font-size: 0.66rem;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: hsl(var(--muted-foreground));
+}
+
+.bill-stat__value {
+	margin-top: 0.35rem;
+	font-family: var(--font-display, Georgia, serif);
+	font-size: 1.4rem;
+	font-weight: 600;
+	letter-spacing: -0.03em;
+	font-variant-numeric: tabular-nums;
+}
+
+.bill-stat__hint {
+	margin-top: 0.2rem;
+	font-size: 0.65rem;
+	color: hsl(var(--muted-foreground));
+}
+
+.bill-shell {
+	display: grid;
+	gap: 1rem;
+}
+
+@media (min-width: 1100px) {
+	.bill-shell {
+		grid-template-columns: minmax(0, 1.55fr) minmax(16rem, 20rem);
+		align-items: start;
+	}
+}
+
+.bill-main {
+	display: grid;
+	gap: 1rem;
+	min-width: 0;
+}
+
+.bill-side {
+	display: grid;
+	gap: 1rem;
+}
+
+@media (min-width: 1100px) {
+	.bill-side {
+		position: sticky;
+		top: 0.75rem;
+	}
+}
+
+.bill-panel {
+	border-radius: 1.35rem;
+	border: 1px solid hsl(var(--border) / 0.9);
+	background: hsl(var(--card));
+	box-shadow: 0 18px 40px -30px hsl(var(--foreground) / 0.35);
+	padding: 1rem 1.1rem;
+}
+
+.bill-panel__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	margin-bottom: 0.85rem;
+}
+
+.bill-panel__title {
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	font-weight: 600;
+}
+
+.bill-panel__icon {
+	display: flex;
+	height: 1.9rem;
+	width: 1.9rem;
+	align-items: center;
+	justify-content: center;
+	border-radius: 0.65rem;
+	background: hsl(var(--primary) / 0.12);
+	color: hsl(var(--primary));
+}
+
+.bill-charts {
+	display: grid;
+	gap: 0.85rem;
+}
+
+@media (min-width: 900px) {
+	.bill-charts {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+.bill-chart {
+	border-radius: 1.1rem;
+	border: 1px solid hsl(var(--border) / 0.85);
+	background: hsl(var(--background) / 0.4);
+	padding: 0.85rem;
+	min-width: 0;
+}
+
+.bill-chart h4 {
+	font-size: 0.8rem;
+	font-weight: 600;
+	margin-bottom: 0.45rem;
+}
+
+.bill-chart__hint {
+	font-size: 0.65rem;
+	color: hsl(var(--muted-foreground));
+	margin-bottom: 0.45rem;
+}
+
+.bill-plans {
+	display: grid;
+	gap: 0.85rem;
+	grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+@media (min-width: 720px) {
+	.bill-plans {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (min-width: 1200px) {
+	.bill-plans {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+.bill-plan {
+	display: flex;
+	flex-direction: column;
+	border-radius: 1.25rem;
+	border: 1px solid hsl(var(--border) / 0.9);
+	background: hsl(var(--background) / 0.4);
+	padding: 1rem;
+	transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.bill-plan:hover {
+	transform: translateY(-2px);
+	border-color: hsl(var(--primary) / 0.35);
+}
+
+.bill-plan.is-popular {
+	border-color: hsl(var(--primary) / 0.55);
+	box-shadow: 0 18px 36px -28px hsl(var(--primary) / 0.55);
+	background:
+		radial-gradient(120% 80% at 0% 0%, hsl(var(--primary) / 0.1), transparent 55%),
+		hsl(var(--background) / 0.5);
+}
+
+.bill-plan.is-current {
+	border-color: hsl(var(--primary));
+}
+
+.bill-plan__price {
+	margin-top: 0.5rem;
+	font-family: var(--font-display, Georgia, serif);
+	font-size: 2rem;
+	font-weight: 600;
+	letter-spacing: -0.03em;
+}
+
+.bill-plan__price span {
+	font-size: 0.85rem;
+	font-weight: 500;
+	color: hsl(var(--muted-foreground));
+}
+
+.bill-plan ul {
+	margin: 0.9rem 0 1rem;
+	display: grid;
+	gap: 0.45rem;
+	flex: 1;
+}
+
+.bill-plan li {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.45rem;
+	font-size: 0.82rem;
+}
+
+.bill-features {
+	display: grid;
+	gap: 0.45rem;
+}
+
+.bill-feature {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.55rem 0.65rem;
+	border-radius: 0.8rem;
+	background: hsl(var(--background) / 0.5);
+	font-size: 0.82rem;
+}
+
+.bill-table-wrap {
+	overflow: auto;
+	border-radius: 1rem;
+	border: 1px solid hsl(var(--border) / 0.9);
+}
+
+.bill-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.8rem;
+	min-width: 40rem;
+}
+
+.bill-table th {
+	text-align: left;
+	padding: 0.7rem 0.65rem;
+	font-size: 0.66rem;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: hsl(var(--muted-foreground));
+	border-bottom: 1px solid hsl(var(--border) / 0.85);
+	background: hsl(var(--secondary) / 0.4);
+	white-space: nowrap;
+}
+
+.bill-table td {
+	padding: 0.7rem 0.65rem;
+	border-bottom: 1px solid hsl(var(--border) / 0.65);
+	vertical-align: middle;
+}
+
+.bill-card-box {
+	border-radius: 1rem;
+	border: 1px solid hsl(var(--border) / 0.9);
+	background:
+		linear-gradient(135deg, hsl(var(--primary) / 0.12), hsl(var(--accent) / 0.1)),
+		hsl(var(--background) / 0.55);
+	padding: 1rem;
+}
+
+.bill-card-box__number {
+	margin-top: 0.75rem;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	letter-spacing: 0.12em;
+	font-size: 0.95rem;
+}
+
+.bill-reco {
+	border-radius: 0.95rem;
+	border: 1px solid hsl(var(--border) / 0.85);
+	background: hsl(var(--background) / 0.5);
+	padding: 0.75rem 0.85rem;
+	font-size: 0.8rem;
+	line-height: 1.45;
+}
+
+.bill-reco strong {
+	display: block;
+	margin-bottom: 0.25rem;
+	font-size: 0.78rem;
+}
+
+.bill-empty {
+	border-radius: 1rem;
+	border: 1.5px dashed hsl(var(--border));
+	background: hsl(var(--secondary) / 0.35);
+	padding: 1.35rem 1rem;
+	text-align: center;
+}
+
+.bill-meter {
+	height: 0.45rem;
+	border-radius: 999px;
+	background: hsl(var(--muted));
+	overflow: hidden;
+}
+
+.bill-meter > span {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--accent)));
+}
+
+.bill-skeleton {
+	border-radius: 1rem;
+	height: 6rem;
+	background: linear-gradient(110deg, hsl(var(--secondary)) 30%, hsl(var(--background) / 0.7) 45%, hsl(var(--secondary)) 60%);
+	background-size: 200% 100%;
+	animation: bill-shimmer 1.35s ease-in-out infinite;
+}
+
+@keyframes bill-rise {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bill-shimmer {
+	0% { background-position: 120% 0; }
+	100% { background-position: -40% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.bill-hero,
+	.bill-stat,
+	.bill-plan,
+	.bill-skeleton {
+		animation: none;
+		transition: none;
+	}
+}
