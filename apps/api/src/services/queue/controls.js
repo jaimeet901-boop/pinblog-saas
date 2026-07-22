@@ -338,11 +338,10 @@ export async function processNativeJob(job) {
 			});
 		}
 		case 'analytics_refresh': {
-			return completeNativeJob(job, {
-				refreshed: true,
-				scope: (job.payload || {}).scope || 'workspace',
-				at: new Date().toISOString(),
-			});
+			const { refreshAnalyticsCaches } = await import('../analytics/refresh.js');
+			const result = await refreshAnalyticsCaches({ ownerId: job.owner });
+			await updateQueueJob(job.id, { progress: 90, outputs: result });
+			return completeNativeJob(job, result);
 		}
 		default:
 			throw new Error(`Unsupported native job type: ${job.type}`);

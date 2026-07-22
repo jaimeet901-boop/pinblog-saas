@@ -14,6 +14,7 @@ import { startAIPinImageQueue, stopAIPinImageQueue } from './services/ai-pin-ima
 import { startPinterestAnalyticsSync, stopPinterestAnalyticsSync } from './services/pinterest-analytics-sync.js';
 import { startWordpressPublishQueue, stopWordpressPublishQueue } from './services/wordpress-publish-queue.js';
 import { startQueueEngine, stopQueueEngine } from './services/queue/engine.js';
+import { startAnalyticsRefreshWorker, stopAnalyticsRefreshWorker } from './services/analytics/refresh.js';
 
 const app = express();
 
@@ -65,6 +66,7 @@ process.on('SIGINT', async () => {
 	stopAIPinImageQueue();
 	stopWordpressPublishQueue();
 	stopQueueEngine();
+	stopAnalyticsRefreshWorker();
 	process.exit(0);
 });
 
@@ -75,6 +77,7 @@ process.on('SIGTERM', async () => {
 	stopAIPinImageQueue();
 	stopWordpressPublishQueue();
 	stopQueueEngine();
+	stopAnalyticsRefreshWorker();
 
 	await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -119,6 +122,7 @@ app.listen(port, () => {
 	startAIPinImageQueue();
 	startWordpressPublishQueue();
 	startQueueEngine();
+	startAnalyticsRefreshWorker();
 });
 
 export default app;

@@ -16,16 +16,6 @@ import './AnalyticsPage.css';
 
 const CHART_COLORS = ['hsl(12 80% 55%)', 'hsl(38 90% 55%)', 'hsl(142 45% 40%)', 'hsl(210 55% 45%)', 'hsl(280 40% 50%)', 'hsl(0 70% 50%)'];
 
-const PLACEHOLDER_TREND = [
-	{ label: 'Mon', published: 2, failed: 0 },
-	{ label: 'Tue', published: 3, failed: 1 },
-	{ label: 'Wed', published: 1, failed: 0 },
-	{ label: 'Thu', published: 4, failed: 1 },
-	{ label: 'Fri', published: 2, failed: 0 },
-	{ label: 'Sat', published: 1, failed: 0 },
-	{ label: 'Sun', published: 3, failed: 0 },
-];
-
 function downloadBlob(filename, content, type) {
 	const blob = new Blob([content], { type });
 	const url = URL.createObjectURL(blob);
@@ -86,8 +76,24 @@ export default function AnalyticsPage() {
 	const { toast } = useToast();
 	const { user } = useAuth();
 	const [loading, setLoading] = useState(true);
-	const [summary, setSummary] = useState({ published: 0, failed: 0, scheduled: 0 });
+	const [error, setError] = useState('');
+	const [summary, setSummary] = useState({
+		published: 0,
+		failed: 0,
+		scheduled: 0,
+		articlesGenerated: 0,
+		imagesGenerated: 0,
+		aiRequests: 0,
+		creditsUsed: 0,
+		creditsRemaining: 0,
+		wordpressPosts: 0,
+		queueJobs: 0,
+		avgGenerationTime: '—',
+		avgPublishTime: '—',
+		failureRate: 0,
+	});
 	const [items, setItems] = useState([]);
+	const [charts, setCharts] = useState({ dailyActivity: [], monthlyActivity: [] });
 	const [websiteFilter, setWebsiteFilter] = useState('');
 	const [accountFilter, setAccountFilter] = useState('');
 	const [boardFilter, setBoardFilter] = useState('');
@@ -97,16 +103,39 @@ export default function AnalyticsPage() {
 
 	const load = async () => {
 		setLoading(true);
+		setError('');
 		try {
-			const response = await apiServerClient.fetch('/pinterest/analytics', { method: 'GET' });
-			const payload = await response.json().catch(() => ({}));
+			const params = new URLSearchParams({ range: dateRange === 'month' ? '30d' : dateRange === 'all' ? '90d' : dateRange });
+			let response = await apiServerClient.fetch(`/workspace/v1/analytics/overview?${params.toString()}`, { method: 'GET' });
+			let payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
-				throw new Error(payload?.message || `Failed to load analytics (${response.status})`);
+				response = await apiServerClient.fetch('/pinterest/analytics', { method: 'GET' });
+				payload = await response.json().catch(() => ({}));
+				if (!response.ok) {
+					throw new Error(payload?.message || `Failed to load analytics (${response.status})`);
+				}
 			}
-			setSummary(payload.summary || { published: 0, failed: 0, scheduled: 0 });
+			setSummary({
+				published: 0,
+				failed: 0,
+				scheduled: 0,
+				articlesGenerated: 0,
+				imagesGenerated: 0,
+				aiRequests: 0,
+				creditsUsed: 0,
+				creditsRemaining: 0,
+				wordpressPosts: 0,
+				queueJobs: 0,
+				avgGenerationTime: '—',
+				avgPublishTime: '—',
+				failureRate: 0,
+				...(payload.summary || {}),
+			});
 			setItems(Array.isArray(payload.items) ? payload.items : []);
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Error', description: error.message });
+			setCharts(payload.charts || { dailyActivity: [], monthlyActivity: [] });
+		} catch (err) {
+			setError(err.message);
+			toast({ variant: 'destructive', title: 'Error', description: err.message });
 		} finally {
 			setLoading(false);
 		}
@@ -114,7 +143,7 @@ export default function AnalyticsPage() {
 
 	useEffect(() => {
 		load();
-	}, []);
+	}, [dateRange]);
 
 	const websiteOptions = useMemo(() => {
 		const set = new Set();
@@ -346,49 +375,65 @@ export default function AnalyticsPage() {
 		return tips.slice(0, 6);
 	}, [summary, successRate, pinsByBoard, estimatedImpressions]);
 
-	const exportCurrent = () => {
-		if (!filteredItems.length) {
+	const exportCurrent = async () => {
+		if (!filteredItems.length && !summary.published) {
 			toast({ variant: 'destructive', title: 'Nothing to export', description: 'No rows match the current filters.' });
 			return;
 		}
-		if (exportFormat === 'json') {
-			downloadBlob('analytics-export.json', JSON.stringify({ summary, items: filteredItems }, null, 2), 'application/json');
-		} else {
-			downloadBlob('analytics-export.csv', toCsv(filteredItems), 'text/csv;charset=utf-8');
+		try {
+			const params = new URLSearchParams({
+				range: dateRange === 'month' ? '30d' : dateRange === 'all' ? '90d' : dateRange,
+				format: exportFormat,
+			});
+			const response = await apiServerClient.fetch(`/workspace/v1/analytics/export?${params.toString()}`);
+			if (response.ok) {
+				const blob = await response.blob();
+				const url = URL.createObjectURL(blob);
+				const anchor = document.createElement('a');
+				anchor.href = url;
+				anchor.download = `workspace-analytics.${exportFormat}`;
+				anchor.click();
+				URL.revokeObjectURL(url);
+			} else if (exportFormat === 'json') {
+				downloadBlob('analytics-export.json', JSON.stringify({ summary, items: filteredItems, charts }, null, 2), 'application/json');
+			} else {
+				downloadBlob('analytics-export.csv', toCsv(filteredItems), 'text/csv;charset=utf-8');
+			}
+			toast({ title: 'Exported', description: `Analytics downloaded as ${exportFormat.toUpperCase()}.` });
+		} catch (err) {
+			toast({ variant: 'destructive', title: 'Export failed', description: err.message });
 		}
-		toast({ title: 'Exported', description: `${filteredItems.length} rows downloaded as ${exportFormat.toUpperCase()}.` });
 	};
 
-	const trendData = publishingTrend || PLACEHOLDER_TREND;
-	const trendIsPlaceholder = !publishingTrend;
-	const websiteChartData = pinsByWebsite || [
-		{ name: 'Site A', value: 4 },
-		{ name: 'Site B', value: 2 },
-		{ name: 'Site C', value: 1 },
-	];
-	const boardChartData = pinsByBoard || [
-		{ name: 'Recipes', value: 5 },
-		{ name: 'Desserts', value: 3 },
-		{ name: 'Tips', value: 2 },
-	];
-	const monthlyData = monthlyTrend || [
-		{ label: 'Jan', published: 3 },
-		{ label: 'Feb', published: 5 },
-		{ label: 'Mar', published: 4 },
-		{ label: 'Apr', published: 7 },
-	];
+	const trendData = publishingTrend || (charts.dailyActivity || []).map((row) => ({
+		label: row.label,
+		published: row.value,
+		failed: 0,
+	}));
+	const trendIsPlaceholder = !publishingTrend && !(charts.dailyActivity || []).length;
+	const websiteChartData = pinsByWebsite?.length ? pinsByWebsite : [];
+	const boardChartData = pinsByBoard?.length ? pinsByBoard : [];
+	const monthlyData = monthlyTrend?.length
+		? monthlyTrend
+		: (charts.monthlyActivity || []).map((row) => ({ label: row.label, published: row.value }));
 
 	const statCards = [
+		{ label: 'Articles Generated', value: summary.articlesGenerated ?? 0, hint: null },
+		{ label: 'Images Generated', value: summary.imagesGenerated ?? 0, hint: null },
+		{ label: 'AI Requests', value: summary.aiRequests ?? 0, hint: null },
+		{ label: 'Credits Used', value: summary.creditsUsed ?? 0, hint: null },
+		{ label: 'Credits Remaining', value: summary.creditsRemaining ?? 0, hint: null },
+		{ label: 'WordPress Posts', value: summary.wordpressPosts ?? 0, hint: null },
 		{ label: 'Published Pins', value: summary.published, hint: null },
 		{ label: 'Scheduled Pins', value: summary.scheduled, hint: null },
 		{ label: 'Failed Pins', value: summary.failed, hint: null },
-		{ label: 'Queued Jobs', value: 0, hint: 'Not in analytics summary' },
+		{ label: 'Queue Jobs', value: summary.queueJobs ?? 0, hint: null },
+		{ label: 'Avg. Generation Time', value: summary.avgGenerationTime || '—', hint: null },
+		{ label: 'Avg. Publish Time', value: summary.avgPublishTime || avgPublishTime, hint: null },
+		{ label: 'Failure Rate', value: `${summary.failureRate ?? 0}%`, hint: null },
 		{ label: 'Success Rate', value: successRate == null ? '—' : `${successRate}%`, hint: null },
-		{ label: 'Avg. Publish Time', value: avgPublishTime, hint: avgPublishTime === '—' ? 'Needs timestamps' : null },
-		{ label: 'Pinterest Accounts', value: uniqueAccounts || '—', hint: uniqueAccounts ? 'From published jobs' : 'No account fields yet' },
-		{ label: 'Connected Websites', value: uniqueWebsites || '—', hint: uniqueWebsites ? 'From published jobs' : 'No website fields yet' },
-		{ label: 'Est. Impressions', value: estimatedImpressions ?? '—', hint: estimatedImpressions == null ? 'Placeholder until synced' : null },
-		{ label: 'Est. Clicks', value: estimatedClicks ?? '—', hint: estimatedClicks == null ? 'Placeholder until synced' : null },
+		{ label: 'Est. Impressions', value: estimatedImpressions ?? summary.impressions ?? '—', hint: estimatedImpressions == null && !summary.impressions ? 'Pending sync' : null },
+		{ label: 'Est. Clicks', value: estimatedClicks ?? summary.clicks ?? '—', hint: estimatedClicks == null && !summary.clicks ? 'Pending sync' : null },
 	];
 
 	return (
@@ -451,6 +496,10 @@ export default function AnalyticsPage() {
 				</div>
 			</div>
 
+			{error ? (
+				<p className="mb-3 text-sm text-destructive">{error}</p>
+			) : null}
+
 			<div className="an-stats">
 				{statCards.map((card) => (
 					<div key={card.label} className="an-stat">
@@ -473,7 +522,7 @@ export default function AnalyticsPage() {
 								<span className="an-panel__icon"><BarChart3 size={14} /></span>
 								Charts & Reports
 							</div>
-							{trendIsPlaceholder ? <Badge tone="amber">Sample charts</Badge> : <Badge tone="green">Live data</Badge>}
+							{trendIsPlaceholder ? <Badge tone="amber">No activity yet</Badge> : <Badge tone="green">Live data</Badge>}
 						</div>
 
 						{loading ? (
@@ -484,7 +533,7 @@ export default function AnalyticsPage() {
 							<div className="an-charts">
 								<div className="an-chart">
 									<h4>Publishing Trend</h4>
-									{trendIsPlaceholder ? <p className="an-chart__hint">Placeholder until published pins appear.</p> : null}
+									{trendIsPlaceholder ? <p className="an-chart__hint">Charts appear once publishing activity is recorded.</p> : null}
 									<div style={{ width: '100%', height: 220 }}>
 										<ResponsiveContainer>
 											<AreaChart data={trendData}>
@@ -550,7 +599,7 @@ export default function AnalyticsPage() {
 
 								<div className="an-chart">
 									<h4>Publishing Activity</h4>
-									{trendIsPlaceholder ? <p className="an-chart__hint">Placeholder activity bars.</p> : null}
+									{!websiteChartData.length && !boardChartData.length ? <p className="an-chart__hint">No website/board breakdown yet.</p> : null}
 									<div style={{ width: '100%', height: 220 }}>
 										<ResponsiveContainer>
 											<BarChart data={trendData}>

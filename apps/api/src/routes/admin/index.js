@@ -6,6 +6,7 @@ import modelsRouter from './models.js';
 import plansRouter from './plans.js';
 import creditsRouter from './credits.js';
 import queueRouter from './queue.js';
+import analyticsRouter from './analytics.js';
 
 const router = Router();
 
@@ -25,5 +26,6 @@ router.use('/models', modelsRouter);
 router.use('/plans', plansRouter);
 router.use('/credits', creditsRouter);
 router.use('/queue', queueRouter);
+router.use('/analytics', analyticsRouter);
 
 export default router;
