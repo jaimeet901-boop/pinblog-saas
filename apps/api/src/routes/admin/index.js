@@ -15,6 +15,7 @@ import workspacesRouter from './workspaces.js';
 import inventoryRouter from './inventory.js';
 import dashboardRouter from './dashboard.js';
 import notificationsRouter from './notifications.js';
+import pinterestRouter from './pinterest.js';
 
 const router = Router();
 
@@ -43,5 +44,6 @@ router.use('/workspaces', workspacesRouter);
 router.use('/inventory', inventoryRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/notifications', notificationsRouter);
+router.use('/pinterest', pinterestRouter);
 
 export default router;

@@ -17,6 +17,7 @@ import { startQueueEngine, stopQueueEngine } from './services/queue/engine.js';
 import { startAnalyticsRefreshWorker, stopAnalyticsRefreshWorker } from './services/analytics/refresh.js';
 import { startAuditRetentionWorker, stopAuditRetentionWorker } from './services/audit/retention.js';
 import { startHealthMonitorWorker, stopHealthMonitorWorker } from './services/health/worker.js';
+import { ensurePinterestAppCredentialsSeeded } from './services/pinterest-app-credentials.js';
 
 const app = express();
 
@@ -129,6 +130,9 @@ const port = process.env.PORT || 3001;
 
 app.listen(port, () => {
 	logger.info(`🚀 API Server running on http://localhost:${port}`);
+	ensurePinterestAppCredentialsSeeded().catch((error) => {
+		logger.warn('Pinterest OAuth credentials seed skipped:', error?.message || error);
+	});
 	startPinterestPublishQueue();
 	startPinterestAnalyticsSync();
 	startAIPinImageQueue();

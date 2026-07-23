@@ -3,7 +3,6 @@ import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import {
 	createPinterestOAuthState,
-	ensureValidPinterestAccessToken,
 	exchangeOAuthCodeForTokens,
 	fetchPinterestProfile,
 	getOwnedPinterestAccountById,
@@ -18,11 +17,17 @@ import {
 	mapAccount,
 	mapBoard,
 	normalizePinterestError,
+	refreshPinterestAccessToken,
 	setDefaultPinterestAccount,
 	setDefaultPinterestBoard,
 	syncPinterestBoardsForOwner,
 } from '../services/pinterest-api.js';
-import { decryptAccountAccessToken, upsertPinterestAccountSecrets } from '../services/pinterest-secrets.js';
+import {
+	decryptAccountAccessToken,
+	deletePinterestAccountSecrets,
+	upsertPinterestAccountSecrets,
+} from '../services/pinterest-secrets.js';
+import { ensureUserWorkspace } from '../services/workspace-context.js';
 import {
 	buildSchemaSafeFilter,
 	safeGetFirstListItem,
@@ -410,9 +415,10 @@ router.get('/oauth/callback', async (req, res) => {
 			throw httpError(400, 'OAuth state expired');
 		}
 
+		const redirectUri = await getPinterestRedirectUri();
 		const tokenPayload = await exchangeOAuthCodeForTokens({
 			code,
-			redirectUri: getPinterestRedirectUri(),
+			redirectUri,
 		});
 
 		const accessToken = normalizeString(tokenPayload.access_token, 'access_token', { required: true, max: 4000 });
@@ -451,6 +457,18 @@ router.get('/oauth/callback', async (req, res) => {
 			{ max: 1000 },
 		);
 
+		let workspaceId = normalizeString(stateRecord.workspace_id || '', 'workspace_id', { max: 80 });
+		let workspaceKey = normalizeString(stateRecord.workspace_key || '', 'workspace_key', { max: 120 });
+		if (!workspaceId || !workspaceKey) {
+			try {
+				const ctx = await ensureUserWorkspace(stateRecord.owner);
+				workspaceId = workspaceId || ctx.workspace?.id || '';
+				workspaceKey = workspaceKey || ctx.workspaceKey || ctx.workspace?.workspace_key || stateRecord.owner;
+			} catch {
+				workspaceKey = workspaceKey || stateRecord.owner;
+			}
+		}
+
 		const payload = {
 			owner: stateRecord.owner,
 			pinterest_user_id: normalizeString(profile?.id || '', 'pinterest_user_id', { max: 120 }),
@@ -467,12 +485,32 @@ router.get('/oauth/callback', async (req, res) => {
 			connected_at: reconnectAccount?.connected_at || new Date().toISOString(),
 			label: requestedLabel || reconnectAccount?.label || existingByPinterestUser?.label || accountName || normalizeString(profile?.username || '', 'username', { max: 255 }) || 'Pinterest Account',
 			last_sync_at: '',
+			workspace_id: workspaceId,
+			workspace_key: workspaceKey,
 		};
+		if (workspaceId) {
+			payload.workspace = workspaceId;
+		}
 
 		const targetAccount = reconnectAccount || existingByPinterestUser;
-		const account = targetAccount
-			? await pocketbaseClient.collection('pinterest_accounts').update(targetAccount.id, payload)
-			: await pocketbaseClient.collection('pinterest_accounts').create(payload);
+		let account;
+		if (targetAccount) {
+			account = await pocketbaseClient.collection('pinterest_accounts').update(targetAccount.id, payload).catch(async () => {
+				const legacyPayload = { ...payload };
+				delete legacyPayload.workspace;
+				delete legacyPayload.workspace_id;
+				delete legacyPayload.workspace_key;
+				return pocketbaseClient.collection('pinterest_accounts').update(targetAccount.id, legacyPayload);
+			});
+		} else {
+			account = await pocketbaseClient.collection('pinterest_accounts').create(payload).catch(async () => {
+				const legacyPayload = { ...payload };
+				delete legacyPayload.workspace;
+				delete legacyPayload.workspace_id;
+				delete legacyPayload.workspace_key;
+				return pocketbaseClient.collection('pinterest_accounts').create(legacyPayload);
+			});
+		}
 
 		await upsertPinterestAccountSecrets({
 			owner: stateRecord.owner,
@@ -480,6 +518,7 @@ router.get('/oauth/callback', async (req, res) => {
 			accessToken,
 			refreshToken,
 			preserveRefreshToken: false,
+			expiresAt,
 		});
 
 		// Mark state used immediately after credentials are stored to prevent replay.
@@ -691,6 +730,7 @@ async function disconnectOwnedAccount({ owner, account }) {
 	}).then((boards) => Promise.all(boards.map((board) => pocketbaseClient.collection('pinterest_boards').delete(board.id).catch(() => {}))));
 
 	const wasDefault = Boolean(account.is_default);
+	await deletePinterestAccountSecrets(account.id).catch(() => null);
 	try {
 		await pocketbaseClient.collection('pinterest_accounts').delete(account.id);
 	} catch (error) {
@@ -1246,12 +1286,18 @@ router.post('/token/refresh', async (req, res) => {
 	const account = await assertPinterestConnected(owner, normalizeString(req.body?.accountId, 'accountId', { max: 80 }));
 
 	try {
-		const tokenState = await ensureValidPinterestAccessToken({ account });
-		const accessToken = decryptAccountAccessToken(tokenState.account);
+		const refreshed = await refreshPinterestAccessToken({ account });
+		const accessToken = decryptAccountAccessToken(refreshed);
 		if (!accessToken) {
 			throw httpError(401, 'Unable to refresh Pinterest token. Please reconnect your account.');
 		}
-		res.json({ ok: true, accountId: tokenState.account.id, tokenExpiresAt: tokenState.account.token_expires_at || '' });
+		res.json({
+			ok: true,
+			accountId: refreshed.id,
+			tokenExpiresAt: refreshed.token_expires_at || '',
+			expiresAt: refreshed.token_expires_at || '',
+			account: mapAccount(refreshed),
+		});
 	} catch (error) {
 		await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: error?.message || 'Token refresh failed' });
 		throw normalizePinterestError(error);

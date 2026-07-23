@@ -6,6 +6,11 @@ import {
 	hydratePinterestAccountSecrets,
 	upsertPinterestAccountSecrets,
 } from './pinterest-secrets.js';
+import {
+	assertPinterestOAuthReady,
+	getPinterestAppCredentials,
+} from './pinterest-app-credentials.js';
+import { ensureUserWorkspace } from './workspace-context.js';
 
 const PINTEREST_API_BASE = 'https://api.pinterest.com/v5';
 const PINTEREST_AUTH_BASE = 'https://www.pinterest.com/oauth';
@@ -17,14 +22,6 @@ function httpError(status, message, extras = {}) {
 	error.status = status;
 	Object.assign(error, extras);
 	return error;
-}
-
-function getRequiredEnv(name) {
-	const value = process.env[name];
-	if (!value) {
-		throw httpError(500, `${name} is not configured`);
-	}
-	return value;
 }
 
 function normalizeDate(value) {
@@ -46,8 +43,11 @@ export function getWebAppBaseUrl() {
 	return fromEnv.split(',')[0].trim().replace(/\/$/, '');
 }
 
-export function getPinterestRedirectUri() {
-	return process.env.PINTEREST_REDIRECT_URI || `${process.env.API_PUBLIC_URL || 'http://localhost:3001'}/pinterest/oauth/callback`;
+export async function getPinterestRedirectUri() {
+	const credentials = await getPinterestAppCredentials();
+	return credentials.redirectUri
+		|| process.env.PINTEREST_REDIRECT_URI
+		|| `${process.env.API_PUBLIC_URL || 'http://localhost:3001'}/pinterest/oauth/callback`;
 }
 
 export function mapBoard(record) {
@@ -81,11 +81,16 @@ export function mapAccount(record) {
 		username: record.username || '',
 		profileImageUrl: record.profile_image_url || '',
 		pinterestUserId: record.pinterest_user_id || '',
+		workspaceId: record.workspace || record.workspace_id || '',
+		workspaceKey: record.workspace_key || '',
 		scope: record.scope || '',
+		scopes: record.scope || '',
+		accountStatus: record.status || (record.connected ? 'connected' : 'error'),
 		status: record.status || (record.connected ? 'connected' : 'error'),
 		statusError: record.status_error || '',
 		isDefault: Boolean(record.is_default),
 		connectedAt: normalizeDate(record.connected_at || record.created),
+		expiresAt: normalizeDate(record.token_expires_at),
 		tokenExpiresAt: normalizeDate(record.token_expires_at),
 		lastSyncAt: normalizeDate(record.last_sync_at),
 		createdAt: normalizeDate(record.created),
@@ -256,9 +261,8 @@ async function pinterestRequest({ path, method = 'GET', accessToken, body, isFor
 }
 
 async function pinterestTokenRequest(params) {
-	const clientId = getRequiredEnv('PINTEREST_CLIENT_ID');
-	const clientSecret = getRequiredEnv('PINTEREST_CLIENT_SECRET');
-	const basicToken = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+	const credentials = await assertPinterestOAuthReady();
+	const basicToken = Buffer.from(`${credentials.appId}:${credentials.appSecret}`).toString('base64');
 	const body = new URLSearchParams(params);
 
 	const response = await fetch(`${PINTEREST_API_BASE}/oauth/token`, {
@@ -279,12 +283,25 @@ async function pinterestTokenRequest(params) {
 	return response.json();
 }
 
-export async function createPinterestOAuthState({ owner, accountId = '', requestedLabel = '' }) {
+export async function createPinterestOAuthState({ owner, accountId = '', requestedLabel = '', workspaceId = '', workspaceKey = '' }) {
+	const credentials = await assertPinterestOAuthReady();
 	const state = randomBytes(24).toString('hex');
 	const expiresAt = new Date(Date.now() + STATE_TTL_MS).toISOString();
-	const redirectUri = getPinterestRedirectUri();
-	const clientId = getRequiredEnv('PINTEREST_CLIENT_ID');
-	const scopes = (process.env.PINTEREST_SCOPES || DEFAULT_SCOPES.join(',')).split(',').map((item) => item.trim()).filter(Boolean);
+	const redirectUri = credentials.redirectUri;
+	const clientId = credentials.appId;
+	const scopes = credentials.scopes?.length ? credentials.scopes : DEFAULT_SCOPES;
+
+	let resolvedWorkspaceId = workspaceId;
+	let resolvedWorkspaceKey = workspaceKey;
+	if (!resolvedWorkspaceId || !resolvedWorkspaceKey) {
+		try {
+			const ctx = await ensureUserWorkspace(owner);
+			resolvedWorkspaceId = resolvedWorkspaceId || ctx.workspace?.id || '';
+			resolvedWorkspaceKey = resolvedWorkspaceKey || ctx.workspaceKey || ctx.workspace?.workspace_key || owner;
+		} catch {
+			resolvedWorkspaceKey = resolvedWorkspaceKey || owner;
+		}
+	}
 
 	await pocketbaseClient.collection('pinterest_oauth_states').create({
 		owner,
@@ -293,6 +310,18 @@ export async function createPinterestOAuthState({ owner, accountId = '', request
 		requested_label: requestedLabel,
 		expires_at: expiresAt,
 		used: false,
+		workspace_id: resolvedWorkspaceId,
+		workspace_key: resolvedWorkspaceKey,
+	}).catch(async () => {
+		// Older schema without workspace fields.
+		await pocketbaseClient.collection('pinterest_oauth_states').create({
+			owner,
+			state,
+			account_id: accountId,
+			requested_label: requestedLabel,
+			expires_at: expiresAt,
+			used: false,
+		});
 	});
 
 	const query = new URLSearchParams({
@@ -306,14 +335,18 @@ export async function createPinterestOAuthState({ owner, accountId = '', request
 	return {
 		state,
 		authUrl: `${PINTEREST_AUTH_BASE}/?${query.toString()}`,
+		redirectUri,
+		workspaceId: resolvedWorkspaceId,
+		workspaceKey: resolvedWorkspaceKey,
 	};
 }
 
 export async function exchangeOAuthCodeForTokens({ code, redirectUri }) {
+	const credentials = await assertPinterestOAuthReady();
 	return pinterestTokenRequest({
 		grant_type: 'authorization_code',
 		code,
-		redirect_uri: redirectUri,
+		redirect_uri: redirectUri || credentials.redirectUri,
 		continuous_refresh: 'true',
 	});
 }
@@ -342,12 +375,14 @@ export async function refreshPinterestAccessToken({ account }) {
 	const expiresAt = payload.expires_in
 		? new Date(Date.now() + Number(payload.expires_in) * 1000).toISOString()
 		: account.token_expires_at || '';
+	const scope = String(payload.scope || account.scope || '').trim();
 
 	const updated = await pocketbaseClient.collection('pinterest_accounts').update(account.id, {
 		token_expires_at: expiresAt,
 		connected: true,
 		status: 'connected',
 		status_error: '',
+		scope: scope || account.scope || '',
 		access_token: '',
 		refresh_token: '',
 	});
@@ -358,6 +393,7 @@ export async function refreshPinterestAccessToken({ account }) {
 		accessToken: nextAccessToken,
 		refreshToken: payload.refresh_token || '',
 		preserveRefreshToken: true,
+		expiresAt,
 	});
 
 	return hydratePinterestAccountSecrets(updated);

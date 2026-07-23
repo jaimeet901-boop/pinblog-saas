@@ -145,3 +145,17 @@ export function decryptAccountAccessToken(account) {
 export function decryptAccountRefreshToken(account) {
 	return decryptPinterestSecret(account?.refresh_token || '');
 }
+
+export async function deletePinterestAccountSecrets(accountId) {
+	if (!accountId) return;
+
+	const secret = await getPinterestAccountSecretRecord(accountId);
+	if (secret?.id) {
+		await pocketbaseClient.collection('pinterest_account_secrets').delete(secret.id).catch(() => null);
+	}
+
+	const token = await getPinterestTokenRecord(accountId);
+	if (token?.id) {
+		await pocketbaseClient.collection('pinterest_tokens').delete(token.id).catch(() => null);
+	}
+}
