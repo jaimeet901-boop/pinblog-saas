@@ -1,30 +1,51 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { AdminHero, StatusPill, AdminEmptyState } from '@/components/admin/AdminUi';
+import apiServerClient from '@/lib/apiServerClient';
+import { useToast } from '@/hooks/use-toast';
 
-const SITES = [
-	{ id: 's1', domain: 'sundaykitchen.com', workspace: 'Sunday Kitchen', cms: 'WordPress', status: 'connected' },
-	{ id: 's2', domain: 'pinatelier.blog', workspace: 'Pin Atelier', cms: 'WordPress', status: 'connected' },
-	{ id: 's3', domain: 'recipelab.io', workspace: 'Recipe Lab', cms: 'WordPress', status: 'degraded' },
-];
+async function readApiError(response) {
+	try {
+		const data = await response.json();
+		return data?.message || `Request failed (${response.status})`;
+	} catch {
+		return `Request failed (${response.status})`;
+	}
+}
 
 export default function AdminWebsitesPage() {
+	const { toast } = useToast();
 	const [search, setSearch] = useState('');
 	const [status, setStatus] = useState('');
+	const [sites, setSites] = useState([]);
+	const [loading, setLoading] = useState(true);
 
-	const filtered = useMemo(() => {
-		const q = search.trim().toLowerCase();
-		return SITES.filter((site) => {
-			if (status && site.status !== status) return false;
-			if (!q) return true;
-			return `${site.domain} ${site.workspace} ${site.cms}`.toLowerCase().includes(q);
-		});
-	}, [search, status]);
+	const load = useCallback(async () => {
+		setLoading(true);
+		try {
+			const params = new URLSearchParams();
+			if (search.trim()) params.set('q', search.trim());
+			if (status) params.set('status', status);
+			const response = await apiServerClient.fetch(`/admin/v1/inventory/websites?${params.toString()}`);
+			if (!response.ok) throw new Error(await readApiError(response));
+			const payload = await response.json();
+			setSites(Array.isArray(payload.items) ? payload.items : []);
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Websites load failed', description: error.message });
+		} finally {
+			setLoading(false);
+		}
+	}, [search, status, toast]);
+
+	useEffect(() => {
+		load();
+	}, [load]);
 
 	return (
 		<div>
 			<AdminHero
 				title="Websites"
-				description="Connected customer sites across workspaces. Placeholder inventory."
+				description="Connected customer sites across workspaces from live PocketBase records."
 			/>
 			<section className="admin-card">
 				<div className="admin-toolbar">
@@ -45,7 +66,10 @@ export default function AdminWebsitesPage() {
 						</select>
 					</label>
 				</div>
-				{filtered.length === 0 ? (
+				{loading ? (
+					<p className="admin-note flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Loading websites…</p>
+				) : null}
+				{!loading && sites.length === 0 ? (
 					<AdminEmptyState title="No websites match" description="Adjust search or status filters and try again." />
 				) : (
 					<div className="admin-table-wrap">
@@ -60,13 +84,13 @@ export default function AdminWebsitesPage() {
 								</tr>
 							</thead>
 							<tbody>
-								{filtered.map((site) => (
+								{sites.map((site) => (
 									<tr key={site.id}>
 										<td className="font-medium">{site.domain}</td>
 										<td style={{ color: 'var(--admin-muted)' }}>{site.workspace}</td>
 										<td>{site.cms}</td>
 										<td><StatusPill status={site.status} /></td>
-										<td><button type="button" className="admin-btn" disabled title="Backend not available">Open</button></td>
+										<td><button type="button" className="admin-btn" disabled title="Display only">Open</button></td>
 									</tr>
 								))}
 							</tbody>

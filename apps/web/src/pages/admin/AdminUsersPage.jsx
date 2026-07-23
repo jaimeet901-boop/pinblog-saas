@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Eye, Pencil, Ban, CheckCircle2, KeyRound, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import {
+	Eye, Pencil, Ban, CheckCircle2, KeyRound, Trash2, X, Loader2,
+} from 'lucide-react';
 import { AdminHero, StatusPill, AdminPagination, AdminEmptyState } from '@/components/admin/AdminUi';
-import { MOCK_USERS } from '@/pages/admin/mockData';
+import apiServerClient from '@/lib/apiServerClient';
+import { useToast } from '@/hooks/use-toast';
 
 const PAGE_SIZE = 6;
-const BACKEND_READY = false;
 
 function initials(name = '') {
 	return String(name)
@@ -15,17 +17,21 @@ function initials(name = '') {
 		.join('') || '?';
 }
 
-function daysAgo(isoDate) {
-	const created = new Date(`${isoDate}T00:00:00`);
-	if (Number.isNaN(created.getTime())) return Infinity;
-	return (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
-}
-
 function Avatar({ name, large }) {
 	return <span className={`admin-avatar ${large ? 'admin-avatar--lg' : ''}`} aria-hidden="true">{initials(name)}</span>;
 }
 
+async function readApiError(response) {
+	try {
+		const data = await response.json();
+		return data?.message || `Request failed (${response.status})`;
+	} catch {
+		return `Request failed (${response.status})`;
+	}
+}
+
 export default function AdminUsersPage() {
+	const { toast } = useToast();
 	const [search, setSearch] = useState('');
 	const [role, setRole] = useState('');
 	const [status, setStatus] = useState('');
@@ -33,56 +39,108 @@ export default function AdminUsersPage() {
 	const [registeredWithin, setRegisteredWithin] = useState('');
 	const [page, setPage] = useState(1);
 	const [selectedId, setSelectedId] = useState('');
+	const [selected, setSelected] = useState(null);
+	const [rows, setRows] = useState([]);
+	const [totalItems, setTotalItems] = useState(0);
+	const [totalPages, setTotalPages] = useState(1);
+	const [stats, setStats] = useState({ total: 0, active: 0, admins: 0, newUsers: 0 });
+	const [loading, setLoading] = useState(true);
+	const [busy, setBusy] = useState(false);
 
-	const stats = useMemo(() => {
-		const total = MOCK_USERS.length;
-		const active = MOCK_USERS.filter((user) => user.status === 'active').length;
-		const admins = MOCK_USERS.filter((user) => user.role === 'admin').length;
-		const newUsers = MOCK_USERS.filter((user) => daysAgo(user.created) <= 30).length;
-		return { total, active, admins, newUsers };
-	}, []);
+	const load = useCallback(async () => {
+		setLoading(true);
+		try {
+			const params = new URLSearchParams({
+				page: String(page),
+				perPage: String(PAGE_SIZE),
+			});
+			if (search.trim()) params.set('q', search.trim());
+			if (role) params.set('role', role);
+			if (status) params.set('status', status);
+			if (plan) params.set('plan', plan);
+			if (registeredWithin) params.set('registeredWithin', registeredWithin);
+			const response = await apiServerClient.fetch(`/admin/v1/users?${params.toString()}`);
+			if (!response.ok) throw new Error(await readApiError(response));
+			const payload = await response.json();
+			setRows(Array.isArray(payload.items) ? payload.items : []);
+			setTotalItems(Number(payload.totalItems) || 0);
+			setTotalPages(Math.max(1, Number(payload.totalPages) || 1));
+			setStats({
+				total: payload.summary?.total ?? payload.totalItems ?? 0,
+				active: payload.summary?.active ?? 0,
+				admins: payload.summary?.admins ?? 0,
+				newUsers: payload.summary?.newUsers ?? 0,
+			});
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Users load failed', description: error.message });
+		} finally {
+			setLoading(false);
+		}
+	}, [page, search, role, status, plan, registeredWithin, toast]);
 
-	const filtered = useMemo(() => {
-		const q = search.trim().toLowerCase();
-		return MOCK_USERS.filter((user) => {
-			if (role && user.role !== role) return false;
-			if (status && user.status !== status) return false;
-			if (plan && user.plan !== plan) return false;
-			if (registeredWithin === '7' && daysAgo(user.created) > 7) return false;
-			if (registeredWithin === '30' && daysAgo(user.created) > 30) return false;
-			if (registeredWithin === '90' && daysAgo(user.created) > 90) return false;
-			if (!q) return true;
-			const haystack = [
-				user.name,
-				user.email,
-				...(user.workspaces || []),
-			].join(' ').toLowerCase();
-			return haystack.includes(q);
-		});
-	}, [search, role, status, plan, registeredWithin]);
-
-	const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-	const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-	const selected = MOCK_USERS.find((user) => user.id === selectedId) || null;
+	useEffect(() => {
+		load();
+	}, [load]);
 
 	useEffect(() => {
 		if (page > totalPages) setPage(totalPages);
 	}, [page, totalPages]);
 
 	useEffect(() => {
-		if (!selected) return undefined;
+		if (!selectedId) {
+			setSelected(null);
+			return undefined;
+		}
+		let cancelled = false;
+		apiServerClient.fetch(`/admin/v1/users/${selectedId}`)
+			.then(async (response) => {
+				if (!response.ok) throw new Error(await readApiError(response));
+				const payload = await response.json();
+				if (!cancelled) setSelected(payload);
+			})
+			.catch((error) => {
+				toast({ variant: 'destructive', title: 'User detail failed', description: error.message });
+			});
 		const onKeyDown = (event) => {
 			if (event.key === 'Escape') setSelectedId('');
 		};
 		window.addEventListener('keydown', onKeyDown);
-		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [selected]);
+		return () => {
+			cancelled = true;
+			window.removeEventListener('keydown', onKeyDown);
+		};
+	}, [selectedId, toast]);
+
+	const runAction = async (path, method = 'POST', userId = selectedId) => {
+		const target = userId || selectedId;
+		if (!target) return;
+		setBusy(true);
+		try {
+			const response = await apiServerClient.fetch(`/admin/v1/users/${target}${path}`, { method });
+			if (!response.ok) throw new Error(await readApiError(response));
+			toast({ title: 'User updated' });
+			await load();
+			if (method !== 'DELETE') {
+				const detail = await apiServerClient.fetch(`/admin/v1/users/${target}`);
+				if (detail.ok) {
+					setSelectedId(target);
+					setSelected(await detail.json());
+				}
+			} else {
+				setSelectedId('');
+			}
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Action failed', description: error.message });
+		} finally {
+			setBusy(false);
+		}
+	};
 
 	return (
 		<div>
 			<AdminHero
 				title="Users Management"
-				description="Manage platform users and workspace owners. Mock data only — actions disabled until admin APIs exist."
+				description="Manage platform users and workspace owners from live PocketBase records."
 			/>
 
 			<div className="admin-stats admin-stats--compact">
@@ -95,7 +153,7 @@ export default function AdminUsersPage() {
 					<div key={card.label} className="admin-stat">
 						<p className="admin-stat__label">{card.label}</p>
 						<p className="admin-stat__value">{card.value}</p>
-						<p className="admin-stat__hint">Placeholder</p>
+						<p className="admin-stat__hint">Live</p>
 					</div>
 				))}
 			</div>
@@ -148,6 +206,9 @@ export default function AdminUsersPage() {
 			</div>
 
 			<section className="admin-card">
+				{loading ? (
+					<p className="admin-note flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Loading users…</p>
+				) : null}
 				<div className="admin-table-wrap">
 					<table className="admin-table" style={{ minWidth: '64rem' }}>
 						<thead>
@@ -178,7 +239,7 @@ export default function AdminUsersPage() {
 									<td><StatusPill status={user.role} /></td>
 									<td><StatusPill status={user.plan} /></td>
 									<td>{Number(user.credits || 0).toLocaleString()}</td>
-									<td style={{ color: 'var(--admin-muted)' }}>{(user.workspaces || []).length}</td>
+									<td style={{ color: 'var(--admin-muted)' }}>{user.workspaceCount ?? (user.workspaces || []).length}</td>
 									<td><StatusPill status={user.status} /></td>
 									<td style={{ color: 'var(--admin-muted)', whiteSpace: 'nowrap' }}>{user.created}</td>
 									<td style={{ color: 'var(--admin-muted)', whiteSpace: 'nowrap' }}>{user.lastLogin || '—'}</td>
@@ -187,10 +248,15 @@ export default function AdminUsersPage() {
 											<button type="button" className="admin-btn" onClick={() => setSelectedId(user.id)}>
 												<Eye size={12} /> View
 											</button>
-											<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+											<button type="button" className="admin-btn" disabled={busy} onClick={() => setSelectedId(user.id)}>
 												<Pencil size={12} /> Edit
 											</button>
-											<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+											<button
+												type="button"
+												className="admin-btn"
+												disabled={busy}
+												onClick={() => runAction(user.status === 'suspended' ? '/activate' : '/suspend', 'POST', user.id)}
+											>
 												{user.status === 'suspended' ? <CheckCircle2 size={12} /> : <Ban size={12} />}
 												{user.status === 'suspended' ? 'Activate' : 'Suspend'}
 											</button>
@@ -202,8 +268,12 @@ export default function AdminUsersPage() {
 					</table>
 				</div>
 
+				{!loading && rows.length === 0 ? (
+					<AdminEmptyState title="No users found" description="Adjust filters or wait for registrations." />
+				) : null}
+
 				<AdminPagination
-					total={filtered.length}
+					total={totalItems}
 					page={page}
 					totalPages={totalPages}
 					noun="users"
@@ -253,14 +323,14 @@ export default function AdminUsersPage() {
 									))}
 								</div>
 							) : (
-								<AdminEmptyState title="No workspaces" description="No workspaces on this mock profile." />
+								<AdminEmptyState title="No workspaces" description="No workspaces on this profile." />
 							)}
 						</section>
 
 						<section className="admin-user-drawer__section">
 							<h3>Credits</h3>
 							<div className="admin-meta-row"><span>Available</span><span>{Number(selected.credits || 0).toLocaleString()}</span></div>
-							<div className="admin-meta-row"><span>Ledger</span><span>Placeholder</span></div>
+							<div className="admin-meta-row"><span>Ledger</span><span>See Credits page</span></div>
 						</section>
 
 						<section className="admin-user-drawer__section">
@@ -282,7 +352,7 @@ export default function AdminUsersPage() {
 									))}
 								</div>
 							) : (
-								<AdminEmptyState title="No websites" description="No websites connected on this mock profile." />
+								<AdminEmptyState title="No websites" description="No websites connected on this profile." />
 							)}
 						</section>
 
@@ -295,12 +365,14 @@ export default function AdminUsersPage() {
 						<section className="admin-user-drawer__section">
 							<h3>Recent Activity</h3>
 							<div className="admin-list">
-								{(selected.activity || []).map((item) => (
+								{(selected.activity || []).length ? selected.activity.map((item) => (
 									<div key={`${item.text}-${item.time}`} className="admin-list__item">
 										<span>{item.text}</span>
 										<span>{item.time}</span>
 									</div>
-								))}
+								)) : (
+									<div className="admin-list__item"><span>No recent activity</span><span>—</span></div>
+								)}
 							</div>
 						</section>
 
@@ -308,23 +380,23 @@ export default function AdminUsersPage() {
 							<button type="button" className="admin-btn" onClick={() => {}}>
 								<Eye size={13} /> View
 							</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+							<button type="button" className="admin-btn" disabled={busy} onClick={() => toast({ title: 'Edit', description: 'Use profile fields via PATCH when needed.' })}>
 								<Pencil size={13} /> Edit
 							</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+							<button type="button" className="admin-btn" disabled={busy} onClick={() => runAction('/suspend')}>
 								<Ban size={13} /> Suspend
 							</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+							<button type="button" className="admin-btn" disabled={busy} onClick={() => runAction('/activate')}>
 								<CheckCircle2 size={13} /> Activate
 							</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+							<button type="button" className="admin-btn" disabled={busy} onClick={() => runAction('/reset-password')}>
 								<KeyRound size={13} /> Reset Password
 							</button>
-							<button type="button" className="admin-btn admin-btn--danger" disabled={!BACKEND_READY} title="Backend not available">
+							<button type="button" className="admin-btn admin-btn--danger" disabled={busy} onClick={() => runAction('', 'DELETE')}>
 								<Trash2 size={13} /> Delete
 							</button>
 						</div>
-						<p className="admin-note">Mutation actions stay disabled until Admin Console APIs are implemented.</p>
+						<p className="admin-note">Mutations write to PocketBase users and audit logs.</p>
 					</aside>
 				</div>
 			) : null}

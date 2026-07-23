@@ -10,6 +10,11 @@ import queueRouter from './queue.js';
 import analyticsRouter from './analytics.js';
 import logsRouter from './logs.js';
 import systemRouter from './system.js';
+import usersRouter from './users.js';
+import workspacesRouter from './workspaces.js';
+import inventoryRouter from './inventory.js';
+import dashboardRouter from './dashboard.js';
+import notificationsRouter from './notifications.js';
 
 const router = Router();
 
@@ -33,5 +38,10 @@ router.use('/queue', queueRouter);
 router.use('/analytics', analyticsRouter);
 router.use('/logs', logsRouter);
 router.use('/system', systemRouter);
+router.use('/users', usersRouter);
+router.use('/workspaces', workspacesRouter);
+router.use('/inventory', inventoryRouter);
+router.use('/dashboard', dashboardRouter);
+router.use('/notifications', notificationsRouter);
 
 export default router;

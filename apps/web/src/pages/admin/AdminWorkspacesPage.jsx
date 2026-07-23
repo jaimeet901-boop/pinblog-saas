@@ -1,34 +1,28 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-	Eye, Pencil, Ban, CheckCircle2, Trash2, X, ArrowLeftRight,
+	Eye, Pencil, Ban, CheckCircle2, Trash2, X, ArrowLeftRight, Loader2,
 } from 'lucide-react';
 import { AdminHero, StatusPill, AdminPagination, AdminEmptyState } from '@/components/admin/AdminUi';
-import { MOCK_WORKSPACES } from '@/pages/admin/mockData';
+import apiServerClient from '@/lib/apiServerClient';
+import { useToast } from '@/hooks/use-toast';
 
 const PAGE_SIZE = 6;
-const BACKEND_READY = false;
-
-function daysAgo(isoDate) {
-	const created = new Date(`${isoDate}T00:00:00`);
-	if (Number.isNaN(created.getTime())) return Infinity;
-	return (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
-}
 
 function boolPill(value) {
 	return value ? 'connected' : 'disconnected';
 }
 
-function matchesCreditsRange(credits, range) {
-	const value = Number(credits || 0);
-	if (!range) return true;
-	if (range === '0') return value === 0;
-	if (range === '1-1k') return value > 0 && value <= 1000;
-	if (range === '1k-5k') return value > 1000 && value <= 5000;
-	if (range === '5k+') return value > 5000;
-	return true;
+async function readApiError(response) {
+	try {
+		const data = await response.json();
+		return data?.message || `Request failed (${response.status})`;
+	} catch {
+		return `Request failed (${response.status})`;
+	}
 }
 
 export default function AdminWorkspacesPage() {
+	const { toast } = useToast();
 	const [search, setSearch] = useState('');
 	const [plan, setPlan] = useState('');
 	const [status, setStatus] = useState('');
@@ -36,47 +30,102 @@ export default function AdminWorkspacesPage() {
 	const [creditsRange, setCreditsRange] = useState('');
 	const [page, setPage] = useState(1);
 	const [selectedId, setSelectedId] = useState('');
+	const [selected, setSelected] = useState(null);
+	const [rows, setRows] = useState([]);
+	const [totalItems, setTotalItems] = useState(0);
+	const [totalPages, setTotalPages] = useState(1);
+	const [stats, setStats] = useState({ total: 0, active: 0, suspended: 0, newer: 0 });
+	const [loading, setLoading] = useState(true);
+	const [busy, setBusy] = useState(false);
 
-	const stats = useMemo(() => {
-		const total = MOCK_WORKSPACES.length;
-		const active = MOCK_WORKSPACES.filter((ws) => ws.status === 'active').length;
-		const suspended = MOCK_WORKSPACES.filter((ws) => ws.status === 'suspended').length;
-		const newer = MOCK_WORKSPACES.filter((ws) => daysAgo(ws.created) <= 30).length;
-		return { total, active, suspended, newer };
-	}, []);
+	const load = useCallback(async () => {
+		setLoading(true);
+		try {
+			const params = new URLSearchParams({
+				page: String(page),
+				perPage: String(PAGE_SIZE),
+			});
+			if (search.trim()) params.set('q', search.trim());
+			if (plan) params.set('plan', plan);
+			if (status) params.set('status', status);
+			if (createdWithin) params.set('createdWithin', createdWithin);
+			if (creditsRange) params.set('creditsRange', creditsRange);
+			const response = await apiServerClient.fetch(`/admin/v1/workspaces?${params.toString()}`);
+			if (!response.ok) throw new Error(await readApiError(response));
+			const payload = await response.json();
+			setRows(Array.isArray(payload.items) ? payload.items : []);
+			setTotalItems(Number(payload.totalItems) || 0);
+			setTotalPages(Math.max(1, Number(payload.totalPages) || 1));
+			setStats({
+				total: payload.summary?.total ?? payload.totalItems ?? 0,
+				active: payload.summary?.active ?? 0,
+				suspended: payload.summary?.suspended ?? 0,
+				newer: payload.summary?.newer ?? 0,
+			});
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Workspaces load failed', description: error.message });
+		} finally {
+			setLoading(false);
+		}
+	}, [page, search, plan, status, createdWithin, creditsRange, toast]);
 
-	const filtered = useMemo(() => {
-		const q = search.trim().toLowerCase();
-		return MOCK_WORKSPACES.filter((ws) => {
-			if (plan && ws.plan !== plan) return false;
-			if (status && ws.status !== status) return false;
-			if (createdWithin === '7' && daysAgo(ws.created) > 7) return false;
-			if (createdWithin === '30' && daysAgo(ws.created) > 30) return false;
-			if (createdWithin === '90' && daysAgo(ws.created) > 90) return false;
-			if (!matchesCreditsRange(ws.credits, creditsRange)) return false;
-			if (!q) return true;
-			const domains = (ws.websites || []).map((site) => site.domain).join(' ');
-			const haystack = [ws.name, ws.owner, ws.ownerEmail, domains].join(' ').toLowerCase();
-			return haystack.includes(q);
-		});
-	}, [search, plan, status, createdWithin, creditsRange]);
-
-	const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-	const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-	const selected = MOCK_WORKSPACES.find((ws) => ws.id === selectedId) || null;
+	useEffect(() => {
+		load();
+	}, [load]);
 
 	useEffect(() => {
 		if (page > totalPages) setPage(totalPages);
 	}, [page, totalPages]);
 
 	useEffect(() => {
-		if (!selected) return undefined;
+		if (!selectedId) {
+			setSelected(null);
+			return undefined;
+		}
+		let cancelled = false;
+		apiServerClient.fetch(`/admin/v1/workspaces/${selectedId}`)
+			.then(async (response) => {
+				if (!response.ok) throw new Error(await readApiError(response));
+				const payload = await response.json();
+				if (!cancelled) setSelected(payload);
+			})
+			.catch((error) => {
+				toast({ variant: 'destructive', title: 'Workspace detail failed', description: error.message });
+			});
 		const onKeyDown = (event) => {
 			if (event.key === 'Escape') setSelectedId('');
 		};
 		window.addEventListener('keydown', onKeyDown);
-		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [selected]);
+		return () => {
+			cancelled = true;
+			window.removeEventListener('keydown', onKeyDown);
+		};
+	}, [selectedId, toast]);
+
+	const runAction = async (id, path, method = 'POST', body) => {
+		const target = id || selectedId;
+		if (!target) return;
+		setBusy(true);
+		try {
+			const response = await apiServerClient.fetch(`/admin/v1/workspaces/${target}${path}`, {
+				method,
+				headers: body ? { 'Content-Type': 'application/json' } : undefined,
+				body: body ? JSON.stringify(body) : undefined,
+			});
+			if (!response.ok) throw new Error(await readApiError(response));
+			toast({ title: 'Workspace updated' });
+			await load();
+			if (method === 'DELETE') setSelectedId('');
+			else if (selectedId === target) {
+				const detail = await apiServerClient.fetch(`/admin/v1/workspaces/${target}`);
+				if (detail.ok) setSelected(await detail.json());
+			}
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Action failed', description: error.message });
+		} finally {
+			setBusy(false);
+		}
+	};
 
 	const storagePct = selected
 		? Math.min(100, Math.round((Number(selected.storageUsedGb || 0) / Math.max(1, Number(selected.storageLimitGb || 1))) * 100))
@@ -86,7 +135,7 @@ export default function AdminWorkspacesPage() {
 		<div>
 			<AdminHero
 				title="Workspaces Management"
-				description="Manage customer workspaces across the platform. Mock data only — mutation actions stay disabled until admin APIs exist."
+				description="Manage customer workspaces across the platform from live PocketBase records."
 			/>
 
 			<div className="admin-stats admin-stats--compact">
@@ -99,7 +148,7 @@ export default function AdminWorkspacesPage() {
 					<div key={card.label} className="admin-stat">
 						<p className="admin-stat__label">{card.label}</p>
 						<p className="admin-stat__value">{card.value}</p>
-						<p className="admin-stat__hint">Placeholder</p>
+						<p className="admin-stat__hint">Live</p>
 					</div>
 				))}
 			</div>
@@ -154,6 +203,9 @@ export default function AdminWorkspacesPage() {
 			</div>
 
 			<section className="admin-card">
+				{loading ? (
+					<p className="admin-note flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Loading workspaces…</p>
+				) : null}
 				<div className="admin-table-wrap">
 					<table className="admin-table" style={{ minWidth: '72rem' }}>
 						<thead>
@@ -184,7 +236,7 @@ export default function AdminWorkspacesPage() {
 									<td style={{ color: 'var(--admin-muted)' }}>{ws.ownerEmail}</td>
 									<td><StatusPill status={ws.plan} /></td>
 									<td>{Number(ws.credits || 0).toLocaleString()}</td>
-									<td>{(ws.websites || []).length}</td>
+									<td>{ws.websiteCount ?? (ws.websites || []).length}</td>
 									<td><StatusPill status={boolPill(ws.pinterestConnected)} /></td>
 									<td><StatusPill status={boolPill(ws.wordpressConnected)} /></td>
 									<td><StatusPill status={ws.status} /></td>
@@ -195,10 +247,15 @@ export default function AdminWorkspacesPage() {
 											<button type="button" className="admin-btn" onClick={() => setSelectedId(ws.id)}>
 												<Eye size={12} /> View
 											</button>
-											<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+											<button type="button" className="admin-btn" disabled={busy} onClick={() => setSelectedId(ws.id)}>
 												<Pencil size={12} /> Edit
 											</button>
-											<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+											<button
+												type="button"
+												className="admin-btn"
+												disabled={busy}
+												onClick={() => runAction(ws.id, ws.status === 'suspended' ? '/activate' : '/suspend')}
+											>
 												{ws.status === 'suspended' ? <CheckCircle2 size={12} /> : <Ban size={12} />}
 												{ws.status === 'suspended' ? 'Activate' : 'Suspend'}
 											</button>
@@ -210,8 +267,12 @@ export default function AdminWorkspacesPage() {
 					</table>
 				</div>
 
+				{!loading && rows.length === 0 ? (
+					<AdminEmptyState title="No workspaces found" description="Adjust filters or create a workspace from the app." />
+				) : null}
+
 				<AdminPagination
-					total={filtered.length}
+					total={totalItems}
 					page={page}
 					totalPages={totalPages}
 					noun="workspaces"
@@ -262,7 +323,7 @@ export default function AdminWorkspacesPage() {
 							<h3>Credits Usage</h3>
 							<div className="admin-meta-row"><span>Remaining</span><span>{Number(selected.credits || 0).toLocaleString()}</span></div>
 							<div className="admin-meta-row"><span>Used</span><span>{Number(selected.creditsUsed || 0).toLocaleString()}</span></div>
-							<div className="admin-meta-row"><span>Ledger</span><span>Placeholder</span></div>
+							<div className="admin-meta-row"><span>Ledger</span><span>See Credits page</span></div>
 						</section>
 
 						<section className="admin-user-drawer__section">
@@ -277,7 +338,7 @@ export default function AdminWorkspacesPage() {
 									))}
 								</div>
 							) : (
-								<AdminEmptyState title="No websites" description="No websites connected on this mock workspace." />
+								<AdminEmptyState title="No websites" description="No websites connected on this workspace." />
 							)}
 						</section>
 
@@ -293,7 +354,7 @@ export default function AdminWorkspacesPage() {
 									))}
 								</div>
 							) : (
-								<AdminEmptyState title="No Pinterest accounts" description="No Pinterest accounts linked on this mock workspace." />
+								<AdminEmptyState title="No Pinterest accounts" description="No Pinterest accounts linked on this workspace." />
 							)}
 						</section>
 
@@ -309,19 +370,21 @@ export default function AdminWorkspacesPage() {
 									))}
 								</div>
 							) : (
-								<AdminEmptyState title="No WordPress connections" description="No WordPress connections on this mock workspace." />
+								<AdminEmptyState title="No WordPress connections" description="No WordPress connections on this workspace." />
 							)}
 						</section>
 
 						<section className="admin-user-drawer__section">
 							<h3>Recent Publishing Activity</h3>
 							<div className="admin-list">
-								{(selected.publishing || []).map((item) => (
+								{(selected.publishing || []).length ? selected.publishing.map((item) => (
 									<div key={`${item.text}-${item.time}`} className="admin-list__item">
 										<span>{item.text}</span>
 										<span>{item.time}</span>
 									</div>
-								))}
+								)) : (
+									<div className="admin-list__item"><span>No recent publishing</span><span>—</span></div>
+								)}
 							</div>
 						</section>
 
@@ -334,30 +397,38 @@ export default function AdminWorkspacesPage() {
 							<div className="admin-bar-track mt-2">
 								<div className="admin-bar-fill" style={{ width: `${storagePct}%` }} />
 							</div>
-							<p className="admin-note">{storagePct}% of allocated storage (mock)</p>
+							<p className="admin-note">{storagePct}% of allocated storage</p>
 						</section>
 
 						<div className="admin-user-drawer__actions">
 							<button type="button" className="admin-btn" onClick={() => {}}>
 								<Eye size={13} /> View
 							</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+							<button type="button" className="admin-btn" disabled={busy} onClick={() => toast({ title: 'Edit', description: 'Use PATCH /workspaces/:id for field updates.' })}>
 								<Pencil size={13} /> Edit
 							</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+							<button type="button" className="admin-btn" disabled={busy} onClick={() => runAction(selected.id, '/suspend')}>
 								<Ban size={13} /> Suspend Workspace
 							</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+							<button type="button" className="admin-btn" disabled={busy} onClick={() => runAction(selected.id, '/activate')}>
 								<CheckCircle2 size={13} /> Activate Workspace
 							</button>
-							<button type="button" className="admin-btn" disabled={!BACKEND_READY} title="Backend not available">
+							<button
+								type="button"
+								className="admin-btn"
+								disabled={busy}
+								onClick={() => {
+									const newOwnerUserId = window.prompt('New owner user id');
+									if (newOwnerUserId) runAction(selected.id, '/transfer', 'POST', { newOwnerUserId });
+								}}
+							>
 								<ArrowLeftRight size={13} /> Transfer Ownership
 							</button>
-							<button type="button" className="admin-btn admin-btn--danger" disabled={!BACKEND_READY} title="Backend not available">
+							<button type="button" className="admin-btn admin-btn--danger" disabled={busy} onClick={() => runAction(selected.id, '', 'DELETE')}>
 								<Trash2 size={13} /> Delete Workspace
 							</button>
 						</div>
-						<p className="admin-note">Mutation actions stay disabled until Admin Console APIs are implemented.</p>
+						<p className="admin-note">Mutations write to PocketBase workspaces and audit logs.</p>
 					</aside>
 				</div>
 			) : null}
