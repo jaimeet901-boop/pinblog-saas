@@ -63,20 +63,22 @@ const AUTODATE_FIELDS = [
 
 migrate(
 	(app) => {
-		if (!findCollectionSafe(app, "pinterest_app_credentials")) {
-			const fields = [
-				{ type: "text", name: "config_key", required: true, max: 40 },
-				{ type: "text", name: "app_id", max: 200 },
-				{ type: "text", name: "app_secret_ciphertext", max: 4000 },
-				{ type: "text", name: "redirect_uri", max: 1000 },
-				{ type: "text", name: "scopes", max: 1000 },
-				{ type: "bool", name: "enabled" },
-				{ type: "bool", name: "trial_access_pending" },
-				{ type: "text", name: "kek_version", max: 40 },
-				{ type: "json", name: "meta", maxSize: 100000 },
-			].concat(AUTODATE_FIELDS).map(toField);
+		let collection = findCollectionSafe(app, "pinterest_app_credentials");
+		const credentialFields = [
+			{ type: "text", name: "config_key", required: true, max: 40 },
+			{ type: "text", name: "app_id", max: 200 },
+			{ type: "text", name: "app_secret_ciphertext", max: 4000 },
+			{ type: "text", name: "redirect_uri", max: 1000 },
+			{ type: "text", name: "scopes", max: 1000 },
+			{ type: "bool", name: "enabled" },
+			{ type: "bool", name: "trial_access_pending" },
+			{ type: "text", name: "kek_version", max: 40 },
+			{ type: "json", name: "meta", maxSize: 100000 },
+		];
 
-			const collection = new Collection({
+		if (!collection) {
+			const fields = credentialFields.concat(AUTODATE_FIELDS).map(toField);
+			collection = new Collection({
 				type: "base",
 				name: "pinterest_app_credentials",
 				listRule: null,
@@ -90,6 +92,22 @@ migrate(
 				fields,
 			});
 			app.save(collection);
+		} else {
+			// Repair path for stub collections that already existed without fields.
+			let dirty = false;
+			for (const def of credentialFields) {
+				if (!collection.fields.getByName(def.name)) {
+					collection.fields.add(toField(def));
+					dirty = true;
+				}
+			}
+			for (const def of AUTODATE_FIELDS) {
+				if (!collection.fields.getByName(def.name)) {
+					collection.fields.add(toField(def));
+					dirty = true;
+				}
+			}
+			if (dirty) app.save(collection);
 		}
 
 		const accounts = findCollectionSafe(app, "pinterest_accounts");
