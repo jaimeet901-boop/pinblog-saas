@@ -8,6 +8,12 @@ import {
 import { getSiteCredentialsPlain } from './wordpress-sites.js';
 import { writePublishHistory } from './wordpress-publish.js';
 import { mirrorWordpressJob } from './queue/mirrors.js';
+import {
+	continueChefIaPublishWorkflow,
+	notifyWordpressPublishFailure,
+} from './publish-pipeline.js';
+import { logWorkflowStep } from './workspace-notify.js';
+import { enqueueAnalyticsRefresh } from './analytics/refresh.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.WORDPRESS_QUEUE_POLL_MS || '10000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.WORDPRESS_QUEUE_BATCH || '5', 10);
@@ -69,6 +75,19 @@ async function processJob(job) {
 	const started = Date.now();
 	const ownerId = job.owner;
 
+	await logWorkflowStep({
+		ownerId,
+		action: 'workflow.start',
+		resourceType: 'publish_jobs',
+		resourceId: job.id,
+		metadata: {
+			workflowId: job.workflow_id || job.payload?.workflowId || `wf-${job.id}`,
+			siteId: job.site,
+			title: job.title,
+			wpStatus: job.wp_status,
+		},
+	});
+
 	if (job.wp_post_id && job.wp_post_url && job.status === 'publishing') {
 		// Idempotent success path if already published mid-flight
 		await pocketbaseClient.collection('publish_jobs').update(job.id, {
@@ -95,6 +114,13 @@ async function processJob(job) {
 
 	if (job.featured_image_url && !mediaId) {
 		try {
+			await logWorkflowStep({
+				ownerId,
+				action: 'workflow.image_upload',
+				resourceType: 'publish_jobs',
+				resourceId: job.id,
+				metadata: { imageUrl: job.featured_image_url },
+			});
 			const uploaded = await uploadWordpressMedia({
 				url: site.url,
 				username,
@@ -111,7 +137,22 @@ async function processJob(job) {
 				media_ids: mediaIds,
 				progress: 55,
 			}).catch(() => null);
+			await logWorkflowStep({
+				ownerId,
+				action: 'workflow.image_upload',
+				resourceType: 'publish_jobs',
+				resourceId: job.id,
+				metadata: { mediaId, result: 'ok' },
+			});
 		} catch (error) {
+			await logWorkflowStep({
+				ownerId,
+				action: 'workflow.image_upload',
+				result: 'error',
+				resourceType: 'publish_jobs',
+				resourceId: job.id,
+				metadata: { error: error.message },
+			});
 			// Retryable media failure — bubble unless attempts exhausted later
 			error.retryable = true;
 			throw error;
@@ -202,6 +243,22 @@ async function processJob(job) {
 			last_error: '',
 		}).catch(() => null);
 	}
+
+	await continueChefIaPublishWorkflow({
+		job: {
+			...job,
+			wp_post_id: result.id,
+			wp_post_url: result.link,
+			wp_media_id: mediaId || 0,
+			status: 'published',
+		},
+		result,
+		historyResult,
+		mediaId,
+		site,
+	}).catch((error) => {
+		logger.warn(`[wordpress-queue] workflow continuation failed for ${job.id}: ${error.message}`);
+	});
 }
 
 async function failOrRetry(job, error) {
@@ -232,6 +289,7 @@ async function failOrRetry(job, error) {
 			last_error: error.message,
 			progress: 0,
 		}, 'WordPress publish retry scheduled').catch(() => null);
+		await notifyWordpressPublishFailure({ job, error, retrying: true }).catch(() => null);
 		return;
 	}
 
@@ -267,6 +325,9 @@ async function failOrRetry(job, error) {
 		publishedAt: completedAt,
 		durationMs: 0,
 	});
+
+	await notifyWordpressPublishFailure({ job, error, retrying: false }).catch(() => null);
+	await enqueueAnalyticsRefresh(job.owner).catch(() => null);
 }
 
 async function recoverStuckJobs() {

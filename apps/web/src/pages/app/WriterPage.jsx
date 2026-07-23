@@ -442,6 +442,21 @@ Respond ONLY with the JSON object described in your instructions.`;
 		}
 		setPublishing(true);
 		try {
+			const articleStatus = extras.scheduledAt ? 'scheduled' : (wpStatus === 'publish' ? 'published' : 'draft');
+			const savedArticle = await pb.collection('articles').create({
+				owner: pb.authStore.record.id,
+				keyword: form.keyword,
+				seo_title: article.seo_title,
+				meta_description: article.meta_description,
+				slug: article.slug,
+				language: form.language,
+				country: form.country,
+				tone: form.tone,
+				body: article,
+				status: articleStatus,
+				...(extras.scheduledAt ? { scheduled_at: extras.scheduledAt } : {}),
+			});
+
 			const endpoint = extras.scheduledAt ? '/wordpress/schedule' : '/wordpress/publish';
 			const res = await apiServerClient.fetch(endpoint, {
 				method: 'POST',
@@ -449,6 +464,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 				body: JSON.stringify({
 					siteId: site.id,
 					websiteId: site.id,
+					articleId: savedArticle.id,
 					title: article.seo_title || form.keyword,
 					content: composeHtml(article),
 					slug: article.slug,
@@ -464,26 +480,14 @@ Respond ONLY with the JSON object described in your instructions.`;
 						metaDescription: article.meta_description,
 					},
 					recipeCard: options.recipe ? (article.recipe || article.recipe_card || { enabled: true }) : null,
-					idempotencyKey: `writer-${site.id}-${article.slug || form.keyword}-${wpStatus}-${extras.scheduledAt || 'now'}`,
+					enqueuePinterest: true,
+					idempotencyKey: `writer-${site.id}-${savedArticle.id}-${wpStatus}-${extras.scheduledAt || 'now'}`,
 				}),
 			});
 			const data = await res.json().catch(() => ({}));
 			if (!res.ok || data.ok === false) {
 				throw new Error(data.message || data.error || 'Publish failed');
 			}
-
-			await pb.collection('articles').create({
-				owner: pb.authStore.record.id,
-				keyword: form.keyword,
-				seo_title: article.seo_title,
-				meta_description: article.meta_description,
-				slug: article.slug,
-				language: form.language,
-				country: form.country,
-				tone: form.tone,
-				body: article,
-				status: extras.scheduledAt ? 'scheduled' : (wpStatus === 'publish' ? 'published' : 'draft'),
-			}).catch(() => {});
 
 			if (data.queued && !data.link) {
 				toast({

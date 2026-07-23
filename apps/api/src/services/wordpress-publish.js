@@ -4,6 +4,9 @@ import { httpError } from '../middleware/require-admin.js';
 import { mapWpStatus } from './wordpress-client.js';
 import { resolvePublishSite } from './wordpress-sites.js';
 import { mirrorWordpressJob } from './queue/mirrors.js';
+import { newWorkflowId } from './publish-pipeline.js';
+import { logWorkflowStep } from './workspace-notify.js';
+import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
 
 function workspaceKeyFor(userId) {
 	return String(userId || '').trim();
@@ -101,43 +104,69 @@ export async function enqueueWordpressPublish(ownerId, payload = {}) {
 		}
 	}
 
-	const job = await pocketbaseClient.collection('publish_jobs').create({
-		owner: ownerId,
-		workspace_key: workspaceKeyFor(ownerId),
-		site: site.id,
-		article_id: payload.articleId || payload.article_id || '',
-		title,
-		content,
-		excerpt: String(payload.excerpt || '').slice(0, 5000),
-		slug: String(payload.slug || '').slice(0, 300),
-		meta_description: String(payload.metaDescription || payload.meta_description || '').slice(0, 1000),
-		featured_image_url: String(payload.featuredImageUrl || payload.featured_image_url || payload.featuredImage || '').slice(0, 2000),
-		categories: asStringArray(payload.categories || payload.category || payload.wpCategory),
-		tags: asStringArray(payload.tags),
-		seo: payload.seo && typeof payload.seo === 'object' ? payload.seo : {},
-		recipe_card: payload.recipeCard || payload.recipe_card || null,
+	const workflowId = String(payload.workflowId || payload.workflow_id || '').trim() || newWorkflowId();
+
+	const createBody = await sanitizeCollectionPayload({
+		collection: 'publish_jobs',
+		context: 'wordpress:enqueue-publish',
+		requiredKeys: ['owner', 'site', 'title', 'content', 'wp_status', 'status'],
 		payload: {
-			updatePostId: payload.postId || payload.wpPostId || null,
-			contentType: String(payload.contentType || payload.type || 'post').toLowerCase() === 'page' ? 'page' : 'post',
-			authorId: payload.authorId || payload.author || null,
+			owner: ownerId,
+			workspace_key: workspaceKeyFor(ownerId),
+			site: site.id,
+			article_id: payload.articleId || payload.article_id || '',
+			title,
+			content,
+			excerpt: String(payload.excerpt || '').slice(0, 5000),
+			slug: String(payload.slug || '').slice(0, 300),
+			meta_description: String(payload.metaDescription || payload.meta_description || '').slice(0, 1000),
+			featured_image_url: String(payload.featuredImageUrl || payload.featured_image_url || payload.featuredImage || '').slice(0, 2000),
+			categories: asStringArray(payload.categories || payload.category || payload.wpCategory),
+			tags: asStringArray(payload.tags),
+			seo: payload.seo && typeof payload.seo === 'object' ? payload.seo : {},
+			recipe_card: payload.recipeCard || payload.recipe_card || null,
+			payload: {
+				updatePostId: payload.postId || payload.wpPostId || null,
+				contentType: String(payload.contentType || payload.type || 'post').toLowerCase() === 'page' ? 'page' : 'post',
+				authorId: payload.authorId || payload.author || null,
+				enqueuePinterest: payload.enqueuePinterest !== false,
+				websiteId: site.website || payload.websiteId || '',
+				workflowId,
+			},
+			workflow_id: workflowId,
+			enqueue_pinterest: payload.enqueuePinterest !== false,
+			wp_status: wpStatus,
+			scheduled_at: scheduledAt || '',
+			timezone: payload.timezone || 'UTC',
+			status: immediate ? 'queued' : 'scheduled',
+			progress: 0,
+			attempt_count: 0,
+			max_attempts: Number(payload.maxAttempts) || 3,
+			next_retry_at: '',
+			last_error: '',
+			idempotency_key: idempotencyKey,
+			dead_letter: false,
+			claim_token: '',
+			claim_version: 0,
+			media_ids: [],
 		},
-		wp_status: wpStatus,
-		scheduled_at: scheduledAt || '',
-		timezone: payload.timezone || 'UTC',
-		status: immediate ? 'queued' : 'scheduled',
-		progress: 0,
-		attempt_count: 0,
-		max_attempts: Number(payload.maxAttempts) || 3,
-		next_retry_at: '',
-		last_error: '',
-		idempotency_key: idempotencyKey,
-		dead_letter: false,
-		claim_token: '',
-		claim_version: 0,
-		media_ids: [],
 	});
 
+	const job = await pocketbaseClient.collection('publish_jobs').create(createBody);
+
 	await mirrorWordpressJob(job, 'WordPress publish job enqueued').catch(() => null);
+	await logWorkflowStep({
+		ownerId,
+		action: 'workflow.enqueued',
+		resourceType: 'publish_jobs',
+		resourceId: job.id,
+		metadata: {
+			workflowId,
+			siteId: site.id,
+			immediate,
+			enqueuePinterest: payload.enqueuePinterest !== false,
+		},
+	});
 
 	return mapPublishJob(job);
 }

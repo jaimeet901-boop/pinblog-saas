@@ -102,9 +102,11 @@ export default function DashboardPage() {
 			.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
 	}, [calendarJobs]);
 
-	const publishedPins = stats.publishedPins || 0;
+	const publishedPins = stats.publishedPosts || stats.publishedPins || 0;
 	const failedJobs = stats.failedJobs || 0;
 	const scheduledJobs = stats.scheduledJobs || 0;
+	const queueDepth = stats.queueDepth || dashboard?.publishingStatus?.queue || scheduledJobs;
+	const pinterestWaiting = stats.pinterestWaiting || dashboard?.publishingStatus?.pinterestWaiting || 0;
 	const connectedPinterest = stats.pinterestAccounts || 0;
 	const successRate = stats.successRate;
 
@@ -117,18 +119,21 @@ export default function DashboardPage() {
 			{ label: 'WordPress', status: wpConnected ? 'connected' : websites.length ? 'ready' : 'no sites', tone: wpConnected ? 'green' : 'default' },
 			{ label: 'Pinterest', status: connectedPinterest ? 'connected' : 'not linked', tone: connectedPinterest ? 'green' : 'amber' },
 			{ label: 'AI Providers', status: providers.length ? `${healthyProviders}/${providers.length} ready` : 'checking', tone: healthyProviders ? 'green' : 'amber' },
-			{ label: 'Publishing', status: dashboard?.publishingStatus?.queue ? `${dashboard.publishingStatus.queue} queued` : 'idle', tone: scheduledJobs ? 'amber' : 'green' },
-			{ label: 'Queue', status: scheduledJobs ? `${scheduledJobs} pending` : 'idle', tone: scheduledJobs ? 'amber' : 'green' },
+			{ label: 'Publishing', status: dashboard?.publishingStatus?.queue ? `${dashboard.publishingStatus.queue} queued` : 'idle', tone: queueDepth ? 'amber' : 'green' },
+			{ label: 'Queue', status: queueDepth ? `${queueDepth} pending` : 'idle', tone: queueDepth ? 'amber' : 'green' },
+			{ label: 'Pinterest waiting', status: pinterestWaiting ? `${pinterestWaiting} waiting` : 'none', tone: pinterestWaiting ? 'amber' : 'green' },
 		];
-	}, [dashboard, websites, connectedPinterest, scheduledJobs]);
+	}, [dashboard, websites, connectedPinterest, queueDepth, pinterestWaiting]);
 
 	const statCards = [
 		{ label: 'Articles Created', value: stats.articles, to: '/app/writer', hint: null },
 		{ label: 'Pins Generated', value: stats.pins, to: '/app/ai-pins', hint: null },
 		{ label: 'Images Generated', value: stats.images || recentImages.length, to: '/app/images', hint: 'From pin library' },
-		{ label: 'Published Pins', value: publishedPins, to: '/app/pinterest-history', hint: null },
+		{ label: 'Published posts', value: publishedPins, to: '/app/pinterest-history', hint: null },
 		{ label: 'Scheduled Jobs', value: scheduledJobs, to: '/app/calendar', hint: null },
 		{ label: 'Failed Jobs', value: failedJobs, to: '/app/pinterest-history', hint: null },
+		{ label: 'Queue depth', value: queueDepth, to: '/app/pinterest-history', hint: null },
+		{ label: 'Pinterest waiting', value: pinterestWaiting, to: '/app/pinterest', hint: pinterestWaiting ? 'Waiting provider' : null },
 		{ label: 'Connected Websites', value: stats.websites, to: '/app/websites', hint: null },
 		{ label: 'Pinterest Accounts', value: connectedPinterest || '—', to: '/app/pinterest', hint: connectedPinterest ? null : 'Connect in Hub' },
 		{ label: 'Credits Remaining', value: creditsRemaining, to: '/app/subscription', hint: `${usageCount}/${quota || '—'} used` },

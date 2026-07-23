@@ -62,7 +62,7 @@ export async function getWorkspaceDashboard(req) {
 
 	let publishJobs = [];
 	try {
-		const result = await pocketbaseClient.collection('pinterest_publish_jobs').getList(1, 50, {
+		const result = await pocketbaseClient.collection('pinterest_publish_jobs').getList(1, 100, {
 			filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
 			sort: '-updated',
 			requestKey: null,
@@ -72,10 +72,46 @@ export async function getWorkspaceDashboard(req) {
 		publishJobs = [];
 	}
 
+	let wordpressJobs = [];
+	try {
+		const result = await pocketbaseClient.collection('publish_jobs').getList(1, 100, {
+			filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
+			sort: '-updated',
+			requestKey: null,
+		});
+		wordpressJobs = result.items || [];
+	} catch {
+		wordpressJobs = [];
+	}
+
+	let queueDepth = 0;
+	try {
+		const depth = await pocketbaseClient.collection('queue_jobs').getList(1, 1, {
+			filter: pocketbaseClient.filter(
+				'owner = {:owner} && (status = "pending" || status = "queued" || status = "waiting" || status = "waiting_provider" || status = "retrying" || status = "running")',
+				{ owner: ownerId },
+			),
+			requestKey: null,
+		});
+		queueDepth = depth.totalItems || 0;
+	} catch {
+		queueDepth = 0;
+	}
+
 	const publishedPins = publishJobs.filter((job) => job.status === 'published').length;
-	const failedJobs = publishJobs.filter((job) => job.status === 'failed').length;
-	const scheduledJobs = publishJobs.filter((job) => job.status === 'scheduled').length;
-	const connectedPinterest = pinterestAccounts.filter((account) => account.status === 'connected').length
+	const publishedWp = wordpressJobs.filter((job) => job.status === 'published' && job.wp_status !== 'future').length;
+	const scheduledWp = wordpressJobs.filter((job) => (
+		job.status === 'scheduled'
+		|| (job.status === 'published' && (job.wp_status === 'future' || Boolean(job.scheduled_at)))
+	)).length;
+	const failedWp = wordpressJobs.filter((job) => job.status === 'failed').length;
+	const failedPinJobs = publishJobs.filter((job) => job.status === 'failed').length;
+	const failedJobs = failedPinJobs + failedWp;
+	const scheduledPinJobs = publishJobs.filter((job) => job.status === 'scheduled' || job.status === 'publishing').length;
+	const pinterestWaiting = publishJobs.filter((job) => job.status === 'waiting_provider').length;
+	const scheduledJobs = scheduledPinJobs + scheduledWp + pinterestWaiting;
+	const publishedPosts = publishedPins + publishedWp;
+	const connectedPinterest = pinterestAccounts.filter((account) => account.status === 'connected' || account.connected).length
 		|| pinterestAccounts.length;
 
 	const recentImages = pins.items.filter((pin) => pin.image_url).slice(0, 6);
@@ -115,9 +151,33 @@ export async function getWorkspaceDashboard(req) {
 	for (const job of publishJobs.slice(0, 8)) {
 		recentActivity.push({
 			id: `job-${job.id}`,
-			type: job.status === 'published' ? 'Published' : job.status === 'scheduled' ? 'Scheduled' : job.status === 'failed' ? 'Failed' : 'Pins Generated',
+			type: job.status === 'published'
+				? 'Published'
+				: job.status === 'waiting_provider'
+					? 'Waiting Provider'
+					: job.status === 'scheduled'
+						? 'Scheduled'
+						: job.status === 'failed'
+							? 'Failed'
+							: 'Pins Generated',
 			title: job.title || 'Pinterest job',
 			at: job.published_at || job.scheduled_at || job.updated || job.created,
+			tone: statusTone(job.status === 'waiting_provider' ? 'scheduled' : job.status),
+		});
+	}
+
+	for (const job of wordpressJobs.slice(0, 6)) {
+		recentActivity.push({
+			id: `wp-${job.id}`,
+			type: job.status === 'published'
+				? 'Published'
+				: job.status === 'scheduled'
+					? 'Scheduled'
+					: job.status === 'failed'
+						? 'Failed'
+						: 'WordPress',
+			title: job.title || 'WordPress job',
+			at: job.completed_at || job.scheduled_at || job.updated || job.created,
 			tone: statusTone(job.status),
 		});
 	}
@@ -131,8 +191,8 @@ export async function getWorkspaceDashboard(req) {
 		enabled: Boolean(provider.enabled),
 	}));
 
-	const successTotal = publishedPins + failedJobs;
-	const successRate = successTotal ? Math.round((publishedPins / successTotal) * 100) : null;
+	const successTotal = publishedPosts + failedJobs;
+	const successRate = successTotal ? Math.round((publishedPosts / successTotal) * 100) : null;
 
 	const calendarMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
 	let calendarJobs = [];
@@ -193,8 +253,11 @@ export async function getWorkspaceDashboard(req) {
 			pins: pins.totalItems || 0,
 			images: recentImages.length,
 			publishedPins,
+			publishedPosts,
 			scheduledJobs,
 			failedJobs,
+			queueDepth,
+			pinterestWaiting,
 			pinterestAccounts: connectedPinterest,
 			successRate,
 			monthArticles: usage.totals?.monthArticles || 0,
@@ -226,10 +289,12 @@ export async function getWorkspaceDashboard(req) {
 		calendarJobs,
 		providerStatus,
 		publishingStatus: {
-			published: publishedPins,
+			published: publishedPosts,
 			scheduled: scheduledJobs,
 			failed: failedJobs,
-			queue: scheduledJobs,
+			queue: queueDepth || scheduledJobs,
+			pinterestWaiting,
+			successRate,
 		},
 		notifications: {
 			unread: (notifications.items || []).filter((item) => !item.dismissed_at && !item.read_at).length,

@@ -19,6 +19,9 @@ import {
 } from '../utils/pocketbase-safe-query.js';
 import { writePinterestPublishHistory } from './pinterest-publish-history.js';
 import { mirrorPinterestJob } from './queue/mirrors.js';
+import { promoteWaitingProviderPinterestJobs } from './publish-pipeline.js';
+import { notifyWorkspaceUser, logWorkflowStep } from './workspace-notify.js';
+import { enqueueAnalyticsRefresh } from './analytics/refresh.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.PINTEREST_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.PINTEREST_QUEUE_BATCH || '10', 10);
@@ -171,7 +174,7 @@ async function processJob(job) {
 	const article = pin.articleId
 		? await pocketbaseClient.collection('website_articles').getOne(pin.articleId).catch(() => null)
 		: null;
-	const targetLink = article?.url || '';
+	const targetLink = String(job.destination_url || article?.url || '').trim();
 
 	let tokenState;
 	try {
@@ -295,6 +298,32 @@ async function processJob(job) {
 		pinterest_pin_url: pinterestPinUrl,
 		last_error: '',
 	}, pin, 'Pinterest pin published').catch(() => null);
+
+	const isRetrySuccess = Number(job.attempt_count || 0) > 0;
+	await notifyWorkspaceUser({
+		ownerId: owner,
+		title: isRetrySuccess
+			? 'Retry completed — Pinterest pin published'
+			: 'Pinterest pin published',
+		body: pinterestPinUrl || `${pin.title || 'Pin'} published successfully`,
+		priority: 'normal',
+		meta: {
+			type: isRetrySuccess ? 'publish_retry_success' : 'publish_success',
+			provider: 'pinterest',
+			jobId: job.id,
+			pinterestPinId,
+		},
+	}).catch(() => null);
+
+	await logWorkflowStep({
+		ownerId: owner,
+		action: 'workflow.pinterest_publish',
+		resourceType: 'pinterest_publish_jobs',
+		resourceId: job.id,
+		metadata: { pinterestPinId, pinterestPinUrl, workflowId: job.workflow_id || '' },
+	}).catch(() => null);
+
+	await enqueueAnalyticsRefresh(owner).catch(() => null);
 }
 
 function isRetryDue(job, nowMs) {
@@ -351,6 +380,9 @@ async function processDueJobs() {
 	running = true;
 	lastRunAt = new Date().toISOString();
 	try {
+		await promoteWaitingProviderPinterestJobs({ limit: MAX_JOBS_PER_TICK }).catch((error) => {
+			logger.warn(`Pinterest waiting-provider promote failed: ${error.message}`);
+		});
 		const now = new Date().toISOString();
 		const dueJobs = await getDuePublishJobs(now);
 
@@ -427,6 +459,18 @@ async function processDueJobs() {
 					},
 				});
 
+				await notifyWorkspaceUser({
+					ownerId: locked.owner,
+					title: shouldRetry ? 'Pinterest publish retrying' : 'Pinterest publish failed',
+					body: normalized.message,
+					priority: shouldRetry ? 'low' : 'high',
+					meta: {
+						type: shouldRetry ? 'publish_retrying' : 'publish_failed',
+						provider: 'pinterest',
+						jobId: locked.id,
+					},
+				}).catch(() => null);
+
 				if (!shouldRetry) {
 					await writePinterestPublishHistory({
 						owner: locked.owner,
@@ -441,6 +485,7 @@ async function processDueJobs() {
 						publishedAt: new Date().toISOString(),
 						meta: { maxAttempts },
 					});
+					await enqueueAnalyticsRefresh(locked.owner).catch(() => null);
 				}
 			}
 		}

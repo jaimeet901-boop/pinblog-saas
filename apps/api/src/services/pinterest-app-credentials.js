@@ -113,6 +113,20 @@ export async function getPinterestAppCredentials() {
 	};
 }
 
+export async function isPinterestOAuthReady() {
+	const credentials = await getPinterestAppCredentials();
+	if (credentials.trialAccessPending || isPlaceholderAppId(credentials.appId) || !credentials.appSecret) {
+		return false;
+	}
+	if (!credentials.enabled && credentials.source === 'pocketbase') {
+		return false;
+	}
+	if (!credentials.redirectUri) {
+		return false;
+	}
+	return true;
+}
+
 export async function assertPinterestOAuthReady() {
 	const credentials = await getPinterestAppCredentials();
 	if (credentials.trialAccessPending || isPlaceholderAppId(credentials.appId) || !credentials.appSecret) {
@@ -193,7 +207,13 @@ export async function upsertPinterestAppCredentials(payload = {}, actor = {}) {
 		},
 	}).catch(() => null);
 
-	return mapPublicConfig(saved);
+	const publicConfig = mapPublicConfig(saved);
+	if (!publicConfig.trialAccessPending && publicConfig.configured) {
+		const { promoteWaitingProviderPinterestJobs } = await import('./publish-pipeline.js');
+		await promoteWaitingProviderPinterestJobs({ limit: 50 }).catch(() => null);
+	}
+
+	return publicConfig;
 }
 
 export async function ensurePinterestAppCredentialsSeeded() {

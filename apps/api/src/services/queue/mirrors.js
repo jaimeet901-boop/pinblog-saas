@@ -4,19 +4,27 @@ import { writeQueueAudit } from '../audit/write.js';
 
 export async function mirrorWordpressJob(job, eventMessage = '') {
 	if (!job?.id) return null;
+	let status = mapSourceStatusToQueue('publish_jobs', job.status);
+	if (
+		(job.status === 'queued' || job.status === 'scheduled')
+		&& Number(job.attempt_count || 0) > 0
+	) {
+		status = 'retrying';
+	}
 	const mirrored = await upsertMirroredJob({
 		sourceCollection: 'publish_jobs',
 		sourceId: job.id,
 		owner: job.owner,
 		workspaceKey: job.workspace_key || job.owner,
 		type: 'wordpress_publishing',
-		status: mapSourceStatusToQueue('publish_jobs', job.status),
+		status,
 		priority: 'normal',
 		payload: {
 			title: job.title,
 			site: job.site,
 			articleId: job.article_id,
 			wpStatus: job.wp_status,
+			workflowId: job.workflow_id || job.payload?.workflowId || '',
 		},
 		inputs: {
 			title: job.title,
@@ -26,6 +34,7 @@ export async function mirrorWordpressJob(job, eventMessage = '') {
 		outputs: {
 			wpPostId: job.wp_post_id || null,
 			wpPostUrl: job.wp_post_url || null,
+			pinterestJobId: job.pinterest_job_id || job.payload?.pinterestJobId || null,
 		},
 		progress: Number(job.progress) || (job.status === 'published' ? 100 : 0),
 		attemptCount: job.attempt_count,
@@ -53,30 +62,43 @@ export async function mirrorWordpressJob(job, eventMessage = '') {
 
 export async function mirrorPinterestJob(job, pin = null, eventMessage = '') {
 	if (!job?.id) return null;
+	let status = mapSourceStatusToQueue('pinterest_publish_jobs', job.status);
+	if (job.status === 'scheduled' && Number(job.attempt_count || 0) > 0) {
+		status = 'retrying';
+	}
 	const mirrored = await upsertMirroredJob({
 		sourceCollection: 'pinterest_publish_jobs',
 		sourceId: job.id,
 		owner: job.owner,
 		workspaceKey: job.owner,
 		type: 'pinterest_publishing',
-		status: mapSourceStatusToQueue('pinterest_publish_jobs', job.status),
+		status,
 		priority: 'high',
 		payload: {
 			boardId: job.board_id,
 			boardName: job.board_name,
 			accountId: job.account,
 			aiPinId: job.ai_pin,
+			workflowId: job.workflow_id || '',
+			sourcePublishJob: job.source_publish_job || '',
 		},
 		inputs: {
 			title: pin?.title || job.board_name,
 			board: job.board_name,
 			imageUrl: pin?.image_url || '',
+			destinationUrl: job.destination_url || '',
 		},
 		outputs: {
 			pinterestPinId: job.pinterest_pin_id || null,
 			pinterestPinUrl: job.pinterest_pin_url || null,
 		},
-		progress: job.status === 'published' ? 100 : job.status === 'publishing' ? 55 : 0,
+		progress: job.status === 'published'
+			? 100
+			: job.status === 'publishing'
+				? 55
+				: job.status === 'waiting_provider'
+					? 15
+					: 0,
 		attemptCount: job.attempt_count,
 		maxAttempts: job.max_attempts,
 		provider: 'Pinterest',

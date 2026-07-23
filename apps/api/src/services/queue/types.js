@@ -33,8 +33,8 @@ export const NATIVE_JOB_TYPES = [
 	'health_check',
 ];
 
-export const ACTIVE_STATUSES = ['pending', 'queued', 'waiting', 'running', 'retrying', 'paused'];
-export const QUEUE_DEPTH_STATUSES = ['pending', 'queued', 'waiting', 'retrying'];
+export const ACTIVE_STATUSES = ['pending', 'queued', 'waiting', 'waiting_provider', 'running', 'retrying', 'paused'];
+export const QUEUE_DEPTH_STATUSES = ['pending', 'queued', 'waiting', 'waiting_provider', 'retrying'];
 export const TERMINAL_STATUSES = ['completed', 'cancelled', 'failed'];
 
 export const PRIORITY_WEIGHT = {
@@ -68,13 +68,16 @@ export function mapSourceStatusToQueue(sourceCollection, status) {
 		if (value === 'queued') return 'queued';
 		if (value === 'scheduled') return 'waiting';
 		if (value === 'publishing') return 'running';
+		if (value === 'retrying') return 'retrying';
 		if (value === 'published') return 'completed';
 		if (value === 'failed') return 'failed';
 		if (value === 'cancelled') return 'cancelled';
 	}
 	if (sourceCollection === 'pinterest_publish_jobs') {
 		if (value === 'scheduled') return 'waiting';
+		if (value === 'waiting_provider') return 'waiting_provider';
 		if (value === 'publishing') return 'running';
+		if (value === 'retrying') return 'retrying';
 		if (value === 'published') return 'completed';
 		if (value === 'failed') return 'failed';
 		if (value === 'cancelled') return 'cancelled';

@@ -534,10 +534,15 @@ router.get('/oauth/callback', async (req, res) => {
 			await syncPinterestBoardsForOwner({ owner: stateRecord.owner, account });
 		} catch {
 			// Account is connected; boards can be synced later from the UI.
+			const { promoteWaitingProviderPinterestJobs } = await import('../services/publish-pipeline.js');
+			await promoteWaitingProviderPinterestJobs({ limit: 50 }).catch(() => null);
 			return res.redirect(
 				`${webAppBase}/app/pinterest?pinterest_connected=1&account_id=${encodeURIComponent(account.id)}&boards_sync_warning=1`,
 			);
 		}
+
+		const { promoteWaitingProviderPinterestJobs } = await import('../services/publish-pipeline.js');
+		await promoteWaitingProviderPinterestJobs({ limit: 50 }).catch(() => null);
 
 		return res.redirect(`${webAppBase}/app/pinterest?pinterest_connected=1&account_id=${encodeURIComponent(account.id)}`);
 	} catch (error) {
