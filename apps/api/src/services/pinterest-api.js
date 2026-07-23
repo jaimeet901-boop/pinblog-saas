@@ -35,12 +35,68 @@ function normalizeDate(value) {
 	return date.toISOString();
 }
 
-export function getWebAppBaseUrl() {
-	const fromEnv = process.env.WEB_APP_URL || process.env.APP_WEB_URL || process.env.CORS_ORIGIN;
-	if (!fromEnv) {
-		return 'http://localhost:3000';
+function isPlaceholderWebUrl(value) {
+	const raw = String(value || '').trim();
+	if (!raw) return true;
+	try {
+		const host = new URL(raw).hostname.toLowerCase();
+		return !host
+			|| host === 'your-domain.com'
+			|| host.endsWith('.your-domain.com')
+			|| host === 'example.com'
+			|| host.endsWith('.example.com');
+	} catch {
+		return /your-domain\.com|example\.com/i.test(raw);
 	}
-	return fromEnv.split(',')[0].trim().replace(/\/$/, '');
+}
+
+function normalizeWebAppBase(value) {
+	return String(value || '').trim().replace(/\/$/, '');
+}
+
+function deriveWebAppBaseFromApiUrl() {
+	const candidates = [
+		process.env.API_PUBLIC_URL,
+		process.env.PINTEREST_REDIRECT_URI,
+	];
+	for (const candidate of candidates) {
+		const raw = String(candidate || '').trim();
+		if (!raw || isPlaceholderWebUrl(raw)) continue;
+		try {
+			return new URL(raw).origin;
+		} catch {
+			// keep looking
+		}
+	}
+	return '';
+}
+
+/**
+ * Frontend origin used for Pinterest OAuth browser redirects (/app/pinterest).
+ * Rejects template placeholders like your-domain.com so production never bounces there.
+ */
+export function getWebAppBaseUrl() {
+	const candidates = [
+		process.env.WEB_APP_URL,
+		process.env.APP_WEB_URL,
+		process.env.PUBLIC_APP_URL,
+		...(String(process.env.CORS_ORIGIN || '').split(',')),
+		deriveWebAppBaseFromApiUrl(),
+	]
+		.map(normalizeWebAppBase)
+		.filter(Boolean);
+
+	for (const candidate of candidates) {
+		if (!isPlaceholderWebUrl(candidate)) {
+			return candidate;
+		}
+	}
+
+	if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
+		return 'https://tbuy.store';
+	}
+
+	return 'http://localhost:3000';
 }
 
 export async function getPinterestRedirectUri() {

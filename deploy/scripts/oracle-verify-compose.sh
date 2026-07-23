@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage:
-#   DOMAIN=your-domain.com bash deploy/scripts/oracle-verify-compose.sh
+#   DOMAIN=tbuy.store bash deploy/scripts/oracle-verify-compose.sh
 # Optional:
 #   COMPOSE_FILE=docker-compose.prod.yml
 #   APP_HTTP_PORT=8080
@@ -12,7 +12,7 @@ DOMAIN="${DOMAIN:-}"
 LOCAL_PORT="${APP_HTTP_PORT:-8080}"
 
 if [[ -z "${DOMAIN}" ]]; then
-  echo "ERROR: DOMAIN is required. Example: DOMAIN=example.com bash deploy/scripts/oracle-verify-compose.sh"
+  echo "ERROR: DOMAIN is required. Example: DOMAIN=tbuy.store bash deploy/scripts/oracle-verify-compose.sh"
   exit 1
 fi
 

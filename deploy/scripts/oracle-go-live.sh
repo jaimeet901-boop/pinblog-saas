@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage:
-#   DOMAIN=your-domain.com bash deploy/scripts/oracle-go-live.sh
+#   DOMAIN=tbuy.store bash deploy/scripts/oracle-go-live.sh
 # Optional:
 #   COMPOSE_FILE=docker-compose.prod.yml
 
@@ -10,7 +10,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 DOMAIN="${DOMAIN:-}"
 
 if [[ -z "${DOMAIN}" ]]; then
-  echo "ERROR: DOMAIN is required. Example: DOMAIN=example.com bash deploy/scripts/oracle-go-live.sh"
+  echo "ERROR: DOMAIN is required. Example: DOMAIN=tbuy.store bash deploy/scripts/oracle-go-live.sh"
   exit 1
 fi
 
