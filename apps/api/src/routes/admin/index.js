@@ -16,6 +16,7 @@ import inventoryRouter from './inventory.js';
 import dashboardRouter from './dashboard.js';
 import notificationsRouter from './notifications.js';
 import pinterestRouter from './pinterest.js';
+import settingsRouter from './settings.js';
 
 const router = Router();
 
@@ -45,5 +46,6 @@ router.use('/inventory', inventoryRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/notifications', notificationsRouter);
 router.use('/pinterest', pinterestRouter);
+router.use('/settings', settingsRouter);
 
 export default router;

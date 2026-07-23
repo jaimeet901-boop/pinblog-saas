@@ -8,6 +8,10 @@ const EMPTY = {
 	stats: {
 		activeUsers: 0,
 		workspaces: 0,
+		websites: 0,
+		pinterestAccounts: 0,
+		jobs: 0,
+		queueDepth: 0,
 		creditsUsed: 0,
 		aiRequests: 0,
 		revenue: 0,
@@ -59,6 +63,10 @@ export default function AdminDashboardPage() {
 	const statCards = [
 		{ label: 'Active users', value: Number(stats.activeUsers || 0).toLocaleString(), hint: 'Live' },
 		{ label: 'Workspaces', value: Number(stats.workspaces || 0).toLocaleString(), hint: 'Live' },
+		{ label: 'Websites', value: Number(stats.websites || 0).toLocaleString(), hint: 'Live' },
+		{ label: 'Pinterest accounts', value: Number(stats.pinterestAccounts || 0).toLocaleString(), hint: 'Live' },
+		{ label: 'Jobs', value: Number(stats.jobs || 0).toLocaleString(), hint: 'Queue jobs' },
+		{ label: 'Queue depth', value: Number(stats.queueDepth || 0).toLocaleString(), hint: 'Live' },
 		{ label: 'Credits used', value: Number(stats.creditsUsed || 0).toLocaleString(), hint: 'Live' },
 		{ label: 'AI requests', value: Number(stats.aiRequests || 0).toLocaleString(), hint: 'Live' },
 		{ label: 'Revenue', value: `$${Number(stats.revenue || 0).toLocaleString()}`, hint: 'MRR' },

@@ -90,14 +90,13 @@ export default function AdminWebsitesPage() {
 										<td style={{ color: 'var(--admin-muted)' }}>{site.workspace}</td>
 										<td>{site.cms}</td>
 										<td><StatusPill status={site.status} /></td>
-										<td><button type="button" className="admin-btn" disabled title="Display only">Open</button></td>
+										<td><button type="button" className="admin-btn" disabled title="Open in workspace">Open</button></td>
 									</tr>
 								))}
 							</tbody>
 						</table>
 					</div>
 				)}
-				<p className="admin-note">No website mutations — display only.</p>
 			</section>
 		</div>
 	);

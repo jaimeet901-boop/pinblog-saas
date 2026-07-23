@@ -22,7 +22,7 @@ export default function AdminNotificationsPage() {
 	const load = useCallback(async () => {
 		setLoading(true);
 		try {
-			const response = await apiServerClient.fetch('/admin/v1/notifications/templates');
+			const response = await apiServerClient.fetch('/admin/v1/notifications');
 			if (!response.ok) throw new Error(await readApiError(response));
 			const payload = await response.json();
 			setNotes(Array.isArray(payload.items) ? payload.items : []);
@@ -61,7 +61,7 @@ export default function AdminNotificationsPage() {
 		<div>
 			<AdminHero
 				title="Notifications"
-				description="Platform announcement and alert templates from PocketBase."
+				description="Platform announcement templates and delivery history from PocketBase."
 				action={(
 					<button type="button" className="admin-btn admin-btn--primary" onClick={compose} disabled={composing}>
 						{composing ? <Loader2 size={13} className="animate-spin" /> : null} Compose
@@ -73,21 +73,23 @@ export default function AdminNotificationsPage() {
 					<p className="admin-note flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Loading notifications…</p>
 				) : null}
 				{!loading && notes.length === 0 ? (
-					<AdminEmptyState title="No templates yet" description="Compose a template or wait for workspace notifications." />
+					<AdminEmptyState title="No notifications yet" description="Compose a template to get started." />
 				) : (
 					<div className="admin-list">
 						{notes.map((note) => (
-							<div key={note.id} className="admin-list__item">
+							<div key={`${note.kind || 'item'}-${note.id}`} className="admin-list__item">
 								<span>
 									<strong className="block">{note.title}</strong>
-									<span style={{ color: 'var(--admin-muted)', fontSize: '0.75rem' }}>{note.channel}</span>
+									<span style={{ color: 'var(--admin-muted)', fontSize: '0.75rem' }}>
+										{note.kind === 'history' ? 'History' : 'Template'} · {note.channel}
+										{note.time ? ` · ${note.time}` : ''}
+									</span>
 								</span>
 								<StatusPill status={note.status} />
 							</div>
 						))}
 					</div>
 				)}
-				<p className="admin-note">Templates are stored in PocketBase. Broadcasts stay manual.</p>
 			</section>
 		</div>
 	);

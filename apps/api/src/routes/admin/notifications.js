@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import {
 	createNotificationTemplate,
+	listNotificationHistory,
 	listNotificationTemplates,
+	listNotificationsOverview,
 } from '../../services/admin/notifications.js';
 
 const router = Router();
@@ -21,8 +23,12 @@ router.post('/templates', asyncHandler(async (req, res) => {
 	res.status(201).json(await createNotificationTemplate(req.body || {}, actor));
 }));
 
+router.get('/history', asyncHandler(async (req, res) => {
+	res.json(await listNotificationHistory(req.query || {}));
+}));
+
 router.get('/', asyncHandler(async (req, res) => {
-	res.json(await listNotificationTemplates(req.query || {}));
+	res.json(await listNotificationsOverview(req.query || {}));
 }));
 
 export default router;

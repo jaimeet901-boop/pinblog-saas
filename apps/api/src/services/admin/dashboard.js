@@ -1,24 +1,47 @@
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { buildPlatformOverview } from '../analytics/platform.js';
 import { getLatestHealthPayload } from '../health/monitor.js';
-import { listRecentActivity } from '../queue/metrics.js';
+import { listRecentActivity, computeQueueSummary } from '../queue/metrics.js';
 import { listActiveAlerts } from '../health/incidents.js';
-import { formatRelative, safeList } from './helpers.js';
+import { countFilter, formatRelative, safeList } from './helpers.js';
 
 export async function getAdminDashboard() {
-	const [overview, health, queueActivity, alerts, recentUsers] = await Promise.all([
+	const [
+		overview,
+		health,
+		queueActivity,
+		alerts,
+		recentUsers,
+		queueSummary,
+		websiteCount,
+		pinterestCount,
+		jobCount,
+	] = await Promise.all([
 		buildPlatformOverview({ range: '7d' }).catch(() => null),
 		getLatestHealthPayload().catch(() => null),
 		listRecentActivity(8).catch(() => []),
 		listActiveAlerts(8).catch(() => []),
 		safeList('users', 1, 6, { sort: '-created' }),
+		computeQueueSummary().catch(() => null),
+		countFilter('websites'),
+		countFilter('pinterest_accounts', 'connected = true || status = "connected"'),
+		countFilter('queue_jobs'),
 	]);
+
+	const userCount = await countFilter('users').catch(() => Number(recentUsers.totalItems) || 0);
+	const workspaceCount = await countFilter('workspaces').catch(() => 0);
 
 	const kpis = overview?.kpis?.['7d'] || overview?.kpis?.today || overview?.kpis || {};
 	const providers = overview?.providers || [];
+	const queueSize = Number(queueSummary?.metrics?.queueSize || queueSummary?.queued || 0);
+
 	const stats = {
-		activeUsers: Number(kpis.activeUsers || kpis.totalUsers) || 0,
-		workspaces: Number(kpis.activeWorkspaces || kpis.totalWorkspaces) || 0,
+		activeUsers: Number(kpis.activeUsers || kpis.totalUsers) || userCount,
+		workspaces: Number(kpis.activeWorkspaces || kpis.totalWorkspaces) || workspaceCount,
+		websites: websiteCount,
+		pinterestAccounts: pinterestCount,
+		jobs: jobCount,
+		queueDepth: queueSize,
 		creditsUsed: Number(kpis.creditsConsumed) || 0,
 		aiRequests: providers.reduce((sum, row) => sum + (Number(row.requests) || 0), 0),
 		revenue: Number(kpis.mrr) || 0,
@@ -76,6 +99,12 @@ export async function getAdminDashboard() {
 		activity,
 		chart,
 		registrations,
+		inventory: {
+			websites: websiteCount,
+			pinterestAccounts: pinterestCount,
+			jobs: stats.jobs,
+			queueDepth: queueSize,
+		},
 		meta: {
 			computedAt: new Date().toISOString(),
 			health: health?.overall?.status || 'unknown',

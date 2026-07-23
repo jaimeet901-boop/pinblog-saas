@@ -1,6 +1,7 @@
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import {
 	domainFromUrl,
+	formatDateTime,
 	mapPinterestStatus,
 	mapWebsiteStatus,
 	normalizePage,
@@ -52,6 +53,7 @@ export async function listInventoryWebsites(query = {}) {
 		workspace: await workspaceNameForOwner(site.owner, cache),
 		cms: 'WordPress',
 		status: mapWebsiteStatus(site.status),
+		updatedAt: formatDateTime(site.updated || site.created),
 	})));
 
 	return {
@@ -64,12 +66,12 @@ export async function listInventoryWebsites(query = {}) {
 }
 
 export async function listInventoryPinterestAccounts(query = {}) {
-	const { page, perPage } = normalizePage(query, 50);
+	const { page, perPage } = normalizePage(query, 100);
 	const parts = [];
 	if (query.status) {
 		const status = String(query.status);
 		if (status === 'connected') {
-			parts.push('(status = "connected" || status = "active" || status = "" || status = null)');
+			parts.push('(status = "connected" || status = "active" || status = "" || status = null || connected = true)');
 		} else if (status === 'degraded') {
 			parts.push('(status = "expired" || status = "failed" || status = "error" || status = "degraded")');
 		} else {
@@ -79,7 +81,7 @@ export async function listInventoryPinterestAccounts(query = {}) {
 	if (query.q) {
 		const q = String(query.q).trim();
 		if (q) {
-			parts.push(pocketbaseClient.filter('(name ~ {:q} || username ~ {:q})', { q }));
+			parts.push(pocketbaseClient.filter('(label ~ {:q} || account_name ~ {:q} || username ~ {:q})', { q }));
 		}
 	}
 
@@ -99,17 +101,21 @@ export async function listInventoryPinterestAccounts(query = {}) {
 		}).catch(() => ({ totalItems: 0 }));
 		return {
 			id: account.id,
-			name: account.name || account.username || account.id,
+			name: account.label || account.account_name || account.username || account.name || account.id,
+			username: account.username || '—',
 			workspace: await workspaceNameForOwner(account.owner, cache),
 			boards: Number(boards.totalItems) || Number(account.board_count) || 0,
-			status: mapPinterestStatus(account.status || 'connected'),
+			status: mapPinterestStatus(account.status || (account.connected ? 'connected' : 'error')),
+			connectedAt: formatDateTime(account.connected_at || account.created),
+			expiresAt: formatDateTime(account.token_expires_at),
+			lastSyncAt: formatDateTime(account.last_sync_at),
 		};
 	}));
 
 	let filtered = items;
 	if (query.q) {
 		const q = String(query.q).trim().toLowerCase();
-		filtered = items.filter((item) => `${item.name} ${item.workspace}`.toLowerCase().includes(q));
+		filtered = items.filter((item) => `${item.name} ${item.username} ${item.workspace}`.toLowerCase().includes(q));
 	}
 
 	return {
