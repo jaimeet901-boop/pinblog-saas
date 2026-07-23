@@ -47,14 +47,62 @@ export async function listInventoryWebsites(query = {}) {
 	});
 
 	const cache = new Map();
-	const items = await Promise.all((result.items || []).map(async (site) => ({
-		id: site.id,
-		domain: domainFromUrl(site.domain || site.url || site.name),
-		workspace: await workspaceNameForOwner(site.owner, cache),
-		cms: 'WordPress',
-		status: mapWebsiteStatus(site.status),
-		updatedAt: formatDateTime(site.updated || site.created),
-	})));
+	const items = await Promise.all((result.items || []).map(async (site) => {
+		const wpSite = await pocketbaseClient.collection('wordpress_sites').getFirstListItem(
+			pocketbaseClient.filter('website = {:website} || url = {:url}', {
+				website: site.id,
+				url: site.url,
+			}),
+			{ requestKey: null },
+		).catch(() => null);
+
+		const publishStats = wpSite
+			? await Promise.all([
+				pocketbaseClient.collection('publish_history').getList(1, 1, {
+					filter: pocketbaseClient.filter('site = {:site} && result = "published"', { site: wpSite.id }),
+					requestKey: null,
+				}).catch(() => ({ totalItems: 0 })),
+				pocketbaseClient.collection('publish_history').getList(1, 1, {
+					filter: pocketbaseClient.filter('site = {:site} && result = "failed"', { site: wpSite.id }),
+					requestKey: null,
+				}).catch(() => ({ totalItems: 0 })),
+				pocketbaseClient.collection('publish_jobs').getList(1, 1, {
+					filter: pocketbaseClient.filter('site = {:site} && (status = "queued" || status = "scheduled" || status = "publishing")', { site: wpSite.id }),
+					requestKey: null,
+				}).catch(() => ({ totalItems: 0 })),
+			])
+			: [{ totalItems: 0 }, { totalItems: 0 }, { totalItems: 0 }];
+
+		const published = Number(publishStats[0].totalItems) || 0;
+		const failed = Number(publishStats[1].totalItems) || 0;
+		const inFlight = Number(publishStats[2].totalItems) || 0;
+		const attempts = published + failed;
+		const successRate = attempts ? Math.round((published / attempts) * 1000) / 10 : null;
+
+		return {
+			id: site.id,
+			domain: domainFromUrl(site.domain || site.url || site.name),
+			workspace: await workspaceNameForOwner(site.owner, cache),
+			cms: 'WordPress',
+			status: mapWebsiteStatus(wpSite?.status || site.status),
+			updatedAt: formatDateTime(site.updated || site.created),
+			wpVersion: wpSite?.wp_version || wpSite?.health?.version || '',
+			lastTestedAt: formatDateTime(wpSite?.last_tested_at),
+			publishing: {
+				published,
+				failed,
+				inFlight,
+				successRate,
+				status: inFlight > 0
+					? 'publishing'
+					: failed > published && failed > 0
+						? 'degraded'
+						: published > 0
+							? 'healthy'
+							: 'idle',
+			},
+		};
+	}));
 
 	return {
 		items,

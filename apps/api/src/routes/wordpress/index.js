@@ -5,6 +5,8 @@ import {
 	setDefaultWordpressSite,
 	testOwnedWordpressSite,
 	getSiteTaxonomy,
+	getSiteContent,
+	listWordpressAuthProviders,
 } from '../../services/wordpress-sites.js';
 import {
 	enqueueWordpressPublish,
@@ -13,8 +15,10 @@ import {
 	retryPublishJob,
 	cancelPublishJob,
 	listPublishHistory,
+	getWordpressPublishAnalytics,
 	mapPublishJob,
 } from '../../services/wordpress-publish.js';
+import { listWordpressApiLogs } from '../../services/wordpress-api-log.js';
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { getWordpressQueueStats } from '../../services/wordpress-publish-queue.js';
 
@@ -69,6 +73,10 @@ async function waitForJobResult(ownerId, jobId, { timeoutMs = 25000, intervalMs 
 
 router.use(pocketbaseAuth);
 
+router.get('/auth-providers', async (_req, res) => {
+	res.json({ items: listWordpressAuthProviders() });
+});
+
 router.get('/sites', async (req, res) => {
 	res.json(await listWordpressSites(req.pocketbaseUserId));
 });
@@ -87,6 +95,30 @@ router.get('/sites/:id/tags', async (req, res) => {
 
 router.get('/sites/:id/authors', async (req, res) => {
 	res.json(await getSiteTaxonomy(req.pocketbaseUserId, req.params.id, 'authors'));
+});
+
+router.get('/sites/:id/posts', async (req, res) => {
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'posts', req.query));
+});
+
+router.get('/sites/:id/posts/:postId', async (req, res) => {
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'posts', { id: req.params.postId }));
+});
+
+router.get('/sites/:id/pages', async (req, res) => {
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'pages', req.query));
+});
+
+router.get('/sites/:id/pages/:pageId', async (req, res) => {
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'pages', { id: req.params.pageId }));
+});
+
+router.get('/sites/:id/media', async (req, res) => {
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'media', req.query));
+});
+
+router.get('/sites/:id/media/:mediaId', async (req, res) => {
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'media', { id: req.params.mediaId }));
 });
 
 router.get('/sites/:id/health', async (req, res) => {
@@ -150,6 +182,14 @@ router.post('/jobs/:id/cancel', async (req, res) => {
 
 router.get('/history', async (req, res) => {
 	res.json(await listPublishHistory(req.pocketbaseUserId, req.query));
+});
+
+router.get('/logs', async (req, res) => {
+	res.json(await listWordpressApiLogs(req.pocketbaseUserId, req.query));
+});
+
+router.get('/analytics', async (req, res) => {
+	res.json(await getWordpressPublishAnalytics(req.pocketbaseUserId, req.query));
 });
 
 router.get('/queue/stats', async (req, res) => {

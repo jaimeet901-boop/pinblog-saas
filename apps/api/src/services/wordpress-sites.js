@@ -1,15 +1,32 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { encryptSecret, decryptSecret, isEncryptedSecret } from '../utils/secretCrypto.js';
 import { httpError } from '../middleware/require-admin.js';
+import { normalizeWpAuthType, WP_AUTH_TYPES, listWordpressAuthProviders } from './wordpress-auth.js';
 import {
 	testWordpressConnection,
 	fetchWordpressCategories,
 	fetchWordpressTags,
 	fetchWordpressAuthors,
+	listWordpressPosts,
+	getWordpressPost,
+	listWordpressPages,
+	getWordpressPage,
+	listWordpressMedia,
+	getWordpressMedia,
 } from './wordpress-client.js';
+import { ensureUserWorkspace } from './workspace-context.js';
 
 function workspaceKeyFor(userId) {
 	return String(userId || '').trim();
+}
+
+async function resolveWorkspaceKey(ownerId) {
+	try {
+		const ctx = await ensureUserWorkspace(ownerId);
+		return ctx.workspaceKey || ctx.workspace?.workspace_key || workspaceKeyFor(ownerId);
+	} catch {
+		return workspaceKeyFor(ownerId);
+	}
 }
 
 function domainFromUrl(url) {
@@ -30,6 +47,9 @@ export function mapWordpressSite(site, extras = {}) {
 		isDefault: Boolean(site.is_default),
 		websiteId: site.website || site.website_id || null,
 		health: site.health || null,
+		endpoints: site.endpoints || site.health?.endpoints || null,
+		wpVersion: site.wp_version || site.health?.version || '',
+		authType: site.auth_type || extras.authType || WP_AUTH_TYPES.APPLICATION_PASSWORD,
 		lastTestedAt: site.last_tested_at || null,
 		lastError: site.last_error || '',
 		hasCredentials: Boolean(extras.hasCredentials),
@@ -63,10 +83,20 @@ export async function getSiteCredentialsPlain(siteId, ownerId) {
 		site,
 		username: creds.username,
 		appPassword: decryptSecret(creds.ciphertext),
+		authType: normalizeWpAuthType(creds.auth_type || site.auth_type || WP_AUTH_TYPES.APPLICATION_PASSWORD),
 	};
 }
 
-async function upsertCredentials({ siteId, ownerId, username, password }) {
+function logContextFor(ownerId, site, jobId = '') {
+	return {
+		ownerId,
+		workspaceKey: site?.workspace_key || ownerId,
+		siteId: site?.id || '',
+		jobId,
+	};
+}
+
+async function upsertCredentials({ siteId, ownerId, username, password, authType }) {
 	const existing = await getCredentials(siteId);
 	const payload = {
 		site: siteId,
@@ -75,19 +105,28 @@ async function upsertCredentials({ siteId, ownerId, username, password }) {
 		ciphertext: encryptSecret(password),
 		kek_version: 'v1',
 		rotated_at: new Date().toISOString(),
+		auth_type: normalizeWpAuthType(authType),
 	};
 	if (existing) {
-		return pocketbaseClient.collection('wordpress_credentials').update(existing.id, payload);
+		return pocketbaseClient.collection('wordpress_credentials').update(existing.id, payload).catch(async () => {
+			const legacy = { ...payload };
+			delete legacy.auth_type;
+			return pocketbaseClient.collection('wordpress_credentials').update(existing.id, legacy);
+		});
 	}
-	return pocketbaseClient.collection('wordpress_credentials').create(payload);
+	return pocketbaseClient.collection('wordpress_credentials').create(payload).catch(async () => {
+		const legacy = { ...payload };
+		delete legacy.auth_type;
+		return pocketbaseClient.collection('wordpress_credentials').create(legacy);
+	});
 }
 
 /**
  * Ensure a wordpress_sites + credentials row exists for a legacy websites record.
  */
-export async function ensureWordpressSiteFromWebsite(website, ownerId) {
+export async function ensureWordpressSiteFromWebsite(website, ownerId, options = {}) {
 	if (!website?.id) return null;
-	const workspaceKey = workspaceKeyFor(ownerId);
+	const workspaceKey = await resolveWorkspaceKey(ownerId);
 
 	let site = null;
 	try {
@@ -113,13 +152,15 @@ export async function ensureWordpressSiteFromWebsite(website, ownerId) {
 	}
 
 	const status = ['connected', 'active'].includes(website.status) ? 'connected' : (website.status || 'untested');
+	const authType = normalizeWpAuthType(options.authType || website.auth_type || WP_AUTH_TYPES.APPLICATION_PASSWORD);
+
 	if (!site) {
 		const existingDefaults = await pocketbaseClient.collection('wordpress_sites').getList(1, 1, {
 			filter: pocketbaseClient.filter('owner = {:owner} && is_default = true', { owner: ownerId }),
 			requestKey: null,
 		}).catch(() => ({ totalItems: 0 }));
 
-		site = await pocketbaseClient.collection('wordpress_sites').create({
+		const createPayload = {
 			owner: ownerId,
 			workspace_key: workspaceKey,
 			name: website.name || domainFromUrl(website.url) || 'WordPress site',
@@ -130,14 +171,27 @@ export async function ensureWordpressSiteFromWebsite(website, ownerId) {
 			website: website.id,
 			health: {},
 			last_error: '',
+			auth_type: authType,
+		};
+		site = await pocketbaseClient.collection('wordpress_sites').create(createPayload).catch(async () => {
+			const legacy = { ...createPayload };
+			delete legacy.auth_type;
+			return pocketbaseClient.collection('wordpress_sites').create(legacy);
 		});
 	} else {
-		site = await pocketbaseClient.collection('wordpress_sites').update(site.id, {
+		const updatePayload = {
 			name: website.name || site.name,
 			url: website.url || site.url,
 			domain: website.domain || site.domain || domainFromUrl(website.url),
 			status: site.status === 'failed' ? site.status : status,
 			website: website.id,
+			workspace_key: workspaceKey,
+			auth_type: authType,
+		};
+		site = await pocketbaseClient.collection('wordpress_sites').update(site.id, updatePayload).catch(async () => {
+			const legacy = { ...updatePayload };
+			delete legacy.auth_type;
+			return pocketbaseClient.collection('wordpress_sites').update(site.id, legacy);
 		});
 	}
 
@@ -151,6 +205,7 @@ export async function ensureWordpressSiteFromWebsite(website, ownerId) {
 				ownerId,
 				username: website.wp_username,
 				password: plain,
+				authType,
 			});
 		}
 	}
@@ -186,9 +241,14 @@ export async function listWordpressSites(ownerId) {
 		items.push(mapWordpressSite(site, {
 			hasCredentials: Boolean(creds),
 			username: creds?.username || '',
+			authType: normalizeWpAuthType(creds?.auth_type || site.auth_type),
 		}));
 	}
-	return { items, totalItems: items.length };
+	return {
+		items,
+		totalItems: items.length,
+		authProviders: listWordpressAuthProviders(),
+	};
 }
 
 export async function resolvePublishSite({ ownerId, siteId, websiteId }) {
@@ -224,18 +284,30 @@ export async function setDefaultWordpressSite(ownerId, siteId) {
 }
 
 export async function testOwnedWordpressSite(ownerId, siteId) {
-	const { site, username, appPassword } = await resolvePublishSite({ ownerId, siteId });
+	const { site, username, appPassword, authType } = await resolvePublishSite({ ownerId, siteId });
 	try {
 		const result = await testWordpressConnection({
 			url: site.url,
 			username,
 			appPassword,
+			authType,
+			logContext: logContextFor(ownerId, site),
 		});
-		const updated = await pocketbaseClient.collection('wordpress_sites').update(site.id, {
+		const updatePayload = {
 			status: 'connected',
 			health: result.health,
+			endpoints: result.endpoints,
+			wp_version: result.version || '',
+			auth_type: result.authType,
 			last_tested_at: new Date().toISOString(),
 			last_error: '',
+		};
+		const updated = await pocketbaseClient.collection('wordpress_sites').update(site.id, updatePayload).catch(async () => {
+			const legacy = { ...updatePayload };
+			delete legacy.endpoints;
+			delete legacy.wp_version;
+			delete legacy.auth_type;
+			return pocketbaseClient.collection('wordpress_sites').update(site.id, legacy);
 		});
 		if (site.website) {
 			await pocketbaseClient.collection('websites').update(site.website, { status: 'active' }).catch(() => null);
@@ -244,7 +316,9 @@ export async function testOwnedWordpressSite(ownerId, siteId) {
 			ok: true,
 			message: `Connected as ${result.user.name}`,
 			user: result.user,
-			site: mapWordpressSite(updated, { hasCredentials: true, username }),
+			version: result.version,
+			endpoints: result.endpoints,
+			site: mapWordpressSite(updated, { hasCredentials: true, username, authType }),
 			health: result.health,
 		};
 	} catch (error) {
@@ -260,20 +334,47 @@ export async function testOwnedWordpressSite(ownerId, siteId) {
 	}
 }
 
+async function withSiteClient(ownerId, siteId, fn) {
+	const creds = await resolvePublishSite({ ownerId, siteId });
+	return fn({
+		url: creds.site.url,
+		username: creds.username,
+		appPassword: creds.appPassword,
+		authType: creds.authType,
+		logContext: logContextFor(ownerId, creds.site),
+		site: creds.site,
+	});
+}
+
 export async function getSiteTaxonomy(ownerId, siteId, kind) {
-	const { site, username, appPassword } = await resolvePublishSite({ ownerId, siteId });
-	if (kind === 'categories') {
-		return { items: await fetchWordpressCategories({ url: site.url, username, appPassword }) };
-	}
-	if (kind === 'tags') {
-		return { items: await fetchWordpressTags({ url: site.url, username, appPassword }) };
-	}
-	if (kind === 'authors') {
-		return { items: await fetchWordpressAuthors({ url: site.url, username, appPassword }) };
-	}
 	if (kind === 'health') {
-		const tested = await testOwnedWordpressSite(ownerId, site.id);
+		const tested = await testOwnedWordpressSite(ownerId, siteId);
 		return tested.health;
 	}
-	throw httpError(404, 'Unknown taxonomy', 'NOT_FOUND');
+	return withSiteClient(ownerId, siteId, async (client) => {
+		if (kind === 'categories') return { items: await fetchWordpressCategories(client) };
+		if (kind === 'tags') return { items: await fetchWordpressTags(client) };
+		if (kind === 'authors') return { items: await fetchWordpressAuthors(client) };
+		throw httpError(404, 'Unknown taxonomy', 'NOT_FOUND');
+	});
 }
+
+export async function getSiteContent(ownerId, siteId, kind, query = {}) {
+	return withSiteClient(ownerId, siteId, async (client) => {
+		if (kind === 'posts') {
+			if (query.id) return { item: await getWordpressPost({ ...client, postId: query.id }) };
+			return { items: await listWordpressPosts({ ...client, ...query }) };
+		}
+		if (kind === 'pages') {
+			if (query.id) return { item: await getWordpressPage({ ...client, pageId: query.id }) };
+			return { items: await listWordpressPages({ ...client, ...query }) };
+		}
+		if (kind === 'media') {
+			if (query.id) return { item: await getWordpressMedia({ ...client, mediaId: query.id }) };
+			return { items: await listWordpressMedia({ ...client, ...query }) };
+		}
+		throw httpError(404, 'Unknown content type', 'NOT_FOUND');
+	});
+}
+
+export { listWordpressAuthProviders, WP_AUTH_TYPES };

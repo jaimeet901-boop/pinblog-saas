@@ -936,7 +936,9 @@ router.post('/', async (req, res) => {
 	});
 
 	res.status(201).json(mapWebsite(persistedRecord));
-	ensureWordpressSiteFromWebsite(persistedRecord, req.pocketbaseUserId).catch(() => null);
+	ensureWordpressSiteFromWebsite(persistedRecord, req.pocketbaseUserId, {
+		authType: req.body?.authType || req.body?.auth_type || 'application_password',
+	}).catch(() => null);
 });
 
 router.post('/:websiteId/scan', async (req, res) => {
@@ -1183,12 +1185,22 @@ router.patch('/:websiteId', async (req, res) => {
 		context: 'websites:patch:update',
 	});
 
-	ensureWordpressSiteFromWebsite(updated, req.pocketbaseUserId).catch(() => null);
+	ensureWordpressSiteFromWebsite(updated, req.pocketbaseUserId, {
+		authType: req.body?.authType || req.body?.auth_type || 'application_password',
+	}).catch(() => null);
 	res.json(mapWebsite(updated));
 });
 
 router.delete('/:websiteId', async (req, res) => {
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const linked = await pocketbaseClient.collection('wordpress_sites').getFullList({
+		filter: pocketbaseClient.filter('website = {:website} && owner = {:owner}', {
+			website: site.id,
+			owner: req.pocketbaseUserId,
+		}),
+		requestKey: null,
+	}).catch(() => []);
+	await Promise.all(linked.map((item) => pocketbaseClient.collection('wordpress_sites').delete(item.id).catch(() => null)));
 	await pocketbaseClient.collection('websites').delete(site.id);
 	res.status(204).send();
 });

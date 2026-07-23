@@ -80,7 +80,13 @@ async function processJob(job) {
 		return;
 	}
 
-	const { site, username, appPassword } = await getSiteCredentialsPlain(job.site, ownerId);
+	const { site, username, appPassword, authType } = await getSiteCredentialsPlain(job.site, ownerId);
+	const logContext = {
+		ownerId,
+		workspaceKey: job.workspace_key || ownerId,
+		siteId: site.id,
+		jobId: job.id,
+	};
 
 	await pocketbaseClient.collection('publish_jobs').update(job.id, { progress: 25 }).catch(() => null);
 
@@ -93,8 +99,10 @@ async function processJob(job) {
 				url: site.url,
 				username,
 				appPassword,
+				authType,
 				imageUrl: job.featured_image_url,
 				filename: `${job.slug || 'featured'}.jpg`,
+				logContext,
 			});
 			mediaId = Number(uploaded?.id) || 0;
 			if (mediaId) mediaIds.push(mediaId);
@@ -113,10 +121,12 @@ async function processJob(job) {
 	}
 
 	const updatePostId = job.payload?.updatePostId || job.wp_post_id || null;
+	const contentType = job.payload?.contentType === 'page' ? 'page' : 'post';
 	const result = await createOrUpdateWordpressPost({
 		url: site.url,
 		username,
 		appPassword,
+		authType,
 		postId: updatePostId || undefined,
 		title: job.title,
 		content: job.content,
@@ -127,9 +137,12 @@ async function processJob(job) {
 		categories: job.categories || [],
 		tags: job.tags || [],
 		featuredMediaId: mediaId || undefined,
+		authorId: job.payload?.authorId || undefined,
 		metaDescription: job.meta_description,
 		seo: job.seo || {},
 		recipeCard: job.recipe_card || null,
+		contentType,
+		logContext,
 	});
 
 	const completedAt = new Date().toISOString();

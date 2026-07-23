@@ -86,9 +86,25 @@ export default function AdminWebsitesPage() {
 							<tbody>
 								{sites.map((site) => (
 									<tr key={site.id}>
-										<td className="font-medium">{site.domain}</td>
+										<td className="font-medium">
+											{site.domain}
+											{site.wpVersion ? (
+												<span className="block text-xs" style={{ color: 'var(--admin-muted)' }}>
+													WP {site.wpVersion}
+												</span>
+											) : null}
+										</td>
 										<td style={{ color: 'var(--admin-muted)' }}>{site.workspace}</td>
-										<td>{site.cms}</td>
+										<td>
+											{site.cms}
+											{site.publishing ? (
+												<span className="block text-xs" style={{ color: 'var(--admin-muted)' }}>
+													{site.publishing.published || 0} published
+													{site.publishing.failed ? ` · ${site.publishing.failed} failed` : ''}
+													{site.publishing.successRate != null ? ` · ${site.publishing.successRate}%` : ''}
+												</span>
+											) : null}
+										</td>
 										<td><StatusPill status={site.status} /></td>
 										<td><button type="button" className="admin-btn" disabled title="Open in workspace">Open</button></td>
 									</tr>

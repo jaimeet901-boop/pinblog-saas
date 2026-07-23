@@ -118,6 +118,8 @@ export async function enqueueWordpressPublish(ownerId, payload = {}) {
 		recipe_card: payload.recipeCard || payload.recipe_card || null,
 		payload: {
 			updatePostId: payload.postId || payload.wpPostId || null,
+			contentType: String(payload.contentType || payload.type || 'post').toLowerCase() === 'page' ? 'page' : 'post',
+			authorId: payload.authorId || payload.author || null,
 		},
 		wp_status: wpStatus,
 		scheduled_at: scheduledAt || '',
@@ -255,4 +257,50 @@ export async function writePublishHistory({
 		error: error || '',
 		meta,
 	}).catch(() => null);
+}
+
+export async function getWordpressPublishAnalytics(ownerId, query = {}) {
+	const siteId = String(query.siteId || '').trim();
+	const historyFilter = siteId
+		? pocketbaseClient.filter('owner = {:owner} && site = {:site}', { owner: ownerId, site: siteId })
+		: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId });
+	const jobsFilter = siteId
+		? pocketbaseClient.filter('owner = {:owner} && site = {:site}', { owner: ownerId, site: siteId })
+		: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId });
+
+	const [history, jobs, failedJobs] = await Promise.all([
+		pocketbaseClient.collection('publish_history').getFullList({
+			filter: historyFilter,
+			requestKey: null,
+		}).catch(() => []),
+		pocketbaseClient.collection('publish_jobs').getList(1, 1, {
+			filter: jobsFilter,
+			requestKey: null,
+		}).catch(() => ({ totalItems: 0 })),
+		pocketbaseClient.collection('publish_jobs').getList(1, 1, {
+			filter: `${jobsFilter} && status = "failed"`,
+			requestKey: null,
+		}).catch(() => ({ totalItems: 0 })),
+	]);
+
+	const published = history.filter((row) => row.result === 'published').length;
+	const drafts = history.filter((row) => row.result === 'draft').length;
+	const scheduled = history.filter((row) => row.result === 'scheduled').length;
+	const failed = history.filter((row) => row.result === 'failed').length
+		+ (Number(failedJobs.totalItems) || 0);
+	const attempts = history.length || Number(jobs.totalItems) || 0;
+	const successRate = attempts
+		? Math.round((published / Math.max(attempts, 1)) * 1000) / 10
+		: 0;
+
+	return {
+		published,
+		drafts,
+		scheduled,
+		failed,
+		attempts,
+		successRate,
+		jobs: Number(jobs.totalItems) || 0,
+		history: history.slice(0, 25).map(mapPublishHistory),
+	};
 }
