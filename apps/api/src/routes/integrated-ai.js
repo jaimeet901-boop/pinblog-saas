@@ -30,13 +30,7 @@ function truncateForLog(value, max = 4000) {
 }
 
 function resolveProviderLabel() {
-	const url = String(process.env.INTEGRATED_AI_API_URL || '').trim();
-	if (!url) return 'integrated-ai (INTEGRATED_AI_API_URL unset)';
-	try {
-		return `integrated-ai@${new URL(url).host}`;
-	} catch {
-		return 'integrated-ai (invalid INTEGRATED_AI_API_URL)';
-	}
+	return 'admin-provider-registry';
 }
 
 async function assertAiProviderConfigured(req) {

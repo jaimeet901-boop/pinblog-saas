@@ -56,9 +56,7 @@ services:
       context: .
       dockerfile: Dockerfile.api
     env_file:
-      # Required for AI Pins Generate (stream → Integrated AI proxy):
-      # INTEGRATED_AI_API_URL, INTEGRATED_AI_API_KEY, WEBSITE_ID
-      # Optional: PROXY_ENTRANCE_ID
+      # AI Pins text generation uses Admin Providers (Gemini) — no INTEGRATED_AI_API_URL required.
       - ./apps/api/.env
     environment:
       - NODE_ENV=production

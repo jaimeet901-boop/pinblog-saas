@@ -1,9 +1,8 @@
 import process from 'node:process';
-import { PassThrough, Readable } from 'node:stream';
-import { NodeEnv } from '../constants/common.js';
+import { PassThrough } from 'node:stream';
 import logger from '../utils/logger.js';
-import { getEnv } from '../utils/env.js';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
+import { streamTextWithRegistry } from '../services/text-providers/index.js';
 
 const MessageRole = Object.freeze({
 	User: 'user',
@@ -89,14 +88,6 @@ function pocketBaseRequestError(error, context) {
 	next.cause = error;
 	return next;
 }
-
-const HistoryEventTypes = new Set([
-	SSEEventType.Reasoning,
-	SSEEventType.Content,
-	SSEEventType.ToolUse,
-	SSEEventType.ToolResult,
-	SSEEventType.Error,
-]);
 
 const SquashableSSEEventTypes = new Set([
 	SSEEventType.Content,
@@ -241,169 +232,76 @@ export async function uploadImagesToPocketBase({ images }) {
 }
 
 /**
- * Resolve Integrated AI proxy settings from process env (apps/api/.env via Docker env_file).
- * Never hardcode the generate URL.
- *
- * @returns {{ baseUrl: string, apiKey: string, websiteId: string, proxyEntranceId: string }}
- */
-function resolveIntegratedAiProxyConfig() {
-	const baseUrl = getEnv('INTEGRATED_AI_API_URL').replace(/\/+$/, '');
-	const apiKey = getEnv('INTEGRATED_AI_API_KEY');
-	const websiteId = getEnv('WEBSITE_ID');
-	const proxyEntranceId = getEnv('PROXY_ENTRANCE_ID');
-
-	const missing = [];
-	if (!baseUrl) missing.push('INTEGRATED_AI_API_URL');
-	if (!apiKey) missing.push('INTEGRATED_AI_API_KEY');
-	if (!websiteId) missing.push('WEBSITE_ID');
-
-	if (missing.length > 0) {
-		const error = new Error(
-			`Integrated AI is not configured. Missing environment variable(s): ${missing.join(', ')}. `
-			+ 'Set them in apps/api/.env (loaded by docker-compose.prod.yml env_file for the api service).',
-		);
-		error.status = 503;
-		error.errorCode = 'INTEGRATED_AI_NOT_CONFIGURED';
-		throw error;
-	}
-
-	try {
-		// Validate absolute URL before fetch — avoids TypeError: Failed to parse URL from undefined/generate
-		const parsed = new URL(baseUrl);
-		if (!['http:', 'https:'].includes(parsed.protocol)) {
-			throw new Error('protocol must be http or https');
-		}
-	} catch (cause) {
-		const error = new Error(
-			`INTEGRATED_AI_API_URL is invalid (${baseUrl}). Set a full absolute URL in apps/api/.env.`,
-		);
-		error.status = 503;
-		error.errorCode = 'INTEGRATED_AI_URL_INVALID';
-		error.cause = cause;
-		throw error;
-	}
-
-	return { baseUrl, apiKey, websiteId, proxyEntranceId };
-}
-
-/**
- * Sends a message to the AI proxy and pipes SSE events to the client.
+ * Sends a message through the Admin Provider Registry text adapter (Gemini first)
+ * and pipes SSE events to the client in the existing frontend contract.
  * Assistant message is saved to PocketBase when the stream ends.
- * This method should be used for text/text, image/text, image/image, text/image combinations.
+ * Does not use INTEGRATED_AI_API_URL.
  *
  * @param {{ userId: string, systemPrompt: string, userMessage: ContentBlock[] }} params
  * @returns {Promise<import('node:stream').Readable>}
  */
 export async function stream({ userId, systemPrompt, userMessage }) {
 	const history = await getHistory({ userId });
-	const { baseUrl, apiKey, websiteId, proxyEntranceId } = resolveIntegratedAiProxyConfig();
-	const generateUrl = `${baseUrl}/generate`;
+	const currentUser = mapUserMessage({ message: userMessage });
+	const messages = [...history, currentUser];
 
-	const response = await fetch(generateUrl, {
-		method: 'POST',
-		headers: {
-			'Accept': 'text/event-stream',
-			'Content-Type': 'application/json',
-			'Authorization': `Bearer ${apiKey}`,
-			...(proxyEntranceId && { 'X-Proxy-Entrance-Id': proxyEntranceId }),
-		},
-		body: JSON.stringify({
-			website_id: websiteId,
-			history: [
-				...history,
-				mapUserMessage({ message: userMessage }),
-			],
-			system_prompt: systemPrompt,
-			stream: true,
-			environment: process.env.NODE_ENV === NodeEnv.Production ? 'prod' : 'dev',
-		}),
-	});
-
-	if (!response.ok) {
-		const errorBody = await response.text().catch(() => 'Unknown error');
-		throw new Error(`AI proxy request failed with status ${response.status}: ${errorBody}`);
-	}
-
-	const [clientStream, historyStream] = response.body.tee();
 	const passThrough = new PassThrough();
 
-	Readable.fromWeb(clientStream).pipe(passThrough, { end: false });
+	(async () => {
+		/** @type {SSEEventHistory[]} */
+		const contentEvents = [];
+		let providerLabel = 'text-provider';
 
-	processStream({ userId, stream: historyStream, userMessage }).catch((error) => {
-		logger.error('Failed to process stream', error);
-		passThrough.push(`data: ${JSON.stringify({ type: SSEEventType.Error, data: { content: error.message } })}\n\n`);
-	}).finally(() => {
-		passThrough.end(`data: ${JSON.stringify({ type: SSEEventType.Completed, data: { content: '[COMPLETED]' } })}\n\n`);
-	});
+		try {
+			for await (const chunk of streamTextWithRegistry({
+				systemPrompt,
+				messages,
+			})) {
+				if (chunk.provider?.name || chunk.provider?.code) {
+					providerLabel = chunk.provider.name || chunk.provider.code;
+				}
+
+				const event = {
+					type: SSEEventType.Content,
+					data: { content: chunk.text },
+					metadata: { agent_name: providerLabel },
+				};
+				contentEvents.push(event);
+				passThrough.write(`data: ${JSON.stringify(event)}\n\n`);
+			}
+
+			const squashedHistoryEvents = squashSSEEvents({ events: contentEvents });
+			await saveMessages({
+				userId,
+				messages: [
+					{
+						role: MessageRole.User,
+						content: userMessage,
+					},
+					{
+						role: MessageRole.Assistant,
+						content: squashedHistoryEvents,
+					},
+				],
+			}).catch((error) => {
+				logger.error('Failed to persist integrated-ai history', error);
+			});
+		} catch (error) {
+			logger.error('Text provider stream failed', error);
+			const message = error?.message || 'Text generation failed';
+			passThrough.write(`data: ${JSON.stringify({
+				type: SSEEventType.Error,
+				data: { content: message },
+			})}\n\n`);
+		} finally {
+			passThrough.end(`data: ${JSON.stringify({
+				type: SSEEventType.Completed,
+				data: { content: '[COMPLETED]' },
+			})}\n\n`);
+		}
+	})();
 
 	return passThrough;
-}
-
-/**
- * Consumes an SSE stream branch, parses history-relevant events,
- * and saves the assistant message to PocketBase.
- *
- * @param {{ userId: string, stream: ReadableStream, userMessage: ContentBlock[] }} params
- * @returns {Promise<void>}
- */
-async function processStream({ userId, stream, userMessage }) {
-	const events = await parseSSEEvents({ stream });
-	const historyEvents = events.filter(event => HistoryEventTypes.has(event.type));
-	const squashedHistoryEvents = squashSSEEvents({ events: historyEvents });
-
-	await saveMessages({ userId, messages: [
-		{
-			role: MessageRole.User,
-			content: userMessage,
-		},
-		{
-			role: MessageRole.Assistant,
-			content: squashedHistoryEvents,
-		},
-	] });
-}
-
-/**
- * Parses SSE events from a ReadableStream.
- *
- * @param {{ stream: ReadableStream }} params
- * @returns {Promise<SSEEvent[]>}
- */
-async function parseSSEEvents({ stream }) {
-	/** @type {SSEEvent[]} */
-	const events = [];
-	let buffer = '';
-
-	const textStream = stream.pipeThrough(new TextDecoderStream());
-
-	for await (const chunk of textStream) {
-		buffer += chunk;
-		const lines = buffer.split('\n');
-		buffer = lines.pop() || '';
-
-		for (const line of lines) {
-			if (!line.startsWith('data: ')) {
-				continue;
-			}
-
-			const jsonStr = line.slice(6);
-
-			if (jsonStr === '[DONE]') {
-				return events;
-			}
-
-			/** @type {SSEEvent} */
-			const event = JSON.parse(jsonStr);
-
-			if (event.type === SSEEventType.Error) {
-				throw new Error(event.data.content);
-			}
-
-			events.push(event);
-		}
-	}
-
-	return events;
 }
 
 /**
