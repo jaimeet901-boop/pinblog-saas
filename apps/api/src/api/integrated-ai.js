@@ -28,6 +28,67 @@ export const ContentBlockType = Object.freeze({
 
 const MAX_HISTORY_MESSAGES = 60;
 
+/**
+ * Build a clear Error from a PocketBase ClientResponseError without hiding details.
+ * Logs status, response body, and request URL.
+ *
+ * @param {unknown} error
+ * @param {string} context
+ * @returns {Error}
+ */
+function pocketBaseRequestError(error, context) {
+	const status = Number(error?.status) || Number(error?.response?.status) || 0;
+	const url = String(error?.url || error?.response?.url || '').trim();
+	const responseData = error?.response?.data ?? error?.data ?? null;
+	const responseMessage = typeof responseData?.message === 'string' ? responseData.message : '';
+	const fieldErrors = responseData?.data && typeof responseData.data === 'object'
+		? responseData.data
+		: null;
+
+	const fieldDetail = fieldErrors
+		? Object.entries(fieldErrors)
+			.map(([field, value]) => {
+				if (!value) return '';
+				if (typeof value === 'string') return `${field}: ${value}`;
+				if (typeof value?.message === 'string') return `${field}: ${value.message}`;
+				try {
+					return `${field}: ${JSON.stringify(value)}`;
+				} catch {
+					return `${field}: [unserializable]`;
+				}
+			})
+			.filter(Boolean)
+			.join('; ')
+		: '';
+
+	logger.error('[integrated-ai] PocketBase request failed', {
+		context,
+		status: status || null,
+		url: url || null,
+		responseData,
+		originalMessage: error?.message || null,
+	});
+
+	const parts = [
+		context,
+		status ? `HTTP ${status}` : null,
+		responseMessage || error?.message || 'PocketBase request failed',
+		fieldDetail ? `(${fieldDetail})` : null,
+		url ? `url=${url}` : null,
+	].filter(Boolean);
+
+	const next = new Error(parts.join(' — '));
+	next.status = status || 500;
+	next.errorCode = 'POCKETBASE_ERROR';
+	next.pocketbase = {
+		status: status || null,
+		url: url || null,
+		data: responseData,
+	};
+	next.cause = error;
+	return next;
+}
+
 const HistoryEventTypes = new Set([
 	SSEEventType.Reasoning,
 	SSEEventType.Content,
@@ -159,7 +220,12 @@ export async function uploadImagesToPocketBase({ images }) {
 		const blob = new Blob([file.buffer], { type: file.mimetype });
 		formData.append('file', blob, file.originalname);
 
-		const record = await pocketbaseClient.collection('_integratedAiImages').create(formData);
+		let record;
+		try {
+			record = await pocketbaseClient.collection('_integratedAiImages').create(formData);
+		} catch (error) {
+			throw pocketBaseRequestError(error, 'uploadImagesToPocketBase(_integratedAiImages.create)');
+		}
 
 		const url = pocketbaseClient.files.getURL(record, record.file);
 		const websiteDomain = String(process.env.WEBSITE_DOMAIN || '').trim();
@@ -304,7 +370,11 @@ async function saveMessages({ userId, messages }) {
 		content: message.content,
 	}));
 
-	await batch.send();
+	try {
+		await batch.send();
+	} catch (error) {
+		throw pocketBaseRequestError(error, 'saveMessages(_integratedAiMessages.batchCreate)');
+	}
 }
 
 /**
@@ -318,10 +388,20 @@ export async function getHistory({ userId }) {
 		return [];
 	}
 
-	const result = await pocketbaseClient.collection('_integratedAiMessages').getList(1, MAX_HISTORY_MESSAGES, {
-		sort: '-created',
-		...(userId && { filter: pocketbaseClient.filter('userId = {:userId}', { userId }) }),
-	});
+	const filter = pocketbaseClient.filter('userId = {:userId}', { userId });
+	let result;
+	try {
+		result = await pocketbaseClient.collection('_integratedAiMessages').getList(1, MAX_HISTORY_MESSAGES, {
+			sort: '-created',
+			filter,
+			requestKey: null,
+		});
+	} catch (error) {
+		throw pocketBaseRequestError(
+			error,
+			`getHistory(_integratedAiMessages.getList filter=${filter} sort=-created)`,
+		);
+	}
 
 	const records = result.items.reverse();
 

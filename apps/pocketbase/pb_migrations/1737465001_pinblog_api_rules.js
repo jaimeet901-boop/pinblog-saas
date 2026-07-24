@@ -103,12 +103,18 @@ migrate(
 		applyRules(app, "pinterest_account_secrets", API_ONLY_RULES);
 
 		applyRules(app, "_integratedAiMessages", {
-			requireUserId: true,
-			listRule: USER_ID_SCOPE,
-			viewRule: USER_ID_SCOPE,
+			listRule: null,
+			viewRule: null,
 			createRule: null,
 			updateRule: null,
-			deleteRule: USER_ID_SCOPE,
+			deleteRule: null,
+		});
+		applyRules(app, "_integratedAiImages", {
+			listRule: null,
+			viewRule: null,
+			createRule: null,
+			updateRule: null,
+			deleteRule: null,
 		});
 	},
 	(app) => {
@@ -130,6 +136,7 @@ migrate(
 			"pinterest_oauth_states",
 			"pinterest_account_secrets",
 			"_integratedAiMessages",
+			"_integratedAiImages",
 		];
 
 		for (const name of names) {

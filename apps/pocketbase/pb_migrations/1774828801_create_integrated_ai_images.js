@@ -1,41 +1,19 @@
 /// <reference path="../pb_data/types.d.ts" />
-
-const coreNS = typeof core !== "undefined" ? core : {};
-
-function pickCtor(...ctors) {
-	for (const ctor of ctors) {
-		if (typeof ctor === "function") {
-			return ctor;
-		}
-	}
-
-	return null;
-}
-
-function toField(def) {
-	if (!def || typeof def !== "object" || typeof def.type !== "string") {
-		return def;
-	}
-
-	const ctorByType = {
-		text: pickCtor(typeof TextField !== "undefined" ? TextField : null, coreNS.TextField),
-		file: pickCtor(typeof FileField !== "undefined" ? FileField : null, coreNS.FileField),
-		autodate: pickCtor(typeof AutodateField !== "undefined" ? AutodateField : null, coreNS.AutodateField),
-	};
-
-	const Ctor = ctorByType[def.type];
-	if (!Ctor) {
-		throw new Error(`Unsupported migration field type: ${def.type}`);
-	}
-
-	return new Ctor(def);
-}
+/**
+ * Create `_integratedAiImages` with plain field objects (PocketBase v0.38).
+ * Do NOT pass Field class instances into `new Collection({ fields })` — they are dropped on save.
+ */
 
 migrate(
 	(app) => {
 		const collection = new Collection({
 			type: "base",
 			name: "_integratedAiImages",
+			listRule: null,
+			viewRule: null,
+			createRule: null,
+			updateRule: null,
+			deleteRule: null,
 			fields: [
 				{
 					autogeneratePattern: "[a-z0-9]{15}",
@@ -79,10 +57,15 @@ migrate(
 					system: false,
 					type: "autodate",
 				},
-			].map(toField),
+			],
 		});
 
 		app.save(collection);
+
+		const persisted = app.findCollectionByNameOrId("_integratedAiImages");
+		if (!persisted.fields.getByName("file")) {
+			throw new Error('_integratedAiImages missing file after create');
+		}
 	},
 	(app) => {
 		const collection = app.findCollectionByNameOrId("_integratedAiImages");
