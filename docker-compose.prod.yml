@@ -60,6 +60,7 @@ services:
     environment:
       - NODE_ENV=production
       - PB_BASE_URL=http://pocketbase:8090
+      - WEBSITE_DOMAIN=tbuy.store
     depends_on:
       pocketbase:
         condition: service_healthy
