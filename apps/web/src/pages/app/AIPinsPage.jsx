@@ -1025,7 +1025,8 @@ export default function AIPinsPage() {
 			await startPreviewImageGeneration(generatedRecords, workingPanel.imageMode);
 			toast({ title: 'Preview ready', description: `${generatedRecords.length} pins generated. Review and save when ready.` });
 		} catch (error) {
-			toast({ variant: 'destructive', title: 'Generation failed', description: error.message });
+			const detail = error?.message || (error?.status ? `HTTP ${error.status}` : 'Unknown error');
+			toast({ variant: 'destructive', title: 'Generation failed', description: detail });
 		} finally {
 			setGenerating(false);
 			setBulkProgress({ active: false, current: 0, total: 0, message: '' });

@@ -1,6 +1,28 @@
 const API_SERVER_URL = '/hcgi/api';
 import { getPocketbaseAuthHeader } from './pocketbaseClient.js';
 
+function buildHttpError(response, errorBody) {
+	let message;
+	let errorCode = '';
+	try {
+		const parsed = JSON.parse(errorBody);
+		message = parsed?.message
+			|| parsed?.error?.message
+			|| (typeof parsed?.error === 'string' ? parsed.error : '')
+			|| '';
+		errorCode = parsed?.errorCode || '';
+	} catch {
+		message = errorBody;
+	}
+
+	const detail = String(message || '').trim() || `Request failed (${response.status})`;
+	const error = new Error(errorCode ? `${detail} [${errorCode}]` : detail);
+	error.status = response.status;
+	error.errorCode = errorCode || undefined;
+	error.body = errorBody;
+	return error;
+}
+
 const integratedAiClient = {
 	fetch: async (path, options = {}) => {
 		const authorization = getPocketbaseAuthHeader();
@@ -15,18 +37,7 @@ const integratedAiClient = {
 
 		if (!response.ok) {
 			const errorBody = await response.text();
-
-			let message;
-			try {
-				const parsed = JSON.parse(errorBody);
-				message = parsed?.error?.message || parsed?.message;
-			} catch {
-				message = errorBody;
-			}
-
-			const error = new Error(message || `Request failed (${response.status})`);
-			error.status = response.status;
-			throw error;
+			throw buildHttpError(response, errorBody);
 		}
 
 		return response.json();
@@ -56,18 +67,7 @@ const integratedAiClient = {
 
 		if (!response.ok) {
 			const errorBody = await response.text();
-
-			let message;
-			try {
-				const parsed = JSON.parse(errorBody);
-				message = parsed?.error?.message || parsed?.message;
-			} catch {
-				message = errorBody;
-			}
-
-			const error = new Error(message || `Request failed (${response.status})`);
-			error.status = response.status;
-			throw error;
+			throw buildHttpError(response, errorBody);
 		}
 
 		if (!response.body) {
