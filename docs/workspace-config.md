@@ -169,6 +169,8 @@ if (!isFeatureEnabled('ai-pins', true)) { /* disable UI */ }
 
 **Completed:** AI Pins Studio (Phase 2) — uses `useWorkspaceConfig()` for providers, models, prompts, credits, flags, templates, brand kits, image/publishing settings, and limits.
 
+See the full cutover inventory in [`docs/workspace-config-migration.md`](./workspace-config-migration.md).
+
 Remaining modules (Writer, Images, publishers, Scheduler, Analytics, Brand Kit page, Templates page):
 
 1. Replace hardcoded providers/models/prompts with `useWorkspaceConfig()`.

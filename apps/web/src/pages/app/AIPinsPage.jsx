@@ -241,6 +241,8 @@ export default function AIPinsPage() {
 		const defaultQuality = imageQualities.find((item) => item.id === defaultQualityId) || imageQualities[0];
 		const styles = mapStudioPinStyles(config);
 		const recipeStyle = String(config?.content?.recipeStyle || '').trim();
+		const defaultTone = String(config?.content?.defaultPinTone || recipeStyle || '').trim();
+		const defaultAudience = String(config?.content?.defaultPinAudience || '').trim();
 
 		setTimezone((prev) => prev || config?.schedulingDefaults?.timezone || config?.general?.timezone || 'UTC');
 		setAspectRatio(resolveDefaultAspectRatioId(config));
@@ -248,8 +250,8 @@ export default function AIPinsPage() {
 		setPanel((prev) => ({
 			...prev,
 			language: prev.language || languageLabelFromConfig(config),
-			toneOfVoice: prev.toneOfVoice || recipeStyle || 'Friendly and persuasive',
-			targetAudience: prev.targetAudience || 'Food bloggers and recipe creators',
+			toneOfVoice: prev.toneOfVoice || defaultTone,
+			targetAudience: prev.targetAudience || defaultAudience,
 			style: prev.style || styles[0] || '',
 			imageProvider: defaultQuality?.imageProvider || defaultProvider || prev.imageProvider,
 			imageMode: defaultQuality?.imageMode || prev.imageMode,
@@ -1666,7 +1668,8 @@ export default function AIPinsPage() {
 									))}
 								</Select>
 								<Select label="Pin style" value={panel.style} onChange={(e) => setPanel((prev) => ({ ...prev, style: e.target.value }))}>
-									{(pinStyles.length ? pinStyles : ['Lifestyle']).map((style) => <option key={style} value={style}>{style}</option>)}
+									{pinStyles.length === 0 ? <option value="">No styles configured</option> : null}
+									{pinStyles.map((style) => <option key={style} value={style}>{style}</option>)}
 								</Select>
 								<Input label="Pin title seed" value={panel.pinTitle} onChange={(e) => setPanel((prev) => ({ ...prev, pinTitle: e.target.value }))} />
 								<Textarea label="Description seed" rows={3} value={panel.pinDescription} onChange={(e) => setPanel((prev) => ({ ...prev, pinDescription: e.target.value }))} />

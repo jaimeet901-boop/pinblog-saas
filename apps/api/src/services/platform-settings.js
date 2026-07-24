@@ -50,6 +50,8 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 			'Business',
 			'Lifestyle',
 		],
+		defaultPinAudience: '',
+		defaultPinTone: '',
 	},
 	images: {
 		defaultImageProvider: 'Fal.ai',
@@ -59,6 +61,7 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		storageProvider: 'Object Storage',
 		compression: 'lossy-80',
 		watermark: false,
+		estimateCreditsPerAiPin: 0.7,
 	},
 	wordpress: {
 		publishingStatus: 'draft',

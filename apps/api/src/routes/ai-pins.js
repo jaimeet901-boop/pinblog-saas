@@ -279,10 +279,12 @@ router.post('/manual-articles', async (req, res) => {
 	}
 });
 
+/** @deprecated Prefer GET /workspace/v1/config → pinStyles. Kept for API compatibility. */
 router.get('/styles', async (req, res) => {
 	res.json({ styles: PIN_STYLES });
 });
 
+/** @deprecated Prefer GET /workspace/v1/config → credits. Kept for API compatibility. */
 router.get('/credits', async (req, res) => {
 	if (!req.pocketbaseUserId) {
 		throw httpError(401, 'You must be signed in');
@@ -296,7 +298,7 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 	}
 
 	const articleId = normalizeOptionalString(req.body?.articleId, 'articleId', 64);
-	const style = normalizeOptionalString(req.body?.style, 'style', 64) || 'Lifestyle';
+	const style = normalizeOptionalString(req.body?.style, 'style', 64) || '';
 	if (!articleId) {
 		throw httpError(422, 'articleId is required');
 	}
@@ -335,7 +337,7 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 	}
 
 	const articleId = normalizeOptionalString(req.body?.articleId, 'articleId', 64);
-	const style = normalizeOptionalString(req.body?.style, 'style', 64) || 'Lifestyle';
+	const style = normalizeOptionalString(req.body?.style, 'style', 64) || '';
 	const analysis = req.body?.analysis && typeof req.body.analysis === 'object' ? req.body.analysis : null;
 	if (!articleId) {
 		throw httpError(422, 'articleId is required');

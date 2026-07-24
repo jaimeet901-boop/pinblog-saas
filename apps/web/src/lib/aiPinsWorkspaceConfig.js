@@ -46,6 +46,8 @@ export function buildImageQualityOptions(config) {
 		? config.imageProviders.filter((item) => item && item.enabled !== false && item.code)
 		: [];
 	const defaultProvider = resolveDefaultImageProvider(config) || providers[0]?.code || '';
+	const estimate = Number(config?.images?.estimateCreditsPerAiPin);
+	const aiCreditHint = Number.isFinite(estimate) ? estimate : 0;
 
 	const providerOptions = providers.map((provider) => ({
 		id: `provider:${provider.code}`,
@@ -53,7 +55,7 @@ export function buildImageQualityOptions(config) {
 		hint: `AI · ${provider.badge || provider.name || provider.code}`,
 		imageMode: 'generate_ai',
 		imageProvider: provider.code,
-		creditHint: 0.7,
+		creditHint: aiCreditHint,
 	}));
 
 	return [
@@ -204,8 +206,6 @@ Output only JSON and no markdown.`;
 
 export function estimatePinCredits({ quality, count, articleFactor = 1 }) {
 	const perPin = Number(quality?.creditHint);
-	const rate = Number.isFinite(perPin)
-		? perPin
-		: (quality?.imageMode === 'use_featured' ? 0 : 0.7);
+	const rate = Number.isFinite(perPin) ? perPin : 0;
 	return Number((rate * Math.max(1, count) * Math.max(1, articleFactor)).toFixed(2));
 }

@@ -5,19 +5,14 @@ import { DEFAULT_PLATFORM_SETTINGS } from './platform-settings.js';
 export const PIN_STYLES = Array.isArray(DEFAULT_PLATFORM_SETTINGS.content?.pinStyles)
 	&& DEFAULT_PLATFORM_SETTINGS.content.pinStyles.length > 0
 	? DEFAULT_PLATFORM_SETTINGS.content.pinStyles.map(String)
-	: [
-		'Food',
-		'Recipe',
-		'Fitness',
-		'Travel',
-		'DIY',
-		'Home',
-		'Beauty',
-		'Fashion',
-		'Technology',
-		'Business',
-		'Lifestyle',
-	];
+	: [];
+
+function resolvePinStyle(style, fallback = '') {
+	const requested = String(style || '').trim();
+	if (requested && PIN_STYLES.includes(requested)) return requested;
+	if (fallback && PIN_STYLES.includes(fallback)) return fallback;
+	return PIN_STYLES[0] || requested || fallback || '';
+}
 
 function extractJsonObject(text) {
 	if (!text || typeof text !== 'string') {
@@ -40,10 +35,11 @@ function extractJsonObject(text) {
 	return null;
 }
 
-function heuristicAnalysis(article, style = 'Lifestyle') {
+function heuristicAnalysis(article, style = '') {
+	const selectedStyle = resolvePinStyle(style);
 	const title = String(article.title || 'Untitled article').trim();
 	const description = String(article.metaDescription || article.description || '').trim();
-	const category = String(article.category || style || 'Lifestyle').trim();
+	const category = String(article.category || selectedStyle || 'General').trim();
 	const words = `${title} ${description} ${category}`
 		.toLowerCase()
 		.replace(/[^a-z0-9\s]/g, ' ')
@@ -60,9 +56,9 @@ function heuristicAnalysis(article, style = 'Lifestyle') {
 		cta: 'Save this pin for later',
 		keywords: unique.slice(0, 10),
 		hashtags,
-		pinterestCategory: category || style,
-		targetAudience: `People interested in ${category || style}`,
-		style: PIN_STYLES.includes(style) ? style : 'Lifestyle',
+		pinterestCategory: category || selectedStyle,
+		targetAudience: `People interested in ${category || selectedStyle}`,
+		style: selectedStyle,
 		source: 'heuristic',
 	};
 }
@@ -115,13 +111,13 @@ Author: ${article.author || ''}`;
 		hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.map(String).slice(0, 12) : [],
 		pinterestCategory: String(parsed.pinterestCategory || article.category || style).slice(0, 120),
 		targetAudience: String(parsed.targetAudience || '').slice(0, 200),
-		style: PIN_STYLES.includes(style) ? style : 'Lifestyle',
+		style: resolvePinStyle(style),
 		source: 'openai',
 	};
 }
 
-export async function analyzeArticleForPin({ owner, article, style = 'Lifestyle' }) {
-	const selectedStyle = PIN_STYLES.includes(style) ? style : 'Lifestyle';
+export async function analyzeArticleForPin({ owner, article, style = '' }) {
+	const selectedStyle = resolvePinStyle(style);
 	const apiKey = await getDecryptedOpenAIKey(owner).catch(() => '');
 
 	if (apiKey) {
@@ -138,8 +134,8 @@ export async function analyzeArticleForPin({ owner, article, style = 'Lifestyle'
 	return heuristicAnalysis(article, selectedStyle);
 }
 
-export async function generateImagePromptForPin({ owner, article, analysis, style = 'Lifestyle' }) {
-	const selectedStyle = PIN_STYLES.includes(style) ? style : (analysis?.style || 'Lifestyle');
+export async function generateImagePromptForPin({ owner, article, analysis, style = '' }) {
+	const selectedStyle = resolvePinStyle(style, analysis?.style || '');
 	const base = [
 		`Create a premium vertical Pinterest pin image (1000x1500, 2:3).`,
 		`Niche style: ${selectedStyle}.`,
