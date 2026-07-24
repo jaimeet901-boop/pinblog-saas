@@ -48,6 +48,9 @@ import {
 	addPinsToQueue,
 	buildPinPreview,
 	openDesignLibraryChooser,
+	listReferenceImages,
+	uploadReferenceImages,
+	deleteReferenceImage,
 } from '@/services/ai-pins';
 import './AIPinsPage.css';
 
@@ -199,6 +202,8 @@ export default function AIPinsPage() {
 	const [imageType, setImageType] = useState('pin');
 	const [promptOnlyText, setPromptOnlyText] = useState('');
 	const [referenceImages, setReferenceImages] = useState([]);
+	const [loadingReferenceImages, setLoadingReferenceImages] = useState(false);
+	const [uploadingReferenceImages, setUploadingReferenceImages] = useState(false);
 	const [selectedPreviewTempId, setSelectedPreviewTempId] = useState('');
 	const [pinFilter, setPinFilter] = useState('all');
 	const [pinSearch, setPinSearch] = useState('');
@@ -635,6 +640,7 @@ export default function AIPinsPage() {
 	useEffect(() => {
 		loadWebsites();
 		loadAccounts();
+		loadReferenceImages();
 	}, []);
 
 	useEffect(() => {
@@ -1490,26 +1496,72 @@ export default function AIPinsPage() {
 		}));
 	};
 
-	const handleReferenceUpload = (event) => {
-		const files = Array.from(event.target.files || []).slice(0, 6);
-		const next = files.map((file) => ({
-			id: `${file.name}-${file.lastModified}`,
-			name: file.name,
-			url: URL.createObjectURL(file),
-		}));
-		setReferenceImages((prev) => {
-			prev.forEach((item) => URL.revokeObjectURL(item.url));
-			return next;
-		});
-		event.target.value = '';
+	const loadReferenceImages = async () => {
+		setLoadingReferenceImages(true);
+		try {
+			const items = await listReferenceImages();
+			setReferenceImages(items.map((item) => ({
+				id: item.id,
+				name: item.name || item.originalName || 'reference',
+				url: item.url,
+			})));
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Reference images', description: error.message });
+		} finally {
+			setLoadingReferenceImages(false);
+		}
 	};
 
-	const removeReferenceImage = (id) => {
-		setReferenceImages((prev) => {
-			const target = prev.find((item) => item.id === id);
-			if (target) URL.revokeObjectURL(target.url);
-			return prev.filter((item) => item.id !== id);
-		});
+	const handleReferenceUpload = async (event) => {
+		const picked = Array.from(event.target.files || []);
+		event.target.value = '';
+		if (picked.length === 0) return;
+
+		const remaining = Math.max(0, 6 - referenceImages.length);
+		if (remaining <= 0) {
+			toast({
+				variant: 'destructive',
+				title: 'Limit reached',
+				description: 'You can store up to 6 reference images.',
+			});
+			return;
+		}
+
+		const files = picked.slice(0, remaining);
+		setUploadingReferenceImages(true);
+		try {
+			const uploaded = await uploadReferenceImages(files);
+			if (uploaded.length === 0) {
+				throw new Error('No images were saved');
+			}
+			setReferenceImages((prev) => [
+				...uploaded.map((item) => ({
+					id: item.id,
+					name: item.name || item.originalName || 'reference',
+					url: item.url,
+				})),
+				...prev,
+			].slice(0, 6));
+			toast({
+				title: 'Reference images saved',
+				description: `${uploaded.length} image(s) uploaded and stored.`,
+			});
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Upload failed', description: error.message });
+		} finally {
+			setUploadingReferenceImages(false);
+		}
+	};
+
+	const removeReferenceImage = async (id) => {
+		const previous = referenceImages;
+		setReferenceImages((prev) => prev.filter((item) => item.id !== id));
+		try {
+			await deleteReferenceImage(id);
+		} catch (error) {
+			setReferenceImages(previous);
+			toast({ variant: 'destructive', title: 'Delete failed', description: error.message });
+		}
 	};
 
 	const openInspectorForSaved = (pinId) => {
@@ -1792,12 +1844,23 @@ export default function AIPinsPage() {
 						<div>
 							<div className="mb-1.5 flex items-center justify-between">
 								<p className="text-sm font-medium">Reference images</p>
-								<button type="button" className="text-xs text-primary" onClick={() => referenceInputRef.current?.click()}>Upload</button>
+								<button
+									type="button"
+									className="text-xs text-primary disabled:opacity-50"
+									onClick={() => referenceInputRef.current?.click()}
+									disabled={uploadingReferenceImages || loadingReferenceImages || referenceImages.length >= 6}
+								>
+									{uploadingReferenceImages ? 'Uploading…' : 'Upload'}
+								</button>
 							</div>
 							<input ref={referenceInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleReferenceUpload} />
 							<div className="flex flex-wrap gap-2">
-								{referenceImages.length === 0 ? (
-									<button type="button" onClick={() => referenceInputRef.current?.click()} className="flex h-16 w-16 items-center justify-center rounded-xl border border-dashed border-border text-muted-foreground hover:bg-secondary">
+								{loadingReferenceImages && referenceImages.length === 0 ? (
+									<div className="flex h-16 w-16 items-center justify-center rounded-xl border border-border">
+										<Spinner className="h-4 w-4" />
+									</div>
+								) : referenceImages.length === 0 ? (
+									<button type="button" onClick={() => referenceInputRef.current?.click()} className="flex h-16 w-16 items-center justify-center rounded-xl border border-dashed border-border text-muted-foreground hover:bg-secondary" disabled={uploadingReferenceImages}>
 										<Images size={16} />
 									</button>
 								) : referenceImages.map((image) => (

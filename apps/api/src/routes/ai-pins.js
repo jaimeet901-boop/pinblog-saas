@@ -7,8 +7,17 @@ import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
 import { analyzeArticleForPin, generateImagePromptForPin, PIN_STYLES } from '../services/ai-pin-analysis.js';
 import { consumeCredits, getUserCreditUsage, recordGenerationHistory } from '../services/ai-pin-credits.js';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
+import { uploadFiles } from '../middleware/file-upload.js';
 
 const router = Router();
+const MAX_REFERENCE_IMAGES = 6;
+
+const uploadReferenceImages = uploadFiles({
+	allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+	fieldName: 'images',
+	maxCount: MAX_REFERENCE_IMAGES,
+	maxSizeMB: 20,
+});
 
 function httpError(status, message) {
 	const error = new Error(message);
@@ -96,6 +105,32 @@ function mapArticle(record) {
 		language: record.language || '',
 		status: record.status || '',
 		source: record.source || '',
+		created: record.created || '',
+		updated: record.updated || '',
+	};
+}
+
+function publicFileUrl(record, filename) {
+	if (!filename) {
+		return '';
+	}
+	const url = pocketbaseClient.files.getURL(record, filename);
+	const websiteDomain = String(process.env.WEBSITE_DOMAIN || '').trim();
+	if (!websiteDomain) {
+		return url;
+	}
+	return url.replace(/^https?:\/\/[^/]+/i, `https://${websiteDomain}/hcgi/platform`);
+}
+
+function mapReferenceImage(record) {
+	const fileName = typeof record.file === 'string' ? record.file : '';
+	return {
+		id: record.id,
+		name: record.name || record.original_name || fileName || 'reference',
+		originalName: record.original_name || record.name || '',
+		mimeType: record.mime_type || '',
+		sizeBytes: Number(record.size_bytes) || 0,
+		url: publicFileUrl(record, fileName),
 		created: record.created || '',
 		updated: record.updated || '',
 	};
@@ -541,6 +576,85 @@ router.delete('/brand-kits/:id', async (req, res) => {
 		throw httpError(404, 'Brand kit not found');
 	}
 	await pocketbaseClient.collection('brand_kits').delete(existing.id);
+	res.status(204).end();
+});
+
+router.get('/reference-images', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+
+	const records = await pocketbaseClient.collection('ai_pin_reference_images').getFullList({
+		filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
+		sort: '-created',
+	}).catch((error) => {
+		logger.error('Failed to list AI pin reference images', { error: error?.message });
+		throw httpError(500, 'Failed to load reference images');
+	});
+
+	res.json({
+		items: records.map(mapReferenceImage).slice(0, MAX_REFERENCE_IMAGES),
+	});
+});
+
+router.post('/reference-images', (req, res, next) => {
+	uploadReferenceImages(req, res, (error) => {
+		if (!error) return next();
+		error.status = Number.isInteger(error.status) ? error.status : 400;
+		error.message = error.message || 'Upload failed';
+		return next(error);
+	});
+}, async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+
+	const files = Array.isArray(req.files) ? req.files : [];
+	if (files.length === 0) {
+		throw httpError(422, 'At least one image file is required');
+	}
+
+	const existing = await pocketbaseClient.collection('ai_pin_reference_images').getFullList({
+		filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
+		sort: '-created',
+	}).catch(() => []);
+
+	const remaining = Math.max(0, MAX_REFERENCE_IMAGES - existing.length);
+	if (remaining <= 0) {
+		throw httpError(422, `You can store up to ${MAX_REFERENCE_IMAGES} reference images`);
+	}
+
+	const toUpload = files.slice(0, remaining);
+	const created = [];
+
+	for (const file of toUpload) {
+		const originalName = String(file.originalname || 'reference').slice(0, 255);
+		const formData = new FormData();
+		formData.append('owner', req.pocketbaseUserId);
+		formData.append('name', originalName);
+		formData.append('original_name', originalName);
+		formData.append('mime_type', String(file.mimetype || '').slice(0, 120));
+		formData.append('size_bytes', String(file.size || 0));
+		formData.append('file', new Blob([file.buffer], { type: file.mimetype }), originalName);
+
+		const record = await pocketbaseClient.collection('ai_pin_reference_images').create(formData);
+		created.push(mapReferenceImage(record));
+	}
+
+	res.status(201).json({ items: created });
+});
+
+router.delete('/reference-images/:id', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+
+	const existing = await pocketbaseClient.collection('ai_pin_reference_images').getOne(req.params.id).catch(() => null);
+	if (!existing || getOwnerId(existing) !== req.pocketbaseUserId) {
+		throw httpError(404, 'Reference image not found');
+	}
+
+	await pocketbaseClient.collection('ai_pin_reference_images').delete(existing.id);
 	res.status(204).end();
 });
 

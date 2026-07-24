@@ -40,3 +40,8 @@ export {
 	findNextAvailableSlot,
 	allocateSmartSlots,
 } from './smartSlot.js';
+export {
+	listReferenceImages,
+	uploadReferenceImages,
+	deleteReferenceImage,
+} from './referenceImages.js';
