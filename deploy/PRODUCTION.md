@@ -10,7 +10,13 @@
 - Copy `apps/api/.env.example` to `apps/api/.env`
 - Fill all required secrets
 - Ensure `PB_BASE_URL=http://pocketbase:8090` when using Docker Compose
-- Ensure Integrated AI variables are set when that feature is enabled (`INTEGRATED_AI_API_URL`, `INTEGRATED_AI_API_KEY`, `WEBSITE_ID`).
+- Ensure Integrated AI variables are set in `apps/api/.env` (loaded by Compose `env_file` into the `api` service):
+  - `INTEGRATED_AI_API_URL` — absolute base URL of the generate proxy (no hardcoded fallback)
+  - `INTEGRATED_AI_API_KEY`
+  - `WEBSITE_ID`
+  - Optional: `PROXY_ENTRANCE_ID`
+- After editing `.env`, recreate the API container so env is reloaded:
+  `docker compose -f docker-compose.prod.yml up -d --force-recreate api`
 
 ## 3) TLS certificates
 - In CloudPanel mode, TLS certificates are managed by CloudPanel nginx.

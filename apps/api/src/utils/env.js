@@ -38,4 +38,18 @@ export function validateServerEnv() {
 	if (missing.length > 0) {
 		throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
 	}
+
+	const integratedAiOptional = [
+		'INTEGRATED_AI_API_URL',
+		'INTEGRATED_AI_API_KEY',
+		'WEBSITE_ID',
+	];
+	const missingIntegratedAi = integratedAiOptional.filter((name) => !normalizeString(process.env[name]));
+	if (missingIntegratedAi.length > 0) {
+		// Do not block API boot — surface a clear 503 from stream() when Generate is used.
+		console.warn(
+			`[env] Integrated AI Generate is not fully configured (missing: ${missingIntegratedAi.join(', ')}). `
+			+ 'Set these in apps/api/.env and recreate the api container.',
+		);
+	}
 }
