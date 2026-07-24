@@ -33,6 +33,7 @@ export default function SchedulePinModal({
 	defaultTimezone = 'UTC',
 	defaultScheduledAt = '',
 	pinCount = 1,
+	queueHint = '',
 }) {
 	const [mode, setMode] = useState('once');
 	const [dateTime, setDateTime] = useState('');
@@ -66,17 +67,20 @@ export default function SchedulePinModal({
 		event.preventDefault();
 		setError('');
 		try {
-			if (!dateTime) throw new Error('Pick a date and time');
 			if (!accountId) throw new Error('Select a Pinterest account');
 			if (!boardId) throw new Error('Select a Pinterest board');
+			if (mode !== 'once' && !dateTime) {
+				throw new Error('Pick a start date and time for recurring schedules');
+			}
 			await onSubmit?.({
 				mode,
-				scheduledAt: datetimeLocalToIso(dateTime),
+				scheduledAt: dateTime ? datetimeLocalToIso(dateTime) : '',
 				timezone,
 				endAt: endDate ? datetimeLocalToIso(`${endDate}T23:59`) : '',
 				customIntervalDays: Number(customIntervalDays) || 1,
 				accountId,
 				boardId,
+				useSmartSlot: !dateTime,
 			});
 		} catch (err) {
 			setError(err?.message || 'Failed to schedule');
@@ -118,12 +122,16 @@ export default function SchedulePinModal({
 					</div>
 
 					<Input
-						label="Date & time"
+						label="Date & time (optional)"
 						type="datetime-local"
-						required
 						value={dateTime}
 						onChange={(e) => setDateTime(e.target.value)}
 					/>
+					<p className="text-[11px] text-muted-foreground -mt-1">
+						{dateTime
+							? 'Will publish at the selected time.'
+							: (queueHint || 'Leave empty to use the next available Workspace Queue slot.')}
+					</p>
 
 					<Select label="Timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
 						{timezoneOptions.map((tz) => (

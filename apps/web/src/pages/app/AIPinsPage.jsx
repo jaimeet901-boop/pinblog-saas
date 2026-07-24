@@ -731,15 +731,41 @@ export default function AIPinsPage() {
 			const fromIds = savedPins.filter((pin) => actionPinIds.includes(pin.id));
 			if (fromIds.length) return fromIds;
 		}
-		return selectedDraftPins;
+		if (selectedDraftPins.length > 0) return selectedDraftPins;
+		if (editingPinId) {
+			const openPin = savedPins.find((pin) => pin.id === editingPinId);
+			if (openPin && (openPin.status === 'draft' || openPin.status === 'failed')) {
+				return [openPin];
+			}
+		}
+		return [];
+	};
+
+	const resolvePublishTargets = (pins = []) => {
+		const accountId = selectedAccountId
+			|| pins.find((pin) => pin.accountId)?.accountId
+			|| '';
+		const boardId = selectedBoardId
+			|| pins.find((pin) => pin.boardId)?.boardId
+			|| '';
+		return { accountId, boardId };
 	};
 
 	const assertPublishTargets = (pins, accountId, boardId) => {
+		if (!pins.length) throw new Error('Choose one or more draft pins first.');
 		if (!accountId) throw new Error('Choose a target Pinterest account first.');
 		if (!boardId) throw new Error('Choose a target Pinterest board.');
-		if (!pins.length) throw new Error('Choose one or more draft pins first.');
+		const account = accounts.find((item) => item.id === accountId);
+		if (!account) throw new Error('Pinterest account not found. Connect Pinterest first.');
+		const disconnected = account.connected === false
+			|| ['disconnected', 'error', 'expired'].includes(String(account.status || '').toLowerCase());
+		if (disconnected) {
+			throw new Error('Pinterest account is not connected. Reconnect it in Pinterest settings.');
+		}
 		const missingImage = pins.find((pin) => !String(pin.imageUrl || '').trim());
 		if (missingImage) throw new Error(`Pin "${missingImage.title || missingImage.id}" needs an image before publishing.`);
+		const notDraft = pins.find((pin) => pin.status && !['draft', 'failed'].includes(pin.status));
+		if (notDraft) throw new Error(`Pin "${notDraft.title || notDraft.id}" must be a draft (or failed) to publish.`);
 	};
 
 	const handleChooseDesignLibraryTemplate = () => {
@@ -1125,12 +1151,16 @@ export default function AIPinsPage() {
 
 	const runPublishNow = async (explicitPins) => {
 		const pins = resolveActionPins(explicitPins);
+		const { accountId, boardId } = resolvePublishTargets(pins);
 		try {
-			assertPublishTargets(pins, selectedAccountId, selectedBoardId);
+			assertPublishTargets(pins, accountId, boardId);
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Cannot publish', description: error.message });
 			return;
 		}
+
+		if (accountId && accountId !== selectedAccountId) setSelectedAccountId(accountId);
+		if (boardId && boardId !== selectedBoardId) setSelectedBoardId(boardId);
 
 		publishAbortRef.current?.abort?.();
 		const controller = new AbortController();
@@ -1144,8 +1174,8 @@ export default function AIPinsPage() {
 		try {
 			const result = await runPublishNowFlow({
 				pinIds: pins.map((pin) => pin.id),
-				accountId: selectedAccountId,
-				boardId: selectedBoardId,
+				accountId,
+				boardId,
 				timezone: publishingConfig.timezone || timezone,
 				perPinTargets: buildPerPinTargets(pins),
 				pollMs: Math.min(5000, Math.max(1500, publishingConfig.pollHintMs / 3)),
@@ -1156,6 +1186,7 @@ export default function AIPinsPage() {
 			setPublishResult(result);
 			await loadPins();
 			clearDraftPinSelection();
+			setActionPinIds([]);
 			if (result.ok) {
 				toast({ title: 'Published', description: result.message });
 			} else {
@@ -1175,10 +1206,12 @@ export default function AIPinsPage() {
 
 	const openScheduleModal = (explicitPins) => {
 		const pins = resolveActionPins(explicitPins);
-		try {
-			assertPublishTargets(pins, selectedAccountId || pins[0]?.accountId, selectedBoardId || pins[0]?.boardId);
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Cannot schedule', description: error.message });
+		if (pins.length === 0) {
+			toast({
+				variant: 'destructive',
+				title: 'Cannot schedule',
+				description: 'Select one or more draft pins, or open a draft in the inspector.',
+			});
 			return;
 		}
 		setActionPinIds(pins.map((pin) => pin.id));
@@ -1191,56 +1224,73 @@ export default function AIPinsPage() {
 			throw new Error('Select draft pins first');
 		}
 
+		const accountId = form.accountId || resolvePublishTargets(pins).accountId;
+		const boardId = form.boardId || resolvePublishTargets(pins).boardId;
+		assertPublishTargets(pins, accountId, boardId);
+
 		setScheduling(true);
 		try {
-			const occurrences = expandRecurrence({
-				mode: form.mode,
-				startAt: form.scheduledAt,
-				endAt: form.endAt,
-				customIntervalDays: form.customIntervalDays,
-			});
-
 			const perPinTargets = buildPerPinTargets(pins);
+			let scheduledLabel = '';
 
-			if (occurrences.length === 1) {
-				await schedulePins({
+			if (form.useSmartSlot || !form.scheduledAt) {
+				const result = await addPinsToQueue({
+					config,
 					pinIds: pins.map((pin) => pin.id),
-					accountId: form.accountId,
-					boardId: form.boardId,
-					timezone: form.timezone,
-					scheduledAt: occurrences[0],
+					accountId,
+					boardId,
 					perPinTargets,
 				});
+				scheduledLabel = result.slots?.[0]?.localLabel || 'next queue slot';
 			} else {
-				// One active job per pin: duplicate for extra occurrences so Calendar shows each slot.
-				const pinIdsByOccurrence = [pins.map((pin) => pin.id)];
-				for (let i = 1; i < occurrences.length; i += 1) {
-					const copies = [];
-					for (const pin of pins) {
-						copies.push(await duplicatePin(pin, { titleSuffix: ` (${i + 1}/${occurrences.length})` }));
-					}
-					pinIdsByOccurrence.push(copies.map((pin) => pin.id));
-				}
-				await scheduleRecurrenceSeries({
-					occurrenceDates: occurrences,
-					pinIdsByOccurrence,
-					accountId: form.accountId,
-					boardId: form.boardId,
-					timezone: form.timezone,
-					perPinTargets,
+				const occurrences = expandRecurrence({
+					mode: form.mode,
+					startAt: form.scheduledAt,
+					endAt: form.endAt,
+					customIntervalDays: form.customIntervalDays,
 				});
+
+				if (occurrences.length === 1) {
+					await schedulePins({
+						pinIds: pins.map((pin) => pin.id),
+						accountId,
+						boardId,
+						timezone: form.timezone || publishingConfig.timezone,
+						scheduledAt: occurrences[0],
+						perPinTargets,
+					});
+				} else {
+					const pinIdsByOccurrence = [pins.map((pin) => pin.id)];
+					for (let i = 1; i < occurrences.length; i += 1) {
+						const copies = [];
+						for (const pin of pins) {
+							copies.push(await duplicatePin(pin, { titleSuffix: ` (${i + 1}/${occurrences.length})` }));
+						}
+						pinIdsByOccurrence.push(copies.map((pin) => pin.id));
+					}
+					await scheduleRecurrenceSeries({
+						occurrenceDates: occurrences,
+						pinIdsByOccurrence,
+						accountId,
+						boardId,
+						timezone: form.timezone || publishingConfig.timezone,
+						perPinTargets,
+					});
+				}
+				scheduledLabel = `${occurrences.length} occurrence(s)`;
 			}
 
-			setSelectedAccountId(form.accountId);
-			setSelectedBoardId(form.boardId);
-			setTimezone(form.timezone);
+			setSelectedAccountId(accountId);
+			setSelectedBoardId(boardId);
+			if (form.timezone) setTimezone(form.timezone);
 			setScheduleModalOpen(false);
 			setActionPinIds([]);
 			await loadPins();
 			clearDraftPinSelection();
+			setWorkspaceTab('queue');
 			toast({
 				title: 'Scheduled',
-				description: `${pins.length} pin(s) · ${occurrences.length} occurrence(s) — visible on Calendar.`,
+				description: `${pins.length} pin(s) queued · ${scheduledLabel}. Visible in Queue, Calendar, and History.`,
 			});
 		} finally {
 			setScheduling(false);
@@ -1249,8 +1299,9 @@ export default function AIPinsPage() {
 
 	const handleAddToQueue = async (explicitPins) => {
 		const pins = resolveActionPins(explicitPins);
+		const { accountId, boardId } = resolvePublishTargets(pins);
 		try {
-			assertPublishTargets(pins, selectedAccountId, selectedBoardId);
+			assertPublishTargets(pins, accountId, boardId);
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Cannot queue', description: error.message });
 			return;
@@ -1261,12 +1312,14 @@ export default function AIPinsPage() {
 			const result = await addPinsToQueue({
 				config,
 				pinIds: pins.map((pin) => pin.id),
-				accountId: selectedAccountId,
-				boardId: selectedBoardId,
+				accountId,
+				boardId,
 				perPinTargets: buildPerPinTargets(pins),
 			});
 			await loadPins();
 			clearDraftPinSelection();
+			setActionPinIds([]);
+			setWorkspaceTab('queue');
 			const first = result.slots?.[0];
 			toast({
 				title: 'Added to queue',
@@ -1963,13 +2016,30 @@ export default function AIPinsPage() {
 									</div>
 								</div>
 								<div className="flex flex-wrap gap-2">
-									<Button size="sm" onClick={() => runPublishNow()} disabled={publishing || selectedDraftPins.length === 0 || boards.length === 0}>
+									<Button
+										size="sm"
+										type="button"
+										onClick={() => runPublishNow()}
+										disabled={publishing || draftPins.length === 0 || accounts.length === 0}
+									>
 										<Send size={13} /> Publish Now
 									</Button>
-									<Button size="sm" variant="outline" onClick={() => openScheduleModal()} disabled={publishing || scheduling || selectedDraftPins.length === 0 || boards.length === 0}>
+									<Button
+										size="sm"
+										type="button"
+										variant="outline"
+										onClick={() => openScheduleModal()}
+										disabled={publishing || scheduling || draftPins.length === 0 || accounts.length === 0}
+									>
 										<CalendarClock size={13} /> Schedule
 									</Button>
-									<Button size="sm" variant="outline" onClick={() => handleAddToQueue()} disabled={queueing || publishing || selectedDraftPins.length === 0 || boards.length === 0}>
+									<Button
+										size="sm"
+										type="button"
+										variant="outline"
+										onClick={() => handleAddToQueue()}
+										disabled={queueing || publishing || draftPins.length === 0 || accounts.length === 0}
+									>
 										<ListPlus size={13} /> Add to Queue
 									</Button>
 									<Button size="sm" variant="outline" onClick={async () => {
@@ -2078,7 +2148,7 @@ export default function AIPinsPage() {
 									{' '}retry {publishingConfig.retryPolicy.raw}. Scheduled pins appear on Calendar automatically.
 								</p>
 								<div className="mt-3 flex flex-wrap gap-2">
-									<Button size="sm" onClick={() => handleAddToQueue()} disabled={queueing || selectedDraftPins.length === 0}>
+									<Button size="sm" type="button" onClick={() => handleAddToQueue()} disabled={queueing || draftPins.length === 0 || accounts.length === 0}>
 										<ListPlus size={13} /> Add selected to queue
 									</Button>
 									{showHistory ? (
@@ -2221,14 +2291,14 @@ export default function AIPinsPage() {
 							<div className="flex flex-wrap gap-2 pt-2">
 								{editingPinId ? (
 									<>
-										<Button className="flex-1" onClick={() => handleSaveEdit(inspectorPin)}>Save Draft</Button>
-										<Button variant="outline" onClick={() => handlePreviewPin(inspectorPin)}><Eye size={14} /> Preview</Button>
-										<Button variant="outline" onClick={() => runPublishNow([inspectorPin])} disabled={publishing || !showPinterest}><Send size={14} /></Button>
-										<Button variant="outline" onClick={() => { setActionPinIds([inspectorPin.id]); openScheduleModal([inspectorPin]); }} disabled={scheduling}><CalendarClock size={14} /></Button>
-										<Button variant="outline" onClick={() => { setActionPinIds([inspectorPin.id]); handleAddToQueue([inspectorPin]); }} disabled={queueing}><ListPlus size={14} /></Button>
-										<Button variant="outline" onClick={() => handleDuplicatePin(inspectorPin)}><Copy size={14} /></Button>
-										<Button variant="outline" onClick={() => handleRegeneratePin(inspectorPin)} disabled={generating}><RefreshCw size={14} /></Button>
-										<Button variant="ghost" onClick={() => handleDeletePin(inspectorPin.id)}><Trash2 size={14} /></Button>
+										<Button className="flex-1" type="button" onClick={() => handleSaveEdit(inspectorPin)}>Save Draft</Button>
+										<Button type="button" variant="outline" onClick={() => handlePreviewPin(inspectorPin)}><Eye size={14} /> Preview</Button>
+										<Button type="button" variant="outline" onClick={() => runPublishNow([inspectorPin])} disabled={publishing || !showPinterest}><Send size={14} /></Button>
+										<Button type="button" variant="outline" onClick={() => openScheduleModal([inspectorPin])} disabled={scheduling}><CalendarClock size={14} /></Button>
+										<Button type="button" variant="outline" onClick={() => handleAddToQueue([inspectorPin])} disabled={queueing}><ListPlus size={14} /></Button>
+										<Button type="button" variant="outline" onClick={() => handleDuplicatePin(inspectorPin)}><Copy size={14} /></Button>
+										<Button type="button" variant="outline" onClick={() => handleRegeneratePin(inspectorPin)} disabled={generating}><RefreshCw size={14} /></Button>
+										<Button type="button" variant="ghost" onClick={() => handleDeletePin(inspectorPin.id)}><Trash2 size={14} /></Button>
 									</>
 								) : (
 									<>
@@ -2261,15 +2331,16 @@ export default function AIPinsPage() {
 			/>
 			<SchedulePinModal
 				open={scheduleModalOpen}
-				onClose={() => setScheduleModalOpen(false)}
+				onClose={() => { setScheduleModalOpen(false); setActionPinIds([]); }}
 				onSubmit={handleScheduleSubmit}
 				submitting={scheduling}
 				accounts={accounts}
 				boards={boards}
-				defaultAccountId={selectedAccountId}
-				defaultBoardId={selectedBoardId}
+				defaultAccountId={selectedAccountId || resolvePublishTargets(resolveActionPins()).accountId}
+				defaultBoardId={selectedBoardId || resolvePublishTargets(resolveActionPins()).boardId}
 				defaultTimezone={publishingConfig.timezone || timezone}
 				pinCount={actionPinIds.length || selectedDraftPins.length || (editingPinId ? 1 : 0)}
+				queueHint={`Leave empty to use next Workspace Queue slot (${publishingConfig.timezone}, every ${publishingConfig.intervalMinutes}m, ${publishingConfig.dailyLimit}/day).`}
 			/>
 			<PreviewPinModal
 				open={Boolean(previewModal)}
