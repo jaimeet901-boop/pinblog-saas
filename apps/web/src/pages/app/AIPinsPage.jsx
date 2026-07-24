@@ -1205,12 +1205,17 @@ export default function AIPinsPage() {
 	};
 
 	const openScheduleModal = (explicitPins) => {
-		const pins = resolveActionPins(explicitPins);
+		// Prefer explicit pins / selection / inspector; fall back to all drafts so the
+		// Library "Schedule" control can open the modal without a prior checkbox selection.
+		let pins = resolveActionPins(explicitPins);
+		if (pins.length === 0 && explicitPins == null) {
+			pins = draftPins;
+		}
 		if (pins.length === 0) {
 			toast({
 				variant: 'destructive',
 				title: 'Cannot schedule',
-				description: 'Select one or more draft pins, or open a draft in the inspector.',
+				description: 'Save or select one or more draft pins first, then try Schedule again.',
 			});
 			return;
 		}
@@ -2029,7 +2034,7 @@ export default function AIPinsPage() {
 										type="button"
 										variant="outline"
 										onClick={() => openScheduleModal()}
-										disabled={publishing || scheduling || draftPins.length === 0 || accounts.length === 0}
+										disabled={scheduling}
 									>
 										<CalendarClock size={13} /> Schedule
 									</Button>
