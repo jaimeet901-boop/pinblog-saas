@@ -38,20 +38,22 @@ function normalizeDate(value) {
 function isPlaceholderWebUrl(value) {
 	const raw = String(value || '').trim();
 	if (!raw) return true;
+	// Substring guard first — catches quoted/malformed env values before URL parsing.
+	if (/your-domain\.com|example\.com/i.test(raw)) return true;
 	try {
-		const host = new URL(raw).hostname.toLowerCase();
+		const host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase();
 		return !host
 			|| host === 'your-domain.com'
 			|| host.endsWith('.your-domain.com')
 			|| host === 'example.com'
 			|| host.endsWith('.example.com');
 	} catch {
-		return /your-domain\.com|example\.com/i.test(raw);
+		return true;
 	}
 }
 
 function normalizeWebAppBase(value) {
-	return String(value || '').trim().replace(/\/$/, '');
+	return String(value || '').trim().replace(/^['"]|['"]$/g, '').replace(/\/$/, '');
 }
 
 function deriveWebAppBaseFromApiUrl() {
@@ -60,16 +62,19 @@ function deriveWebAppBaseFromApiUrl() {
 		process.env.PINTEREST_REDIRECT_URI,
 	];
 	for (const candidate of candidates) {
-		const raw = String(candidate || '').trim();
+		const raw = normalizeWebAppBase(candidate);
 		if (!raw || isPlaceholderWebUrl(raw)) continue;
 		try {
-			return new URL(raw).origin;
+			return new URL(raw.includes('://') ? raw : `https://${raw}`).origin;
 		} catch {
 			// keep looking
 		}
 	}
 	return '';
 }
+
+/** Canonical production frontend origin for Chef IA (post-OAuth browser return). */
+export const PINTEREST_OAUTH_FRONTEND_BASE = 'https://tbuy.store';
 
 /**
  * Frontend origin used for Pinterest OAuth browser redirects (/app/pinterest).
@@ -88,15 +93,51 @@ export function getWebAppBaseUrl() {
 
 	for (const candidate of candidates) {
 		if (!isPlaceholderWebUrl(candidate)) {
-			return candidate;
+			try {
+				return new URL(candidate.includes('://') ? candidate : `https://${candidate}`).origin;
+			} catch {
+				// keep looking
+			}
 		}
 	}
 
 	if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
-		return 'https://tbuy.store';
+		return PINTEREST_OAUTH_FRONTEND_BASE;
 	}
 
 	return 'http://localhost:3000';
+}
+
+/**
+ * Absolute URL for post-OAuth browser return.
+ * Always uses https://tbuy.store except for explicit local origins.
+ * Never trusts WEB_APP_URL / CORS placeholders like your-domain.com.
+ */
+export function buildPinterestOAuthAppRedirect(query = {}) {
+	const fromEnv = getWebAppBaseUrl();
+	const localOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(fromEnv);
+	let base = localOrigin ? fromEnv : PINTEREST_OAUTH_FRONTEND_BASE;
+
+	if (isPlaceholderWebUrl(base) || /your-domain\.com/i.test(base)) {
+		base = PINTEREST_OAUTH_FRONTEND_BASE;
+	}
+
+	const url = new URL('/app/pinterest', base.endsWith('/') ? base : `${base}/`);
+	for (const [key, value] of Object.entries(query || {})) {
+		if (value == null || value === '') continue;
+		url.searchParams.set(key, String(value));
+	}
+
+	const href = url.toString();
+	if (/your-domain\.com/i.test(href)) {
+		const safe = new URL('/app/pinterest', `${PINTEREST_OAUTH_FRONTEND_BASE}/`);
+		for (const [key, value] of Object.entries(query || {})) {
+			if (value == null || value === '') continue;
+			safe.searchParams.set(key, String(value));
+		}
+		return safe.toString();
+	}
+	return href;
 }
 
 export async function getPinterestRedirectUri() {
