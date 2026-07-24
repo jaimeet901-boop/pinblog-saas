@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
 	Wand2, Sparkles, RefreshCw, Trash2, Pencil, Search, Globe, Send, CalendarClock,
 	CheckSquare, Square, Download, Image as ImageIcon, Images, Layers, Shuffle,
 	ChevronDown, History, LayoutTemplate, Palette, X, FileStack, PenLine, ListChecks,
+	Eye, Copy, ListPlus, Library,
 } from 'lucide-react';
 import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
@@ -13,6 +14,9 @@ import { useToast } from '@/hooks/use-toast';
 import TemplatePreviewCard from '@/components/ai-pins/TemplatePreviewCard';
 import ArticlePreviewDrawer from '@/components/ai-pins/ArticlePreviewDrawer';
 import ManualArticleForm from '@/components/ai-pins/ManualArticleForm';
+import SchedulePinModal from '@/components/ai-pins/SchedulePinModal';
+import PreviewPinModal from '@/components/ai-pins/PreviewPinModal';
+import PublishProgressModal from '@/components/ai-pins/PublishProgressModal';
 import { createDefaultTemplateConfig } from '@/lib/pinTemplates';
 import { useWorkspaceConfig } from '@/context/WorkspaceConfigContext';
 import {
@@ -29,7 +33,22 @@ import {
 	resolveDefaultAspectRatioId,
 	resolveDefaultImageProvider,
 	resolveDefaultImageQualityId,
+	resolvePublishingConfig,
 } from '@/lib/aiPinsWorkspaceConfig';
+import {
+	mapSavedPin,
+	saveDrafts,
+	duplicatePin,
+	updateDraftPin,
+	deleteDraftPin,
+	runPublishNowFlow,
+	expandRecurrence,
+	schedulePins,
+	scheduleRecurrenceSeries,
+	addPinsToQueue,
+	buildPinPreview,
+	openDesignLibraryChooser,
+} from '@/services/ai-pins';
 import './AIPinsPage.css';
 
 const CREATE_MODES = [
@@ -102,37 +121,9 @@ function mapArticleFromApi(item) {
 	};
 }
 
-function mapSavedPin(pin) {
-	return {
-		id: pin.id,
-		articleId: pin.articleId,
-		websiteId: pin.websiteId,
-		title: pin.title,
-		description: pin.description,
-		overlayText: pin.overlay_text,
-		imagePrompt: pin.image_prompt,
-		imageUrl: pin.image_url || '',
-		suggestedKeywords: safeArray(pin.suggested_keywords),
-		suggestedHashtags: safeArray(pin.suggested_hashtags),
-		status: pin.status,
-		accountId: pin.pinterest_account_id || '',
-		accountLabel: pin.pinterest_account_label || '',
-		scheduledAt: pin.scheduled_at || '',
-		scheduledTimezone: pin.scheduled_timezone || '',
-		boardId: pin.pinterest_board_id || '',
-		boardName: pin.pinterest_board_name || '',
-		pinterestPinUrl: pin.pinterest_pin_url || '',
-		publishError: pin.publish_error || '',
-		targetAudience: pin.target_audience,
-		toneOfVoice: pin.tone_of_voice,
-		language: pin.language,
-		created: pin.created,
-		updated: pin.updated,
-	};
-}
-
 export default function AIPinsPage() {
 	const { toast } = useToast();
+	const navigate = useNavigate();
 	const {
 		config,
 		configVersion,
@@ -180,7 +171,6 @@ export default function AIPinsPage() {
 	const [selectedDraftPinIds, setSelectedDraftPinIds] = useState(new Set());
 	const [selectedAccountId, setSelectedAccountId] = useState('');
 	const [selectedBoardId, setSelectedBoardId] = useState('');
-	const [scheduleAt, setScheduleAt] = useState('');
 	const [timezone, setTimezone] = useState(
 		() => config?.schedulingDefaults?.timezone || config?.general?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
 	);
@@ -212,9 +202,19 @@ export default function AIPinsPage() {
 	const [selectedPreviewTempId, setSelectedPreviewTempId] = useState('');
 	const [pinFilter, setPinFilter] = useState('all');
 	const [pinSearch, setPinSearch] = useState('');
+	const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+	const [previewModal, setPreviewModal] = useState(null);
+	const [publishProgressOpen, setPublishProgressOpen] = useState(false);
+	const [publishProgress, setPublishProgress] = useState(null);
+	const [publishResult, setPublishResult] = useState(null);
+	const [scheduling, setScheduling] = useState(false);
+	const [queueing, setQueueing] = useState(false);
+	const [actionPinIds, setActionPinIds] = useState([]);
 	const referenceInputRef = useRef(null);
+	const publishAbortRef = useRef(null);
 
 	const platformName = config?.general?.platformName || 'Chef IA';
+	const publishingConfig = useMemo(() => resolvePublishingConfig(config), [config]);
 	const templates = useMemo(() => mapStudioTemplates(config), [config]);
 	const brandKits = useMemo(() => mapStudioBrandKits(config), [config]);
 	const pinStyles = useMemo(() => mapStudioPinStyles(config), [config]);
@@ -648,6 +648,12 @@ export default function AIPinsPage() {
 	}, [websiteId]);
 
 	useEffect(() => {
+		if (!hasValidConfig) return;
+		const nextTz = publishingConfig.timezone;
+		if (nextTz) setTimezone(nextTz);
+	}, [hasValidConfig, publishingConfig.timezone, configVersion]);
+
+	useEffect(() => {
 		if (!websiteId) {
 			return;
 		}
@@ -704,36 +710,48 @@ export default function AIPinsPage() {
 		});
 	};
 
-	const createPinRecords = async ({ previewPins }) => {
-		const records = [];
-		for (const pin of previewPins) {
-			const payload = {
-				owner: pb.authStore.record.id,
-				articleId: pin.articleId,
-				websiteId: pin.websiteId,
-				image_prompt: String(pin.imagePrompt || '').trim(),
-				overlay_text: String(pin.overlayText || '').trim(),
-				title: String(pin.title || 'Draft AI Pin').trim(),
-				description: String(pin.description || '').trim(),
-				image_url: String(pin.imageUrl || '').trim(),
-				pinterest_account_id: String(pin.accountId || '').trim(),
-				pinterest_account_label: String(pin.accountLabel || '').trim(),
-				pinterest_board_id: String(pin.boardId || '').trim(),
-				pinterest_board_name: String(pin.boardName || '').trim(),
-				suggested_keywords: safeArray(pin.suggestedKeywords),
-				suggested_hashtags: safeArray(pin.suggestedHashtags),
-				target_audience: panel.targetAudience,
-				tone_of_voice: panel.toneOfVoice,
-				language: panel.language,
-				status: 'draft',
-				image_source: String(pin.imageSource || '').trim() || 'featured',
-				image_generation_status: String(pin.imageGenerationStatus || '').trim() || 'idle',
-				image_generation_error: String(pin.imageGenerationError || '').trim(),
-			};
-			const created = await pb.collection('ai_pins').create(payload);
-			records.push(mapSavedPin(created));
+	const createPinRecords = async ({ previewPins }) => saveDrafts({ previewPins, panel });
+
+	const buildPerPinTargets = (pins) => {
+		const perPinTargets = {};
+		for (const pin of pins) {
+			if (pin.accountId || pin.boardId) {
+				perPinTargets[pin.id] = {
+					accountId: pin.accountId || selectedAccountId,
+					boardId: pin.boardId || selectedBoardId,
+				};
+			}
 		}
-		return records;
+		return perPinTargets;
+	};
+
+	const resolveActionPins = (explicitPins) => {
+		if (Array.isArray(explicitPins) && explicitPins.length > 0) return explicitPins;
+		if (actionPinIds.length > 0) {
+			const fromIds = savedPins.filter((pin) => actionPinIds.includes(pin.id));
+			if (fromIds.length) return fromIds;
+		}
+		return selectedDraftPins;
+	};
+
+	const assertPublishTargets = (pins, accountId, boardId) => {
+		if (!accountId) throw new Error('Choose a target Pinterest account first.');
+		if (!boardId) throw new Error('Choose a target Pinterest board.');
+		if (!pins.length) throw new Error('Choose one or more draft pins first.');
+		const missingImage = pins.find((pin) => !String(pin.imageUrl || '').trim());
+		if (missingImage) throw new Error(`Pin "${missingImage.title || missingImage.id}" needs an image before publishing.`);
+	};
+
+	const handleChooseDesignLibraryTemplate = () => {
+		const bridge = openDesignLibraryChooser({
+			onSelect: (template) => {
+				if (template?.id) setSelectedTemplateId(template.id);
+			},
+		});
+		toast({
+			title: 'Design Library',
+			description: bridge.message,
+		});
 	};
 
 	const queuePreviewImageJobs = async (pins) => {
@@ -1093,76 +1111,198 @@ export default function AIPinsPage() {
 		setSelectedDraftPinIds(new Set());
 	};
 
-	const runPublishAction = async (type) => {
-		if (!selectedAccountId) {
-			toast({ variant: 'destructive', title: 'Select account', description: 'Choose a target Pinterest account first.' });
+	const runPublishNow = async (explicitPins) => {
+		const pins = resolveActionPins(explicitPins);
+		try {
+			assertPublishTargets(pins, selectedAccountId, selectedBoardId);
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Cannot publish', description: error.message });
 			return;
 		}
 
-		if (!selectedBoardId) {
-			toast({ variant: 'destructive', title: 'Select board', description: 'Choose a target Pinterest board.' });
-			return;
-		}
-
-		if (selectedDraftPins.length === 0) {
-			toast({ variant: 'destructive', title: 'Select pins', description: 'Choose one or more draft pins first.' });
-			return;
-		}
-
-		if (type === 'schedule' && !scheduleAt) {
-			toast({ variant: 'destructive', title: 'Schedule time required', description: 'Pick a date and time for scheduling.' });
-			return;
-		}
+		publishAbortRef.current?.abort?.();
+		const controller = new AbortController();
+		publishAbortRef.current = controller;
 
 		setPublishing(true);
-		try {
-			const endpoint = type === 'publish' ? '/pinterest/publish' : '/pinterest/schedule';
-			const perPinTargets = {};
-			for (const pin of selectedDraftPins) {
-				if (pin.accountId || pin.boardId) {
-					perPinTargets[pin.id] = {
-						accountId: pin.accountId || selectedAccountId,
-						boardId: pin.boardId || selectedBoardId,
-					};
-				}
-			}
+		setPublishResult(null);
+		setPublishProgress({ phase: 'submitting', jobs: [], elapsedMs: 0, message: 'Submitting…' });
+		setPublishProgressOpen(true);
 
-			const payload = {
-				pinIds: selectedDraftPins.map((pin) => pin.id),
+		try {
+			const result = await runPublishNowFlow({
+				pinIds: pins.map((pin) => pin.id),
 				accountId: selectedAccountId,
 				boardId: selectedBoardId,
-				timezone,
-				...(Object.keys(perPinTargets).length > 0 ? { perPinTargets } : {}),
-				...(type === 'schedule' ? { scheduledAt: scheduleAt } : {}),
-			};
-
-			const response = await apiServerClient.fetch(endpoint, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(payload),
+				timezone: publishingConfig.timezone || timezone,
+				perPinTargets: buildPerPinTargets(pins),
+				pollMs: Math.min(5000, Math.max(1500, publishingConfig.pollHintMs / 3)),
+				timeoutMs: 120000,
+				signal: controller.signal,
+				onProgress: setPublishProgress,
 			});
-			const body = await response.json().catch(() => ({}));
-			if (!response.ok) {
-				throw new Error(body?.message || `Action failed (${response.status})`);
-			}
-
+			setPublishResult(result);
 			await loadPins();
 			clearDraftPinSelection();
-			if (type === 'publish') {
-				toast({ title: 'Publish queued', description: 'Selected pins were added to publishing queue.' });
+			if (result.ok) {
+				toast({ title: 'Published', description: result.message });
 			} else {
-				toast({ title: 'Schedule created', description: 'Selected pins were scheduled successfully.' });
+				toast({
+					variant: 'destructive',
+					title: result.timedOut ? 'Still processing' : 'Publish incomplete',
+					description: result.message,
+				});
 			}
 		} catch (error) {
-			toast({ variant: 'destructive', title: type === 'publish' ? 'Publish failed' : 'Schedule failed', description: error.message });
+			setPublishProgressOpen(false);
+			toast({ variant: 'destructive', title: 'Publish failed', description: error.message });
 		} finally {
 			setPublishing(false);
 		}
 	};
 
+	const openScheduleModal = (explicitPins) => {
+		const pins = resolveActionPins(explicitPins);
+		try {
+			assertPublishTargets(pins, selectedAccountId || pins[0]?.accountId, selectedBoardId || pins[0]?.boardId);
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Cannot schedule', description: error.message });
+			return;
+		}
+		setActionPinIds(pins.map((pin) => pin.id));
+		setScheduleModalOpen(true);
+	};
+
+	const handleScheduleSubmit = async (form) => {
+		const pins = resolveActionPins();
+		if (pins.length === 0) {
+			throw new Error('Select draft pins first');
+		}
+
+		setScheduling(true);
+		try {
+			const occurrences = expandRecurrence({
+				mode: form.mode,
+				startAt: form.scheduledAt,
+				endAt: form.endAt,
+				customIntervalDays: form.customIntervalDays,
+			});
+
+			const perPinTargets = buildPerPinTargets(pins);
+
+			if (occurrences.length === 1) {
+				await schedulePins({
+					pinIds: pins.map((pin) => pin.id),
+					accountId: form.accountId,
+					boardId: form.boardId,
+					timezone: form.timezone,
+					scheduledAt: occurrences[0],
+					perPinTargets,
+				});
+			} else {
+				// One active job per pin: duplicate for extra occurrences so Calendar shows each slot.
+				const pinIdsByOccurrence = [pins.map((pin) => pin.id)];
+				for (let i = 1; i < occurrences.length; i += 1) {
+					const copies = [];
+					for (const pin of pins) {
+						copies.push(await duplicatePin(pin, { titleSuffix: ` (${i + 1}/${occurrences.length})` }));
+					}
+					pinIdsByOccurrence.push(copies.map((pin) => pin.id));
+				}
+				await scheduleRecurrenceSeries({
+					occurrenceDates: occurrences,
+					pinIdsByOccurrence,
+					accountId: form.accountId,
+					boardId: form.boardId,
+					timezone: form.timezone,
+					perPinTargets,
+				});
+			}
+
+			setSelectedAccountId(form.accountId);
+			setSelectedBoardId(form.boardId);
+			setTimezone(form.timezone);
+			setScheduleModalOpen(false);
+			setActionPinIds([]);
+			await loadPins();
+			clearDraftPinSelection();
+			toast({
+				title: 'Scheduled',
+				description: `${pins.length} pin(s) · ${occurrences.length} occurrence(s) — visible on Calendar.`,
+			});
+		} finally {
+			setScheduling(false);
+		}
+	};
+
+	const handleAddToQueue = async (explicitPins) => {
+		const pins = resolveActionPins(explicitPins);
+		try {
+			assertPublishTargets(pins, selectedAccountId, selectedBoardId);
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Cannot queue', description: error.message });
+			return;
+		}
+
+		setQueueing(true);
+		try {
+			const result = await addPinsToQueue({
+				config,
+				pinIds: pins.map((pin) => pin.id),
+				accountId: selectedAccountId,
+				boardId: selectedBoardId,
+				perPinTargets: buildPerPinTargets(pins),
+			});
+			await loadPins();
+			clearDraftPinSelection();
+			const first = result.slots?.[0];
+			toast({
+				title: 'Added to queue',
+				description: first
+					? `${result.message}. Next slot: ${first.localLabel}`
+					: result.message,
+			});
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Queue failed', description: error.message });
+		} finally {
+			setQueueing(false);
+		}
+	};
+
+	const handlePreviewPin = (pin) => {
+		const account = accounts.find((item) => item.id === (pin.accountId || selectedAccountId));
+		const boardList = boardsByAccount[pin.accountId || selectedAccountId] || boards;
+		const board = boardList.find((item) => item.boardId === (pin.boardId || selectedBoardId));
+		const article = articles.find((item) => item.id === pin.articleId);
+		const website = websites.find((item) => item.id === (pin.websiteId || websiteId));
+		const preview = buildPinPreview({
+			pin: {
+				...pin,
+				accountId: pin.accountId || selectedAccountId,
+				boardId: pin.boardId || selectedBoardId,
+			},
+			account,
+			board,
+			article,
+			websiteUrl: article?.url || website?.domain || website?.url || '',
+		});
+		setPreviewModal(preview);
+	};
+
+	const handleDuplicatePin = async (pin) => {
+		try {
+			const copy = await duplicatePin(pin);
+			setSavedPins((prev) => [copy, ...prev]);
+			setWorkspaceTab('library');
+			toast({ title: 'Duplicated', description: 'A draft copy was created.' });
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Duplicate failed', description: error.message });
+		}
+	};
+
 	const handleDeletePin = async (pinId) => {
 		try {
-			await pb.collection('ai_pins').delete(pinId);
+			await deleteDraftPin(pinId);
 			setSavedPins((prev) => prev.filter((pin) => pin.id !== pinId));
 			if (editingPinId === pinId) {
 				setEditingPinId('');
@@ -1175,58 +1315,15 @@ export default function AIPinsPage() {
 
 	const handleSaveEdit = async (pin) => {
 		try {
-			const selectedAccount = accounts.find((account) => account.id === pin.accountId);
 			const candidateBoards = boardsByAccount[pin.accountId] || boards;
-			const selectedBoard = candidateBoards.find((board) => board.boardId === pin.boardId);
-
-			const editorResponse = await apiServerClient.fetch(`/ai-pins/pins/${pin.id}/editor`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					title: pin.title,
-					description: pin.description,
-					overlayText: pin.overlayText,
-					imagePrompt: pin.imagePrompt,
-					imageUrl: pin.imageUrl,
-					cta: pin.cta || analysis?.cta || '',
-					style: pin.style || panel.style,
-					analysis: pin.analysis || analysis,
-					editorState: {
-						crop: pin.editorCrop || null,
-						resize: pin.editorResize || { width: 1000, height: 1500 },
-						overlays: pin.editorOverlays || [],
-					},
-					suggestedKeywords: safeArray(pin.suggestedKeywords),
-					suggestedHashtags: safeArray(pin.suggestedHashtags),
-				}),
+			const next = await updateDraftPin({
+				pin,
+				accounts,
+				boards: candidateBoards,
+				analysis,
+				panel,
 			});
-			const editorPayload = await editorResponse.json().catch(() => ({}));
-			if (!editorResponse.ok) {
-				throw new Error(editorPayload?.message || 'Failed to save pin editor changes');
-			}
-
-			const updated = await pb.collection('ai_pins').update(pin.id, {
-				pinterest_account_id: pin.accountId || '',
-				pinterest_account_label: pin.accountId ? (selectedAccount?.label || selectedAccount?.accountName || selectedAccount?.username || '') : '',
-				pinterest_board_id: pin.boardId || '',
-				pinterest_board_name: selectedBoard?.name || pin.boardName || '',
-			}).catch(() => null);
-
-			setSavedPins((prev) => prev.map((item) => {
-				if (item.id !== pin.id) return item;
-				return {
-					...item,
-					...(updated ? mapSavedPin(updated) : {}),
-					title: editorPayload.title || pin.title,
-					description: editorPayload.description || pin.description,
-					overlayText: editorPayload.overlayText || pin.overlayText,
-					imagePrompt: editorPayload.imagePrompt || pin.imagePrompt,
-					imageUrl: editorPayload.imageUrl || pin.imageUrl,
-					cta: editorPayload.cta || '',
-					style: editorPayload.style || panel.style,
-					analysis: editorPayload.analysis || analysis,
-				};
-			}));
+			setSavedPins((prev) => prev.map((item) => (item.id === pin.id ? { ...item, ...next } : item)));
 			setEditingPinId('');
 			toast({ title: 'Saved', description: 'Pin editor changes saved.' });
 		} catch (error) {
@@ -1655,12 +1752,18 @@ export default function AIPinsPage() {
 
 						{advancedOpen ? (
 							<div className="space-y-3 rounded-2xl border border-border bg-background/60 p-3">
-								<Select label="Template" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} disabled={!showTemplates}>
-									<option value="">System default</option>
-									{templates.map((template) => (
-										<option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' (Default)' : ''}</option>
-									))}
-								</Select>
+								<div className="space-y-2">
+									<Select label="Template" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} disabled={!showTemplates}>
+										<option value="">System default</option>
+										{templates.map((template) => (
+											<option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' (Default)' : ''}</option>
+										))}
+									</Select>
+									<Button type="button" size="sm" variant="outline" className="w-full" onClick={handleChooseDesignLibraryTemplate}>
+										<Library size={13} /> Choose Template
+									</Button>
+									<p className="text-[10px] text-muted-foreground">Design Library integration ready — chooser plugs in here later.</p>
+								</div>
 								<Select label="Brand Kit" value={selectedBrandKitId} onChange={(e) => setSelectedBrandKitId(e.target.value)} disabled={!showBrandKit}>
 									<option value="">No brand kit</option>
 									{brandKits.map((kit) => (
@@ -1820,30 +1923,59 @@ export default function AIPinsPage() {
 
 					{workspaceTab === 'library' ? (
 						<>
-							<div className="mb-4 flex flex-col gap-3 rounded-2xl border border-border bg-background/50 p-3 lg:flex-row lg:items-end">
-								<Select label="Pinterest account" value={selectedAccountId} onChange={(e) => setSelectedAccountId(e.target.value)} disabled={loadingAccounts || accounts.length === 0}>
-									<option value="">Select account</option>
-									{accounts.map((account) => (
-										<option key={account.id} value={account.id}>
-											{account.label || account.accountName || account.username}
-											{account.isDefault ? ' (Default)' : ''}
-										</option>
-									))}
-								</Select>
-								<Select label="Board" value={selectedBoardId} onChange={(e) => setSelectedBoardId(e.target.value)} disabled={loadingBoards || boards.length === 0}>
-									<option value="">Select board</option>
-									{boards.map((board) => (
-										<option key={board.id} value={board.boardId}>
-											{board.name}
-											{board.isDefault ? ' (Default)' : ''}
-										</option>
-									))}
-								</Select>
-								<Input label="Schedule" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
-								<Input label="Timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
-								<div className="flex gap-2">
-									<Button className="flex-1" onClick={() => runPublishAction('publish')} disabled={publishing || selectedDraftPins.length === 0 || boards.length === 0}><Send size={14} /> Publish</Button>
-									<Button variant="outline" className="flex-1" onClick={() => runPublishAction('schedule')} disabled={publishing || selectedDraftPins.length === 0 || boards.length === 0}><CalendarClock size={14} /> Schedule</Button>
+							<div className="mb-4 space-y-3 rounded-2xl border border-border bg-background/50 p-3">
+								<div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+									<Select label="Pinterest account" value={selectedAccountId} onChange={(e) => setSelectedAccountId(e.target.value)} disabled={loadingAccounts || accounts.length === 0}>
+										<option value="">Select account</option>
+										{accounts.map((account) => (
+											<option key={account.id} value={account.id}>
+												{account.label || account.accountName || account.username}
+												{account.isDefault ? ' (Default)' : ''}
+											</option>
+										))}
+									</Select>
+									<Select label="Board" value={selectedBoardId} onChange={(e) => setSelectedBoardId(e.target.value)} disabled={loadingBoards || boards.length === 0}>
+										<option value="">Select board</option>
+										{boards.map((board) => (
+											<option key={board.id} value={board.boardId}>
+												{board.name}
+												{board.isDefault ? ' (Default)' : ''}
+											</option>
+										))}
+									</Select>
+									<div className="rounded-xl border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground lg:min-w-[12rem]">
+										<p className="font-medium text-foreground">Workspace queue</p>
+										<p>{publishingConfig.timezone} · {publishingConfig.dailyLimit}/day · every {publishingConfig.intervalMinutes}m</p>
+										<p className="truncate">{publishingConfig.schedulingMode} · retry {publishingConfig.retryPolicy.raw}{publishingConfig.autoPublish ? ' · auto-publish' : ''}</p>
+										<p className="truncate text-[10px]">config v{publishingConfig.configVersion}</p>
+									</div>
+								</div>
+								<div className="flex flex-wrap gap-2">
+									<Button size="sm" onClick={() => runPublishNow()} disabled={publishing || selectedDraftPins.length === 0 || boards.length === 0}>
+										<Send size={13} /> Publish Now
+									</Button>
+									<Button size="sm" variant="outline" onClick={() => openScheduleModal()} disabled={publishing || scheduling || selectedDraftPins.length === 0 || boards.length === 0}>
+										<CalendarClock size={13} /> Schedule
+									</Button>
+									<Button size="sm" variant="outline" onClick={() => handleAddToQueue()} disabled={queueing || publishing || selectedDraftPins.length === 0 || boards.length === 0}>
+										<ListPlus size={13} /> Add to Queue
+									</Button>
+									<Button size="sm" variant="outline" onClick={async () => {
+										if (generatedPreviewPins.length > 0) {
+											await saveGeneratedPreviewPins();
+											return;
+										}
+										if (inspectorPin && editingPinId) {
+											await handleSaveEdit(inspectorPin);
+											return;
+										}
+										toast({ title: 'Drafts', description: 'Generate pins in Studio then Save Draft, or edit a library pin and save.' });
+									}} disabled={savingGenerated}>
+										{savingGenerated ? <Spinner className="h-3.5 w-3.5" /> : null} Save Draft
+									</Button>
+									{showHistory ? (
+										<Link to="/app/pinterest-history"><Button size="sm" variant="ghost"><History size={13} /> History</Button></Link>
+									) : null}
 								</div>
 							</div>
 
@@ -1909,9 +2041,10 @@ export default function AIPinsPage() {
 													</div>
 													<h3 className="line-clamp-2 font-display text-sm font-semibold">{pin.title}</h3>
 													<p className="line-clamp-2 text-xs text-muted-foreground">{pin.description}</p>
-													<div className="flex gap-1.5">
+													<div className="flex flex-wrap gap-1.5">
 														<Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openInspectorForSaved(pin.id); }}><Pencil size={12} /> Edit</Button>
-														<Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleRegeneratePin(pin); }} disabled={generating}><RefreshCw size={12} /></Button>
+														<Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handlePreviewPin(pin); }}><Eye size={12} /> Preview</Button>
+														<Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleDuplicatePin(pin); }}><Copy size={12} /></Button>
 														<Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); handleDeletePin(pin.id); }}><Trash2 size={12} /></Button>
 													</div>
 												</div>
@@ -1926,8 +2059,20 @@ export default function AIPinsPage() {
 					{workspaceTab === 'queue' ? (
 						<div className="space-y-4">
 							<div className="rounded-2xl border border-border bg-background/60 p-4">
-								<h3 className="font-semibold">Publishing queue</h3>
-								<p className="mt-1 text-xs text-muted-foreground">Track scheduled and failed drafts. Retry regenerates content with the current studio settings.</p>
+								<h3 className="font-semibold">Smart publishing queue</h3>
+								<p className="mt-1 text-xs text-muted-foreground">
+									Slots follow Workspace Config: {publishingConfig.timezone}, {publishingConfig.dailyLimit}/day,
+									{' '}every {publishingConfig.intervalMinutes}m, windows {publishingConfig.publishingWindows.map((w) => `${w.start}–${w.end}`).join(', ')},
+									{' '}retry {publishingConfig.retryPolicy.raw}. Scheduled pins appear on Calendar automatically.
+								</p>
+								<div className="mt-3 flex flex-wrap gap-2">
+									<Button size="sm" onClick={() => handleAddToQueue()} disabled={queueing || selectedDraftPins.length === 0}>
+										<ListPlus size={13} /> Add selected to queue
+									</Button>
+									{showHistory ? (
+										<Link to="/app/pinterest-history"><Button size="sm" variant="outline"><History size={13} /> Publishing History</Button></Link>
+									) : null}
+								</div>
 							</div>
 							{failedPins.length === 0 && savedPins.filter((pin) => pin.status === 'scheduled' || pin.status === 'publishing').length === 0 ? (
 								<Empty icon={ListChecks} title="Queue is clear" subtitle="Failed or scheduled pins will appear here." />
@@ -1947,9 +2092,10 @@ export default function AIPinsPage() {
 												{pin.scheduledAt ? <p className="text-xs text-muted-foreground">Scheduled {new Date(pin.scheduledAt).toLocaleString()}</p> : null}
 											</div>
 											<div className="flex gap-2">
-												<Button size="sm" variant="outline" onClick={() => openInspectorForSaved(pin.id)}>Open</Button>
+												<Button size="sm" variant="outline" onClick={() => openInspectorForSaved(pin.id)}>Edit</Button>
+												<Button size="sm" variant="outline" onClick={() => handlePreviewPin(pin)}><Eye size={13} /></Button>
 												{pin.status === 'failed' ? (
-													<Button size="sm" onClick={() => handleRegeneratePin(pin)} disabled={generating}><RefreshCw size={13} /> Retry</Button>
+													<Button size="sm" onClick={() => runPublishNow([pin])} disabled={publishing}><Send size={13} /> Publish Now</Button>
 												) : null}
 											</div>
 										</Card>
@@ -2031,6 +2177,9 @@ export default function AIPinsPage() {
 											<option key={template.id} value={template.id}>{template.name}</option>
 										))}
 									</Select>
+									<Button type="button" size="sm" variant="outline" className="w-full" onClick={handleChooseDesignLibraryTemplate}>
+										<Library size={13} /> Choose Template
+									</Button>
 									<Select label="Target account" value={inspectorPin.accountId || ''} onChange={(e) => setPinTargetAccount(inspectorPin.id, e.target.value)}>
 										<option value="">Use global account</option>
 										{accounts.map((account) => (
@@ -2043,13 +2192,29 @@ export default function AIPinsPage() {
 											<option key={board.id} value={board.boardId}>{board.name}</option>
 										))}
 									</Select>
+									<Input
+										label="Schedule (optional)"
+										type="datetime-local"
+										value={inspectorPin.scheduledAt ? String(inspectorPin.scheduledAt).slice(0, 16) : ''}
+										onChange={(e) => updateInspectorField('scheduledAt', e.target.value ? new Date(e.target.value).toISOString() : '')}
+									/>
+									<Input
+										label="Schedule timezone"
+										value={inspectorPin.scheduledTimezone || publishingConfig.timezone || timezone}
+										onChange={(e) => updateInspectorField('scheduledTimezone', e.target.value)}
+									/>
 								</>
 							) : null}
 
 							<div className="flex flex-wrap gap-2 pt-2">
 								{editingPinId ? (
 									<>
-										<Button className="flex-1" onClick={() => handleSaveEdit(inspectorPin)}>Save changes</Button>
+										<Button className="flex-1" onClick={() => handleSaveEdit(inspectorPin)}>Save Draft</Button>
+										<Button variant="outline" onClick={() => handlePreviewPin(inspectorPin)}><Eye size={14} /> Preview</Button>
+										<Button variant="outline" onClick={() => runPublishNow([inspectorPin])} disabled={publishing || !showPinterest}><Send size={14} /></Button>
+										<Button variant="outline" onClick={() => { setActionPinIds([inspectorPin.id]); openScheduleModal([inspectorPin]); }} disabled={scheduling}><CalendarClock size={14} /></Button>
+										<Button variant="outline" onClick={() => { setActionPinIds([inspectorPin.id]); handleAddToQueue([inspectorPin]); }} disabled={queueing}><ListPlus size={14} /></Button>
+										<Button variant="outline" onClick={() => handleDuplicatePin(inspectorPin)}><Copy size={14} /></Button>
 										<Button variant="outline" onClick={() => handleRegeneratePin(inspectorPin)} disabled={generating}><RefreshCw size={14} /></Button>
 										<Button variant="ghost" onClick={() => handleDeletePin(inspectorPin.id)}><Trash2 size={14} /></Button>
 									</>
@@ -2058,6 +2223,7 @@ export default function AIPinsPage() {
 										<Button className="flex-1" variant="outline" onClick={() => regeneratePreviewImage(inspectorPin)} disabled={panel.imageMode !== 'generate_ai' || generatingImages}>
 											<RefreshCw size={14} /> Regenerate image
 										</Button>
+										<Button variant="outline" onClick={() => handlePreviewPin(inspectorPin)}><Eye size={14} /></Button>
 										<Button variant="outline" onClick={() => downloadImage(inspectorPin.imageUrl, inspectorPin.title)} disabled={!inspectorPin.imageUrl}>
 											<Download size={14} />
 										</Button>
@@ -2080,6 +2246,41 @@ export default function AIPinsPage() {
 				onSubmit={saveManualArticle}
 				saving={savingManual}
 				defaultLanguage={panel.language || languageLabelFromConfig(config)}
+			/>
+			<SchedulePinModal
+				open={scheduleModalOpen}
+				onClose={() => setScheduleModalOpen(false)}
+				onSubmit={handleScheduleSubmit}
+				submitting={scheduling}
+				accounts={accounts}
+				boards={boards}
+				defaultAccountId={selectedAccountId}
+				defaultBoardId={selectedBoardId}
+				defaultTimezone={publishingConfig.timezone || timezone}
+				pinCount={actionPinIds.length || selectedDraftPins.length || (editingPinId ? 1 : 0)}
+			/>
+			<PreviewPinModal
+				open={Boolean(previewModal)}
+				preview={previewModal}
+				onClose={() => setPreviewModal(null)}
+				publishing={publishing}
+				onPublish={() => {
+					const pin = savedPins.find((item) => item.id === previewModal?.id);
+					setPreviewModal(null);
+					if (pin) runPublishNow([pin]);
+				}}
+				onSchedule={() => {
+					const pin = savedPins.find((item) => item.id === previewModal?.id);
+					setPreviewModal(null);
+					if (pin) openScheduleModal([pin]);
+				}}
+			/>
+			<PublishProgressModal
+				open={publishProgressOpen}
+				progress={publishProgress}
+				result={publishResult}
+				onClose={() => setPublishProgressOpen(false)}
+				onOpenHistory={() => navigate('/app/pinterest-history')}
 			/>
 		</div>
 	);

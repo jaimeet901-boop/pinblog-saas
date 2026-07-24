@@ -195,6 +195,7 @@ export default function AnalyticsPage() {
 	}, [items, websiteFilter, accountFilter, boardFilter, statusFilter, dateRange]);
 
 	const successRate = useMemo(() => {
+		if (typeof summary.successRate === 'number') return Math.round(summary.successRate);
 		const published = summary.published || 0;
 		const failed = summary.failed || 0;
 		const total = published + failed;
@@ -424,6 +425,7 @@ export default function AnalyticsPage() {
 		{ label: 'Credits Used', value: summary.creditsUsed ?? 0, hint: null },
 		{ label: 'Credits Remaining', value: summary.creditsRemaining ?? 0, hint: null },
 		{ label: 'WordPress Posts', value: summary.wordpressPosts ?? 0, hint: null },
+		{ label: 'Draft Pins', value: summary.draftPins ?? 0, hint: null },
 		{ label: 'Published Pins', value: summary.published, hint: null },
 		{ label: 'Scheduled Pins', value: summary.scheduled, hint: null },
 		{ label: 'Failed Pins', value: summary.failed, hint: null },

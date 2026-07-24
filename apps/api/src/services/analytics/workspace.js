@@ -45,6 +45,7 @@ export async function buildWorkspaceOverview(req, { range = '30d', from, to, byp
 		websites,
 		accounts,
 		boards,
+		aiPins,
 	] = await Promise.all([
 		safeList(pocketbaseClient.collection('articles').getList(1, 300, { filter: ownerFilter, sort: '-created', requestKey: null }).then((r) => r.items)),
 		safeList(pocketbaseClient.collection('ai_pin_image_jobs').getList(1, 300, { filter: ownerFilter, sort: '-created', requestKey: null }).then((r) => r.items)),
@@ -79,6 +80,7 @@ export async function buildWorkspaceOverview(req, { range = '30d', from, to, byp
 		safeList(pocketbaseClient.collection('websites').getList(1, 100, { filter: ownerFilter, requestKey: null }).then((r) => r.items)),
 		safeList(pocketbaseClient.collection('pinterest_accounts').getList(1, 100, { filter: ownerFilter, requestKey: null }).then((r) => r.items)),
 		safeList(pocketbaseClient.collection('pinterest_boards').getList(1, 200, { filter: ownerFilter, requestKey: null }).then((r) => r.items)),
+		safeList(pocketbaseClient.collection('ai_pins').getList(1, 300, { filter: ownerFilter, sort: '-updated', requestKey: null }).then((r) => r.items)),
 	]);
 
 	const articlesInRange = articles.filter((row) => inRange(row.created, start, end));
@@ -88,9 +90,11 @@ export async function buildWorkspaceOverview(req, { range = '30d', from, to, byp
 	const creditsUsed = burns.reduce((sum, row) => sum + Math.abs(Number(row.amount) || 0), 0);
 	const creditsRemaining = Number(subscription?.credits_balance) || 0;
 
-	const pinPublished = pinJobs.filter((j) => j.status === 'published');
-	const pinFailed = pinJobs.filter((j) => j.status === 'failed');
+	const pinJobsInRange = pinJobs.filter((j) => inRange(j.published_at || j.scheduled_at || j.updated || j.created, start, end));
+	const pinPublished = pinJobsInRange.filter((j) => j.status === 'published');
+	const pinFailed = pinJobsInRange.filter((j) => j.status === 'failed');
 	const pinScheduled = pinJobs.filter((j) => j.status === 'scheduled' || j.status === 'publishing');
+	const draftPins = aiPins.filter((pin) => pin.status === 'draft').length;
 	const wpPublished = wpHistory.filter((row) => row.result === 'published' || row.result === 'scheduled');
 	const wpFailed = wpHistory.filter((row) => row.result === 'failed');
 	const wpDrafts = wpJobs.filter((j) => j.wp_status === 'draft' || j.status === 'queued');
@@ -108,6 +112,9 @@ export async function buildWorkspaceOverview(req, { range = '30d', from, to, byp
 	const decided = pinPublished.length + pinFailed.length + wpPublished.length + wpFailed.length;
 	const failures = pinFailed.length + wpFailed.length;
 	const failureRate = pct(failures, decided || 1);
+	const successRate = decided > 0
+		? pct(pinPublished.length + wpPublished.length, decided)
+		: null;
 
 	const daily = new Map();
 	const monthly = new Map();
@@ -156,6 +163,7 @@ export async function buildWorkspaceOverview(req, { range = '30d', from, to, byp
 		published: pinPublished.length,
 		failed: pinFailed.length,
 		scheduled: pinScheduled.length,
+		draftPins,
 		clicks: items.reduce((sum, item) => sum + (Number(item.performance?.outboundClicks) || 0), 0),
 		saves: items.reduce((sum, item) => sum + (Number(item.performance?.saves) || 0), 0),
 		impressions: items.reduce((sum, item) => sum + (Number(item.performance?.impressions) || 0), 0),
@@ -175,6 +183,7 @@ export async function buildWorkspaceOverview(req, { range = '30d', from, to, byp
 		avgGenerationTime: formatDuration(avg(genDurations)),
 		avgPublishTime: formatDuration(avg(publishDurations)),
 		failureRate,
+		successRate,
 		mediaUploadSuccess: pct(
 			wpJobs.filter((j) => j.wp_media_id || (Array.isArray(j.media_ids) && j.media_ids.length)).length,
 			Math.max(wpJobs.length, 1),
@@ -206,6 +215,7 @@ export async function buildWorkspaceOverview(req, { range = '30d', from, to, byp
 			published: pinPublished.length,
 			scheduled: pinScheduled.length,
 			failures: pinFailed.length,
+			drafts: draftPins,
 			retryRate: summary.retryRate,
 			boardsUsed: summary.boardsUsed,
 		},

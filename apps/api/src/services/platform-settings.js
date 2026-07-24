@@ -77,6 +77,12 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		retryPolicy: '2 linear',
 		pinTemplate: 'Atelier Portrait',
 		imageRatio: '2:3',
+		dailyLimit: 50,
+		intervalMinutes: 30,
+		autoPublish: false,
+		publishingWindows: [
+			{ days: [0, 1, 2, 3, 4, 5, 6], start: '08:00', end: '20:00' },
+		],
 	},
 	email: {
 		smtpStatus: 'pending',

@@ -12,7 +12,7 @@ import {
 	getOwnedPinterestBoard,
 	getDefaultPinterestBoard,
 	getPinterestRedirectUri,
-	getWebAppBaseUrl,
+	buildPinterestOAuthAppRedirect,
 	markPinterestAccountStatus,
 	mapAccount,
 	mapBoard,
@@ -311,6 +311,9 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 		jobs.push(job);
 	}
 
+	const { enqueueAnalyticsRefresh } = await import('../services/analytics/refresh.js');
+	await enqueueAnalyticsRefresh(owner).catch(() => null);
+
 	return jobs;
 }
 
@@ -390,11 +393,10 @@ async function buildAccountStats(owner) {
 
 router.get('/oauth/callback', async (req, res) => {
 	const callbackError = normalizeString(req.query.error, 'error', { max: 400 });
-	const webAppBase = getWebAppBaseUrl();
 
 	if (callbackError) {
-		const reason = encodeURIComponent(normalizeString(req.query.error_description, 'error_description', { max: 1000 }) || callbackError);
-		return res.redirect(`${webAppBase}/app/pinterest?pinterest_error=${reason}`);
+		const reason = normalizeString(req.query.error_description, 'error_description', { max: 1000 }) || callbackError;
+		return res.redirect(buildPinterestOAuthAppRedirect({ pinterest_error: reason }));
 	}
 
 	const code = normalizeString(req.query.code, 'code', { required: true, max: 400 });
@@ -536,18 +538,24 @@ router.get('/oauth/callback', async (req, res) => {
 			// Account is connected; boards can be synced later from the UI.
 			const { promoteWaitingProviderPinterestJobs } = await import('../services/publish-pipeline.js');
 			await promoteWaitingProviderPinterestJobs({ limit: 50 }).catch(() => null);
-			return res.redirect(
-				`${webAppBase}/app/pinterest?pinterest_connected=1&account_id=${encodeURIComponent(account.id)}&boards_sync_warning=1`,
-			);
+			return res.redirect(buildPinterestOAuthAppRedirect({
+				pinterest_connected: '1',
+				account_id: account.id,
+				boards_sync_warning: '1',
+			}));
 		}
 
 		const { promoteWaitingProviderPinterestJobs } = await import('../services/publish-pipeline.js');
 		await promoteWaitingProviderPinterestJobs({ limit: 50 }).catch(() => null);
 
-		return res.redirect(`${webAppBase}/app/pinterest?pinterest_connected=1&account_id=${encodeURIComponent(account.id)}`);
+		return res.redirect(buildPinterestOAuthAppRedirect({
+			pinterest_connected: '1',
+			account_id: account.id,
+		}));
 	} catch (error) {
-		const message = encodeURIComponent(error?.message || 'Pinterest OAuth callback failed');
-		return res.redirect(`${webAppBase}/app/pinterest?pinterest_error=${message}`);
+		return res.redirect(buildPinterestOAuthAppRedirect({
+			pinterest_error: error?.message || 'Pinterest OAuth callback failed',
+		}));
 	}
 });
 
@@ -983,6 +991,9 @@ router.patch('/jobs/:jobId', async (req, res) => {
 		message: 'Scheduled job updated',
 		payload: sanitizedUpdates,
 	});
+
+	const { enqueueAnalyticsRefresh } = await import('../services/analytics/refresh.js');
+	await enqueueAnalyticsRefresh(owner).catch(() => null);
 
 	res.json(mapJob(updated));
 });

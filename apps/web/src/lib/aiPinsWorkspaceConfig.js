@@ -209,3 +209,6 @@ export function estimatePinCredits({ quality, count, articleFactor = 1 }) {
 	const rate = Number.isFinite(perPin) ? perPin : 0;
 	return Number((rate * Math.max(1, count) * Math.max(1, articleFactor)).toFixed(2));
 }
+
+/** Re-export publishing config resolver — AI Pins reads publish settings only via Workspace Config. */
+export { resolvePublishingConfig } from '@/services/ai-pins/publishingConfig.js';

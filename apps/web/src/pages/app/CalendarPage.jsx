@@ -7,6 +7,8 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import { useWorkspaceConfig } from '@/context/WorkspaceConfigContext';
+import { resolvePublishingConfig } from '@/services/ai-pins/publishingConfig.js';
 import './CalendarPage.css';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -75,6 +77,9 @@ function boardLabel(job) {
 
 export default function CalendarPage() {
 	const { toast } = useToast();
+	const { config } = useWorkspaceConfig();
+	const publishingConfig = useMemo(() => resolvePublishingConfig(config), [config]);
+	const workspaceTimezone = publishingConfig.timezone || 'UTC';
 	const searchRef = useRef(null);
 
 	const [cursor, setCursor] = useState(() => new Date());
@@ -282,7 +287,7 @@ export default function CalendarPage() {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					scheduledAt: movedDate.toISOString(),
-					timezone: dragged.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+					timezone: dragged.timezone || workspaceTimezone,
 				}),
 			});
 			const payload = await response.json().catch(() => ({}));

@@ -394,6 +394,41 @@ export default function AdminSettingsPage() {
 							onChange={(value) => patch('pinterest', 'imageRatio', value)}
 							options={['1:1', '2:3', '9:16']}
 						/>
+						<TextInput
+							label="Daily Limit"
+							value={String(settings.pinterest?.dailyLimit ?? 50)}
+							onChange={(value) => patch('pinterest', 'dailyLimit', Number(value) || 50)}
+						/>
+						<TextInput
+							label="Publish Interval (minutes)"
+							value={String(settings.pinterest?.intervalMinutes ?? 30)}
+							onChange={(value) => patch('pinterest', 'intervalMinutes', Number(value) || 30)}
+						/>
+						<TextInput
+							label="Publishing Window Start"
+							value={settings.pinterest?.publishingWindows?.[0]?.start || '08:00'}
+							onChange={(value) => patch('pinterest', 'publishingWindows', [{
+								days: settings.pinterest?.publishingWindows?.[0]?.days || [0, 1, 2, 3, 4, 5, 6],
+								start: value || '08:00',
+								end: settings.pinterest?.publishingWindows?.[0]?.end || '20:00',
+							}])}
+						/>
+						<TextInput
+							label="Publishing Window End"
+							value={settings.pinterest?.publishingWindows?.[0]?.end || '20:00'}
+							onChange={(value) => patch('pinterest', 'publishingWindows', [{
+								days: settings.pinterest?.publishingWindows?.[0]?.days || [0, 1, 2, 3, 4, 5, 6],
+								start: settings.pinterest?.publishingWindows?.[0]?.start || '08:00',
+								end: value || '20:00',
+							}])}
+						/>
+					</div>
+					<div className="mt-2">
+						<ToggleRow
+							label="Auto Publish"
+							checked={Boolean(settings.pinterest?.autoPublish)}
+							onChange={(value) => patch('pinterest', 'autoPublish', value)}
+						/>
 					</div>
 				</Section>
 
