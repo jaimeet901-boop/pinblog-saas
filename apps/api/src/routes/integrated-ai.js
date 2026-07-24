@@ -4,7 +4,7 @@ import { SystemPrompt } from '../constants/prompts.js';
 import { uploadFiles } from '../middleware/file-upload.js';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
-import { listProviders } from '../services/ai-providers.js';
+import { assertTextProviderConfigured } from '../services/ai-providers.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
@@ -40,32 +40,30 @@ function resolveProviderLabel() {
 }
 
 async function assertAiProviderConfigured(req) {
-	const providers = await listProviders().catch(() => []);
-	const configured = providers.filter((provider) => (
-		provider.enabled
-		&& (provider.config?.hasApiKey || provider.config?.hasSecretKey)
-	));
+	try {
+		return await assertTextProviderConfigured();
+	} catch (error) {
+		const finalMessage = error?.message || NO_AI_PROVIDER_MESSAGE;
+		logIntegratedAi400({
+			req,
+			rawMessageField: req.body?.message,
+			validationErrors: [
+				'No enabled text AI provider with credentials in Admin Console',
+				...(error?.meta
+					? [
+						`providers_total=${error.meta.providersTotal}`,
+						`text_enabled=${error.meta.textEnabled}`,
+						`text_with_credentials=${error.meta.textWithCredentials}`,
+					]
+					: []),
+			],
+			finalMessage,
+		});
 
-	if (configured.length > 0) {
-		return configured;
+		const next = httpError(error.status || 400, finalMessage);
+		next.errorCode = error.errorCode || 'AI_PROVIDER_NOT_CONFIGURED';
+		throw next;
 	}
-
-	const finalMessage = NO_AI_PROVIDER_MESSAGE;
-	logIntegratedAi400({
-		req,
-		rawMessageField: req.body?.message,
-		validationErrors: [
-			'No enabled AI provider with credentials in Admin Console',
-			`providers_total=${providers.length}`,
-			`providers_enabled=${providers.filter((item) => item.enabled).length}`,
-			`providers_with_credentials=${providers.filter((item) => item.config?.hasApiKey || item.config?.hasSecretKey).length}`,
-		],
-		finalMessage,
-	});
-
-	const error = httpError(400, finalMessage);
-	error.errorCode = 'AI_PROVIDER_NOT_CONFIGURED';
-	throw error;
 }
 
 function logIntegratedAi400({

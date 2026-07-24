@@ -4,6 +4,21 @@ import { httpError } from '../middleware/require-admin.js';
 import { PROVIDER_CATALOG, PROVIDER_CODES } from './ai-provider-catalog.js';
 import { probeProviderConnection } from './ai-provider-health.js';
 import { bumpWorkspaceConfigVersion } from './workspace-config-bus.js';
+import {
+	isImageOrientedProvider,
+	isProviderConfigured,
+	isTextOrientedProvider,
+	matchPreferredProvider,
+	providerHasCredentials,
+} from './ai-provider-readiness.js';
+
+export {
+	isImageOrientedProvider,
+	isProviderConfigured,
+	isTextOrientedProvider,
+	matchPreferredProvider,
+	providerHasCredentials,
+};
 
 const MASK = '••••••••••••••••';
 
@@ -176,13 +191,116 @@ export async function listProviders() {
 		sort: 'priority,name',
 		requestKey: null,
 	});
-	return attachSecretsMeta(records);
+	const dtos = await attachSecretsMeta(records);
+	return promoteConfiguredHealthyProviders(dtos);
+}
+
+/**
+ * Providers seeded/configured with keys + healthy checks often never flipped `enabled`.
+ * Auto-enable only when credentials exist AND health is healthy.
+ * Explicit Disable clears health (see setProviderEnabled) so this will not re-enable them.
+ */
+async function promoteConfiguredHealthyProviders(dtos) {
+	const list = Array.isArray(dtos) ? dtos : [];
+	const next = [];
+
+	for (const dto of list) {
+		const hasCreds = providerHasCredentials(dto);
+		const healthy = String(dto.health || '').toLowerCase() === 'healthy';
+		if (!dto.enabled && hasCreds && healthy) {
+			await pocketbaseClient.collection('ai_providers').update(dto.id, {
+				enabled: true,
+				status: dto.status === 'disconnected' ? 'connected' : (dto.status || 'connected'),
+				history: pushHistory(dto.history, 'Auto-enabled for workspace use (credentials + healthy)'),
+			}).catch(() => null);
+			bumpWorkspaceConfigVersion('provider_auto_enable');
+			next.push({ ...dto, enabled: true });
+			continue;
+		}
+		next.push(dto);
+	}
+
+	return next;
 }
 
 export async function getProviderById(id) {
 	const record = await pocketbaseClient.collection('ai_providers').getOne(id);
 	const [dto] = await attachSecretsMeta([record]);
 	return dto;
+}
+
+/**
+ * Decrypted Admin platform API key by provider code.
+ * Returns empty when the provider is missing, disabled, or has no secret.
+ */
+export async function getPlatformProviderApiKey(code) {
+	const normalized = String(code || '').trim().toLowerCase();
+	if (!normalized) return '';
+
+	const lookupCode = normalized === 'flux' ? 'fal' : normalized;
+	const records = await pocketbaseClient.collection('ai_providers').getFullList({
+		filter: pocketbaseClient.filter('code = {:code}', { code: lookupCode }),
+		requestKey: null,
+	}).catch(() => []);
+
+	const record = records[0];
+	if (!record || !record.enabled) return '';
+
+	const { apiKey } = await getDecryptedSecrets(record.id);
+	return apiKey || '';
+}
+
+/** Backend gate for text generation (integrated-ai / AI Pins copy). */
+export async function assertTextProviderConfigured() {
+	const providers = await listProviders().catch(() => []);
+	const ready = providers.filter((item) => isTextOrientedProvider(item.code) && isProviderConfigured(item));
+	if (ready.length > 0) {
+		return ready;
+	}
+
+	const error = new Error('No text AI provider configured. Enable a text provider (e.g. Google Gemini) in Admin Settings.');
+	error.status = 400;
+	error.errorCode = 'AI_TEXT_PROVIDER_NOT_CONFIGURED';
+	error.meta = {
+		providersTotal: providers.length,
+		textEnabled: providers.filter((item) => isTextOrientedProvider(item.code) && item.enabled).length,
+		textWithCredentials: providers.filter((item) => (
+			isTextOrientedProvider(item.code) && providerHasCredentials(item)
+		)).length,
+	};
+	throw error;
+}
+
+/** Backend gate for AI image jobs (Fal / OpenAI Images). */
+export async function assertImageProviderConfigured(providerCode = '') {
+	const providers = await listProviders().catch(() => []);
+	let code = String(providerCode || '').trim().toLowerCase();
+
+	if (!code) {
+		const { getPlatformSettings } = await import('./platform-settings.js');
+		const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
+		const preferred = settings?.images?.defaultImageProvider || '';
+		const matched = matchPreferredProvider(providers, preferred);
+		code = String(matched?.code || '').toLowerCase();
+	}
+
+	if (code === 'flux') code = 'fal';
+
+	const provider = providers.find((item) => String(item.code || '').toLowerCase() === code);
+	if (provider && isProviderConfigured(provider)) {
+		return provider;
+	}
+
+	const label = provider?.name || code || 'image provider';
+	const error = new Error(
+		provider && !provider.enabled
+			? `Image provider ${label} is disabled. Enable it in Admin Settings.`
+			: `No image AI provider configured. Enable an image provider (e.g. Fal.ai) in Admin Settings.`,
+	);
+	error.status = 400;
+	error.errorCode = 'AI_IMAGE_PROVIDER_NOT_CONFIGURED';
+	error.meta = { providerCode: code || null };
+	throw error;
 }
 
 export async function createProvider(payload = {}) {
@@ -324,10 +442,17 @@ export async function upsertProviderSecrets(providerId, { apiKey, secretKey } = 
 
 export async function setProviderEnabled(id, enabled) {
 	const existing = await pocketbaseClient.collection('ai_providers').getOne(id);
-	await pocketbaseClient.collection('ai_providers').update(id, {
+	const updates = {
 		enabled: Boolean(enabled),
 		history: pushHistory(existing.history, enabled ? 'Provider enabled' : 'Provider disabled'),
-	});
+	};
+	// Clearing health on disable prevents promoteConfiguredHealthyProviders from flipping it back on.
+	if (!enabled) {
+		updates.health = 'unknown';
+		updates.status = 'disconnected';
+		updates.last_error = 'Disabled in Admin Console';
+	}
+	await pocketbaseClient.collection('ai_providers').update(id, updates);
 	const dto = await getProviderById(id);
 	bumpWorkspaceConfigVersion(enabled ? 'provider_enable' : 'provider_disable');
 	return dto;
@@ -359,15 +484,17 @@ export async function testProviderConnection(id) {
 	await pocketbaseClient.collection('ai_providers').update(id, {
 		status: result.status,
 		health: result.health,
+		enabled: result.ok ? true : record.enabled,
 		last_checked: checkedAt,
 		last_latency_ms: result.latencyMs || 0,
 		last_error: result.ok ? '' : result.message,
 		last_success_at: result.ok ? checkedAt : record.last_success_at,
 		history: pushHistory(record.history, result.ok
-			? `Health check passed (${result.latencyMs}ms)`
+			? `Health check passed (${result.latencyMs}ms); provider enabled for workspace use`
 			: `Health check failed: ${result.message}`),
 	});
 
+	bumpWorkspaceConfigVersion(result.ok ? 'provider_health_ok' : 'provider_health_fail');
 	const provider = await getProviderById(id);
 	return {
 		ok: result.ok,

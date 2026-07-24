@@ -191,7 +191,11 @@ export async function buildWorkspaceConfig(req) {
 	const version = String(getWorkspaceConfigPlatformVersion());
 
 	const providers = (Array.isArray(providersRaw) ? providersRaw : [])
-		.filter((item) => item && item.enabled !== false)
+		.filter((item) => (
+			item
+			&& item.enabled
+			&& (item.config?.hasApiKey || item.config?.hasSecretKey)
+		))
 		.map((item) => mapPublicProvider(item, workspaceId, settingsMeta.updatedAt));
 
 	const models = (modelsRaw.items || modelsRaw || [])

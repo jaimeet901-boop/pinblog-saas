@@ -33,6 +33,7 @@ import {
 	resolveDefaultAspectRatioId,
 	resolveDefaultImageProvider,
 	resolveDefaultImageQualityId,
+	resolveDefaultTextProvider,
 	resolvePublishingConfig,
 } from '@/lib/aiPinsWorkspaceConfig';
 import {
@@ -786,10 +787,14 @@ export default function AIPinsPage() {
 		});
 	};
 
-	const queuePreviewImageJobs = async (pins) => {
+	const queuePreviewImageJobs = async (pins, imageProviderOverride = '') => {
 		if (pins.length === 0) {
 			return [];
 		}
+
+		const imageProvider = imageProviderOverride
+			|| panel.imageProvider
+			|| resolveDefaultImageProvider(config);
 
 		const response = await apiServerClient.fetch('/ai-pin-images/jobs', {
 			method: 'POST',
@@ -806,7 +811,7 @@ export default function AIPinsPage() {
 					category: pin.category,
 					featuredImageUrl: pin.featuredImage,
 					imageMode: 'generate_ai',
-					provider: panel.imageProvider || resolveDefaultImageProvider(config),
+					...(imageProvider ? { provider: imageProvider } : {}),
 				})),
 			}),
 		});
@@ -861,7 +866,11 @@ export default function AIPinsPage() {
 		setGeneratingImages(false);
 	};
 
-	const startPreviewImageGeneration = async (pins, imageModeOverride = panel.imageMode) => {
+	const startPreviewImageGeneration = async (
+		pins,
+		imageModeOverride = panel.imageMode,
+		imageProviderOverride = '',
+	) => {
 		if (imageModeOverride !== 'generate_ai') {
 			setGeneratedPreviewPins((prev) => prev.map((pin) => ({
 				...pin,
@@ -873,7 +882,7 @@ export default function AIPinsPage() {
 			return;
 		}
 
-		const jobs = await queuePreviewImageJobs(pins);
+		const jobs = await queuePreviewImageJobs(pins, imageProviderOverride);
 		const jobIds = jobs.map((job) => job.id);
 		setGeneratedPreviewPins((prev) => prev.map((pin) => {
 			const job = jobs.find((item) => item.clientToken === pin.tempId);
@@ -913,25 +922,23 @@ export default function AIPinsPage() {
 			return;
 		}
 
-		const configuredProviders = (Array.isArray(config?.textProviders) ? config.textProviders : [])
-			.filter((provider) => provider?.enabled && provider?.hasCredentials);
-		if (configuredProviders.length === 0) {
-			toast({
-				variant: 'destructive',
-				title: 'Generation failed',
-				description: 'No AI provider configured. Please configure an AI provider in Admin Settings.',
-			});
-			return;
-		}
-
 		const quality = imageQualities.find((item) => item.id === imageQuality) || imageQualities[0];
 		const ratio = PIN_ASPECT_RATIOS.find((item) => item.id === aspectRatio);
 		const websiteLabel = activeWebsite?.domain || activeWebsite?.url || activeWebsite?.name || '';
 
+		// Resolve defaults from Workspace Config. Backend validates Admin providers.
+		const textProviderCode = resolveDefaultTextProvider(config);
+		const imageProviderCode = resolveDefaultImageProvider(config)
+			|| quality?.imageProvider
+			|| panel.imageProvider;
+
 		let workingPanel = {
 			...panel,
 			imageMode: quality.imageMode,
-			imageProvider: quality.imageProvider,
+			imageProvider: quality.imageMode === 'generate_ai'
+				? (imageProviderCode || quality.imageProvider || '')
+				: quality.imageProvider,
+			textProvider: textProviderCode || '',
 		};
 
 		if (createMode === 'prompt') {
@@ -1065,7 +1072,11 @@ export default function AIPinsPage() {
 			setGeneratedPreviewPins(generatedRecords);
 			setSelectedPreviewTempId(generatedRecords[0]?.tempId || '');
 			setEditingPinId('');
-			await startPreviewImageGeneration(generatedRecords, workingPanel.imageMode);
+			await startPreviewImageGeneration(
+				generatedRecords,
+				workingPanel.imageMode,
+				workingPanel.imageProvider,
+			);
 			toast({ title: 'Preview ready', description: `${generatedRecords.length} pins generated. Review and save when ready.` });
 		} catch (error) {
 			const detail = error?.message || (error?.status ? `HTTP ${error.status}` : 'Unknown error');

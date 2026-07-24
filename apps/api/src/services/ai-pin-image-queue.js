@@ -124,22 +124,15 @@ async function processJob(job) {
 		return;
 	}
 
-	const openaiKey = await getDecryptedOpenAIKey(job.owner);
-	const falKey = await getDecryptedFalKey(job.owner);
-	const provider = normalizeText(job.prompt_payload?.provider || 'openai', 40) || 'openai';
+	const { assertImageProviderConfigured, getPlatformProviderApiKey } = await import('./ai-providers.js');
+	let provider = normalizeText(job.prompt_payload?.provider || '', 40);
+	const readyProvider = await assertImageProviderConfigured(provider);
+	provider = readyProvider.code;
 
-	if (provider !== 'openai' && !falKey && !openaiKey) {
-		if (fallbackImage) {
-			await setJobTerminalState({
-				job,
-				status: 'fallback',
-				imageUrl: fallbackImage,
-				lastError: 'Image provider API key is not configured',
-			});
-			return;
-		}
-		throw new Error('Image provider API key is not configured');
-	}
+	const openaiKey = await getDecryptedOpenAIKey(job.owner)
+		|| await getPlatformProviderApiKey('openai');
+	const falKey = await getDecryptedFalKey(job.owner)
+		|| await getPlatformProviderApiKey('fal');
 
 	if (provider === 'openai' && !openaiKey) {
 		if (fallbackImage) {
@@ -152,6 +145,32 @@ async function processJob(job) {
 			return;
 		}
 		throw new Error('OpenAI API key is not configured');
+	}
+
+	if ((provider === 'fal' || provider === 'flux') && !falKey) {
+		if (fallbackImage) {
+			await setJobTerminalState({
+				job,
+				status: 'fallback',
+				imageUrl: fallbackImage,
+				lastError: 'Fal.ai API key is not configured',
+			});
+			return;
+		}
+		throw new Error('Fal.ai API key is not configured');
+	}
+
+	if (provider !== 'openai' && provider !== 'fal' && provider !== 'flux' && !falKey && !openaiKey) {
+		if (fallbackImage) {
+			await setJobTerminalState({
+				job,
+				status: 'fallback',
+				imageUrl: fallbackImage,
+				lastError: 'Image provider API key is not configured',
+			});
+			return;
+		}
+		throw new Error('Image provider API key is not configured');
 	}
 
 	await consumeCredits(pocketbaseClient, { userId: job.owner, ai: 0, image: 1 }).catch((error) => {

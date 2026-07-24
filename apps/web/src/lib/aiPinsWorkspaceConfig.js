@@ -29,12 +29,38 @@ export function languageLabelFromConfig(config) {
 
 export function resolveDefaultImageProvider(config) {
 	const preferred = String(config?.images?.defaultImageProvider || '').trim().toLowerCase();
-	const providers = Array.isArray(config?.imageProviders) ? config.imageProviders.filter((item) => item?.enabled !== false) : [];
+	const providers = Array.isArray(config?.imageProviders)
+		? config.imageProviders.filter((item) => item?.enabled !== false && item?.hasCredentials !== false)
+		: [];
 	if (preferred) {
 		const match = providers.find((item) => {
 			const code = String(item.code || '').toLowerCase();
 			const name = String(item.name || '').toLowerCase();
-			return code === preferred || name === preferred || name.includes(preferred) || preferred.includes(code);
+			return code === preferred
+				|| name === preferred
+				|| (preferred.length >= 3 && (name.includes(preferred) || preferred.includes(code)));
+		});
+		if (match?.code) return match.code;
+	}
+	return providers[0]?.code || '';
+}
+
+export function resolveDefaultTextProvider(config) {
+	const preferred = String(
+		config?.ai?.defaultProvider
+		|| config?.ai?.fallbackProvider
+		|| '',
+	).trim().toLowerCase();
+	const providers = Array.isArray(config?.textProviders)
+		? config.textProviders.filter((item) => item?.enabled !== false && item?.hasCredentials)
+		: [];
+	if (preferred) {
+		const match = providers.find((item) => {
+			const code = String(item.code || '').toLowerCase();
+			const name = String(item.name || '').toLowerCase();
+			return code === preferred
+				|| name === preferred
+				|| (preferred.length >= 3 && (name.includes(preferred) || preferred.includes(code)));
 		});
 		if (match?.code) return match.code;
 	}

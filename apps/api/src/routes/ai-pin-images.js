@@ -144,8 +144,13 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		const keywords = normalizeKeywords(rawItem?.keywords || pin?.suggested_keywords || []);
 		const imagePrompt = normalizeString(rawItem?.imagePrompt || pin?.image_prompt || '', 'imagePrompt', { max: 1200 });
 		const featuredImageUrl = normalizeString(rawItem?.featuredImageUrl || article.featured_image || '', 'featuredImageUrl', { max: 1000 });
-		const provider = normalizeString(rawItem?.provider || 'openai', 'provider', { max: 40 }) || 'openai';
-		if (!['openai', 'fal', 'flux'].includes(provider)) {
+		let provider = normalizeString(rawItem?.provider || '', 'provider', { max: 40 });
+		if (imageMode === 'generate_ai') {
+			const { assertImageProviderConfigured } = await import('../services/ai-providers.js');
+			const ready = await assertImageProviderConfigured(provider);
+			provider = ready.code;
+		}
+		if (provider && !['openai', 'fal', 'flux'].includes(provider)) {
 			throw httpError(422, 'provider must be openai, fal, or flux');
 		}
 

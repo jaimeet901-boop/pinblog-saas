@@ -18,10 +18,10 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		defaultWorkspacePlan: 'free',
 	},
 	ai: {
-		defaultProvider: 'OpenAI',
-		defaultModel: 'gpt-4.1',
-		fallbackProvider: 'Google Gemini',
-		fallbackModel: 'gemini-2.5-flash',
+		defaultProvider: 'Google Gemini',
+		defaultModel: 'gemini-2.5-flash',
+		fallbackProvider: 'OpenAI',
+		fallbackModel: 'gpt-4.1',
 		temperature: '0.7',
 		topP: '0.9',
 		maxTokens: '4096',
@@ -188,7 +188,9 @@ export async function getPlatformSettings() {
 		getPinterestAppCredentialsPublic().catch(() => null),
 	]);
 
-	const defaultProvider = providers.find((item) => item.enabled) || providers[0];
+	const defaultProvider = providers.find((item) => (
+		item.enabled && !['fal', 'flux', 'replicate'].includes(String(item.code || '').toLowerCase())
+	)) || providers.find((item) => item.enabled) || providers[0];
 	if (defaultProvider && (!row || !row.payload?.ai?.defaultProvider)) {
 		settings.ai.defaultProvider = defaultProvider.name || settings.ai.defaultProvider;
 		settings.ai.defaultModel = defaultProvider.config?.defaultModel || defaultProvider.currentModel || settings.ai.defaultModel;
