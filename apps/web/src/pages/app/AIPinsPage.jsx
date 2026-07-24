@@ -13,26 +13,29 @@ import { useToast } from '@/hooks/use-toast';
 import TemplatePreviewCard from '@/components/ai-pins/TemplatePreviewCard';
 import ArticlePreviewDrawer from '@/components/ai-pins/ArticlePreviewDrawer';
 import ManualArticleForm from '@/components/ai-pins/ManualArticleForm';
-import { createDefaultTemplateConfig, normalizeTemplateConfig } from '@/lib/pinTemplates';
+import { createDefaultTemplateConfig } from '@/lib/pinTemplates';
+import { useWorkspaceConfig } from '@/context/WorkspaceConfigContext';
+import {
+	PIN_ASPECT_RATIOS,
+	buildImageQualityOptions,
+	buildPinCountOptions,
+	buildPinPromptFromConfig,
+	estimatePinCredits,
+	languageLabelFromConfig,
+	mapStudioBrandKits,
+	mapStudioCredits,
+	mapStudioPinStyles,
+	mapStudioTemplates,
+	resolveDefaultAspectRatioId,
+	resolveDefaultImageProvider,
+	resolveDefaultImageQualityId,
+} from '@/lib/aiPinsWorkspaceConfig';
 import './AIPinsPage.css';
 
-const PIN_COUNTS = [1, 3, 5];
-const PIN_STYLES = ['Food', 'Recipe', 'Fitness', 'Travel', 'DIY', 'Home', 'Beauty', 'Fashion', 'Technology', 'Business', 'Lifestyle'];
 const CREATE_MODES = [
 	{ id: 'single', label: 'Single Page', icon: FileStack },
 	{ id: 'bulk', label: 'Bulk Create', icon: Layers },
 	{ id: 'prompt', label: 'Prompt Only', icon: PenLine },
-];
-const IMAGE_QUALITIES = [
-	{ id: 'premium', label: 'Premium', hint: 'AI · OpenAI', imageMode: 'generate_ai', imageProvider: 'openai' },
-	{ id: 'legacy', label: 'Studio', hint: 'AI · Fal', imageMode: 'generate_ai', imageProvider: 'fal' },
-	{ id: 'budget', label: 'Featured', hint: 'Article image', imageMode: 'use_featured', imageProvider: 'openai' },
-];
-const ASPECT_RATIOS = [
-	{ id: 'tall', label: 'Tall', ratio: '1:2', frame: 'tall' },
-	{ id: 'pinterest', label: 'Pinterest', ratio: '2:3', frame: 'pin' },
-	{ id: 'classic', label: 'Classic', ratio: '3:4', frame: 'classic' },
-	{ id: 'custom', label: 'Custom', ratio: 'Free', frame: 'custom' },
 ];
 
 function truncate(value, max = 160) {
@@ -79,38 +82,6 @@ function parsePinsFromText(text) {
 	}
 
 	return [];
-}
-
-function buildPinPrompt({ article, count, panel }) {
-	return `You are a Pinterest SEO expert for blog traffic growth.
-Return ONLY a valid JSON object in this exact shape:
-{
-  "pins": [
-    {
-      "title": "Pinterest SEO title",
-      "description": "Pinterest description optimized for clicks",
-      "overlayText": "short image overlay text",
-      "suggestedKeywords": ["keyword1", "keyword2", "keyword3"],
-      "suggestedHashtags": ["#tag1", "#tag2", "#tag3"],
-      "imagePrompt": "detailed AI image prompt for a vertical Pinterest pin"
-    }
-  ]
-}
-Generate exactly ${count} pins.
-Language: ${panel.language}
-Target audience: ${panel.targetAudience}
-Tone: ${panel.toneOfVoice}
-Website article metadata:
-Title: ${article.title}
-Meta Description: ${article.metaDescription || ''}
-URL: ${article.url}
-Category: ${article.category || ''}
-Featured Image: ${article.featuredImage || ''}
-Optional guidance:
-Preferred pin title seed: ${panel.pinTitle || ''}
-Preferred description seed: ${panel.pinDescription || ''}
-Preferred overlay seed: ${panel.textOverlay || ''}
-Output only JSON and no markdown.`;
 }
 
 function mapArticleFromApi(item) {
@@ -160,18 +131,22 @@ function mapSavedPin(pin) {
 	};
 }
 
-function mapTemplate(record) {
-	return {
-		id: record.id,
-		name: record.name,
-		configuration: normalizeTemplateConfig(record.configuration || {}),
-		isDefault: Boolean(record.is_default),
-	};
-}
-
 export default function AIPinsPage() {
 	const { toast } = useToast();
+	const {
+		config,
+		configVersion,
+		isRefreshing: configRefreshing,
+		hasValidConfig,
+		lastConfigUpdate,
+		lastRefreshDurationMs,
+		cacheStatus,
+		refresh: refreshWorkspaceConfig,
+		isFeatureEnabled,
+	} = useWorkspaceConfig();
+
 	const previousStatusesRef = useRef(new Map());
+	const defaultsAppliedRef = useRef(false);
 	const [websites, setWebsites] = useState([]);
 	const [websiteId, setWebsiteId] = useState('');
 	const [articles, setArticles] = useState([]);
@@ -195,8 +170,6 @@ export default function AIPinsPage() {
 	const [loadingBoards, setLoadingBoards] = useState(false);
 	const [editingPinId, setEditingPinId] = useState('');
 	const [savedPins, setSavedPins] = useState([]);
-	const [templates, setTemplates] = useState([]);
-	const [loadingTemplates, setLoadingTemplates] = useState(false);
 	const [selectedTemplateId, setSelectedTemplateId] = useState('');
 	const [generatedPreviewPins, setGeneratedPreviewPins] = useState([]);
 	const [savingGenerated, setSavingGenerated] = useState(false);
@@ -208,31 +181,31 @@ export default function AIPinsPage() {
 	const [selectedAccountId, setSelectedAccountId] = useState('');
 	const [selectedBoardId, setSelectedBoardId] = useState('');
 	const [scheduleAt, setScheduleAt] = useState('');
-	const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+	const [timezone, setTimezone] = useState(
+		() => config?.schedulingDefaults?.timezone || config?.general?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+	);
 	const [panel, setPanel] = useState({
 		pinTitle: '',
 		pinDescription: '',
 		textOverlay: '',
-		targetAudience: 'Food bloggers and recipe creators',
-		toneOfVoice: 'Friendly and persuasive',
-		language: 'English',
+		targetAudience: '',
+		toneOfVoice: '',
+		language: languageLabelFromConfig(config),
 		count: 3,
 		imageMode: 'use_featured',
-		style: 'Lifestyle',
-		imageProvider: 'openai',
+		style: '',
+		imageProvider: resolveDefaultImageProvider(config),
 	});
 	const [analysis, setAnalysis] = useState(null);
 	const [analyzing, setAnalyzing] = useState(false);
-	const [credits, setCredits] = useState(null);
 	const [bulkProgress, setBulkProgress] = useState({ active: false, current: 0, total: 0, message: '' });
-	const [brandKits, setBrandKits] = useState([]);
 	const [selectedBrandKitId, setSelectedBrandKitId] = useState('');
 	const [createMode, setCreateMode] = useState('single');
 	const [workspaceTab, setWorkspaceTab] = useState('studio');
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const [includeWebsiteUrl, setIncludeWebsiteUrl] = useState(true);
-	const [imageQuality, setImageQuality] = useState('premium');
-	const [aspectRatio, setAspectRatio] = useState('pinterest');
+	const [imageQuality, setImageQuality] = useState(() => resolveDefaultImageQualityId(config));
+	const [aspectRatio, setAspectRatio] = useState(() => resolveDefaultAspectRatioId(config));
 	const [imageType, setImageType] = useState('pin');
 	const [promptOnlyText, setPromptOnlyText] = useState('');
 	const [referenceImages, setReferenceImages] = useState([]);
@@ -240,6 +213,81 @@ export default function AIPinsPage() {
 	const [pinFilter, setPinFilter] = useState('all');
 	const [pinSearch, setPinSearch] = useState('');
 	const referenceInputRef = useRef(null);
+
+	const platformName = config?.general?.platformName || 'Chef IA';
+	const templates = useMemo(() => mapStudioTemplates(config), [config]);
+	const brandKits = useMemo(() => mapStudioBrandKits(config), [config]);
+	const pinStyles = useMemo(() => mapStudioPinStyles(config), [config]);
+	const credits = useMemo(() => mapStudioCredits(config), [config]);
+	const imageQualities = useMemo(() => buildImageQualityOptions(config), [config]);
+	const pinCounts = useMemo(() => buildPinCountOptions(config), [config]);
+	const imageProviders = useMemo(
+		() => (Array.isArray(config?.imageProviders) ? config.imageProviders.filter((item) => item?.enabled !== false) : []),
+		[config],
+	);
+
+	const showBrandKit = isFeatureEnabled('brand-kit', true);
+	const showTemplates = isFeatureEnabled('templates', true);
+	const showHistory = isFeatureEnabled('history', true);
+	const showAiImages = isFeatureEnabled('ai-images', true);
+	const showPinterest = isFeatureEnabled('pinterest', true);
+
+	useEffect(() => {
+		if (!hasValidConfig || defaultsAppliedRef.current) return;
+		defaultsAppliedRef.current = true;
+
+		const defaultProvider = resolveDefaultImageProvider(config);
+		const defaultQualityId = resolveDefaultImageQualityId(config);
+		const defaultQuality = imageQualities.find((item) => item.id === defaultQualityId) || imageQualities[0];
+		const styles = mapStudioPinStyles(config);
+		const recipeStyle = String(config?.content?.recipeStyle || '').trim();
+
+		setTimezone((prev) => prev || config?.schedulingDefaults?.timezone || config?.general?.timezone || 'UTC');
+		setAspectRatio(resolveDefaultAspectRatioId(config));
+		setImageQuality(defaultQualityId);
+		setPanel((prev) => ({
+			...prev,
+			language: prev.language || languageLabelFromConfig(config),
+			toneOfVoice: prev.toneOfVoice || recipeStyle || 'Friendly and persuasive',
+			targetAudience: prev.targetAudience || 'Food bloggers and recipe creators',
+			style: prev.style || styles[0] || '',
+			imageProvider: defaultQuality?.imageProvider || defaultProvider || prev.imageProvider,
+			imageMode: defaultQuality?.imageMode || prev.imageMode,
+			count: pinCounts.includes(prev.count) ? prev.count : (pinCounts[1] || pinCounts[0] || 1),
+		}));
+
+		const defaultTemplate = templates.find((item) => item.isDefault) || templates[0];
+		if (defaultTemplate) setSelectedTemplateId((prev) => prev || defaultTemplate.id);
+		const defaultKit = brandKits.find((item) => item.isDefault) || brandKits[0];
+		if (defaultKit) setSelectedBrandKitId((prev) => prev || defaultKit.id);
+	}, [hasValidConfig, config, imageQualities, pinCounts, templates, brandKits]);
+
+	useEffect(() => {
+		// Live config: keep selection valid when Admin removes providers/templates/kits.
+		if (imageQualities.length > 0 && !imageQualities.some((item) => item.id === imageQuality)) {
+			const next = resolveDefaultImageQualityId(config, imageQualities);
+			setImageQuality(next);
+			const quality = imageQualities.find((item) => item.id === next);
+			if (quality) {
+				setPanel((prev) => ({
+					...prev,
+					imageMode: quality.imageMode,
+					imageProvider: quality.imageProvider,
+				}));
+			}
+		}
+		if (selectedTemplateId && templates.length > 0 && !templates.some((item) => item.id === selectedTemplateId)) {
+			const fallback = templates.find((item) => item.isDefault) || templates[0];
+			setSelectedTemplateId(fallback?.id || '');
+		}
+		if (selectedBrandKitId && brandKits.length > 0 && !brandKits.some((item) => item.id === selectedBrandKitId)) {
+			const fallback = brandKits.find((item) => item.isDefault) || brandKits[0];
+			setSelectedBrandKitId(fallback?.id || '');
+		}
+		if (panel.style && pinStyles.length > 0 && !pinStyles.includes(panel.style)) {
+			setPanel((prev) => ({ ...prev, style: pinStyles[0] || '' }));
+		}
+	}, [configVersion, imageQualities, imageQuality, templates, selectedTemplateId, brandKits, selectedBrandKitId, pinStyles, panel.style, config]);
 
 	const activeArticle = useMemo(
 		() => articles.find((article) => article.id === activeArticleId) || null,
@@ -301,10 +349,14 @@ export default function AIPinsPage() {
 	}, [editingPinId, savedPins, selectedPreviewTempId, generatedPreviewPins]);
 
 	const estimatedCredits = useMemo(() => {
-		const perPin = imageQuality === 'budget' ? 0 : imageQuality === 'legacy' ? 0.5 : 0.7;
+		const quality = imageQualities.find((item) => item.id === imageQuality) || imageQualities[0];
 		const articleFactor = createMode === 'bulk' ? Math.max(1, selectedArticleIds.size) : 1;
-		return Number((perPin * panel.count * articleFactor).toFixed(2));
-	}, [imageQuality, panel.count, createMode, selectedArticleIds.size]);
+		return estimatePinCredits({
+			quality,
+			count: panel.count,
+			articleFactor,
+		});
+	}, [imageQuality, imageQualities, panel.count, createMode, selectedArticleIds.size]);
 
 	const activeWebsite = useMemo(
 		() => websites.find((site) => site.id === websiteId) || null,
@@ -513,55 +565,6 @@ export default function AIPinsPage() {
 		}
 	};
 
-	const loadTemplates = async () => {
-		setLoadingTemplates(true);
-		try {
-			const owner = pb.authStore.record?.id;
-			const records = await pb.collection('ai_pin_templates').getFullList({
-				sort: '-is_default,-updated',
-				filter: pb.filter('owner = {:owner}', { owner }),
-			});
-			const mapped = records.map(mapTemplate);
-			setTemplates(mapped);
-			if (mapped.length > 0) {
-				const fallback = mapped.find((template) => template.isDefault) || mapped[0];
-				setSelectedTemplateId((prev) => prev || fallback.id);
-			} else {
-				setSelectedTemplateId('');
-			}
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Template error', description: error.message });
-		} finally {
-			setLoadingTemplates(false);
-		}
-	};
-
-	const loadCredits = async () => {
-		try {
-			const response = await apiServerClient.fetch('/ai-pins/credits', { method: 'GET' });
-			const payload = await response.json().catch(() => null);
-			if (response.ok) {
-				setCredits(payload);
-			}
-		} catch {
-			// ignore
-		}
-	};
-
-	const loadBrandKits = async () => {
-		try {
-			const response = await apiServerClient.fetch('/ai-pins/brand-kits', { method: 'GET' });
-			const payload = await response.json().catch(() => []);
-			if (response.ok && Array.isArray(payload)) {
-				setBrandKits(payload);
-				const fallback = payload.find((item) => item.isDefault) || payload[0];
-				setSelectedBrandKitId((prev) => prev || fallback?.id || '');
-			}
-		} catch {
-			// ignore until migration applied
-		}
-	};
-
 	const handleAnalyzeArticle = async () => {
 		if (!activeArticle) {
 			toast({ variant: 'destructive', title: 'Select an article', description: 'Choose an article to analyze first.' });
@@ -579,13 +582,13 @@ export default function AIPinsPage() {
 				throw new Error(payload?.message || `Analysis failed (${response.status})`);
 			}
 			setAnalysis(payload.analysis || null);
-			if (payload.credits) setCredits(payload.credits);
 			setPanel((prev) => ({
 				...prev,
 				pinTitle: payload.analysis?.title || prev.pinTitle,
 				pinDescription: payload.analysis?.seoDescription || prev.pinDescription,
 				targetAudience: payload.analysis?.targetAudience || prev.targetAudience,
 			}));
+			await refreshWorkspaceConfig();
 			toast({ title: 'Article analyzed', description: 'Pinterest metadata was generated from the article.' });
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Analyze failed', description: error.message });
@@ -614,11 +617,11 @@ export default function AIPinsPage() {
 				throw new Error(payload?.message || `Prompt generation failed (${response.status})`);
 			}
 			if (payload.analysis) setAnalysis(payload.analysis);
-			if (payload.credits) setCredits(payload.credits);
 			setPanel((prev) => ({
 				...prev,
 				textOverlay: payload.analysis?.cta || prev.textOverlay,
 			}));
+			await refreshWorkspaceConfig();
 			toast({ title: 'Prompt ready', description: 'Image prompt optimized for the selected style.' });
 			return payload.imagePrompt || '';
 		} catch (error) {
@@ -630,9 +633,6 @@ export default function AIPinsPage() {
 	useEffect(() => {
 		loadWebsites();
 		loadAccounts();
-		loadTemplates();
-		loadCredits();
-		loadBrandKits();
 	}, []);
 
 	useEffect(() => {
@@ -754,7 +754,7 @@ export default function AIPinsPage() {
 					category: pin.category,
 					featuredImageUrl: pin.featuredImage,
 					imageMode: 'generate_ai',
-					provider: panel.imageProvider || 'openai',
+					provider: panel.imageProvider || resolveDefaultImageProvider(config),
 				})),
 			}),
 		});
@@ -837,7 +837,7 @@ export default function AIPinsPage() {
 	};
 
 	const generatePinsForArticle = async (article, count, panelOverride = panel) => {
-		const prompt = buildPinPrompt({ article, count, panel: panelOverride });
+		const prompt = buildPinPromptFromConfig({ config, article, count, panel: panelOverride });
 		const { text } = await generateText(prompt);
 		let pins = parsePinsFromText(text);
 
@@ -861,8 +861,8 @@ export default function AIPinsPage() {
 			return;
 		}
 
-		const quality = IMAGE_QUALITIES.find((item) => item.id === imageQuality) || IMAGE_QUALITIES[0];
-		const ratio = ASPECT_RATIOS.find((item) => item.id === aspectRatio);
+		const quality = imageQualities.find((item) => item.id === imageQuality) || imageQualities[0];
+		const ratio = PIN_ASPECT_RATIOS.find((item) => item.id === aspectRatio);
 		const websiteLabel = activeWebsite?.domain || activeWebsite?.url || activeWebsite?.name || '';
 
 		let workingPanel = {
@@ -1009,6 +1009,7 @@ export default function AIPinsPage() {
 		} finally {
 			setGenerating(false);
 			setBulkProgress({ active: false, current: 0, total: 0, message: '' });
+			await refreshWorkspaceConfig();
 		}
 	};
 
@@ -1311,7 +1312,7 @@ export default function AIPinsPage() {
 
 	const applyImageQuality = (qualityId) => {
 		setImageQuality(qualityId);
-		const quality = IMAGE_QUALITIES.find((item) => item.id === qualityId);
+		const quality = imageQualities.find((item) => item.id === qualityId);
 		if (!quality) return;
 		setPanel((prev) => ({
 			...prev,
@@ -1377,27 +1378,28 @@ export default function AIPinsPage() {
 		<div className="ai-pins-atelier">
 			<div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
 				<div>
-					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
+					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">AI Pins Atelier</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 						Compose Pinterest-ready drafts from pages, bulk catalogs, or free prompts — then refine title, description, keywords, and imagery before publishing.
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
-					<Link to="/app/ai-pins/brand-kit"><Button variant="outline" size="sm"><Palette size={14} /> Brand Kit</Button></Link>
-					<Link to="/app/ai-pins/templates"><Button variant="outline" size="sm"><LayoutTemplate size={14} /> Templates</Button></Link>
-					<Link to="/app/ai-pins/history"><Button variant="outline" size="sm"><History size={14} /> History</Button></Link>
-					{credits ? (
-						<div className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium shadow-sm">
-							<span className="text-muted-foreground">AI </span>{credits.ai?.remaining ?? 0}
-							<span className="mx-1.5 text-border">·</span>
-							<span className="text-muted-foreground">Img </span>{credits.image?.remaining ?? 0}
-						</div>
-					) : null}
+					{showBrandKit ? <Link to="/app/ai-pins/brand-kit"><Button variant="outline" size="sm"><Palette size={14} /> Brand Kit</Button></Link> : null}
+					{showTemplates ? <Link to="/app/ai-pins/templates"><Button variant="outline" size="sm"><LayoutTemplate size={14} /> Templates</Button></Link> : null}
+					{showHistory ? <Link to="/app/ai-pins/history"><Button variant="outline" size="sm"><History size={14} /> History</Button></Link> : null}
+					<div
+						className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium shadow-sm"
+						title={`config v${configVersion} · ${cacheStatus}${configRefreshing ? ' · refreshing' : ''}`}
+					>
+						<span className="text-muted-foreground">AI </span>{credits.ai?.remaining ?? 0}
+						<span className="mx-1.5 text-border">·</span>
+						<span className="text-muted-foreground">Img </span>{credits.image?.remaining ?? 0}
+					</div>
 				</div>
 			</div>
 
-			{accounts.length === 0 && !loadingAccounts ? (
+			{showPinterest && accounts.length === 0 && !loadingAccounts ? (
 				<div className="mb-4 flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
 					<p className="text-sm text-foreground/90">Connect Pinterest to schedule and publish pins from this studio.</p>
 					<Link to="/app/pinterest"><Button size="sm">Connect Pinterest</Button></Link>
@@ -1421,13 +1423,11 @@ export default function AIPinsPage() {
 					<div className="mb-4 flex items-start justify-between gap-2">
 						<div>
 							<h2 className="font-display text-xl font-semibold">Create</h2>
-							<p className="text-xs text-muted-foreground">Chef IA pin workflow</p>
+							<p className="text-xs text-muted-foreground">{platformName} pin workflow</p>
 						</div>
-						{credits ? (
-							<span className="rounded-full bg-accent/20 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">
-								{(credits.ai?.remaining ?? 0)} credits
-							</span>
-						) : null}
+						<span className="rounded-full bg-accent/20 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">
+							{(credits.ai?.remaining ?? 0)} credits
+						</span>
 					</div>
 
 					<div className="ai-pins-mode-tabs mb-4">
@@ -1581,14 +1581,14 @@ export default function AIPinsPage() {
 								<option value="carousel">Carousel frame</option>
 							</Select>
 							<Select label="Number of pins" value={String(panel.count)} onChange={(e) => setPanel((prev) => ({ ...prev, count: Number(e.target.value) }))}>
-								{PIN_COUNTS.map((count) => <option key={count} value={count}>{count}</option>)}
+								{pinCounts.map((count) => <option key={count} value={count}>{count}</option>)}
 							</Select>
 						</div>
 
 						<div>
 							<p className="mb-1.5 text-sm font-medium">Image quality</p>
 							<div className="ai-pins-chip-row">
-								{IMAGE_QUALITIES.map((item) => (
+								{imageQualities.map((item) => (
 									<button
 										key={item.id}
 										type="button"
@@ -1605,7 +1605,7 @@ export default function AIPinsPage() {
 						<div>
 							<p className="mb-1.5 text-sm font-medium">Pinterest size</p>
 							<div className="grid grid-cols-4 gap-2">
-								{ASPECT_RATIOS.map((item) => (
+								{PIN_ASPECT_RATIOS.map((item) => (
 									<button
 										key={item.id}
 										type="button"
@@ -1653,30 +1653,31 @@ export default function AIPinsPage() {
 
 						{advancedOpen ? (
 							<div className="space-y-3 rounded-2xl border border-border bg-background/60 p-3">
-								<Select label="Template" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} disabled={loadingTemplates}>
+								<Select label="Template" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} disabled={!showTemplates}>
 									<option value="">System default</option>
 									{templates.map((template) => (
 										<option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' (Default)' : ''}</option>
 									))}
 								</Select>
-								<Select label="Brand Kit" value={selectedBrandKitId} onChange={(e) => setSelectedBrandKitId(e.target.value)}>
+								<Select label="Brand Kit" value={selectedBrandKitId} onChange={(e) => setSelectedBrandKitId(e.target.value)} disabled={!showBrandKit}>
 									<option value="">No brand kit</option>
 									{brandKits.map((kit) => (
 										<option key={kit.id} value={kit.id}>{kit.name}{kit.isDefault ? ' (Default)' : ''}</option>
 									))}
 								</Select>
 								<Select label="Pin style" value={panel.style} onChange={(e) => setPanel((prev) => ({ ...prev, style: e.target.value }))}>
-									{PIN_STYLES.map((style) => <option key={style} value={style}>{style}</option>)}
+									{(pinStyles.length ? pinStyles : ['Lifestyle']).map((style) => <option key={style} value={style}>{style}</option>)}
 								</Select>
 								<Input label="Pin title seed" value={panel.pinTitle} onChange={(e) => setPanel((prev) => ({ ...prev, pinTitle: e.target.value }))} />
 								<Textarea label="Description seed" rows={3} value={panel.pinDescription} onChange={(e) => setPanel((prev) => ({ ...prev, pinDescription: e.target.value }))} />
 								<Input label="Target audience" value={panel.targetAudience} onChange={(e) => setPanel((prev) => ({ ...prev, targetAudience: e.target.value }))} />
 								<Input label="Tone of voice" value={panel.toneOfVoice} onChange={(e) => setPanel((prev) => ({ ...prev, toneOfVoice: e.target.value }))} />
 								<Input label="Language" value={panel.language} onChange={(e) => setPanel((prev) => ({ ...prev, language: e.target.value }))} />
-								<Select label="Image provider" value={panel.imageProvider} onChange={(e) => setPanel((prev) => ({ ...prev, imageProvider: e.target.value }))} disabled={panel.imageMode !== 'generate_ai'}>
-									<option value="openai">OpenAI Images</option>
-									<option value="fal">Fal.ai</option>
-									<option value="flux">FLUX (via Fal)</option>
+								<Select label="Image provider" value={panel.imageProvider} onChange={(e) => setPanel((prev) => ({ ...prev, imageProvider: e.target.value }))} disabled={!showAiImages || panel.imageMode !== 'generate_ai'}>
+									<option value="">Select provider</option>
+									{imageProviders.map((provider) => (
+										<option key={provider.id || provider.code} value={provider.code}>{provider.name || provider.code}</option>
+									))}
 								</Select>
 								{analysis ? (
 									<div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground space-y-1">
@@ -1690,6 +1691,11 @@ export default function AIPinsPage() {
 					</div>
 
 					<div className="sticky bottom-0 mt-5 space-y-2 border-t border-border/80 bg-gradient-to-t from-card via-card to-transparent pt-4">
+						<p className="text-[10px] text-muted-foreground">
+							Config v{configVersion} · {cacheStatus}{configRefreshing ? ' · refreshing' : ''}
+							{lastRefreshDurationMs ? ` · ${lastRefreshDurationMs}ms` : ''}
+							{lastConfigUpdate ? ` · ${new Date(lastConfigUpdate).toLocaleTimeString()}` : ''}
+						</p>
 						<p className="text-xs text-muted-foreground">
 							This will use ~{estimatedCredits} credits
 							{credits?.ai?.remaining != null ? ` · ${Math.max(0, Number((credits.ai.remaining - estimatedCredits).toFixed(2)))} left` : ''}.
@@ -2070,6 +2076,7 @@ export default function AIPinsPage() {
 				onClose={() => setManualOpen(false)}
 				onSubmit={saveManualArticle}
 				saving={savingManual}
+				defaultLanguage={panel.language || languageLabelFromConfig(config)}
 			/>
 		</div>
 	);

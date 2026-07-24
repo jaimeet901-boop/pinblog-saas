@@ -13,6 +13,7 @@ import { listModels } from './ai-models.js';
 import { getWorkspaceCredits } from './workspace-billing.js';
 import { listWorkspaceTemplates } from './workspace-templates.js';
 import { getSubscriptionPlan } from './workspace-context.js';
+import { getUserCreditUsage } from './ai-pin-credits.js';
 import {
 	bumpWorkspaceConfigVersion,
 	getCachedWorkspaceConfig,
@@ -167,7 +168,7 @@ export async function buildWorkspaceConfig(req) {
 		settings.prompts = { ...defaultPrompts(), ...settings.prompts };
 	}
 
-	const [providersRaw, modelsRaw, credits, templatesResult, brandKits, plan] = await Promise.all([
+	const [providersRaw, modelsRaw, credits, templatesResult, brandKits, plan, pinCredits] = await Promise.all([
 		listProviders().catch(() => []),
 		listModels({}).catch(() => ({ items: [] })),
 		getWorkspaceCredits(req).catch(() => ({
@@ -182,6 +183,9 @@ export async function buildWorkspaceConfig(req) {
 		listWorkspaceTemplates(req, { category: 'pin', perPage: 100 }).catch(() => ({ items: [] })),
 		listBrandKits(ownerId, workspaceId),
 		getSubscriptionPlan(req.workspaceSubscription).catch(() => null),
+		ownerId
+			? getUserCreditUsage(pocketbaseClient, ownerId).catch(() => null)
+			: Promise.resolve(null),
 	]);
 
 	const version = String(getWorkspaceConfigPlatformVersion());
@@ -214,13 +218,27 @@ export async function buildWorkspaceConfig(req) {
 		name: item.name,
 		category: item.category || 'pin',
 		sourceCollection: item.source || item.sourceCollection || 'ai_pin_templates',
-		thumbnailUrl: item.thumbnailUrl || item.thumbnail_url || '',
+		thumbnailUrl: item.thumbnailUrl || item.thumbnail || item.thumbnail_url || '',
 		isDefault: Boolean(item.isDefault || item.is_default),
+		configuration: item.configuration || {},
 	}, {
 		workspaceId,
 		source: 'workspace',
 		version,
-		updatedAt: item.updated || item.updatedAt,
+		updatedAt: item.updated || item.updatedAt || item.createdAt,
+	}));
+
+	const pinStyleList = Array.isArray(settings.content?.pinStyles) && settings.content.pinStyles.length
+		? settings.content.pinStyles.map(String)
+		: (DEFAULT_PLATFORM_SETTINGS.content?.pinStyles || []);
+	const pinStyles = pinStyleList.map((style) => withProvenance({
+		id: style,
+		label: style,
+	}, {
+		workspaceId,
+		source: 'platform',
+		version,
+		updatedAt: settingsMeta.updatedAt,
 	}));
 
 	const limits = withProvenance({
@@ -305,8 +323,18 @@ export async function buildWorkspaceConfig(req) {
 			quota: Number(credits.quota) || 0,
 			used: Number(credits.used) || 0,
 			remaining: Number(credits.remaining) || 0,
-			planSlug: credits.planSlug || 'free',
+			planSlug: credits.planSlug || pinCredits?.plan || 'free',
 			planName: credits.planName || 'Free',
+			ai: pinCredits?.ai || {
+				used: Number(credits.used) || 0,
+				limit: Number(credits.quota) || 0,
+				remaining: Number(credits.remaining) || 0,
+			},
+			image: pinCredits?.image || {
+				used: 0,
+				limit: 0,
+				remaining: Number(credits.remaining) || 0,
+			},
 		}, {
 			workspaceId,
 			source: 'workspace',
@@ -314,6 +342,7 @@ export async function buildWorkspaceConfig(req) {
 			updatedAt: settingsMeta.updatedAt,
 		}),
 		limits,
+		pinStyles,
 		queueDefaults: withProvenance({
 			pollHintMs: 15000,
 		}, { ...stamp, source: 'derived' }),

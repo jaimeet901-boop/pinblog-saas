@@ -1,21 +1,36 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button, Card, Input, Spinner, Textarea } from '@/components/kit';
 
-const blank = {
-	title: '',
-	url: '',
-	description: '',
-	excerpt: '',
-	category: '',
-	author: '',
-	featuredImage: '',
-	language: 'English',
-};
+function buildBlank(language = 'English') {
+	return {
+		title: '',
+		url: '',
+		description: '',
+		excerpt: '',
+		category: '',
+		author: '',
+		featuredImage: '',
+		language,
+	};
+}
 
-export default function ManualArticleForm({ open, onClose, onSubmit, saving = false }) {
-	const [form, setForm] = useState(blank);
+export default function ManualArticleForm({
+	open,
+	onClose,
+	onSubmit,
+	saving = false,
+	defaultLanguage = 'English',
+}) {
+	const [form, setForm] = useState(() => buildBlank(defaultLanguage));
 	const [error, setError] = useState('');
+
+	useEffect(() => {
+		if (open) {
+			setForm(buildBlank(defaultLanguage));
+			setError('');
+		}
+	}, [open, defaultLanguage]);
 
 	if (!open) {
 		return null;
@@ -39,9 +54,9 @@ export default function ManualArticleForm({ open, onClose, onSubmit, saving = fa
 				category: form.category.trim(),
 				author: form.author.trim(),
 				featuredImage: form.featuredImage.trim(),
-				language: form.language.trim() || 'English',
+				language: form.language.trim() || defaultLanguage,
 			});
-			setForm(blank);
+			setForm(buildBlank(defaultLanguage));
 		} catch (err) {
 			setError(err?.message || 'Failed to save manual article.');
 		}

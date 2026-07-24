@@ -1,19 +1,23 @@
 import { getDecryptedOpenAIKey } from './user-settings.js';
 import logger from '../utils/logger.js';
+import { DEFAULT_PLATFORM_SETTINGS } from './platform-settings.js';
 
-const PIN_STYLES = [
-	'Food',
-	'Recipe',
-	'Fitness',
-	'Travel',
-	'DIY',
-	'Home',
-	'Beauty',
-	'Fashion',
-	'Technology',
-	'Business',
-	'Lifestyle',
-];
+export const PIN_STYLES = Array.isArray(DEFAULT_PLATFORM_SETTINGS.content?.pinStyles)
+	&& DEFAULT_PLATFORM_SETTINGS.content.pinStyles.length > 0
+	? DEFAULT_PLATFORM_SETTINGS.content.pinStyles.map(String)
+	: [
+		'Food',
+		'Recipe',
+		'Fitness',
+		'Travel',
+		'DIY',
+		'Home',
+		'Beauty',
+		'Fashion',
+		'Technology',
+		'Business',
+		'Lifestyle',
+	];
 
 function extractJsonObject(text) {
 	if (!text || typeof text !== 'string') {
@@ -190,5 +194,3 @@ export async function generateImagePromptForPin({ owner, article, analysis, styl
 		};
 	}
 }
-
-export { PIN_STYLES };

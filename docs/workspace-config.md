@@ -165,9 +165,11 @@ if (!isFeatureEnabled('ai-pins', true)) { /* disable UI */ }
 2. Flag appears automatically in `/workspace/v1/config`.
 3. Gate UI with `isFeatureEnabled('your-flag')`.
 
-## Module migration checklist (future — not Phase 1)
+## Module migration checklist
 
-For each module (Writer, Images, AI Pins, publishers, Scheduler, Analytics, Brand Kit, Templates):
+**Completed:** AI Pins Studio (Phase 2) — uses `useWorkspaceConfig()` for providers, models, prompts, credits, flags, templates, brand kits, image/publishing settings, and limits.
+
+Remaining modules (Writer, Images, publishers, Scheduler, Analytics, Brand Kit page, Templates page):
 
 1. Replace hardcoded providers/models/prompts with `useWorkspaceConfig()`.
 2. Remove duplicate local platform settings fetches for concerns already in the DTO.

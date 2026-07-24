@@ -38,6 +38,7 @@ export const WORKSPACE_CONFIG_DEFAULTS = {
 	queueDefaults: { pollHintMs: 15000 },
 	brandKits: [],
 	templates: [],
+	pinStyles: [],
 	general: {
 		platformName: 'Chef IA',
 		defaultLanguage: 'en',
@@ -61,6 +62,7 @@ export function mergeWorkspaceConfig(partial) {
 		imageModels: Array.isArray(partial.imageModels) ? partial.imageModels : WORKSPACE_CONFIG_DEFAULTS.imageModels,
 		brandKits: Array.isArray(partial.brandKits) ? partial.brandKits : WORKSPACE_CONFIG_DEFAULTS.brandKits,
 		templates: Array.isArray(partial.templates) ? partial.templates : WORKSPACE_CONFIG_DEFAULTS.templates,
+		pinStyles: Array.isArray(partial.pinStyles) ? partial.pinStyles : WORKSPACE_CONFIG_DEFAULTS.pinStyles,
 		credits: { ...WORKSPACE_CONFIG_DEFAULTS.credits, ...(partial.credits || {}) },
 		limits: { ...WORKSPACE_CONFIG_DEFAULTS.limits, ...(partial.limits || {}) },
 		prompts: { ...WORKSPACE_CONFIG_DEFAULTS.prompts, ...(partial.prompts || {}) },

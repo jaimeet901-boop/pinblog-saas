@@ -19,8 +19,7 @@ const POLL_MS = 60_000;
 const SSE_RETRY_MS = 10_000;
 
 /**
- * Optional platform config provider (Phase 1).
- * Mounting this does not change existing module behavior — modules only opt in via useWorkspaceConfig().
+ * Optional platform config provider.
  * Non-blocking: keeps last valid config while refreshing; never clears on background failure.
  */
 export function WorkspaceConfigProvider({ children }) {
@@ -30,17 +29,22 @@ export function WorkspaceConfigProvider({ children }) {
 	const [isRefreshing, setIsRefreshing] = useState(false);
 	const [error, setError] = useState(null);
 	const [hasValidConfig, setHasValidConfig] = useState(false);
+	const [lastConfigUpdate, setLastConfigUpdate] = useState(null);
+	const [lastRefreshDurationMs, setLastRefreshDurationMs] = useState(0);
+	const [cacheStatus, setCacheStatus] = useState('default');
 
 	const lastValidRef = useRef(null);
 	const inFlightRef = useRef(null);
 	const mountedRef = useRef(true);
 
-	const applyConfig = useCallback((payload) => {
+	const applyConfig = useCallback((payload, { fromCache = false } = {}) => {
 		const merged = mergeWorkspaceConfig(payload);
 		lastValidRef.current = merged;
 		setConfig(merged);
 		setConfigVersion(String(merged.configVersion || '0'));
+		setLastConfigUpdate(merged.updated_at || new Date().toISOString());
 		setHasValidConfig(true);
+		setCacheStatus(fromCache ? 'cached' : 'fresh');
 		setError(null);
 	}, []);
 
@@ -55,6 +59,8 @@ export function WorkspaceConfigProvider({ children }) {
 			setIsRefreshing(true);
 		}
 
+		const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
 		const run = (async () => {
 			try {
 				const headers = {};
@@ -68,8 +74,16 @@ export function WorkspaceConfigProvider({ children }) {
 					headers,
 				});
 
+				const durationMs = Math.round(
+					(typeof performance !== 'undefined' ? performance.now() : Date.now()) - started,
+				);
+				if (mountedRef.current) {
+					setLastRefreshDurationMs(durationMs);
+				}
+
 				if (response.status === 304) {
 					setError(null);
+					setCacheStatus('cached');
 					return lastValidRef.current;
 				}
 
@@ -79,14 +93,16 @@ export function WorkspaceConfigProvider({ children }) {
 
 				const payload = await response.json();
 				if (!mountedRef.current) return payload;
-				applyConfig(payload);
+				applyConfig(payload, { fromCache: false });
 				return payload;
 			} catch (err) {
 				if (!mountedRef.current) return null;
-				// Keep last valid config — never block or clear on background failure.
 				setError(err instanceof Error ? err.message : 'Failed to load workspace config');
 				if (lastValidRef.current) {
 					setConfig(lastValidRef.current);
+					setCacheStatus('stale');
+				} else {
+					setCacheStatus('default');
 				}
 				return lastValidRef.current;
 			} finally {
@@ -110,7 +126,6 @@ export function WorkspaceConfigProvider({ children }) {
 		};
 	}, [refresh]);
 
-	// SSE hot-reload with poll fallback (optional — failure does not break modules).
 	useEffect(() => {
 		let cancelled = false;
 		let abort;
@@ -181,6 +196,9 @@ export function WorkspaceConfigProvider({ children }) {
 		isRefreshing,
 		error,
 		hasValidConfig,
+		lastConfigUpdate,
+		lastRefreshDurationMs,
+		cacheStatus,
 		refresh: () => refresh({ silent: Boolean(lastValidRef.current) }),
 		isFeatureEnabled,
 	};
@@ -207,6 +225,9 @@ export function useWorkspaceConfig() {
 			isRefreshing: false,
 			error: null,
 			hasValidConfig: false,
+			lastConfigUpdate: null,
+			lastRefreshDurationMs: 0,
+			cacheStatus: 'default',
 			refresh: async () => config,
 			isFeatureEnabled: (flagId, fallback = false) => isFeatureEnabledInConfig(config, flagId, fallback),
 		};
