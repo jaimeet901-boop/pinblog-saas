@@ -881,6 +881,17 @@ export default function AIPinsPage() {
 			return;
 		}
 
+		const configuredProviders = (Array.isArray(config?.textProviders) ? config.textProviders : [])
+			.filter((provider) => provider?.enabled && provider?.hasCredentials);
+		if (configuredProviders.length === 0) {
+			toast({
+				variant: 'destructive',
+				title: 'Generation failed',
+				description: 'No AI provider configured. Please configure an AI provider in Admin Settings.',
+			});
+			return;
+		}
+
 		const quality = imageQualities.find((item) => item.id === imageQuality) || imageQualities[0];
 		const ratio = PIN_ASPECT_RATIOS.find((item) => item.id === aspectRatio);
 		const websiteLabel = activeWebsite?.domain || activeWebsite?.url || activeWebsite?.name || '';

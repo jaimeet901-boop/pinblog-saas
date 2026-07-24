@@ -4,9 +4,12 @@ import { SystemPrompt } from '../constants/prompts.js';
 import { uploadFiles } from '../middleware/file-upload.js';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
+import { listProviders } from '../services/ai-providers.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
+
+const NO_AI_PROVIDER_MESSAGE = 'No AI provider configured. Please configure an AI provider in Admin Settings.';
 
 function httpError(status, message) {
 	const error = new Error(message);
@@ -34,6 +37,35 @@ function resolveProviderLabel() {
 	} catch {
 		return 'integrated-ai (invalid INTEGRATED_AI_API_URL)';
 	}
+}
+
+async function assertAiProviderConfigured(req) {
+	const providers = await listProviders().catch(() => []);
+	const configured = providers.filter((provider) => (
+		provider.enabled
+		&& (provider.config?.hasApiKey || provider.config?.hasSecretKey)
+	));
+
+	if (configured.length > 0) {
+		return configured;
+	}
+
+	const finalMessage = NO_AI_PROVIDER_MESSAGE;
+	logIntegratedAi400({
+		req,
+		rawMessageField: req.body?.message,
+		validationErrors: [
+			'No enabled AI provider with credentials in Admin Console',
+			`providers_total=${providers.length}`,
+			`providers_enabled=${providers.filter((item) => item.enabled).length}`,
+			`providers_with_credentials=${providers.filter((item) => item.config?.hasApiKey || item.config?.hasSecretKey).length}`,
+		],
+		finalMessage,
+	});
+
+	const error = httpError(400, finalMessage);
+	error.errorCode = 'AI_PROVIDER_NOT_CONFIGURED';
+	throw error;
 }
 
 function logIntegratedAi400({
@@ -166,6 +198,8 @@ function uploadImagesWithDiagnostics(req, res, next) {
 router.use(pocketbaseAuth);
 
 router.post('/stream', integratedAiRateLimit, uploadImagesWithDiagnostics, async (req, res) => {
+	await assertAiProviderConfigured(req);
+
 	const { message } = req.body;
 
 	if (!message) {
