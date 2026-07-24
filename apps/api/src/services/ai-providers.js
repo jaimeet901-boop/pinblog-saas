@@ -3,6 +3,7 @@ import { decryptSecret, encryptSecret } from '../utils/secretCrypto.js';
 import { httpError } from '../middleware/require-admin.js';
 import { PROVIDER_CATALOG, PROVIDER_CODES } from './ai-provider-catalog.js';
 import { probeProviderConnection } from './ai-provider-health.js';
+import { bumpWorkspaceConfigVersion } from './workspace-config-bus.js';
 
 const MASK = '••••••••••••••••';
 
@@ -224,7 +225,9 @@ export async function createProvider(payload = {}) {
 			await upsertProviderSecrets(record.id, { apiKey: payload.apiKey, secretKey: payload.secretKey });
 		}
 
-		return getProviderById(record.id);
+		const created = await getProviderById(record.id);
+		bumpWorkspaceConfigVersion('provider_create');
+		return created;
 	} catch (error) {
 		if (String(error?.message || '').toLowerCase().includes('unique')) {
 			throw httpError(409, `Provider code "${code}" already exists`, 'CONFLICT');
@@ -283,7 +286,9 @@ export async function updateProviderConfig(id, payload = {}) {
 		});
 	}
 
-	return getProviderById(id);
+	const updated = await getProviderById(id);
+	bumpWorkspaceConfigVersion('provider_update');
+	return updated;
 }
 
 export async function upsertProviderSecrets(providerId, { apiKey, secretKey } = {}) {
@@ -303,14 +308,18 @@ export async function upsertProviderSecrets(providerId, { apiKey, secretKey } = 
 	}
 
 	if (existing) {
-		return pocketbaseClient.collection('ai_provider_secrets').update(existing.id, payload);
+		const updated = await pocketbaseClient.collection('ai_provider_secrets').update(existing.id, payload);
+		bumpWorkspaceConfigVersion('provider_secrets');
+		return updated;
 	}
 
-	return pocketbaseClient.collection('ai_provider_secrets').create({
+	const created = await pocketbaseClient.collection('ai_provider_secrets').create({
 		api_key: payload.api_key || '',
 		secret_key: payload.secret_key || '',
 		...payload,
 	});
+	bumpWorkspaceConfigVersion('provider_secrets');
+	return created;
 }
 
 export async function setProviderEnabled(id, enabled) {
@@ -319,7 +328,9 @@ export async function setProviderEnabled(id, enabled) {
 		enabled: Boolean(enabled),
 		history: pushHistory(existing.history, enabled ? 'Provider enabled' : 'Provider disabled'),
 	});
-	return getProviderById(id);
+	const dto = await getProviderById(id);
+	bumpWorkspaceConfigVersion(enabled ? 'provider_enable' : 'provider_disable');
+	return dto;
 }
 
 export async function deleteProvider(id) {
@@ -328,6 +339,7 @@ export async function deleteProvider(id) {
 		throw httpError(400, 'Built-in catalog providers cannot be deleted. Disable them instead.', 'PROVIDER_PROTECTED');
 	}
 	await pocketbaseClient.collection('ai_providers').delete(id);
+	bumpWorkspaceConfigVersion('provider_delete');
 	return { ok: true, id };
 }
 

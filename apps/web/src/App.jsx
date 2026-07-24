@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+﻿import { Suspense, lazy } from 'react';
 import { Navigate, Route, Routes, BrowserRouter as Router } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 import ScrollToTop from '@/components/ScrollToTop';
@@ -8,6 +8,7 @@ import AdminRoute from '@/components/admin/AdminRoute';
 import { ProtectedRoute, Spinner } from '@/components/kit';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/context/ThemeContext';
+import { WorkspaceConfigProvider } from '@/context/WorkspaceConfigContext';
 
 import LandingPage from '@/pages/LandingPage';
 import LoginPage from '@/pages/auth/LoginPage';
@@ -54,7 +55,9 @@ const AdminSystemPage = lazy(() => import('@/pages/admin/AdminSystemPage'));
 function Shell({ children, admin }) {
 	return (
 		<ProtectedRoute admin={admin}>
-			<AppLayout>{children}</AppLayout>
+			<WorkspaceConfigProvider>
+				<AppLayout>{children}</AppLayout>
+			</WorkspaceConfigProvider>
 		</ProtectedRoute>
 	);
 }
@@ -95,7 +98,7 @@ function App() {
 						<Route path="/signup" element={<SignupPage />} />
 						<Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
-						{/* Customer Workspace — unchanged */}
+						{/* Customer Workspace ÔÇö unchanged */}
 						<Route path="/app" element={<Shell><DashboardPage /></Shell>} />
 						<Route path="/app/websites" element={<Shell><WebsitesPage /></Shell>} />
 						<Route path="/app/websites/:websiteId" element={<Shell><WebsiteDashboardPage /></Shell>} />
@@ -115,7 +118,7 @@ function App() {
 						<Route path="/app/profile" element={<Shell><ProfilePage /></Shell>} />
 						<Route path="/app/admin" element={<Shell admin><AdminPage /></Shell>} />
 
-						{/* Super User Admin Console — separate application area */}
+						{/* Super User Admin Console ÔÇö separate application area */}
 						<Route path="/admin" element={<AdminShell />}>
 							<Route index element={<Navigate to="dashboard" replace />} />
 							<Route path="dashboard" element={<AdminLazy><AdminDashboardPage /></AdminLazy>} />

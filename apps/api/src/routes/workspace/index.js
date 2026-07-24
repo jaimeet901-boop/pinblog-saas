@@ -40,6 +40,13 @@ import {
 	deleteCalendarEvent,
 } from '../../services/workspace-calendar.js';
 import { getWorkspaceHistory } from '../../services/workspace-history.js';
+import {
+	buildWorkspaceConfig,
+	isWorkspaceConfigUnchanged,
+	subscribeWorkspaceConfigStream,
+	workspaceConfigEtag,
+	WORKSPACE_CONFIG_API_VERSION,
+} from '../../services/workspace-config.js';
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import queueRouter from './queue.js';
 import analyticsRouter from './analytics.js';
@@ -47,10 +54,62 @@ import logsRouter from './logs.js';
 
 const router = Router();
 
+function asyncHandler(fn) {
+	return (req, res, next) => {
+		Promise.resolve(fn(req, res, next)).catch(next);
+	};
+}
+
 router.use(pocketbaseAuth, resolveWorkspace);
 router.use('/queue', queueRouter);
 router.use('/analytics', analyticsRouter);
 router.use('/logs', logsRouter);
+
+/**
+ * Additive Workspace Config API (Phase 1).
+ * Optional for unmigrated modules — existing /workspace/v1/* endpoints unchanged.
+ */
+router.get('/config', asyncHandler(async (req, res) => {
+	const config = await buildWorkspaceConfig(req);
+	const etag = workspaceConfigEtag(config);
+	res.setHeader('ETag', etag);
+	res.setHeader('Cache-Control', 'private, no-cache');
+	res.setHeader('X-Workspace-Config-Version', String(config.configVersion));
+	res.setHeader('X-Workspace-Config-Api', WORKSPACE_CONFIG_API_VERSION);
+
+	if (isWorkspaceConfigUnchanged(req, config)) {
+		return res.status(304).end();
+	}
+
+	return res.json(config);
+}));
+
+router.get('/config/stream', asyncHandler(async (req, res) => {
+	res.setHeader('Content-Type', 'text/event-stream');
+	res.setHeader('Cache-Control', 'no-cache');
+	res.setHeader('Connection', 'keep-alive');
+	res.setHeader('X-Accel-Buffering', 'no');
+	res.flushHeaders?.();
+
+	const unsubscribe = subscribeWorkspaceConfigStream(res, {
+		workspaceId: req.workspace?.id || '',
+		apiVersion: WORKSPACE_CONFIG_API_VERSION,
+	});
+
+	const heartbeat = setInterval(() => {
+		try {
+			res.write(': heartbeat\n\n');
+		} catch {
+			clearInterval(heartbeat);
+			unsubscribe();
+		}
+	}, 25000);
+
+	req.on('close', () => {
+		clearInterval(heartbeat);
+		unsubscribe();
+	});
+}));
 
 router.get('/me', async (req, res) => {
 	res.json({

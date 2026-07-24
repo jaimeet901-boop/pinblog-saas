@@ -2,6 +2,7 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { httpError } from '../middleware/require-admin.js';
 import { ensureProviderCatalogSeeded } from './ai-providers.js';
 import { MODEL_SEED_CATALOG } from './ai-model-catalog.js';
+import { bumpWorkspaceConfigVersion } from './workspace-config-bus.js';
 
 const CAPABILITIES = new Set(['text', 'image', 'vision', 'embedding']);
 const STATUSES = new Set(['enabled', 'disabled', 'deprecated']);
@@ -328,7 +329,9 @@ export async function createModel(payload = {}) {
 		recommended: Array.isArray(payload.recommended) ? payload.recommended.map(String) : [],
 	});
 
-	return getModelById(record.id);
+	const created = await getModelById(record.id);
+	bumpWorkspaceConfigVersion('model_create');
+	return created;
 }
 
 export async function updateModel(id, payload = {}) {
@@ -406,7 +409,9 @@ export async function updateModel(id, payload = {}) {
 		recommended: Array.isArray(payload.recommended) ? payload.recommended.map(String) : existing.recommended,
 	});
 
-	return getModelById(id);
+	const updated = await getModelById(id);
+	bumpWorkspaceConfigVersion('model_update');
+	return updated;
 }
 
 async function clearDefaultForCapability(capability, _providerId, excludeId = '') {
@@ -427,7 +432,9 @@ export async function setModelEnabled(id, enabled) {
 		status: enabled ? 'enabled' : 'disabled',
 		...(enabled ? {} : { is_default: false }),
 	});
-	return getModelById(id);
+	const dto = await getModelById(id);
+	bumpWorkspaceConfigVersion(enabled ? 'model_enable' : 'model_disable');
+	return dto;
 }
 
 export async function setModelDefault(id) {
@@ -438,11 +445,14 @@ export async function setModelDefault(id) {
 		enabled: true,
 		status: 'enabled',
 	});
-	return getModelById(id);
+	const dto = await getModelById(id);
+	bumpWorkspaceConfigVersion('model_default');
+	return dto;
 }
 
 export async function deleteModel(id) {
 	await pocketbaseClient.collection('ai_models').getOne(id);
 	await pocketbaseClient.collection('ai_models').delete(id);
+	bumpWorkspaceConfigVersion('model_delete');
 	return { ok: true, id };
 }

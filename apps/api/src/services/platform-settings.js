@@ -99,6 +99,12 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		{ id: 'history', label: 'History', enabled: true },
 		{ id: 'api-access', label: 'API Access', enabled: false },
 	],
+	prompts: {
+		pinSystem: 'You are a Pinterest growth strategist for food and lifestyle brands. Produce unique, high-CTR pin copy.',
+		pinUser: 'Create distinct Pinterest pins from the article. Vary title, description, hook, CTA, angle, and overlay tone.',
+		writerSystem: 'You are an expert SEO content writer for recipe and lifestyle blogs.',
+		imageSystem: 'Generate a vertical Pinterest-ready image that matches the brand kit and article theme.',
+	},
 	license: {
 		currentVersion: '0.0.0',
 		buildNumber: '2026.07.22.1',
@@ -219,6 +225,9 @@ export async function upsertPlatformSettings(nextSettings = {}, actor = {}) {
 		resourceId: saved.id,
 		result: 'ok',
 	}).catch(() => null);
+
+	const { bumpWorkspaceConfigVersion } = await import('./workspace-config-bus.js');
+	bumpWorkspaceConfigVersion('platform_settings');
 
 	return {
 		settings: normalizePayload(saved.payload),
