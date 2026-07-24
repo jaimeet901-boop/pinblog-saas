@@ -7,7 +7,10 @@ import {
 	listProviders,
 	matchPreferredProvider,
 } from '../ai-providers.js';
+import { resolveTextModelIdForProvider } from '../ai-models.js';
+import logger from '../../utils/logger.js';
 import { TEXT_ADAPTER_LOADERS, listImplementedTextAdapters } from './adapters.js';
+import { isRetiredGeminiModel, normalizeGeminiModelId } from './gemini-models.js';
 
 export { listImplementedTextAdapters };
 
@@ -22,25 +25,16 @@ export { listImplementedTextAdapters };
  *   apiKey: string,
  *   baseUrl: string,
  *   model: string,
+ *   modelSource: string,
  *   timeoutMs: number,
  * }} TextProviderRuntime
- */
-
-/**
- * @typedef {{
- *   streamText: (params: {
- *     runtime: TextProviderRuntime,
- *     systemPrompt: string,
- *     messages: ChatMessage[],
- *   }) => AsyncIterable<{ type: 'content', text: string }>,
- * }} TextProviderAdapter
  */
 
 const ADAPTER_LOADERS = TEXT_ADAPTER_LOADERS;
 
 /**
  * Resolve an enabled Admin text provider that has credentials AND a local adapter.
- * Prefers platform settings default/fallback, then first ready adapter-backed provider.
+ * Model id comes from Admin AI Models (not hardcoded adapter defaults).
  *
  * @returns {Promise<TextProviderRuntime>}
  */
@@ -67,7 +61,9 @@ export async function resolveTextProviderRuntime() {
 		|| settings?.ai?.fallbackProvider
 		|| '',
 	).trim();
-	const preferredModel = String(settings?.ai?.defaultModel || settings?.ai?.fallbackModel || '').trim();
+	const preferredModelHint = normalizeGeminiModelId(
+		settings?.ai?.defaultModel || settings?.ai?.fallbackModel || '',
+	);
 
 	const preferred = preferredName ? matchPreferredProvider(ready, preferredName) : null;
 	const withAdapter = ready.filter((item) => Boolean(ADAPTER_LOADERS[String(item.code || '').toLowerCase()]));
@@ -102,17 +98,30 @@ export async function resolveTextProviderRuntime() {
 		throw error;
 	}
 
-	const model = preferredModel
-		|| selected.currentModel
-		|| catalog?.default_model
-		|| '';
+	const hint = preferredModelHint && !isRetiredGeminiModel(preferredModelHint)
+		? preferredModelHint
+		: normalizeGeminiModelId(selected.currentModel || '');
 
+	const resolvedModel = await resolveTextModelIdForProvider(code, {
+		preferredModelId: isRetiredGeminiModel(hint) ? '' : hint,
+	});
+
+	const model = normalizeGeminiModelId(resolvedModel.modelId);
 	if (!model) {
-		const error = new Error(`Text provider ${selected.name || code} has no default model configured.`);
+		const error = new Error(
+			`No usable text model configured for provider ${selected.name || code} in Admin AI Models.`,
+		);
 		error.status = 400;
 		error.errorCode = 'AI_TEXT_MODEL_MISSING';
 		throw error;
 	}
+
+	logger.info('[text-providers] Resolved text generation model', {
+		provider: code,
+		providerName: selected.name || code,
+		model,
+		modelSource: resolvedModel.source,
+	});
 
 	return {
 		code,
@@ -120,6 +129,7 @@ export async function resolveTextProviderRuntime() {
 		apiKey,
 		baseUrl: String(selected.endpoint || catalog?.base_url || '').replace(/\/+$/, ''),
 		model,
+		modelSource: resolvedModel.source,
 		timeoutMs: Number(selected.timeoutMs) || Number(catalog?.timeout_ms) || 60000,
 	};
 }
@@ -147,6 +157,12 @@ export async function* streamTextWithRegistry({ systemPrompt, messages }) {
 		error.errorCode = 'AI_TEXT_ADAPTER_INVALID';
 		throw error;
 	}
+
+	logger.info('[text-providers] Starting text stream', {
+		provider: runtime.code,
+		model: runtime.model,
+		modelSource: runtime.modelSource,
+	});
 
 	for await (const chunk of adapter.streamText({
 		runtime,

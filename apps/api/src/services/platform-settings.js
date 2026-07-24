@@ -19,7 +19,7 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 	},
 	ai: {
 		defaultProvider: 'Google Gemini',
-		defaultModel: 'gemini-2.5-flash',
+		defaultModel: 'gemini-3.5-flash',
 		fallbackProvider: 'OpenAI',
 		fallbackModel: 'gpt-4.1',
 		temperature: '0.7',

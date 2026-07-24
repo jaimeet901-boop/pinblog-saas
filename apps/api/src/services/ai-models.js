@@ -3,6 +3,12 @@ import { httpError } from '../middleware/require-admin.js';
 import { ensureProviderCatalogSeeded } from './ai-providers.js';
 import { MODEL_SEED_CATALOG } from './ai-model-catalog.js';
 import { bumpWorkspaceConfigVersion } from './workspace-config-bus.js';
+import {
+	GEMINI_STABLE_FALLBACK_MODEL,
+	isRetiredGeminiModel,
+	normalizeGeminiModelId,
+} from './text-providers/gemini-models.js';
+import logger from '../utils/logger.js';
 
 const CAPABILITIES = new Set(['text', 'image', 'vision', 'embedding']);
 const STATUSES = new Set(['enabled', 'disabled', 'deprecated']);
@@ -135,7 +141,7 @@ export async function ensureModelCatalogSeeded() {
 	await ensureProviderCatalogSeeded();
 
 	const providers = await pocketbaseClient.collection('ai_providers').getFullList({
-		fields: 'id,code',
+		fields: 'id,code,default_model',
 		requestKey: null,
 	});
 	const byCode = Object.fromEntries(providers.map((item) => [item.code, item]));
@@ -177,6 +183,135 @@ export async function ensureModelCatalogSeeded() {
 			recommended: seed.recommended || [],
 		});
 	}
+
+	await ensureGeminiModelsCurrent(byCode);
+}
+
+/**
+ * Keep Gemini Admin models usable for new API keys:
+ * - seed current Flash models if missing
+ * - deprecate retired Gemini model IDs
+ * - ensure an enabled Gemini text default exists
+ */
+async function ensureGeminiModelsCurrent(providersByCode) {
+	const geminiProvider = providersByCode?.gemini;
+	if (!geminiProvider?.id) return;
+
+	const records = await pocketbaseClient.collection('ai_models').getFullList({
+		filter: pocketbaseClient.filter('provider = {:provider}', { provider: geminiProvider.id }),
+		requestKey: null,
+	}).catch(() => []);
+
+	let changed = false;
+	for (const record of records) {
+		const modelId = normalizeGeminiModelId(record.model_id);
+		if (!isRetiredGeminiModel(modelId)) continue;
+		if (record.status === 'deprecated' && record.enabled === false && !record.is_default) continue;
+		await pocketbaseClient.collection('ai_models').update(record.id, {
+			enabled: false,
+			status: 'deprecated',
+			is_default: false,
+			display_name: String(record.display_name || modelId).includes('retired')
+				? record.display_name
+				: `${modelId} (retired)`,
+		});
+		changed = true;
+	}
+
+	const refreshed = await pocketbaseClient.collection('ai_models').getFullList({
+		filter: pocketbaseClient.filter('provider = {:provider}', { provider: geminiProvider.id }),
+		requestKey: null,
+	}).catch(() => []);
+
+	const usable = refreshed.filter((item) => (
+		item.capability === 'text'
+		&& item.enabled !== false
+		&& item.status !== 'disabled'
+		&& item.status !== 'deprecated'
+		&& !isRetiredGeminiModel(item.model_id)
+	));
+
+	const hasDefault = usable.some((item) => item.is_default);
+	if (!hasDefault) {
+		const preferred = usable.find((item) => normalizeGeminiModelId(item.model_id) === GEMINI_STABLE_FALLBACK_MODEL)
+			|| usable[0];
+		if (preferred) {
+			await clearDefaultForCapability('text', geminiProvider.id);
+			await pocketbaseClient.collection('ai_models').update(preferred.id, {
+				is_default: true,
+				enabled: true,
+				status: 'enabled',
+			});
+			changed = true;
+		}
+	}
+
+	if (String(geminiProvider.default_model || '') && isRetiredGeminiModel(geminiProvider.default_model)) {
+		await pocketbaseClient.collection('ai_providers').update(geminiProvider.id, {
+			default_model: GEMINI_STABLE_FALLBACK_MODEL,
+		}).catch(() => null);
+		changed = true;
+	}
+
+	if (changed) {
+		bumpWorkspaceConfigVersion('gemini_model_catalog_refresh');
+		logger.info('[ai-models] Refreshed Gemini Admin model catalog', {
+			stableFallback: GEMINI_STABLE_FALLBACK_MODEL,
+			usableCount: usable.length,
+		});
+	}
+}
+
+/**
+ * Resolve the text model id for a provider from Admin AI Models (source of truth).
+ *
+ * Priority:
+ * 1. preferredModelId if it exists, is enabled, and not retired
+ * 2. Admin default text model for the provider
+ * 3. First enabled non-retired text model for the provider
+ * 4. Gemini stable fallback (Gemini only)
+ *
+ * @param {string} providerCode
+ * @param {{ preferredModelId?: string }} [options]
+ * @returns {Promise<{ modelId: string, source: string }>}
+ */
+export async function resolveTextModelIdForProvider(providerCode, options = {}) {
+	const code = String(providerCode || '').trim().toLowerCase();
+	await ensureModelCatalogSeeded();
+
+	const preferredModelId = normalizeGeminiModelId(options.preferredModelId || '');
+	const { items } = await listModels({ provider: code, capability: 'text' });
+	const usable = items.filter((item) => (
+		item.enabled
+		&& item.status !== 'deprecated'
+		&& item.status !== 'disabled'
+		&& !isRetiredGeminiModel(item.modelId)
+	));
+
+	if (preferredModelId && !isRetiredGeminiModel(preferredModelId)) {
+		const preferred = usable.find((item) => (
+			normalizeGeminiModelId(item.modelId) === preferredModelId
+			|| String(item.name || '').toLowerCase() === preferredModelId.toLowerCase()
+		));
+		if (preferred) {
+			return { modelId: normalizeGeminiModelId(preferred.modelId), source: 'admin_models_preferred' };
+		}
+	}
+
+	const defaultModel = usable.find((item) => item.isDefault);
+	if (defaultModel?.modelId) {
+		return { modelId: normalizeGeminiModelId(defaultModel.modelId), source: 'admin_models_default' };
+	}
+
+	if (usable[0]?.modelId) {
+		return { modelId: normalizeGeminiModelId(usable[0].modelId), source: 'admin_models_first' };
+	}
+
+	if (code === 'gemini') {
+		return { modelId: GEMINI_STABLE_FALLBACK_MODEL, source: 'stable_fallback' };
+	}
+
+	return { modelId: '', source: 'none' };
 }
 
 async function loadModel(id) {

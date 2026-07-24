@@ -21,7 +21,7 @@ export const PROVIDER_CATALOG = [
 		name: 'Google Gemini',
 		badge: 'G',
 		accent: 'from-[#4285F4] to-[#34A853]',
-		default_model: 'gemini-2.5-flash',
+		default_model: 'gemini-3.5-flash',
 		base_url: 'https://generativelanguage.googleapis.com/v1beta',
 		api_version: 'v1beta',
 		rate_limit: '1,000 RPM',
@@ -29,7 +29,7 @@ export const PROVIDER_CATALOG = [
 		timeout_ms: 45000,
 		retry_count: 2,
 		scopes: 'generateContent',
-		models: ['gemini-2.5-pro', 'gemini-2.5-flash'],
+		models: ['gemini-3.5-flash', 'gemini-3.6-flash'],
 	},
 	{
 		code: 'claude',

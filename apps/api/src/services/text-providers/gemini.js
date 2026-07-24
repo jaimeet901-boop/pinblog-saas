@@ -3,6 +3,9 @@
  * Uses Admin Provider Registry credentials (ai_providers + ai_provider_secrets).
  */
 
+import logger from '../../utils/logger.js';
+import { normalizeGeminiModelId } from './gemini-models.js';
+
 function joinUrl(base, path) {
 	const normalizedBase = String(base || '').replace(/\/+$/, '');
 	const normalizedPath = String(path || '').replace(/^\/+/, '');
@@ -122,7 +125,14 @@ function extractTextFromSsePayload(payload) {
  */
 export async function* streamText({ runtime, systemPrompt, messages }) {
 	const baseUrl = runtime.baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
-	const model = runtime.model || 'gemini-2.5-flash';
+	const model = normalizeGeminiModelId(runtime.model);
+	if (!model) {
+		const error = new Error('Gemini adapter requires a model id from Admin AI Models.');
+		error.status = 400;
+		error.errorCode = 'AI_TEXT_MODEL_MISSING';
+		throw error;
+	}
+
 	const timeoutMs = Number(runtime.timeoutMs) || 60000;
 	const contents = await buildGeminiContents(messages, timeoutMs);
 
@@ -131,6 +141,13 @@ export async function* streamText({ runtime, systemPrompt, messages }) {
 		error.status = 422;
 		throw error;
 	}
+
+	logger.info('[gemini-adapter] Calling Generative Language API', {
+		model,
+		modelSource: runtime.modelSource || 'unknown',
+		endpoint: 'streamGenerateContent',
+		baseUrl,
+	});
 
 	const url = `${joinUrl(baseUrl, `models/${encodeURIComponent(model)}:streamGenerateContent`)}?alt=sse`;
 	const body = {
