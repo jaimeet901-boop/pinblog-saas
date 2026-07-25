@@ -3,7 +3,9 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import {
 	decryptAccountAccessToken,
 	decryptAccountRefreshToken,
+	describePinterestTokenState,
 	hydratePinterestAccountSecrets,
+	replacePinterestAccountSecrets,
 	upsertPinterestAccountSecrets,
 } from './pinterest-secrets.js';
 import {
@@ -11,6 +13,7 @@ import {
 	getPinterestAppCredentials,
 } from './pinterest-app-credentials.js';
 import { ensureUserWorkspace } from './workspace-context.js';
+import logger from '../utils/logger.js';
 
 const PINTEREST_API_BASE = 'https://api.pinterest.com/v5';
 const PINTEREST_AUTH_BASE = 'https://www.pinterest.com/oauth';
@@ -452,6 +455,13 @@ export async function refreshPinterestAccessToken({ account }) {
 	const hydrated = account?.access_token || account?.refresh_token
 		? account
 		: await hydratePinterestAccountSecrets(account);
+
+	const before = describePinterestTokenState(hydrated, {
+		accessToken: decryptAccountAccessToken(hydrated),
+		refreshToken: decryptAccountRefreshToken(hydrated),
+	});
+	logger.info('[pinterest-token] refreshPinterestAccessToken before', before);
+
 	const refreshToken = decryptAccountRefreshToken(hydrated);
 	if (!refreshToken) {
 		await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: 'Refresh token missing' });
@@ -484,6 +494,8 @@ export async function refreshPinterestAccessToken({ account }) {
 		refresh_token: '',
 	});
 
+	// Always replace access ciphertext. Keep prior refresh only when Pinterest
+	// does not rotate it in this response.
 	await upsertPinterestAccountSecrets({
 		owner: account.owner,
 		accountId: account.id,
@@ -491,21 +503,72 @@ export async function refreshPinterestAccessToken({ account }) {
 		refreshToken: payload.refresh_token || '',
 		preserveRefreshToken: true,
 		expiresAt,
+		replace: false,
 	});
 
-	return hydratePinterestAccountSecrets(updated);
+	const refreshed = await hydratePinterestAccountSecrets(updated);
+	logger.info('[pinterest-token] refreshPinterestAccessToken after', describePinterestTokenState(refreshed, {
+		accessToken: decryptAccountAccessToken(refreshed),
+		refreshToken: decryptAccountRefreshToken(refreshed),
+	}));
+	return refreshed;
 }
 
-export async function ensureValidPinterestAccessToken({ account }) {
-	if (!account) {
+/**
+ * Ensure a usable access token for publishing.
+ * - Reloads secrets from DB (never trusts a stale in-memory account)
+ * - Refreshes automatically when expired / missing expiry / status expired / missing access
+ * - Returns whether the token came from refresh
+ */
+export async function ensureValidPinterestAccessToken({ account, forceRefresh = false }) {
+	if (!account?.id) {
 		throw httpError(401, 'Pinterest account is not connected');
 	}
 
-	const hydrated = await hydratePinterestAccountSecrets(account);
-	const expiresAt = hydrated.token_expires_at ? new Date(hydrated.token_expires_at).getTime() : 0;
-	const withinOneMinute = expiresAt > 0 && expiresAt <= Date.now() + 60 * 1000;
+	// Always re-read account + secrets so publish never uses a pre-reconnect object.
+	const freshRow = await pocketbaseClient.collection('pinterest_accounts').getOne(account.id).catch(() => account);
+	const hydrated = await hydratePinterestAccountSecrets(freshRow);
 
-	if (withinOneMinute) {
+	let accessToken = '';
+	let refreshToken = '';
+	try {
+		accessToken = decryptAccountAccessToken(hydrated);
+		refreshToken = decryptAccountRefreshToken(hydrated);
+	} catch (error) {
+		logger.error('[pinterest-token] decrypt failed during ensureValid', {
+			accountId: hydrated.id,
+			message: error?.message || 'decrypt failed',
+			tokenSource: hydrated._tokenSource || null,
+		});
+		throw httpError(401, 'Pinterest token could not be decrypted. Please reconnect your account.');
+	}
+
+	const expiresAtMs = hydrated.token_expires_at ? new Date(hydrated.token_expires_at).getTime() : 0;
+	const expiresSoon = Boolean(expiresAtMs) && expiresAtMs <= Date.now() + (5 * 60 * 1000);
+	const expiryUnknown = !expiresAtMs;
+	const statusExpired = String(hydrated.status || '').toLowerCase() === 'expired';
+	const shouldRefresh = Boolean(
+		forceRefresh
+		|| !accessToken
+		|| statusExpired
+		|| (refreshToken && (expiresSoon || expiryUnknown)),
+	);
+
+	logger.info('[pinterest-token] ensureValidPinterestAccessToken before', {
+		...describePinterestTokenState(hydrated, { accessToken, refreshToken }),
+		forceRefresh: Boolean(forceRefresh),
+		shouldRefresh,
+		expiresSoon,
+		expiryUnknown,
+		statusExpired,
+	});
+
+	if (shouldRefresh) {
+		if (!refreshToken) {
+			await markPinterestAccountStatus({ accountId: hydrated.id, status: 'expired', statusError: 'Access token missing and no refresh token' });
+			throw httpError(401, 'Pinterest access token is missing. Please reconnect your account.');
+		}
+
 		let refreshed;
 		try {
 			refreshed = await refreshPinterestAccessToken({ account: hydrated });
@@ -513,19 +576,34 @@ export async function ensureValidPinterestAccessToken({ account }) {
 			await markPinterestAccountStatus({ accountId: hydrated.id, status: 'expired', statusError: error?.message || 'Token refresh failed' });
 			throw error;
 		}
+
+		const nextAccess = decryptAccountAccessToken(refreshed);
+		if (!nextAccess) {
+			await markPinterestAccountStatus({ accountId: hydrated.id, status: 'expired', statusError: 'Refresh produced empty access token' });
+			throw httpError(401, 'Pinterest access token refresh failed. Please reconnect your account.');
+		}
+
+		logger.info('[pinterest-token] ensureValidPinterestAccessToken after', {
+			...describePinterestTokenState(refreshed, {
+				accessToken: nextAccess,
+				refreshToken: decryptAccountRefreshToken(refreshed),
+			}),
+			usedRefresh: true,
+		});
+
 		return {
 			account: refreshed,
-			accessToken: decryptAccountAccessToken(refreshed),
+			accessToken: nextAccess,
+			usedRefresh: true,
 		};
 	}
 
-	const accessToken = decryptAccountAccessToken(hydrated);
-	if (!accessToken) {
-		await markPinterestAccountStatus({ accountId: hydrated.id, status: 'expired', statusError: 'Access token missing' });
-		throw httpError(401, 'Pinterest access token is missing. Please reconnect your account.');
-	}
+	logger.info('[pinterest-token] ensureValidPinterestAccessToken after', {
+		...describePinterestTokenState(hydrated, { accessToken, refreshToken }),
+		usedRefresh: false,
+	});
 
-	return { account: hydrated, accessToken };
+	return { account: hydrated, accessToken, usedRefresh: false };
 }
 
 export async function fetchPinterestPinAnalytics({ accessToken, pinId, startDate, endDate }) {

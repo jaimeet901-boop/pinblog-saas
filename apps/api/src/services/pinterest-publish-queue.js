@@ -8,9 +8,11 @@ import {
 	getPinterestPinPublicUrl,
 	markPinterestAccountStatus,
 	normalizePinterestError,
-	refreshPinterestAccessToken,
 } from './pinterest-api.js';
-import { decryptAccountAccessToken } from './pinterest-secrets.js';
+import {
+	decryptAccountRefreshToken,
+	describePinterestTokenState,
+} from './pinterest-secrets.js';
 import {
 	buildSchemaSafeFilter,
 	safeGetFullList,
@@ -176,12 +178,32 @@ async function processJob(job) {
 		: null;
 	const targetLink = String(job.destination_url || article?.url || '').trim();
 
+	logger.info('[pinterest-publish] token state before ensureValid', {
+		jobId: job.id,
+		...describePinterestTokenState(account),
+	});
+
 	let tokenState;
 	try {
 		tokenState = await ensureValidPinterestAccessToken({ account });
 	} catch (error) {
+		logger.error('[pinterest-publish] ensureValid failed', {
+			jobId: job.id,
+			accountId: account.id,
+			message: error?.message || 'ensureValid failed',
+			status: error?.status || null,
+		});
 		throw normalizePinterestError(error);
 	}
+
+	logger.info('[pinterest-publish] token ready for createPin', {
+		jobId: job.id,
+		usedRefresh: Boolean(tokenState.usedRefresh),
+		...describePinterestTokenState(tokenState.account, {
+			accessToken: tokenState.accessToken,
+			refreshToken: decryptAccountRefreshToken(tokenState.account),
+		}),
+	});
 
 	let pinterestPin;
 	try {
@@ -195,21 +217,41 @@ async function processJob(job) {
 		});
 	} catch (error) {
 		if (error?.status === 401 || error?.pinterestStatus === 401) {
-			await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: 'Access token expired' });
-			const refreshed = await refreshPinterestAccessToken({ account: tokenState.account });
-			const refreshedToken = decryptAccountAccessToken(refreshed);
-			if (!refreshedToken) {
-				throw httpError(401, 'Pinterest access token refresh failed');
-			}
-			const retried = await createPinterestPin({
-				accessToken: refreshedToken,
-				boardId: job.board_id,
-				title: pin.title || 'Untitled pin',
-				description: pin.description || '',
-				imageUrl,
-				link: targetLink,
+			logger.warn('[pinterest-publish] createPin returned 401 — forcing refresh then retry', {
+				jobId: job.id,
+				accountId: account.id,
 			});
-			pinterestPin = retried;
+			await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: 'Access token expired' });
+
+			// Re-load secrets from DB so we never retry with the rejected access token.
+			const freshAccount = await getOwnedPinterestAccountById({ owner, accountId: account.id });
+			let refreshed;
+			try {
+				const forced = await ensureValidPinterestAccessToken({ account: freshAccount, forceRefresh: true });
+				refreshed = forced.account;
+				const refreshedToken = forced.accessToken;
+				logger.info('[pinterest-publish] retrying createPin with refreshed token', {
+					jobId: job.id,
+					accountId: account.id,
+					...describePinterestTokenState(refreshed, { accessToken: refreshedToken }),
+					usedRefresh: true,
+				});
+				pinterestPin = await createPinterestPin({
+					accessToken: refreshedToken,
+					boardId: job.board_id,
+					title: pin.title || 'Untitled pin',
+					description: pin.description || '',
+					imageUrl,
+					link: targetLink,
+				});
+			} catch (refreshError) {
+				logger.error('[pinterest-publish] refresh/retry after 401 failed', {
+					jobId: job.id,
+					accountId: account.id,
+					message: refreshError?.message || 'refresh failed',
+				});
+				throw normalizePinterestError(refreshError);
+			}
 		} else {
 			throw normalizePinterestError(error);
 		}

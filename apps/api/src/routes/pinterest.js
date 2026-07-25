@@ -25,8 +25,9 @@ import {
 import {
 	decryptAccountAccessToken,
 	deletePinterestAccountSecrets,
-	upsertPinterestAccountSecrets,
+	replacePinterestAccountSecrets,
 } from '../services/pinterest-secrets.js';
+import logger from '../utils/logger.js';
 import { ensureUserWorkspace } from '../services/workspace-context.js';
 import {
 	buildSchemaSafeFilter,
@@ -432,6 +433,16 @@ router.get('/oauth/callback', async (req, res) => {
 			? new Date(Date.now() + Number(tokenPayload.expires_in) * 1000).toISOString()
 			: '';
 		const scope = normalizeString(tokenPayload.scope, 'scope', { max: 1000 });
+
+		logger.info('[pinterest-oauth] token exchange succeeded', {
+			hasAccessToken: Boolean(accessToken),
+			hasRefreshToken: Boolean(refreshToken),
+			expiresIn: tokenPayload.expires_in ?? null,
+			expiresAt: expiresAt || null,
+			tokenPayloadKeys: Object.keys(tokenPayload || {}),
+			reconnectAccountId: normalizeString(stateRecord.account_id, 'account_id', { max: 80 }) || null,
+		});
+
 		const profile = await fetchPinterestProfile({ accessToken });
 
 		const requestedLabel = normalizeString(stateRecord.requested_label, 'requested_label', { max: 255 });
@@ -514,13 +525,18 @@ router.get('/oauth/callback', async (req, res) => {
 			});
 		}
 
-		await upsertPinterestAccountSecrets({
+		await replacePinterestAccountSecrets({
 			owner: stateRecord.owner,
 			accountId: account.id,
 			accessToken,
 			refreshToken,
-			preserveRefreshToken: false,
 			expiresAt,
+		});
+
+		logger.info('[pinterest-oauth] tokens stored after reconnect/connect', {
+			accountId: account.id,
+			tokenExpiresAt: expiresAt || null,
+			replacedPreviousSecrets: true,
 		});
 
 		// Mark state used immediately after credentials are stored to prevent replay.

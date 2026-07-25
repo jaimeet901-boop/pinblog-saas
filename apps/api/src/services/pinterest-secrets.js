@@ -1,5 +1,6 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { decryptPinterestSecret, encryptPinterestSecret } from '../utils/secretCrypto.js';
+import logger from '../utils/logger.js';
 
 function httpError(status, message) {
 	const error = new Error(message);
@@ -33,28 +34,42 @@ async function getPinterestTokenRecord(accountId) {
 	}
 }
 
+function hasCiphertext(value) {
+	return typeof value === 'string' && value.trim().length > 0;
+}
+
+/**
+ * Load encrypted tokens for an account.
+ * Prefer pinterest_account_secrets when it actually has ciphertext; otherwise
+ * fall back to pinterest_tokens, then legacy columns on the account row.
+ */
 export async function hydratePinterestAccountSecrets(account) {
 	if (!account?.id) {
 		return account;
 	}
 
 	const secret = await getPinterestAccountSecretRecord(account.id);
-	if (secret) {
+	if (secret && (hasCiphertext(secret.access_token) || hasCiphertext(secret.refresh_token))) {
 		return {
 			...account,
 			access_token: secret.access_token || '',
 			refresh_token: secret.refresh_token || '',
 			_secretRecordId: secret.id,
+			_tokenSource: 'pinterest_account_secrets',
+			_tokensUpdatedAt: secret.updated || secret.created || '',
 		};
 	}
 
 	const token = await getPinterestTokenRecord(account.id);
-	if (token) {
+	if (token && (hasCiphertext(token.access_ciphertext) || hasCiphertext(token.refresh_ciphertext))) {
 		return {
 			...account,
 			access_token: token.access_ciphertext || '',
 			refresh_token: token.refresh_ciphertext || '',
 			_tokenRecordId: token.id,
+			_tokenSource: 'pinterest_tokens',
+			_tokensUpdatedAt: token.rotated_at || token.updated || token.created || '',
+			token_expires_at: account.token_expires_at || token.expires_at || '',
 		};
 	}
 
@@ -63,6 +78,8 @@ export async function hydratePinterestAccountSecrets(account) {
 		...account,
 		access_token: account.access_token || '',
 		refresh_token: account.refresh_token || '',
+		_tokenSource: 'pinterest_accounts_legacy',
+		_tokensUpdatedAt: account.updated || '',
 	};
 }
 
@@ -72,16 +89,21 @@ async function upsertPinterestTokensRow({
 	accessCiphertext,
 	refreshCiphertext,
 	expiresAt,
+	replace = false,
 }) {
 	const existing = await getPinterestTokenRecord(accountId);
 	const payload = {
 		owner,
 		account: accountId,
-		access_ciphertext: accessCiphertext || existing?.access_ciphertext || '',
-		refresh_ciphertext: refreshCiphertext || existing?.refresh_ciphertext || '',
+		access_ciphertext: replace
+			? (accessCiphertext || '')
+			: (accessCiphertext || existing?.access_ciphertext || ''),
+		refresh_ciphertext: replace
+			? (refreshCiphertext || '')
+			: (refreshCiphertext || existing?.refresh_ciphertext || ''),
 		kek_version: 'v1',
 		rotated_at: new Date().toISOString(),
-		expires_at: expiresAt || existing?.expires_at || '',
+		expires_at: expiresAt || (replace ? '' : (existing?.expires_at || '')),
 	};
 
 	if (!payload.access_ciphertext) return null;
@@ -99,16 +121,23 @@ export async function upsertPinterestAccountSecrets({
 	refreshToken,
 	preserveRefreshToken = true,
 	expiresAt = '',
+	replace = false,
 }) {
 	if (!owner || !accountId) {
 		throw httpError(500, 'owner and accountId are required to store Pinterest secrets');
 	}
 
 	const existing = await getPinterestAccountSecretRecord(accountId);
-	const nextAccess = accessToken ? encryptPinterestSecret(accessToken) : (existing?.access_token || '');
+	const nextAccess = accessToken
+		? encryptPinterestSecret(accessToken)
+		: (replace ? '' : (existing?.access_token || ''));
 	const nextRefresh = refreshToken
 		? encryptPinterestSecret(refreshToken)
-		: (preserveRefreshToken ? (existing?.refresh_token || '') : '');
+		: (preserveRefreshToken && !replace ? (existing?.refresh_token || '') : '');
+
+	if (!nextAccess) {
+		throw httpError(500, 'Refusing to store Pinterest secrets without an access token');
+	}
 
 	const payload = {
 		owner,
@@ -129,13 +158,59 @@ export async function upsertPinterestAccountSecrets({
 		accessCiphertext: nextAccess,
 		refreshCiphertext: nextRefresh,
 		expiresAt,
+		replace: true,
 	});
 
 	// Keep legacy columns empty so client-readable account rows never expose tokens.
 	await pocketbaseClient.collection('pinterest_accounts').update(accountId, {
 		access_token: '',
 		refresh_token: '',
+		...(expiresAt ? { token_expires_at: expiresAt } : {}),
 	}).catch(() => null);
+}
+
+/**
+ * Wipe previous ciphertext then write the new OAuth tokens.
+ * Guarantees reconnect never leaves a readable stale access token behind.
+ */
+export async function replacePinterestAccountSecrets({
+	owner,
+	accountId,
+	accessToken,
+	refreshToken,
+	expiresAt = '',
+}) {
+	await deletePinterestAccountSecrets(accountId);
+	await upsertPinterestAccountSecrets({
+		owner,
+		accountId,
+		accessToken,
+		refreshToken,
+		preserveRefreshToken: false,
+		expiresAt,
+		replace: true,
+	});
+
+	const verified = await hydratePinterestAccountSecrets({ id: accountId, owner, token_expires_at: expiresAt });
+	const access = decryptAccountAccessToken(verified);
+	const refresh = decryptAccountRefreshToken(verified);
+	if (!access) {
+		throw httpError(500, 'Pinterest access token did not persist after reconnect');
+	}
+	if (!refresh) {
+		throw httpError(500, 'Pinterest refresh token did not persist after reconnect');
+	}
+
+	logger.info('[pinterest-token] replacePinterestAccountSecrets verified', {
+		accountId,
+		tokenSource: verified._tokenSource || null,
+		tokensUpdatedAt: verified._tokensUpdatedAt || null,
+		tokenExpiresAt: expiresAt || null,
+		hasAccessToken: true,
+		hasRefreshToken: true,
+	});
+
+	return verified;
 }
 
 export function decryptAccountAccessToken(account) {
@@ -158,4 +233,33 @@ export async function deletePinterestAccountSecrets(accountId) {
 	if (token?.id) {
 		await pocketbaseClient.collection('pinterest_tokens').delete(token.id).catch(() => null);
 	}
+}
+
+/** Safe diagnostics for logs — never includes raw tokens. */
+export function describePinterestTokenState(account, {
+	accessToken = null,
+	refreshToken = null,
+} = {}) {
+	const expiresAt = account?.token_expires_at || '';
+	const expiresMs = expiresAt ? new Date(expiresAt).getTime() : 0;
+	const hasAccess = accessToken != null
+		? Boolean(accessToken)
+		: hasCiphertext(account?.access_token);
+	const hasRefresh = refreshToken != null
+		? Boolean(refreshToken)
+		: hasCiphertext(account?.refresh_token);
+
+	return {
+		accountId: account?.id || null,
+		status: account?.status || null,
+		connected: Boolean(account?.connected),
+		tokenSource: account?._tokenSource || null,
+		tokensUpdatedAt: account?._tokensUpdatedAt || null,
+		tokenExpiresAt: expiresAt || null,
+		tokenExpiresInSec: expiresMs ? Math.round((expiresMs - Date.now()) / 1000) : null,
+		hasAccessToken: hasAccess,
+		hasRefreshToken: hasRefresh,
+		secretRecordId: account?._secretRecordId || null,
+		tokenRecordId: account?._tokenRecordId || null,
+	};
 }
