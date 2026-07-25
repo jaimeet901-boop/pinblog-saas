@@ -125,6 +125,8 @@ async function processJob(job) {
 	}
 
 	const { assertImageProviderConfigured, getPlatformProviderApiKey } = await import('./ai-providers.js');
+	const { getPlatformSettings } = await import('./platform-settings.js');
+
 	let provider = normalizeText(job.prompt_payload?.provider || '', 40);
 	const readyProvider = await assertImageProviderConfigured(provider);
 	provider = readyProvider.code;
@@ -133,6 +135,7 @@ async function processJob(job) {
 		|| await getPlatformProviderApiKey('openai');
 	const falKey = await getDecryptedFalKey(job.owner)
 		|| await getPlatformProviderApiKey('fal');
+	const geminiKey = await getPlatformProviderApiKey('gemini');
 
 	if (provider === 'openai' && !openaiKey) {
 		if (fallbackImage) {
@@ -160,7 +163,21 @@ async function processJob(job) {
 		throw new Error('Fal.ai API key is not configured');
 	}
 
-	if (provider !== 'openai' && provider !== 'fal' && provider !== 'flux' && !falKey && !openaiKey) {
+	if (provider === 'gemini' && !geminiKey) {
+		if (fallbackImage) {
+			await setJobTerminalState({
+				job,
+				status: 'fallback',
+				imageUrl: fallbackImage,
+				lastError: 'Google Gemini API key is not configured',
+			});
+			return;
+		}
+		throw new Error('Google Gemini API key is not configured');
+	}
+
+	if (!['openai', 'fal', 'flux', 'gemini'].includes(provider)
+		&& !falKey && !openaiKey && !geminiKey) {
 		if (fallbackImage) {
 			await setJobTerminalState({
 				job,
@@ -179,12 +196,24 @@ async function processJob(job) {
 		}
 	});
 
+	const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
+	const preferredModelId = normalizeText(
+		job.prompt_payload?.model
+		|| job.prompt_payload?.imageModel
+		|| settings?.images?.defaultImageModel
+		|| '',
+		120,
+	);
+
 	const prompt = normalizeText(job.prompt, 5000) || buildPinterestImagePrompt(job);
 	const generatedList = await generateImagesWithProvider({
 		provider,
-		apiKeys: { openai: openaiKey, fal: falKey },
+		apiKeys: { openai: openaiKey, fal: falKey, gemini: geminiKey },
 		prompt,
 		count: 1,
+		preferredModelId,
+		baseUrl: readyProvider.config?.baseUrl || readyProvider.endpoint || undefined,
+		timeoutMs: readyProvider.timeoutMs || undefined,
 	});
 	const generated = generatedList[0];
 	if (!generated) {
@@ -207,7 +236,11 @@ async function processJob(job) {
 		event_type: 'image',
 		prompt,
 		image_url: imageUrl,
-		metadata: { provider, jobId: job.id },
+		metadata: {
+			provider,
+			jobId: job.id,
+			model: generated.model || '',
+		},
 		ai_credits_used: 0,
 		image_credits_used: 1,
 	});

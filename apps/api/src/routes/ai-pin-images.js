@@ -150,8 +150,8 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			const ready = await assertImageProviderConfigured(provider);
 			provider = ready.code;
 		}
-		if (provider && !['openai', 'fal', 'flux'].includes(provider)) {
-			throw httpError(422, 'provider must be openai, fal, or flux');
+		if (provider && !['openai', 'fal', 'flux', 'gemini'].includes(provider)) {
+			throw httpError(422, 'provider must be openai, fal, flux, or gemini');
 		}
 
 		const prompt = [

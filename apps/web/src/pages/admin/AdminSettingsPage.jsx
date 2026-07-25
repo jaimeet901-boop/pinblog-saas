@@ -341,7 +341,7 @@ export default function AdminSettingsPage() {
 							label="Default Image Provider"
 							value={settings.images?.defaultImageProvider || 'Fal.ai'}
 							onChange={(value) => patch('images', 'defaultImageProvider', value)}
-							options={['Fal.ai', 'OpenAI', 'Replicate']}
+							options={['Fal.ai', 'OpenAI', 'Google Gemini', 'Replicate']}
 						/>
 						<TextInput label="Default Image Model" value={settings.images?.defaultImageModel} onChange={(value) => patch('images', 'defaultImageModel', value)} />
 						<TextInput label="Image Size" value={settings.images?.imageSize} onChange={(value) => patch('images', 'imageSize', value)} />

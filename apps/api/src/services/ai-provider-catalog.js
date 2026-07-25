@@ -28,8 +28,13 @@ export const PROVIDER_CATALOG = [
 		priority: 20,
 		timeout_ms: 45000,
 		retry_count: 2,
-		scopes: 'generateContent',
-		models: ['gemini-3.5-flash', 'gemini-3.6-flash'],
+		scopes: 'generateContent,images',
+		models: [
+			'gemini-3.5-flash',
+			'gemini-3.6-flash',
+			'gemini-2.5-flash-image',
+			'gemini-3-pro-image-preview',
+		],
 	},
 	{
 		code: 'claude',

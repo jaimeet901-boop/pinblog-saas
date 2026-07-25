@@ -15,6 +15,8 @@ describe('ai-provider-readiness helpers', () => {
 		assert.equal(isImageOrientedProvider('fal'), true);
 		assert.equal(isImageOrientedProvider('flux'), true);
 		assert.equal(isTextOrientedProvider('fal'), false);
+		// Gemini stays text-oriented so dual text+image use does not drop copy generation.
+		assert.equal(isImageOrientedProvider('gemini'), false);
 	});
 
 	it('requires enabled + credentials for configured providers', () => {

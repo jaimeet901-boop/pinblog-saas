@@ -5,6 +5,7 @@ import { MODEL_SEED_CATALOG } from './ai-model-catalog.js';
 import { bumpWorkspaceConfigVersion } from './workspace-config-bus.js';
 import {
 	GEMINI_STABLE_FALLBACK_MODEL,
+	GEMINI_STABLE_IMAGE_FALLBACK_MODEL,
 	isRetiredGeminiModel,
 	normalizeGeminiModelId,
 } from './text-providers/gemini-models.js';
@@ -185,6 +186,7 @@ export async function ensureModelCatalogSeeded() {
 	}
 
 	await ensureGeminiModelsCurrent(byCode);
+	await ensureGeminiProviderImageCapable(byCode);
 }
 
 /**
@@ -204,6 +206,7 @@ async function ensureGeminiModelsCurrent(providersByCode) {
 
 	let changed = false;
 	for (const record of records) {
+		if (String(record.capability || '').toLowerCase() === 'image') continue;
 		const modelId = normalizeGeminiModelId(record.model_id);
 		if (!isRetiredGeminiModel(modelId)) continue;
 		if (record.status === 'deprecated' && record.enabled === false && !record.is_default) continue;
@@ -231,6 +234,28 @@ async function ensureGeminiModelsCurrent(providersByCode) {
 		&& !isRetiredGeminiModel(item.model_id)
 	));
 
+	const usableImage = refreshed.filter((item) => (
+		item.capability === 'image'
+		&& item.enabled !== false
+		&& item.status !== 'disabled'
+		&& item.status !== 'deprecated'
+	));
+	const hasImageDefault = usableImage.some((item) => item.is_default);
+	if (!hasImageDefault && usableImage.length > 0) {
+		const preferredImage = usableImage.find((item) => (
+			normalizeGeminiModelId(item.model_id) === GEMINI_STABLE_IMAGE_FALLBACK_MODEL
+		)) || usableImage[0];
+		if (preferredImage) {
+			await clearDefaultForCapability('image', geminiProvider.id);
+			await pocketbaseClient.collection('ai_models').update(preferredImage.id, {
+				is_default: true,
+				enabled: true,
+				status: 'enabled',
+			});
+			changed = true;
+		}
+	}
+
 	const hasDefault = usable.some((item) => item.is_default);
 	if (!hasDefault) {
 		const preferred = usable.find((item) => normalizeGeminiModelId(item.model_id) === GEMINI_STABLE_FALLBACK_MODEL)
@@ -257,9 +282,49 @@ async function ensureGeminiModelsCurrent(providersByCode) {
 		bumpWorkspaceConfigVersion('gemini_model_catalog_refresh');
 		logger.info('[ai-models] Refreshed Gemini Admin model catalog', {
 			stableFallback: GEMINI_STABLE_FALLBACK_MODEL,
+			stableImageFallback: GEMINI_STABLE_IMAGE_FALLBACK_MODEL,
 			usableCount: usable.length,
+			usableImageCount: usableImage.length,
 		});
 	}
+}
+
+/**
+ * Ensure existing Gemini Admin provider rows advertise image generation (scopes + models list).
+ */
+async function ensureGeminiProviderImageCapable(providersByCode) {
+	const geminiProvider = providersByCode?.gemini;
+	if (!geminiProvider?.id) return;
+
+	const record = await pocketbaseClient.collection('ai_providers').getOne(geminiProvider.id).catch(() => null);
+	if (!record) return;
+
+	const scopes = String(record.scopes || '');
+	const models = Array.isArray(record.models) ? record.models.map(String) : [];
+	const updates = {};
+
+	if (!/\bimages?\b/i.test(scopes)) {
+		updates.scopes = scopes ? `${scopes},images` : 'generateContent,images';
+	}
+
+	const requiredModels = [GEMINI_STABLE_IMAGE_FALLBACK_MODEL, 'gemini-3-pro-image-preview'];
+	const nextModels = [...models];
+	for (const modelId of requiredModels) {
+		if (!nextModels.includes(modelId)) nextModels.push(modelId);
+	}
+	if (nextModels.length !== models.length) {
+		updates.models = nextModels;
+	}
+
+	if (Object.keys(updates).length === 0) return;
+
+	await pocketbaseClient.collection('ai_providers').update(record.id, updates).catch(() => null);
+	bumpWorkspaceConfigVersion('gemini_provider_image_capable');
+	logger.info('[ai-models] Enabled Gemini provider image scopes', {
+		providerId: record.id,
+		scopes: updates.scopes || scopes,
+		models: updates.models || models,
+	});
 }
 
 /**
@@ -309,6 +374,72 @@ export async function resolveTextModelIdForProvider(providerCode, options = {}) 
 
 	if (code === 'gemini') {
 		return { modelId: GEMINI_STABLE_FALLBACK_MODEL, source: 'stable_fallback' };
+	}
+
+	return { modelId: '', source: 'none' };
+}
+
+/**
+ * Resolve the image model id for a provider from Admin AI Models (source of truth).
+ *
+ * @param {string} providerCode
+ * @param {{ preferredModelId?: string }} [options]
+ * @returns {Promise<{ modelId: string, source: string }>}
+ */
+export async function resolveImageModelIdForProvider(providerCode, options = {}) {
+	const code = String(providerCode || '').trim().toLowerCase();
+	const lookupCode = code === 'flux' ? 'fal' : code;
+	await ensureModelCatalogSeeded();
+
+	const preferredRaw = String(options.preferredModelId || '').trim();
+	const preferredModelId = lookupCode === 'gemini'
+		? normalizeGeminiModelId(preferredRaw)
+		: preferredRaw;
+	const { items } = await listModels({ provider: lookupCode, capability: 'image' });
+	const usable = items.filter((item) => (
+		item.enabled
+		&& item.status !== 'deprecated'
+		&& item.status !== 'disabled'
+	));
+
+	if (preferredModelId) {
+		const preferred = usable.find((item) => (
+			String(item.modelId || '') === preferredModelId
+			|| normalizeGeminiModelId(item.modelId) === preferredModelId
+			|| String(item.name || '').toLowerCase() === preferredModelId.toLowerCase()
+			|| String(item.displayName || '').toLowerCase() === preferredModelId.toLowerCase()
+		));
+		if (preferred?.modelId) {
+			return {
+				modelId: lookupCode === 'gemini'
+					? normalizeGeminiModelId(preferred.modelId)
+					: preferred.modelId,
+				source: 'admin_models_preferred',
+			};
+		}
+	}
+
+	const defaultModel = usable.find((item) => item.isDefault);
+	if (defaultModel?.modelId) {
+		return {
+			modelId: lookupCode === 'gemini'
+				? normalizeGeminiModelId(defaultModel.modelId)
+				: defaultModel.modelId,
+			source: 'admin_models_default',
+		};
+	}
+
+	if (usable[0]?.modelId) {
+		return {
+			modelId: lookupCode === 'gemini'
+				? normalizeGeminiModelId(usable[0].modelId)
+				: usable[0].modelId,
+			source: 'admin_models_first',
+		};
+	}
+
+	if (lookupCode === 'gemini') {
+		return { modelId: GEMINI_STABLE_IMAGE_FALLBACK_MODEL, source: 'stable_fallback' };
 	}
 
 	return { modelId: '', source: 'none' };

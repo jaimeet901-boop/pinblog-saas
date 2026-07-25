@@ -215,6 +215,7 @@ export async function buildWorkspaceConfig(req) {
 		imageProviderCodes.size === 0
 		|| imageProviderCodes.has(item.code)
 		|| String(item.code || '').toLowerCase().includes('fal')
+		|| String(item.code || '').toLowerCase() === 'gemini'
 	));
 
 	const templates = (templatesResult.items || []).map((item) => withProvenance({

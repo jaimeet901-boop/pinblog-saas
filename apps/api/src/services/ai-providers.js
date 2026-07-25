@@ -271,7 +271,7 @@ export async function assertTextProviderConfigured() {
 	throw error;
 }
 
-/** Backend gate for AI image jobs (Fal / OpenAI Images). */
+/** Backend gate for AI image jobs (Fal / OpenAI Images / Gemini Image). */
 export async function assertImageProviderConfigured(providerCode = '') {
 	const providers = await listProviders().catch(() => []);
 	let code = String(providerCode || '').trim().toLowerCase();
@@ -285,6 +285,7 @@ export async function assertImageProviderConfigured(providerCode = '') {
 	}
 
 	if (code === 'flux') code = 'fal';
+	if (code === 'google' || code === 'google gemini') code = 'gemini';
 
 	const provider = providers.find((item) => String(item.code || '').toLowerCase() === code);
 	if (provider && isProviderConfigured(provider)) {
@@ -295,7 +296,7 @@ export async function assertImageProviderConfigured(providerCode = '') {
 	const error = new Error(
 		provider && !provider.enabled
 			? `Image provider ${label} is disabled. Enable it in Admin Settings.`
-			: `No image AI provider configured. Enable an image provider (e.g. Fal.ai) in Admin Settings.`,
+			: `No image AI provider configured. Enable an image provider (e.g. Fal.ai or Google Gemini) in Admin Settings.`,
 	);
 	error.status = 400;
 	error.errorCode = 'AI_IMAGE_PROVIDER_NOT_CONFIGURED';
