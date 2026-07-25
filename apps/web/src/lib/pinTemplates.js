@@ -1,10 +1,21 @@
+import { applyVariablesToString } from './pinVariableRegistry.js';
+
 export const PINTEREST_CANVAS_PRESETS = [
 	{ label: 'Pinterest Standard 1000x1500', width: 1000, height: 1500 },
 	{ label: 'Pinterest Tall 1000x2100', width: 1000, height: 2100 },
 	{ label: 'Pinterest Story 1080x1920', width: 1080, height: 1920 },
 ];
 
-export const TEMPLATE_VARIABLES = ['{{title}}', '{{description}}', '{{category}}', '{{website}}', '{{author}}'];
+export const TEMPLATE_VARIABLES = [
+	'{{title}}',
+	'{{description}}',
+	'{{category}}',
+	'{{website}}',
+	'{{author}}',
+	'{{post.title}}',
+	'{{recipe.prep_time}}',
+	'{{brand.logo}}',
+];
 
 export const TEXT_POSITIONS = [
 	{ id: 'top', label: 'Top' },
@@ -159,7 +170,22 @@ function normalizeOverlayStyle(value, fallback = 'gradient') {
 	return fallback;
 }
 
+/**
+ * Detect v2 layer documents without importing the compositor (avoids cycles).
+ * Keep in sync with pinLayerSchema.isV2Document.
+ */
+export function isV2TemplateConfig(inputConfig) {
+	if (!inputConfig || typeof inputConfig !== 'object') return false;
+	const editorVersion = Number(inputConfig.editorVersion ?? inputConfig.editor_version);
+	return editorVersion === 2 && Array.isArray(inputConfig.layers);
+}
+
 export function normalizeTemplateConfig(inputConfig) {
+	// Passthrough v2 layer docs — do not strip layers into procedural defaults.
+	if (isV2TemplateConfig(inputConfig)) {
+		return inputConfig;
+	}
+
 	const base = createDefaultTemplateConfig();
 	const input = inputConfig && typeof inputConfig === 'object' ? inputConfig : {};
 	const layoutInput = input.layout && typeof input.layout === 'object' ? input.layout : {};
@@ -286,13 +312,8 @@ export function normalizeTemplateConfig(inputConfig) {
 }
 
 export function applyTemplateVariables(value, context) {
-	const raw = String(value || '');
-	return raw
-		.replaceAll('{{title}}', context.title || '')
-		.replaceAll('{{description}}', context.description || '')
-		.replaceAll('{{category}}', context.category || '')
-		.replaceAll('{{website}}', context.website || '')
-		.replaceAll('{{author}}', context.author || '');
+	// Variable Engine only — no hardcoded token list in this helper.
+	return applyVariablesToString(value, context || {}, { replaceUnknown: 'empty' });
 }
 
 export function resolveTitleBand(config) {
@@ -336,6 +357,10 @@ function luminance(hexColor) {
  * and minimum readability when the frame itself does not provide contrast.
  */
 export function resolveFeaturedTemplateConfig(inputConfig) {
+	if (isV2TemplateConfig(inputConfig)) {
+		return inputConfig;
+	}
+
 	const normalized = normalizeTemplateConfig(inputConfig);
 	const frame = normalized.layout.frameStyle || 'none';
 	const hasFramedContrast = ['darkBox', 'whiteCard', 'softCard', 'glassCard', 'ribbon', 'bannerStrip', 'polaroid', 'insetFrame'].includes(frame);
@@ -376,6 +401,16 @@ export function resolveFeaturedTemplateConfig(inputConfig) {
 }
 
 export function createTemplateThumbnail(config) {
+	if (isV2TemplateConfig(config)) {
+		const bg = Array.isArray(config.layers)
+			? config.layers.find((layer) => layer?.type === 'background')
+			: null;
+		const color = encodeURIComponent(bg?.props?.color || '#111111');
+		const text = encodeURIComponent('Pin Title');
+		const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450"><rect width="300" height="450" fill="${color}"/><text x="150" y="270" text-anchor="middle" fill="#FFFFFF" font-family="Georgia, serif" font-size="28" font-weight="800">${text}</text></svg>`;
+		return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+	}
+
 	const safeConfig = normalizeTemplateConfig(config);
 	const color = encodeURIComponent(safeConfig.background.color || '#111111');
 	const text = encodeURIComponent('Pin Title');

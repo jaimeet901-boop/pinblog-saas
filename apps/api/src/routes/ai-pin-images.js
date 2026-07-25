@@ -332,6 +332,8 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			imagePrompt ? `Creative direction: ${imagePrompt}` : '',
 		].filter(Boolean).join('\n'), provider);
 
+		const generationRunId = normalizeString(rawItem?.generationRunId || rawItem?.generation_run_id || '', 'generationRunId', { max: 80 });
+
 		const promptPayload = {
 			articleTitle: article.title || '',
 			metaDescription: article.meta_description || '',
@@ -343,6 +345,7 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			imagePrompt,
 			provider,
 			requestedProvider: requestedProvider || provider,
+			...(generationRunId ? { generationRunId } : {}),
 		};
 
 		const createPayload = await sanitizeCollectionPayload({

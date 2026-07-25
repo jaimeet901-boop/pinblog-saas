@@ -106,6 +106,24 @@ async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' 
 			image_job_id: job.id,
 		}).catch(() => null);
 	}
+
+	// Module 7: advance linked pin-generation run (templates untouched).
+	const promptPayload = readJobPromptPayload(job);
+	const generationRunId = promptPayload.generationRunId || promptPayload.generation_run_id || '';
+	if (generationRunId) {
+		const { onImageJobFinishedForRun } = await import('./pin-generation.js');
+		await onImageJobFinishedForRun({
+			runId: generationRunId,
+			status,
+			imageUrl,
+			lastError,
+		}).catch((err) => {
+			logger.warn('[ai-image-queue] generation run notify failed', {
+				runId: generationRunId,
+				error: err?.message,
+			});
+		});
+	}
 }
 
 const IMAGE_PROVIDER_MARKER_RE = /\[pinblog_image_provider:([a-z0-9_-]+)\]/i;

@@ -1,740 +1,177 @@
-import { useEffect, useMemo, useState } from 'react';
-import {
-	Copy, Plus, Save, Star, Trash2, Search, ChevronDown, LayoutTemplate,
-	Type, Palette, Image as ImageIcon, Layers, MapPin, Sparkles, SlidersHorizontal,
-	Maximize2, Ratio,
-} from 'lucide-react';
-import apiServerClient from '@/lib/apiServerClient';
-import { Badge, Button, Input, Select, Spinner } from '@/components/kit';
+import { useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { createEmptyLayerDocument } from '@/lib/pinLayerSchema';
+import { createTemplateUuid, hashTemplateConfiguration } from '@/lib/pinTemplateIdentity';
+import { createTemplateThumbnail } from '@/lib/pinTemplates';
 import { useToast } from '@/hooks/use-toast';
-import TemplatePreviewCard from '@/components/ai-pins/TemplatePreviewCard';
+import TemplateGallery from '@/components/templates/gallery/TemplateGallery';
 import {
-	createDefaultTemplateConfig,
-	createTemplateThumbnail,
-	normalizeTemplateConfig,
-	PINTEREST_CANVAS_PRESETS,
-	TEMPLATE_VARIABLES,
-	TEXT_POSITIONS,
-	OVERLAY_STYLES,
-	HEADING_FONT_PRESETS,
-	SCRIPT_FONT_PRESETS,
-} from '@/lib/pinTemplates';
+	galleryApi,
+	loadGalleryFirstPage,
+	patchGalleryItem,
+	removeGalleryItems,
+	resetGalleryStore,
+} from '@/services/templates/galleryStore';
 import './TemplatesPage.css';
 
-const SECTIONS = [
-	{ id: 'canvas', label: 'Canvas', icon: Ratio },
-	{ id: 'layout', label: 'Pin Layout', icon: Maximize2 },
-	{ id: 'typography', label: 'Typography', icon: Type },
-	{ id: 'colors', label: 'Colors', icon: Palette },
-	{ id: 'background', label: 'Background', icon: ImageIcon },
-	{ id: 'overlay', label: 'Readability Overlay', icon: Layers },
-	{ id: 'decorations', label: 'Decorations', icon: Sparkles },
-	{ id: 'logo', label: 'Brand Bar', icon: LayoutTemplate },
-	{ id: 'positioning', label: 'Legacy Positions', icon: MapPin },
-	{ id: 'effects', label: 'CTA Style', icon: Sparkles },
-	{ id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
-];
-
-function mapTemplate(record) {
-	return {
-		id: record.id,
-		name: record.name,
-		thumbnail: record.thumbnail || '',
-		configuration: normalizeTemplateConfig(record.configuration || {}),
-		isDefault: Boolean(record.isDefault ?? record.is_default),
-		createdAt: record.createdAt || record.created,
-		updatedAt: record.updatedAt || record.updated,
-	};
-}
-
-function Section({ id, open, onToggle, children }) {
-	const meta = SECTIONS.find((item) => item.id === id);
-	const Icon = meta?.icon || SlidersHorizontal;
-	return (
-		<div className="tpl-section">
-			<button type="button" className="tpl-section__head" onClick={() => onToggle(id)} aria-expanded={open}>
-				<span className="inline-flex items-center gap-2">
-					<span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
-						<Icon size={14} />
-					</span>
-					{meta?.label || id}
-				</span>
-				<ChevronDown size={16} className={`text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
-			</button>
-			{open ? <div className="tpl-section__body">{children}</div> : null}
-		</div>
-	);
-}
-
-function FieldHint({ children }) {
-	return <p className="text-[11px] text-muted-foreground">{children}</p>;
+function downloadJson(filename, data) {
+	const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+	const url = URL.createObjectURL(blob);
+	const anchor = document.createElement('a');
+	anchor.href = url;
+	anchor.download = filename;
+	anchor.click();
+	URL.revokeObjectURL(url);
 }
 
 export default function TemplatesPage() {
+	const navigate = useNavigate();
 	const { toast } = useToast();
-	const [loading, setLoading] = useState(true);
-	const [saving, setSaving] = useState(false);
-	const [templates, setTemplates] = useState([]);
-	const [selectedTemplateId, setSelectedTemplateId] = useState('');
-	const [draftName, setDraftName] = useState('New Template');
-	const [draftConfig, setDraftConfig] = useState(createDefaultTemplateConfig());
-	const [isDefault, setIsDefault] = useState(false);
-	const [search, setSearch] = useState('');
-	const [previewZoom, setPreviewZoom] = useState('fit');
-	const [openSections, setOpenSections] = useState({
-		canvas: true,
-		layout: true,
-		typography: true,
-		colors: false,
-		background: false,
-		overlay: true,
-		decorations: true,
-		logo: false,
-		positioning: false,
-		effects: false,
-		advanced: false,
-	});
-
-	const selectedTemplate = useMemo(
-		() => templates.find((template) => template.id === selectedTemplateId) || null,
-		[templates, selectedTemplateId],
-	);
-
-	const filteredTemplates = useMemo(() => {
-		const query = search.trim().toLowerCase();
-		if (!query) return templates;
-		return templates.filter((template) => template.name.toLowerCase().includes(query));
-	}, [templates, search]);
-
-	const isDirty = useMemo(() => {
-		if (!selectedTemplate) {
-			const blank = createDefaultTemplateConfig();
-			return draftName !== 'New Template'
-				|| isDefault
-				|| JSON.stringify(normalizeTemplateConfig(draftConfig)) !== JSON.stringify(blank);
-		}
-		return draftName !== selectedTemplate.name
-			|| Boolean(isDefault) !== Boolean(selectedTemplate.isDefault)
-			|| JSON.stringify(normalizeTemplateConfig(draftConfig)) !== JSON.stringify(normalizeTemplateConfig(selectedTemplate.configuration));
-	}, [selectedTemplate, draftName, draftConfig, isDefault]);
-
-	const loadTemplates = async () => {
-		setLoading(true);
-		try {
-			const response = await apiServerClient.fetch('/workspace/v1/templates?category=pin', { method: 'GET' });
-			const payload = await response.json().catch(() => ({}));
-			if (!response.ok) {
-				throw new Error(payload.message || 'Failed to load templates');
-			}
-			const mapped = (payload.items || [])
-				.filter((item) => item.source !== 'templates')
-				.map(mapTemplate);
-			setTemplates(mapped);
-			if (mapped.length > 0) {
-				const preferred = mapped.find((template) => template.isDefault) || mapped[0];
-				setSelectedTemplateId(preferred.id);
-				setDraftName(preferred.name);
-				setDraftConfig(normalizeTemplateConfig(preferred.configuration));
-				setIsDefault(Boolean(preferred.isDefault));
-			}
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Error', description: error.message });
-		} finally {
-			setLoading(false);
-		}
-	};
 
 	useEffect(() => {
-		loadTemplates();
+		loadGalleryFirstPage();
+		return () => resetGalleryStore();
 	}, []);
 
-	const handleCreateNew = () => {
-		setSelectedTemplateId('');
-		setDraftName('New Template');
-		setDraftConfig(createDefaultTemplateConfig());
-		setIsDefault(false);
-	};
-
-	const handleSelectTemplate = (templateId) => {
-		const template = templates.find((item) => item.id === templateId);
-		if (!template) {
-			return;
-		}
-		setSelectedTemplateId(template.id);
-		setDraftName(template.name);
-		setDraftConfig(normalizeTemplateConfig(template.configuration));
-		setIsDefault(Boolean(template.isDefault));
-	};
-
-	const updatePath = (path, value) => {
-		setDraftConfig((prev) => {
-			const next = structuredClone(prev);
-			let cursor = next;
-			for (let i = 0; i < path.length - 1; i += 1) {
-				cursor = cursor[path[i]];
-			}
-			cursor[path[path.length - 1]] = value;
-			return normalizeTemplateConfig(next);
-		});
-	};
-
-	const toggleSection = (id) => {
-		setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
-	};
-
-	const saveTemplate = async () => {
-		if (!draftName.trim()) {
-			toast({ variant: 'destructive', title: 'Name required', description: 'Please enter a template name.' });
-			return;
-		}
-
-		setSaving(true);
+	async function handleCreate() {
 		try {
-			const payload = {
-				name: draftName.trim(),
-				thumbnail: createTemplateThumbnail(draftConfig),
-				configuration: normalizeTemplateConfig(draftConfig),
-				isDefault,
-				category: 'pin',
-			};
-
-			if (selectedTemplateId) {
-				const response = await apiServerClient.fetch(`/workspace/v1/templates/${selectedTemplateId}`, {
-					method: 'PATCH',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(payload),
-				});
-				const body = await response.json().catch(() => ({}));
-				if (!response.ok) throw new Error(body.message || 'Save failed');
-				toast({ title: 'Template updated', description: 'Your template was saved successfully.' });
-			} else {
-				const response = await apiServerClient.fetch('/workspace/v1/templates', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(payload),
-				});
-				const body = await response.json().catch(() => ({}));
-				if (!response.ok) throw new Error(body.message || 'Create failed');
-				setSelectedTemplateId(body.id);
-				toast({ title: 'Template created', description: 'A new pin template has been created.' });
-			}
-
-			await loadTemplates();
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Save failed', description: error.message });
-		} finally {
-			setSaving(false);
-		}
-	};
-
-	const duplicateTemplate = async (template) => {
-		try {
-			const response = await apiServerClient.fetch(`/workspace/v1/templates/${template.id}/duplicate`, {
-				method: 'POST',
+			const document = createEmptyLayerDocument({ category: 'general' });
+			const checksum = await hashTemplateConfiguration(document);
+			const created = await galleryApi.createGalleryTemplate({
+				name: 'Untitled template',
+				configuration: document,
+				thumbnail: createTemplateThumbnail(document),
+				template_uuid: createTemplateUuid(),
+				config_checksum: checksum,
+				editor_version: 2,
+				schema_version: document.schemaVersion,
+				status: 'draft',
+				visibility: 'private',
+				category: 'general',
 			});
-			const body = await response.json().catch(() => ({}));
-			if (!response.ok) throw new Error(body.message || 'Duplicate failed');
-			toast({ title: 'Template duplicated' });
-			await loadTemplates();
+			const id = created.id || created.item?.id;
+			toast({ title: 'Template created' });
+			if (id) navigate(`/app/ai-pins/templates/${id}/edit`);
+			else loadGalleryFirstPage();
 		} catch (error) {
-			toast({ variant: 'destructive', title: 'Duplicate failed', description: error.message });
+			toast({ title: 'Create failed', description: error.message, variant: 'destructive' });
 		}
-	};
+	}
 
-	const deleteTemplate = async (template) => {
+	async function handleFavorite(template) {
 		try {
-			const response = await apiServerClient.fetch(`/workspace/v1/templates/${template.id}`, {
-				method: 'DELETE',
-			});
-			const body = await response.json().catch(() => ({}));
-			if (!response.ok) throw new Error(body.message || 'Delete failed');
-			toast({ title: 'Template deleted' });
-			if (selectedTemplateId === template.id) {
-				handleCreateNew();
+			const result = await galleryApi.favoriteTemplate(template.id);
+			patchGalleryItem(template.id, { isFavorite: result.isFavorite });
+		} catch (error) {
+			toast({ title: 'Favorite failed', description: error.message, variant: 'destructive' });
+		}
+	}
+
+	async function handleDuplicate(template) {
+		try {
+			await galleryApi.duplicateTemplate(template.id);
+			toast({ title: 'Duplicated' });
+			loadGalleryFirstPage();
+		} catch (error) {
+			toast({ title: 'Duplicate failed', description: error.message, variant: 'destructive' });
+		}
+	}
+
+	async function handleDelete(template) {
+		if (!window.confirm(`Delete “${template.name}”?`)) return;
+		try {
+			await galleryApi.deleteTemplate(template.id);
+			removeGalleryItems([template.id]);
+			toast({ title: 'Deleted' });
+		} catch (error) {
+			toast({ title: 'Delete failed', description: error.message, variant: 'destructive' });
+		}
+	}
+
+	async function handleArchive(template) {
+		try {
+			const next = template.status === 'archived' ? 'draft' : 'archived';
+			await galleryApi.setTemplateStatus(template.id, next);
+			patchGalleryItem(template.id, { status: next });
+			toast({ title: next === 'archived' ? 'Archived' : 'Restored' });
+		} catch (error) {
+			toast({ title: 'Status failed', description: error.message, variant: 'destructive' });
+		}
+	}
+
+	async function handleExport(template) {
+		try {
+			const pack = await galleryApi.exportTemplate(template.id);
+			downloadJson(`${template.name || 'template'}.pinblog.json`, pack);
+			toast({ title: 'Exported' });
+		} catch (error) {
+			toast({ title: 'Export failed', description: error.message, variant: 'destructive' });
+		}
+	}
+
+	async function handleRename(template) {
+		const name = window.prompt('Rename template', template.name);
+		if (!name || name === template.name) return;
+		try {
+			await galleryApi.renameTemplate(template.id, name.trim());
+			patchGalleryItem(template.id, { name: name.trim() });
+			toast({ title: 'Renamed' });
+		} catch (error) {
+			toast({ title: 'Rename failed', description: error.message, variant: 'destructive' });
+		}
+	}
+
+	async function handleTouch(template) {
+		try {
+			await galleryApi.touchTemplate(template.id);
+		} catch {
+			// non-blocking
+		}
+	}
+
+	async function handleBulk(action, ids) {
+		if (action === 'delete' || action === 'archive') {
+			const label = action === 'delete' ? 'delete' : 'archive';
+			if (!window.confirm(`${label[0].toUpperCase()}${label.slice(1)} ${ids.length} template(s)?`)) {
+				return;
 			}
-			await loadTemplates();
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Delete failed', description: error.message });
 		}
-	};
-
-	const setDefaultTemplate = async (template) => {
 		try {
-			const response = await apiServerClient.fetch(`/workspace/v1/templates/${template.id}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ isDefault: true }),
-			});
-			const body = await response.json().catch(() => ({}));
-			if (!response.ok) throw new Error(body.message || 'Failed');
-			toast({ title: 'Default template updated' });
-			await loadTemplates();
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Failed', description: error.message });
-		}
-	};
-
-	useEffect(() => {
-		const onKeyDown = (event) => {
-			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-				event.preventDefault();
-				if (!saving) {
-					saveTemplate();
+			const result = await galleryApi.bulkTemplateAction(action, ids);
+			if (action === 'export') {
+				for (const row of result.results || []) {
+					if (row.ok && row.package) {
+						downloadJson(`${row.id}.pinblog.json`, row.package);
+					}
 				}
 			}
-		};
-		window.addEventListener('keydown', onKeyDown);
-		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [saving, selectedTemplateId, draftName, draftConfig, isDefault]);
+			toast({ title: `Bulk ${action} complete` });
+			loadGalleryFirstPage();
+		} catch (error) {
+			toast({ title: 'Bulk action failed', description: error.message, variant: 'destructive' });
+		}
+	}
 
 	return (
-		<div className="tpl-atelier">
-			<div className="mb-4">
-				<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
-				<h1 className="font-display text-3xl font-semibold tracking-tight">Pin Templates</h1>
-				<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-					Organize reusable pin layouts for AI Pins — edit once, apply everywhere, preview as you go.
-				</p>
+		<div className="tpl-gallery-page">
+			<div className="tpl-gallery-page__links">
+				<Link to="/app/ai-pins/templates/classic" title="Legacy procedural atelier (read-only maintenance)">
+					Classic atelier (legacy)
+				</Link>
+				<span>·</span>
+				<Link to="/app/ai-pins/templates/new/edit">Blank layer editor</Link>
 			</div>
-
-			<div className="tpl-atelier__actions">
-				<div className="flex flex-wrap items-center gap-2">
-					<span className="text-sm font-medium">{selectedTemplate ? selectedTemplate.name : 'New template'}</span>
-					{isDirty ? (
-						<span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
-							Unsaved changes
-						</span>
-					) : (
-						<span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] text-muted-foreground">Saved</span>
-					)}
-					<span className="hidden text-[11px] text-muted-foreground sm:inline">Ctrl+S to save</span>
-				</div>
-				<div className="flex flex-wrap gap-2">
-					<Button size="sm" onClick={saveTemplate} disabled={saving}>
-						{saving ? <Spinner className="h-4 w-4" /> : <Save size={14} />}
-						Save Template
-					</Button>
-					<Button
-						size="sm"
-						variant="outline"
-						disabled={!selectedTemplate}
-						onClick={() => selectedTemplate && duplicateTemplate(selectedTemplate)}
-					>
-						<Copy size={14} /> Duplicate
-					</Button>
-					<Button
-						size="sm"
-						variant="outline"
-						disabled={!selectedTemplate}
-						onClick={() => selectedTemplate && setDefaultTemplate(selectedTemplate)}
-					>
-						<Star size={14} /> Set as Default
-					</Button>
-					<Button
-						size="sm"
-						variant="ghost"
-						disabled={!selectedTemplate}
-						onClick={() => selectedTemplate && deleteTemplate(selectedTemplate)}
-					>
-						<Trash2 size={14} /> Delete
-					</Button>
-				</div>
-			</div>
-
-			{loading ? (
-				<div className="tpl-atelier__shell">
-					<div className="tpl-atelier__list space-y-3 p-4">
-						{[0, 1, 2, 3].map((item) => <div key={item} className="tpl-skeleton" />)}
-					</div>
-					<div className="tpl-atelier__editor space-y-3 p-4">
-						{[0, 1, 2].map((item) => <div key={item} className="tpl-skeleton" style={{ height: '6rem' }} />)}
-					</div>
-					<div className="tpl-atelier__preview p-4">
-						<div className="tpl-skeleton" style={{ height: '22rem' }} />
-					</div>
-				</div>
-			) : (
-				<div className="tpl-atelier__shell">
-					<aside className="tpl-atelier__list p-4">
-						<div className="mb-3 flex items-center justify-between gap-2">
-							<div>
-								<h2 className="font-display text-lg font-semibold">Templates</h2>
-								<p className="text-[11px] text-muted-foreground">{templates.length} saved</p>
-							</div>
-							<Button size="sm" onClick={handleCreateNew}><Plus size={14} /> New</Button>
-						</div>
-
-						<div className="relative mb-3">
-							<Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-							<input
-								className="w-full rounded-xl border border-input bg-background py-2.5 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring/20"
-								placeholder="Search templates…"
-								value={search}
-								onChange={(e) => setSearch(e.target.value)}
-							/>
-						</div>
-
-						{filteredTemplates.length === 0 ? (
-							<div className="rounded-2xl border border-dashed border-border bg-background/50 px-4 py-10 text-center">
-								<div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-									<LayoutTemplate size={22} />
-								</div>
-								<p className="font-medium">{templates.length === 0 ? 'No templates yet' : 'No matches'}</p>
-								<p className="mt-1 text-xs text-muted-foreground">
-									{templates.length === 0
-										? 'Create your first pin template to standardize AI Pins layouts.'
-										: 'Try another search term.'}
-								</p>
-								{templates.length === 0 ? (
-									<Button size="sm" className="mt-4" onClick={handleCreateNew}><Plus size={14} /> New Template</Button>
-								) : null}
-							</div>
-						) : (
-							<div className="space-y-2">
-								{!selectedTemplateId ? (
-									<div className="tpl-card is-selected">
-										<p className="text-sm font-semibold">New Template</p>
-										<p className="mt-1 text-[11px] text-muted-foreground">Draft — not saved yet</p>
-									</div>
-								) : null}
-								{filteredTemplates.map((template) => (
-									<button
-										key={template.id}
-										type="button"
-										className={`tpl-card ${selectedTemplateId === template.id ? 'is-selected' : ''}`}
-										onClick={() => handleSelectTemplate(template.id)}
-									>
-										<div className="flex gap-3">
-											<div className="tpl-card__thumb">
-												{template.thumbnail ? (
-													<img src={template.thumbnail} alt="" loading="lazy" />
-												) : (
-													<div className="flex h-full items-center justify-center text-[10px] text-muted-foreground">N/A</div>
-												)}
-											</div>
-											<div className="min-w-0 flex-1">
-												<div className="flex items-start justify-between gap-2">
-													<p className="truncate text-sm font-semibold">{template.name}</p>
-													{template.isDefault ? <Badge tone="green">Default</Badge> : null}
-												</div>
-												<p className="mt-1 text-[11px] text-muted-foreground">
-													Updated {new Date(template.updatedAt).toLocaleDateString()}
-												</p>
-												<p className="mt-1 text-[10px] text-muted-foreground">
-													{template.configuration.canvas.width}×{template.configuration.canvas.height}
-												</p>
-											</div>
-										</div>
-									</button>
-								))}
-							</div>
-						)}
-					</aside>
-
-					<section className="tpl-atelier__editor p-4 sm:p-5">
-						<div className="mb-4 space-y-3">
-							<Input label="Template name" value={draftName} onChange={(e) => setDraftName(e.target.value)} />
-							<label className="tpl-switch">
-								<input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
-								Set as default template for AI Pins
-							</label>
-						</div>
-
-						<div className="space-y-3">
-							<Section id="canvas" open={openSections.canvas} onToggle={toggleSection}>
-								<Select
-									label="Canvas size"
-									value={`${draftConfig.canvas.width}x${draftConfig.canvas.height}`}
-									onChange={(e) => {
-										const [width, height] = e.target.value.split('x').map((value) => Number(value));
-										updatePath(['canvas', 'width'], width);
-										updatePath(['canvas', 'height'], height);
-									}}
-								>
-									{PINTEREST_CANVAS_PRESETS.map((preset) => (
-										<option key={`${preset.width}x${preset.height}`} value={`${preset.width}x${preset.height}`}>
-											{preset.label}
-										</option>
-									))}
-								</Select>
-								<FieldHint>Featured Image pins default to 1000×1500 (Pinterest 2:3).</FieldHint>
-							</Section>
-
-							<Section id="layout" open={openSections.layout} onToggle={toggleSection}>
-								<p className="mb-1.5 text-sm font-medium">Title position</p>
-								<div className="mb-3 grid grid-cols-3 gap-2">
-									{TEXT_POSITIONS.map((item) => (
-										<button
-											key={item.id}
-											type="button"
-											className={`rounded-xl border px-2 py-2 text-xs font-semibold ${draftConfig.layout.textPosition === item.id ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
-											onClick={() => updatePath(['layout', 'textPosition'], item.id)}
-										>
-											{item.label}
-										</button>
-									))}
-								</div>
-								<Select label="Text align" value={draftConfig.layout.textAlign} onChange={(e) => updatePath(['layout', 'textAlign'], e.target.value)}>
-									<option value="center">Center</option>
-									<option value="left">Left</option>
-									<option value="right">Right</option>
-								</Select>
-								<label className="block">
-									<span className="mb-1.5 block text-sm font-medium">Safe margin ({draftConfig.layout.safeMargin}px)</span>
-									<input className="tpl-range" type="range" min="40" max="140" value={draftConfig.layout.safeMargin} onChange={(e) => updatePath(['layout', 'safeMargin'], Number(e.target.value))} />
-								</label>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.layout.showDescription} onChange={(e) => updatePath(['layout', 'showDescription'], e.target.checked)} />
-									Show description under title
-								</label>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.layout.showCta} onChange={(e) => updatePath(['layout', 'showCta'], e.target.checked)} />
-									Show CTA label
-								</label>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.layout.showBrandBar} onChange={(e) => updatePath(['layout', 'showBrandBar'], e.target.checked)} />
-									Show logo + domain brand bar
-								</label>
-							</Section>
-
-							<Section id="typography" open={openSections.typography} onToggle={toggleSection}>
-								<Select
-									label="Heading font"
-									value={HEADING_FONT_PRESETS.find((item) => item.value === draftConfig.typography.fontFamily)?.id || 'custom'}
-									onChange={(e) => {
-										const preset = HEADING_FONT_PRESETS.find((item) => item.id === e.target.value);
-										if (preset) updatePath(['typography', 'fontFamily'], preset.value);
-									}}
-								>
-									{HEADING_FONT_PRESETS.map((preset) => (
-										<option key={preset.id} value={preset.id}>{preset.label}</option>
-									))}
-									<option value="custom">Custom (keep current)</option>
-								</Select>
-								<Input label="Font family" value={draftConfig.typography.fontFamily} onChange={(e) => updatePath(['typography', 'fontFamily'], e.target.value)} />
-								<div className="grid grid-cols-2 gap-3">
-									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Max size ({draftConfig.typography.fontSize})</span>
-										<input className="tpl-range" type="range" min="36" max="140" value={draftConfig.typography.fontSize} onChange={(e) => updatePath(['typography', 'fontSize'], Number(e.target.value))} />
-									</label>
-									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Min size ({draftConfig.typography.minFontSize})</span>
-										<input className="tpl-range" type="range" min="22" max="72" value={draftConfig.typography.minFontSize} onChange={(e) => updatePath(['typography', 'minFontSize'], Number(e.target.value))} />
-									</label>
-									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Weight ({draftConfig.typography.fontWeight})</span>
-										<input className="tpl-range" type="range" min="300" max="900" step="100" value={draftConfig.typography.fontWeight} onChange={(e) => updatePath(['typography', 'fontWeight'], Number(e.target.value))} />
-									</label>
-									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Line height ({draftConfig.typography.lineHeight})</span>
-										<input className="tpl-range" type="range" min="0.95" max="1.45" step="0.01" value={draftConfig.typography.lineHeight} onChange={(e) => updatePath(['typography', 'lineHeight'], Number(e.target.value))} />
-									</label>
-								</div>
-								<label className="block">
-									<span className="mb-1.5 block text-sm font-medium">Max title lines ({draftConfig.typography.maxLines})</span>
-									<input className="tpl-range" type="range" min="2" max="6" value={draftConfig.typography.maxLines} onChange={(e) => updatePath(['typography', 'maxLines'], Number(e.target.value))} />
-								</label>
-								<Input label="Text color" type="color" value={draftConfig.typography.textColor} onChange={(e) => updatePath(['typography', 'textColor'], e.target.value)} />
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.typography.textShadow} onChange={(e) => updatePath(['typography', 'textShadow'], e.target.checked)} />
-									Title text shadow
-								</label>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.typography.scriptEnabled} onChange={(e) => updatePath(['typography', 'scriptEnabled'], e.target.checked)} />
-									Script emphasis on last line
-								</label>
-								{draftConfig.typography.scriptEnabled ? (
-									<>
-										<Select
-											label="Script font"
-											value={SCRIPT_FONT_PRESETS.find((item) => item.value === draftConfig.typography.scriptFontFamily)?.id || 'custom'}
-											onChange={(e) => {
-												const preset = SCRIPT_FONT_PRESETS.find((item) => item.id === e.target.value);
-												if (preset) updatePath(['typography', 'scriptFontFamily'], preset.value);
-											}}
-										>
-											{SCRIPT_FONT_PRESETS.map((preset) => (
-												<option key={preset.id} value={preset.id}>{preset.label}</option>
-											))}
-										</Select>
-										<Input label="Script color" type="color" value={draftConfig.typography.scriptColor} onChange={(e) => updatePath(['typography', 'scriptColor'], e.target.value)} />
-									</>
-								) : null}
-								<FieldHint>Title size auto-shrinks to fit safe margins without overflow.</FieldHint>
-							</Section>
-
-							<Section id="colors" open={openSections.colors} onToggle={toggleSection}>
-								<div className="grid grid-cols-2 gap-3">
-									<Input label="Fallback color" type="color" value={draftConfig.background.color} onChange={(e) => updatePath(['background', 'color'], e.target.value)} />
-									<Input label="Title color" type="color" value={draftConfig.typography.textColor} onChange={(e) => updatePath(['typography', 'textColor'], e.target.value)} />
-									<Input label="Label background" type="color" value={draftConfig.buttonStyle.background} onChange={(e) => updatePath(['buttonStyle', 'background'], e.target.value)} />
-									<Input label="Label text" type="color" value={draftConfig.buttonStyle.textColor} onChange={(e) => updatePath(['buttonStyle', 'textColor'], e.target.value)} />
-									<Input label="Brush highlight" type="color" value={draftConfig.decorations.brushColor} onChange={(e) => updatePath(['decorations', 'brushColor'], e.target.value)} />
-									<Input label="Accent shapes" type="color" value={draftConfig.decorations.accentColor} onChange={(e) => updatePath(['decorations', 'accentColor'], e.target.value)} />
-								</div>
-							</Section>
-
-							<Section id="background" open={openSections.background} onToggle={toggleSection}>
-								<Input label="Fallback color" type="color" value={draftConfig.background.color} onChange={(e) => updatePath(['background', 'color'], e.target.value)} />
-								<Input label="Preview image URL" value={draftConfig.background.imageUrl} onChange={(e) => updatePath(['background', 'imageUrl'], e.target.value)} placeholder="https://..." />
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.placeholders.featuredImage} onChange={(e) => updatePath(['placeholders', 'featuredImage'], e.target.checked)} />
-									Use article featured image as full background
-								</label>
-								<FieldHint>Featured Image mode always fills the canvas with the article photo.</FieldHint>
-							</Section>
-
-							<Section id="overlay" open={openSections.overlay} onToggle={toggleSection}>
-								<Select label="Overlay style" value={draftConfig.textOverlay.style} onChange={(e) => updatePath(['textOverlay', 'style'], e.target.value)}>
-									{OVERLAY_STYLES.map((item) => (
-										<option key={item.id} value={item.id}>{item.label}</option>
-									))}
-								</Select>
-								<label className="block">
-									<span className="mb-1.5 block text-sm font-medium">Overlay intensity ({draftConfig.textOverlay.intensity})</span>
-									<input className="tpl-range" type="range" min="0" max="1" step="0.05" value={draftConfig.textOverlay.intensity} onChange={(e) => updatePath(['textOverlay', 'intensity'], Number(e.target.value))} />
-								</label>
-								<Input label="Overlay color" type="color" value={draftConfig.textOverlay.color} onChange={(e) => updatePath(['textOverlay', 'color'], e.target.value)} />
-								<FieldHint>Dark/gradient scrims sit behind the title so large type stays readable.</FieldHint>
-							</Section>
-
-							<Section id="decorations" open={openSections.decorations} onToggle={toggleSection}>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.decorations.brushHighlight} onChange={(e) => updatePath(['decorations', 'brushHighlight'], e.target.checked)} />
-									Brush highlight behind title
-								</label>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.decorations.roundedLabel} onChange={(e) => updatePath(['decorations', 'roundedLabel'], e.target.checked)} />
-									Rounded label (CTA / category)
-								</label>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.decorations.underline} onChange={(e) => updatePath(['decorations', 'underline'], e.target.checked)} />
-									Title underline
-								</label>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.decorations.accentShapes} onChange={(e) => updatePath(['decorations', 'accentShapes'], e.target.checked)} />
-									Accent shapes
-								</label>
-								{draftConfig.decorations.brushHighlight ? (
-									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Brush opacity ({draftConfig.decorations.brushOpacity})</span>
-										<input className="tpl-range" type="range" min="0.2" max="1" step="0.05" value={draftConfig.decorations.brushOpacity} onChange={(e) => updatePath(['decorations', 'brushOpacity'], Number(e.target.value))} />
-									</label>
-								) : null}
-								{draftConfig.decorations.underline ? (
-									<Input label="Underline color" type="color" value={draftConfig.decorations.underlineColor} onChange={(e) => updatePath(['decorations', 'underlineColor'], e.target.value)} />
-								) : null}
-							</Section>
-
-							<Section id="logo" open={openSections.logo} onToggle={toggleSection}>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.brandBar.enabled} onChange={(e) => updatePath(['brandBar', 'enabled'], e.target.checked)} />
-									Enable brand bar
-								</label>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.brandBar.showLogo} onChange={(e) => updatePath(['brandBar', 'showLogo'], e.target.checked)} />
-									Show website logo
-								</label>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.brandBar.showDomain} onChange={(e) => updatePath(['brandBar', 'showDomain'], e.target.checked)} />
-									Show domain
-								</label>
-								<Input label="Brand bar color" value={draftConfig.brandBar.background} onChange={(e) => updatePath(['brandBar', 'background'], e.target.value)} placeholder="rgba(0,0,0,0.42)" />
-								<Input label="Brand text color" type="color" value={draftConfig.brandBar.textColor} onChange={(e) => updatePath(['brandBar', 'textColor'], e.target.value)} />
-							</Section>
-
-							<Section id="positioning" open={openSections.positioning} onToggle={toggleSection}>
-								<FieldHint>Legacy absolute positions (kept for compatibility). Prefer Pin Layout → Title position.</FieldHint>
-								<div className="grid grid-cols-2 gap-3">
-									<Input label="Title X" type="number" value={draftConfig.positions.title.x} onChange={(e) => updatePath(['positions', 'title', 'x'], Number(e.target.value))} />
-									<Input label="Title Y" type="number" value={draftConfig.positions.title.y} onChange={(e) => updatePath(['positions', 'title', 'y'], Number(e.target.value))} />
-									<Input label="Description X" type="number" value={draftConfig.positions.description.x} onChange={(e) => updatePath(['positions', 'description', 'x'], Number(e.target.value))} />
-									<Input label="Description Y" type="number" value={draftConfig.positions.description.y} onChange={(e) => updatePath(['positions', 'description', 'y'], Number(e.target.value))} />
-									<Input label="Overlay X" type="number" value={draftConfig.positions.overlayText.x} onChange={(e) => updatePath(['positions', 'overlayText', 'x'], Number(e.target.value))} />
-									<Input label="Overlay Y" type="number" value={draftConfig.positions.overlayText.y} onChange={(e) => updatePath(['positions', 'overlayText', 'y'], Number(e.target.value))} />
-									<Input label="Logo X" type="number" value={draftConfig.positions.logo.x} onChange={(e) => updatePath(['positions', 'logo', 'x'], Number(e.target.value))} />
-									<Input label="Logo Y" type="number" value={draftConfig.positions.logo.y} onChange={(e) => updatePath(['positions', 'logo', 'y'], Number(e.target.value))} />
-								</div>
-							</Section>
-
-							<Section id="effects" open={openSections.effects} onToggle={toggleSection}>
-								<div className="grid grid-cols-2 gap-3">
-									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Label radius ({draftConfig.buttonStyle.borderRadius})</span>
-										<input className="tpl-range" type="range" min="0" max="999" value={draftConfig.buttonStyle.borderRadius} onChange={(e) => updatePath(['buttonStyle', 'borderRadius'], Number(e.target.value))} />
-									</label>
-									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Label padding ({draftConfig.buttonStyle.padding})</span>
-										<input className="tpl-range" type="range" min="0" max="64" value={draftConfig.buttonStyle.padding} onChange={(e) => updatePath(['buttonStyle', 'padding'], Number(e.target.value))} />
-									</label>
-								</div>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.buttonStyle.shadow} onChange={(e) => updatePath(['buttonStyle', 'shadow'], e.target.checked)} />
-									Label shadow
-								</label>
-							</Section>
-
-							<Section id="advanced" open={openSections.advanced} onToggle={toggleSection}>
-								<div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
-									<p className="font-medium text-foreground">Dynamic variables</p>
-									<p className="mt-1">{TEMPLATE_VARIABLES.join(' • ')}</p>
-									<p className="mt-2">Featured Image mode renders locally (canvas) — no Gemini / Fal.</p>
-								</div>
-								<div className="grid grid-cols-2 gap-3">
-									<Input label="Canvas width" type="number" value={draftConfig.canvas.width} onChange={(e) => updatePath(['canvas', 'width'], Number(e.target.value))} />
-									<Input label="Canvas height" type="number" value={draftConfig.canvas.height} onChange={(e) => updatePath(['canvas', 'height'], Number(e.target.value))} />
-								</div>
-							</Section>
-						</div>
-					</section>
-
-					<aside className="tpl-atelier__preview p-4">
-						<div className="mb-3 flex items-center justify-between gap-2">
-							<div>
-								<p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Live preview</p>
-								<h3 className="font-display text-lg font-semibold">Pinterest pin</h3>
-							</div>
-							<div className="flex rounded-xl border border-border bg-background/70 p-1">
-								<button
-									type="button"
-									className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold ${previewZoom === 'fit' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
-									onClick={() => setPreviewZoom('fit')}
-								>
-									Fit
-								</button>
-								<button
-									type="button"
-									className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold ${previewZoom === '100' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
-									onClick={() => setPreviewZoom('100')}
-								>
-									<Maximize2 size={11} /> 100%
-								</button>
-							</div>
-						</div>
-
-						<div className="tpl-preview-stage">
-							<div className={`tpl-preview-frame ${previewZoom === '100' ? 'is-100' : 'is-fit'}`}>
-								<TemplatePreviewCard
-									config={draftConfig}
-									className="shadow-none"
-									context={{
-										title: 'Weeknight Pasta Bowl',
-										description: 'Fast, comforting dinner ideas for busy evenings.',
-										category: 'Recipes',
-										website: 'chefia.studio',
-										author: 'Chef IA',
-										overlayText: 'Save Recipe',
-									}}
-								/>
-							</div>
-						</div>
-
-						<p className="mt-3 text-center text-[11px] text-muted-foreground">
-							Updates live as you edit · {draftConfig.canvas.width}×{draftConfig.canvas.height}
-						</p>
-					</aside>
-				</div>
-			)}
+			<TemplateGallery
+				onCreate={handleCreate}
+				onFavorite={handleFavorite}
+				onDuplicate={handleDuplicate}
+				onDelete={handleDelete}
+				onArchive={handleArchive}
+				onExport={handleExport}
+				onRename={handleRename}
+				onTouch={handleTouch}
+				onBulk={handleBulk}
+			/>
 		</div>
 	);
 }

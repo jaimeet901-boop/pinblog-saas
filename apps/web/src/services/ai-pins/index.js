@@ -47,3 +47,14 @@ export {
 	deleteReferenceImage,
 } from './referenceImages.js';
 export { composeAndUploadFeaturedPins } from './featuredComposeService.js';
+export {
+	pinGenerationService,
+	generatePin,
+	generateFeaturedPinViaPipeline,
+	generatePinBatch,
+	executeExistingRun,
+	createPinGenerationRun,
+	getPinGenerationRun,
+	cancelPinGenerationRun,
+	retryPinGenerationRun,
+} from './pinGenerationService.js';

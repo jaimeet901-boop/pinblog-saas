@@ -7,6 +7,7 @@ import wordpressRouter from './wordpress/index.js';
 import pinterestRouter from './pinterest.js';
 import settingsRouter from './settings.js';
 import aiPinImagesRouter from './ai-pin-images.js';
+import aiPinGenerationRouter from './ai-pin-generation.js';
 import aiPinsRouter from './ai-pins.js';
 import adminRouter from './admin/index.js';
 import workspaceRouter from './workspace/index.js';
@@ -26,6 +27,7 @@ export default () => {
     router.use('/pinterest', pinterestRouter);
     router.use('/settings', settingsRouter);
     router.use('/ai-pin-images', aiPinImagesRouter);
+    router.use('/ai-pin-images/generation', pocketbaseAuth, aiPinGenerationRouter);
     router.use('/ai-pins', pocketbaseAuth, aiPinsRouter);
     router.use('/workspace/v1', workspaceRouter);
     router.use('/admin/v1', adminRouter);

@@ -7,11 +7,13 @@
 import {
 	applyTemplateVariables,
 	formatPinDomain,
+	isV2TemplateConfig,
 	resolveFeaturedTemplateConfig,
 	resolveTitleBand,
 } from '@/lib/pinTemplates';
 import { API_SERVER_URL } from '@/lib/apiServerClient';
 import { getPocketbaseAuthHeader } from '@/lib/pocketbaseClient';
+import { renderDocument } from '@/lib/pinLayerCompositor';
 
 function loadImageFromUrl(url) {
 	return new Promise((resolve, reject) => {
@@ -708,6 +710,7 @@ function drawBrandBar(ctx, {
 
 /**
  * Render a professional Featured pin to PNG Blob.
+ * Dual-path: v2 layer documents → shared compositor; else procedural v1 renderer.
  */
 export async function renderFeaturedPinToBlob({
 	featuredImageUrl,
@@ -717,6 +720,25 @@ export async function renderFeaturedPinToBlob({
 	watermarkText = '',
 	websiteDomain = '',
 }) {
+	if (isV2TemplateConfig(templateConfig)) {
+		const { bytes, mimeType } = await renderDocument(templateConfig, {
+			format: 'png',
+			variables: {
+				...context,
+				image: featuredImageUrl || context.image || context.imageUrl || '',
+				imageUrl: featuredImageUrl || context.imageUrl || '',
+				featuredImageUrl: featuredImageUrl || '',
+				logo: logoUrl || context.logo || '',
+				logoUrl: logoUrl || context.logoUrl || '',
+				website: websiteDomain || context.website || watermarkText || '',
+				websiteDomain: websiteDomain || '',
+				cta: context.overlayText || context.cta || context.category || '',
+			},
+			loadImageFn: fetchImageForCanvas,
+		});
+		return new Blob([bytes], { type: mimeType || 'image/png' });
+	}
+
 	let config = resolveFeaturedTemplateConfig(templateConfig);
 	const width = 1000;
 	const height = 1500;

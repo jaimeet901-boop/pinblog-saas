@@ -26,6 +26,25 @@ import {
 	deleteCatalogTemplate,
 } from '../../services/workspace-templates.js';
 import {
+	listGalleryTemplates,
+	getPinTemplate,
+	touchPinTemplate,
+	setPinTemplateStatus,
+	togglePinTemplateFavorite,
+	exportPinTemplate,
+	bulkPinTemplateAction,
+	upsertTemplatePreviewCache,
+	getTemplatePreviewFromCache,
+} from '../../services/template-gallery.js';
+import {
+	listTemplateExportProfiles,
+	listTemplateExportFormats,
+	planTemplateExport,
+	enqueueTemplateExportJob,
+	planTemplateExportBatch,
+	importTemplatePackage,
+} from '../../services/template-export.js';
+import {
 	listWorkspaceNotifications,
 	createWorkspaceNotification,
 	markNotificationRead,
@@ -177,12 +196,15 @@ router.get('/history', async (req, res) => {
 });
 
 router.get('/templates', async (req, res) => {
+	if (req.query.view === 'gallery' || req.query.gallery === '1') {
+		return res.json(await listGalleryTemplates(req, req.query));
+	}
 	res.json(await listWorkspaceTemplates(req, req.query));
 });
 
 router.post('/templates', async (req, res) => {
 	const category = req.body?.category;
-	if (category && category !== 'pin') {
+	if (category && category !== 'pin' && !['recipes', 'desserts', 'fitness', 'travel', 'finance', 'technology', 'diy', 'general'].includes(category)) {
 		const created = await createCatalogTemplate(req, req.body || {});
 		return res.status(201).json(created);
 	}
@@ -190,13 +212,71 @@ router.post('/templates', async (req, res) => {
 	return res.status(201).json(created);
 });
 
+router.post('/templates/bulk', async (req, res) => {
+	res.json(await bulkPinTemplateAction(req, req.body || {}));
+});
+
+router.get('/templates/export/profiles', async (req, res) => {
+	res.json({
+		profiles: listTemplateExportProfiles(),
+		formats: listTemplateExportFormats(),
+	});
+});
+
+router.post('/templates/export/plan', async (req, res) => {
+	res.json(await planTemplateExport(req, req.body || {}));
+});
+
+router.post('/templates/export/enqueue', async (req, res) => {
+	res.status(201).json(await enqueueTemplateExportJob(req, req.body || {}));
+});
+
+router.post('/templates/export/batch', async (req, res) => {
+	res.json(await planTemplateExportBatch(req, req.body || {}));
+});
+
+router.post('/templates/import', async (req, res) => {
+	res.status(201).json(await importTemplatePackage(req, req.body || {}));
+});
+
+router.get('/templates/preview-cache', async (req, res) => {
+	res.json(await getTemplatePreviewFromCache(req, req.query));
+});
+
+router.post('/templates/preview-cache', async (req, res) => {
+	res.status(201).json(await upsertTemplatePreviewCache(req, req.body || {}));
+});
+
+router.get('/templates/:id', async (req, res) => {
+	res.json({ item: await getPinTemplate(req, req.params.id) });
+});
+
+router.get('/templates/:id/export', async (req, res) => {
+	res.json(await exportPinTemplate(req, req.params.id));
+});
+
 router.post('/templates/:id/duplicate', async (req, res) => {
 	res.status(201).json(await duplicatePinTemplate(req, req.params.id));
+});
+
+router.post('/templates/:id/favorite', async (req, res) => {
+	res.json(await togglePinTemplateFavorite(req, req.params.id));
+});
+
+router.post('/templates/:id/touch', async (req, res) => {
+	res.json(await touchPinTemplate(req, req.params.id));
+});
+
+router.post('/templates/:id/status', async (req, res) => {
+	res.json(await setPinTemplateStatus(req, req.params.id, String(req.body?.status || '')));
 });
 
 router.patch('/templates/:id', async (req, res) => {
 	if (req.body?.source === 'templates' || req.query.source === 'templates') {
 		return res.json(await updateCatalogTemplate(req, req.params.id, req.body || {}));
+	}
+	if (req.body?.name != null && Object.keys(req.body).length === 1) {
+		// rename-only from gallery
 	}
 	res.json(await updatePinTemplate(req, req.params.id, req.body || {}));
 });
