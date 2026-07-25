@@ -796,6 +796,11 @@ export default function AIPinsPage() {
 			|| panel.imageProvider
 			|| resolveDefaultImageProvider(config);
 
+		console.info('[AI Pins] queueing image jobs', {
+			requestedProviderFromUI: imageProviderOverride || panel.imageProvider || '(empty)',
+			providerSentToApi: imageProvider || '(empty)',
+		});
+
 		const response = await apiServerClient.fetch('/ai-pin-images/jobs', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -926,17 +931,17 @@ export default function AIPinsPage() {
 		const ratio = PIN_ASPECT_RATIOS.find((item) => item.id === aspectRatio);
 		const websiteLabel = activeWebsite?.domain || activeWebsite?.url || activeWebsite?.name || '';
 
-		// Resolve defaults from Workspace Config. Backend validates Admin providers.
+		// Explicit UI selection wins. Workspace default is last-resort only.
 		const textProviderCode = resolveDefaultTextProvider(config);
-		const imageProviderCode = resolveDefaultImageProvider(config)
-			|| quality?.imageProvider
-			|| panel.imageProvider;
+		const imageProviderCode = String(panel.imageProvider || '').trim()
+			|| String(quality?.imageProvider || '').trim()
+			|| resolveDefaultImageProvider(config);
 
 		let workingPanel = {
 			...panel,
 			imageMode: quality.imageMode,
 			imageProvider: quality.imageMode === 'generate_ai'
-				? (imageProviderCode || quality.imageProvider || '')
+				? (imageProviderCode || '')
 				: quality.imageProvider,
 			textProvider: textProviderCode || '',
 		};
@@ -1923,7 +1928,19 @@ export default function AIPinsPage() {
 								<Input label="Target audience" value={panel.targetAudience} onChange={(e) => setPanel((prev) => ({ ...prev, targetAudience: e.target.value }))} />
 								<Input label="Tone of voice" value={panel.toneOfVoice} onChange={(e) => setPanel((prev) => ({ ...prev, toneOfVoice: e.target.value }))} />
 								<Input label="Language" value={panel.language} onChange={(e) => setPanel((prev) => ({ ...prev, language: e.target.value }))} />
-								<Select label="Image provider" value={panel.imageProvider} onChange={(e) => setPanel((prev) => ({ ...prev, imageProvider: e.target.value }))} disabled={!showAiImages || panel.imageMode !== 'generate_ai'}>
+								<Select
+									label="Image provider"
+									value={panel.imageProvider}
+									onChange={(e) => {
+										const code = e.target.value;
+										setPanel((prev) => ({ ...prev, imageProvider: code, imageMode: code ? 'generate_ai' : prev.imageMode }));
+										const match = imageQualities.find((item) => (
+											item.imageMode === 'generate_ai' && item.imageProvider === code
+										));
+										if (match) setImageQuality(match.id);
+									}}
+									disabled={!showAiImages || panel.imageMode !== 'generate_ai'}
+								>
 									<option value="">Select provider</option>
 									{imageProviders.map((provider) => (
 										<option key={provider.id || provider.code} value={provider.code}>{provider.name || provider.code}</option>

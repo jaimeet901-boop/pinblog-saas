@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
+import logger from '../utils/logger.js';
 import {
 	buildSchemaSafeFilter,
 	safeGetFirstListItem,
@@ -68,6 +69,9 @@ async function ensureOwnedPin({ owner, pinId }) {
 }
 
 function mapJob(job) {
+	const payload = job.prompt_payload && typeof job.prompt_payload === 'object'
+		? job.prompt_payload
+		: {};
 	return {
 		id: job.id,
 		aiPinId: job.ai_pin || '',
@@ -76,6 +80,7 @@ function mapJob(job) {
 		clientToken: job.client_token || '',
 		status: job.status,
 		imageMode: job.image_mode,
+		provider: payload.provider || '',
 		imageUrl: job.image_url || '',
 		featuredImageUrl: job.featured_image_url || '',
 		lastError: job.last_error || '',
@@ -144,7 +149,8 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		const keywords = normalizeKeywords(rawItem?.keywords || pin?.suggested_keywords || []);
 		const imagePrompt = normalizeString(rawItem?.imagePrompt || pin?.image_prompt || '', 'imagePrompt', { max: 1200 });
 		const featuredImageUrl = normalizeString(rawItem?.featuredImageUrl || article.featured_image || '', 'featuredImageUrl', { max: 1000 });
-		let provider = normalizeString(rawItem?.provider || '', 'provider', { max: 40 });
+		const requestedProvider = normalizeString(rawItem?.provider || '', 'provider', { max: 40 });
+		let provider = requestedProvider;
 		if (imageMode === 'generate_ai') {
 			const { assertImageProviderConfigured } = await import('../services/ai-providers.js');
 			const ready = await assertImageProviderConfigured(provider);
@@ -153,6 +159,14 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		if (provider && !['openai', 'fal', 'flux', 'gemini'].includes(provider)) {
 			throw httpError(422, 'provider must be openai, fal, flux, or gemini');
 		}
+
+		logger.info('[ai-pin-images] Provider flow (create job)', {
+			requestedProvider: requestedProvider || '(empty)',
+			resolvedProvider: provider || '(empty)',
+			imageMode,
+			articleId,
+			clientToken,
+		});
 
 		const prompt = [
 			'Professional Pinterest marketing visual, vertical 2:3.',
@@ -187,6 +201,7 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 				pinDescription: description,
 				imagePrompt,
 				provider,
+				requestedProvider: requestedProvider || provider,
 			},
 			featured_image_url: featuredImageUrl,
 			status: 'queued',
@@ -198,6 +213,12 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		});
 
 		const job = await pocketbaseClient.collection('ai_pin_image_jobs').create(createPayload);
+
+		logger.info('[ai-pin-images] Provider stored on ai_pin_image_jobs', {
+			jobId: job.id,
+			storedProvider: job.prompt_payload?.provider || provider || '(empty)',
+			requestedProvider: requestedProvider || '(empty)',
+		});
 
 		if (pin) {
 			await pocketbaseClient.collection('ai_pins').update(pin.id, {

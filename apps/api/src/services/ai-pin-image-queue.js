@@ -127,9 +127,25 @@ async function processJob(job) {
 	const { assertImageProviderConfigured, getPlatformProviderApiKey } = await import('./ai-providers.js');
 	const { getPlatformSettings } = await import('./platform-settings.js');
 
-	let provider = normalizeText(job.prompt_payload?.provider || '', 40);
+	const storedProvider = normalizeText(
+		job.prompt_payload?.provider || job.prompt_payload?.requestedProvider || '',
+		40,
+	);
+	logger.info('[ai-pin-image-queue] Provider loaded from job', {
+		jobId: job.id,
+		storedProvider: storedProvider || '(empty)',
+		requestedProvider: job.prompt_payload?.requestedProvider || '(empty)',
+	});
+
+	let provider = storedProvider;
 	const readyProvider = await assertImageProviderConfigured(provider);
 	provider = readyProvider.code;
+
+	logger.info('[ai-pin-image-queue] Provider after assertImageProviderConfigured', {
+		jobId: job.id,
+		provider,
+		providerName: readyProvider.name || '',
+	});
 
 	const openaiKey = await getDecryptedOpenAIKey(job.owner)
 		|| await getPlatformProviderApiKey('openai');
@@ -206,6 +222,13 @@ async function processJob(job) {
 	);
 
 	const prompt = normalizeText(job.prompt, 5000) || buildPinterestImagePrompt(job);
+
+	logger.info('[ai-pin-image-queue] Final provider passed to image-providers registry', {
+		jobId: job.id,
+		provider,
+		preferredModelId: preferredModelId || '(none)',
+	});
+
 	const generatedList = await generateImagesWithProvider({
 		provider,
 		apiKeys: { openai: openaiKey, fal: falKey, gemini: geminiKey },
