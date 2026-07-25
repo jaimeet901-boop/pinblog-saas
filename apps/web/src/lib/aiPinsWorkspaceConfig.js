@@ -71,7 +71,6 @@ export function buildImageQualityOptions(config) {
 	const providers = Array.isArray(config?.imageProviders)
 		? config.imageProviders.filter((item) => item && item.enabled !== false && item.code)
 		: [];
-	const defaultProvider = resolveDefaultImageProvider(config) || providers[0]?.code || '';
 	const estimate = Number(config?.images?.estimateCreditsPerAiPin);
 	const aiCreditHint = Number.isFinite(estimate) ? estimate : 0;
 
@@ -89,9 +88,9 @@ export function buildImageQualityOptions(config) {
 		{
 			id: 'featured',
 			label: 'Featured',
-			hint: 'Article image',
+			hint: 'Article image · no AI',
 			imageMode: 'use_featured',
-			imageProvider: defaultProvider,
+			imageProvider: '',
 			creditHint: 0,
 		},
 	];

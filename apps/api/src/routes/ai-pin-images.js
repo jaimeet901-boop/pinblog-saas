@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
+import { uploadFiles } from '../middleware/file-upload.js';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import logger from '../utils/logger.js';
 import {
@@ -12,6 +13,32 @@ import {
 import { mirrorImageJob } from '../services/queue/mirrors.js';
 
 const router = Router();
+
+const uploadComposedImage = uploadFiles({
+	maxCount: 1,
+	maxSizeMB: 12,
+	allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
+	fieldName: 'image',
+});
+
+function isPrivateHostname(hostname) {
+	const host = String(hostname || '').toLowerCase();
+	if (!host || host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
+		return true;
+	}
+	if (/^127\./.test(host) || host === '0.0.0.0' || host === '::1') {
+		return true;
+	}
+	if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) {
+		return true;
+	}
+	const match172 = host.match(/^172\.(\d+)\./);
+	if (match172) {
+		const second = Number(match172[1]);
+		if (second >= 16 && second <= 31) return true;
+	}
+	return false;
+}
 
 const IMAGE_PROVIDER_MARKER_RE = /\[pinblog_image_provider:([a-z0-9_-]+)\]/i;
 
@@ -118,6 +145,107 @@ router.use(pocketbaseAuth);
 router.get('/providers', async (req, res) => {
 	const { listImageProviders } = await import('../services/image-providers/index.js');
 	res.json({ providers: listImageProviders(), counts: [1, 3, 5], size: '1000x1500' });
+});
+
+/**
+ * Same-origin image proxy for Featured Image canvas compose (avoids tainted canvas).
+ * No AI providers. No credits.
+ */
+router.get('/proxy', async (req, res) => {
+	const rawUrl = normalizeString(req.query.url, 'url', { required: true, max: 2000 });
+	let parsed;
+	try {
+		parsed = new URL(rawUrl);
+	} catch {
+		throw httpError(422, 'url must be a valid absolute URL');
+	}
+	if (!['http:', 'https:'].includes(parsed.protocol)) {
+		throw httpError(422, 'url must use http or https');
+	}
+	if (isPrivateHostname(parsed.hostname)) {
+		throw httpError(422, 'url host is not allowed');
+	}
+
+	const upstream = await fetch(parsed.toString(), {
+		method: 'GET',
+		redirect: 'follow',
+		headers: {
+			Accept: 'image/*,*/*;q=0.8',
+			'User-Agent': 'PinblogFeaturedCompose/1.0',
+		},
+		signal: (() => {
+			const controller = new AbortController();
+			setTimeout(() => controller.abort(), 20000);
+			return controller.signal;
+		})(),
+	}).catch((error) => {
+		logger.warn('Featured image proxy fetch failed', { error: error?.message, url: parsed.toString() });
+		throw httpError(502, 'Failed to fetch featured image');
+	});
+
+	if (!upstream.ok) {
+		throw httpError(502, `Featured image fetch failed (${upstream.status})`);
+	}
+
+	const contentType = String(upstream.headers.get('content-type') || '').toLowerCase();
+	if (contentType && !contentType.startsWith('image/') && !contentType.includes('octet-stream')) {
+		throw httpError(422, 'url did not return an image');
+	}
+
+	const bytes = Buffer.from(await upstream.arrayBuffer());
+	if (bytes.length === 0) {
+		throw httpError(502, 'Featured image was empty');
+	}
+	if (bytes.length > 12 * 1024 * 1024) {
+		throw httpError(413, 'Featured image is too large');
+	}
+
+	res.setHeader('Content-Type', contentType.startsWith('image/') ? contentType : 'application/octet-stream');
+	res.setHeader('Cache-Control', 'private, max-age=300');
+	res.setHeader('X-Pinblog-Compose', 'featured-proxy');
+	return res.status(200).send(bytes);
+});
+
+/**
+ * Upload a locally composed Featured pin image (canvas/template renderer).
+ * Does not call Gemini/Fal and does not consume AI credits.
+ */
+router.post('/composed', (req, res, next) => {
+	uploadComposedImage(req, res, (error) => {
+		if (error) {
+			return next(httpError(422, error.message || 'Invalid composed image upload'));
+		}
+		return next();
+	});
+}, async (req, res) => {
+	const owner = req.pocketbaseUserId;
+	const file = Array.isArray(req.files) ? req.files[0] : null;
+	if (!file?.buffer?.length) {
+		throw httpError(422, 'image file is required');
+	}
+
+	const fileName = `featured-pin-${owner}-${Date.now()}.png`;
+	const formData = new FormData();
+	const blob = new Blob([file.buffer], { type: file.mimetype || 'image/png' });
+	formData.append('file', blob, fileName);
+
+	const record = await pocketbaseClient.collection('_integratedAiImages').create(formData).catch((error) => {
+		logger.error('Failed to store composed featured pin image', { error: error?.message, owner });
+		throw httpError(500, 'Failed to store composed pin image');
+	});
+	const imageUrl = pocketbaseClient.files.getURL(record, record.file);
+
+	logger.info('[ai-pin-images] composed featured pin uploaded', {
+		owner,
+		articleId: normalizeString(req.body?.articleId, 'articleId', { max: 80 }) || null,
+		bytes: file.buffer.length,
+	});
+
+	res.status(201).json({
+		imageUrl,
+		imageSource: 'featured_composed',
+		creditsCharged: 0,
+	});
 });
 
 router.post('/jobs', integratedAiRateLimit, async (req, res) => {

@@ -18,6 +18,7 @@ import SchedulePinModal from '@/components/ai-pins/SchedulePinModal';
 import PreviewPinModal from '@/components/ai-pins/PreviewPinModal';
 import PublishProgressModal from '@/components/ai-pins/PublishProgressModal';
 import { createDefaultTemplateConfig } from '@/lib/pinTemplates';
+import { buildLocalPinsFromArticle } from '@/lib/featuredPinLocal';
 import { useWorkspaceConfig } from '@/context/WorkspaceConfigContext';
 import {
 	PIN_ASPECT_RATIOS,
@@ -52,6 +53,7 @@ import {
 	listReferenceImages,
 	uploadReferenceImages,
 	deleteReferenceImage,
+	composeAndUploadFeaturedPins,
 } from '@/services/ai-pins';
 import './AIPinsPage.css';
 
@@ -815,8 +817,10 @@ export default function AIPinsPage() {
 					imagePrompt: pin.imagePrompt,
 					category: pin.category,
 					featuredImageUrl: pin.featuredImage,
-					imageMode: 'generate_ai',
-					...(imageProvider ? { provider: imageProvider } : {}),
+					imageMode: pin.imageMode || 'generate_ai',
+					...(imageProvider && (pin.imageMode || 'generate_ai') === 'generate_ai'
+						? { provider: imageProvider }
+						: {}),
 				})),
 			}),
 		});
@@ -875,15 +879,35 @@ export default function AIPinsPage() {
 		pins,
 		imageModeOverride = panel.imageMode,
 		imageProviderOverride = '',
+		brandKit = null,
 	) => {
+		// Featured Image mode: local canvas/template compose only — never Gemini/Fal/credits.
 		if (imageModeOverride !== 'generate_ai') {
-			setGeneratedPreviewPins((prev) => prev.map((pin) => ({
-				...pin,
-				imageUrl: pin.featuredImage || pin.imageUrl || '',
-				imageSource: 'featured',
-				imageGenerationStatus: 'completed',
-				imageGenerationError: '',
-			})));
+			setGeneratingImages(true);
+			try {
+				const composed = await composeAndUploadFeaturedPins(pins, { brandKit });
+				setGeneratedPreviewPins((prev) => prev.map((pin) => {
+					const result = composed.find((item) => item.tempId === pin.tempId);
+					if (!result) {
+						return {
+							...pin,
+							imageUrl: pin.featuredImage || pin.imageUrl || '',
+							imageSource: 'featured',
+							imageGenerationStatus: pin.featuredImage ? 'completed' : 'failed',
+							imageGenerationError: pin.featuredImage ? '' : 'Article featured image is missing',
+						};
+					}
+					return {
+						...pin,
+						imageUrl: result.imageUrl || pin.featuredImage || pin.imageUrl || '',
+						imageSource: result.ok ? 'featured_composed' : 'featured',
+						imageGenerationStatus: (result.imageUrl || pin.featuredImage) ? 'completed' : 'failed',
+						imageGenerationError: result.ok ? '' : (result.error || ''),
+					};
+				}));
+			} finally {
+				setGeneratingImages(false);
+			}
 			return;
 		}
 
@@ -903,6 +927,16 @@ export default function AIPinsPage() {
 	};
 
 	const generatePinsForArticle = async (article, count, panelOverride = panel) => {
+		// Featured mode must stay offline from AI text providers (Gemini, etc.).
+		if (panelOverride?.imageMode === 'use_featured') {
+			return buildLocalPinsFromArticle({
+				article,
+				count,
+				panel: panelOverride,
+				analysis,
+			});
+		}
+
 		const prompt = buildPinPromptFromConfig({ config, article, count, panel: panelOverride });
 		const { text } = await generateText(prompt);
 		let pins = parsePinsFromText(text);
@@ -1010,6 +1044,18 @@ export default function AIPinsPage() {
 			}
 		}
 
+		if (workingPanel.imageMode === 'use_featured') {
+			const missingFeatured = targets.filter((article) => !String(article.featuredImage || '').trim());
+			if (missingFeatured.length > 0) {
+				toast({
+					variant: 'destructive',
+					title: 'Featured image required',
+					description: `${missingFeatured.length} article(s) have no featured image. Featured mode does not use AI image providers.`,
+				});
+				return;
+			}
+		}
+
 		setGenerating(true);
 		setWorkspaceTab('studio');
 		setBulkProgress({ active: true, current: 0, total: targets.length, message: 'Starting generation...' });
@@ -1063,9 +1109,10 @@ export default function AIPinsPage() {
 						author: article.author,
 						featuredImage: article.featuredImage || '',
 						imageSource: workingPanel.imageMode === 'use_featured' ? 'featured' : 'ai_generated',
-						imageGenerationStatus: workingPanel.imageMode === 'use_featured' ? 'completed' : 'queued',
+						imageGenerationStatus: workingPanel.imageMode === 'use_featured' ? 'rendering' : 'queued',
 						imageGenerationError: '',
 						imageJobId: '',
+						imageMode: workingPanel.imageMode,
 						style: workingPanel.style,
 						cta: analysis?.cta || '',
 						analysis: analysis || null,
@@ -1081,8 +1128,14 @@ export default function AIPinsPage() {
 				generatedRecords,
 				workingPanel.imageMode,
 				workingPanel.imageProvider,
+				selectedBrand,
 			);
-			toast({ title: 'Preview ready', description: `${generatedRecords.length} pins generated. Review and save when ready.` });
+			toast({
+				title: 'Preview ready',
+				description: workingPanel.imageMode === 'use_featured'
+					? `${generatedRecords.length} pins composed from featured images (no AI).`
+					: `${generatedRecords.length} pins generated. Review and save when ready.`,
+			});
 		} catch (error) {
 			const detail = error?.message || (error?.status ? `HTTP ${error.status}` : 'Unknown error');
 			toast({ variant: 'destructive', title: 'Generation failed', description: detail });
@@ -1432,7 +1485,10 @@ export default function AIPinsPage() {
 
 		setGenerating(true);
 		try {
-			const [regenerated] = await generatePinsForArticle(article, 1);
+			const [regenerated] = await generatePinsForArticle(article, 1, {
+				...panel,
+				imageMode: panel.imageMode === 'use_featured' ? 'use_featured' : panel.imageMode,
+			});
 			const updated = await pb.collection('ai_pins').update(pin.id, {
 				title: regenerated.title || pin.title,
 				description: regenerated.description || pin.description,
@@ -1446,7 +1502,12 @@ export default function AIPinsPage() {
 				language: panel.language,
 			});
 			setSavedPins((prev) => prev.map((item) => (item.id === pin.id ? mapSavedPin(updated) : item)));
-			toast({ title: 'Regenerated', description: 'Pin draft regenerated with AI.' });
+			toast({
+				title: 'Regenerated',
+				description: panel.imageMode === 'use_featured'
+					? 'Pin copy refreshed from article (no AI).'
+					: 'Pin draft regenerated with AI.',
+			});
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Error', description: error.message });
 		} finally {
@@ -2031,6 +2092,7 @@ export default function AIPinsPage() {
 													<div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
 														<TemplatePreviewCard
 															config={pin.templateConfig}
+															featuredImageUrl={pin.featuredImage || ''}
 															context={{
 																title: pin.title,
 																description: pin.description,
@@ -2304,6 +2366,7 @@ export default function AIPinsPage() {
 									<div className="p-2">
 										<TemplatePreviewCard
 											config={inspectorPin.templateConfig}
+											featuredImageUrl={inspectorPin.featuredImage || ''}
 											context={{
 												title: inspectorPin.title,
 												description: inspectorPin.description,

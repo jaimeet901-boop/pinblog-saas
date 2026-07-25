@@ -45,3 +45,4 @@ export {
 	uploadReferenceImages,
 	deleteReferenceImage,
 } from './referenceImages.js';
+export { composeAndUploadFeaturedPins } from './featuredComposeService.js';

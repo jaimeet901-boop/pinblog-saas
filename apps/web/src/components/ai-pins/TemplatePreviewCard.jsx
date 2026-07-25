@@ -7,9 +7,10 @@ function getAbsolutePosition(position) {
 	};
 }
 
-export default function TemplatePreviewCard({ config, context, className = '' }) {
+export default function TemplatePreviewCard({ config, context, className = '', featuredImageUrl = '' }) {
 	const safeConfig = normalizeTemplateConfig(config);
 	const ratio = safeConfig.canvas.width / safeConfig.canvas.height;
+	const backgroundImageUrl = featuredImageUrl || safeConfig.background.imageUrl || '';
 	const textStyle = {
 		fontFamily: safeConfig.typography.fontFamily,
 		fontSize: `${Math.max(11, safeConfig.typography.fontSize / 10)}px`,
@@ -23,8 +24,8 @@ export default function TemplatePreviewCard({ config, context, className = '' })
 		padding: `${safeConfig.container.padding}px`,
 		opacity: safeConfig.container.opacity,
 		backgroundColor: safeConfig.background.color,
-		backgroundImage: safeConfig.background.imageUrl
-			? `linear-gradient(rgba(0,0,0,${1 - safeConfig.background.opacity}), rgba(0,0,0,${1 - safeConfig.background.opacity})), url(${safeConfig.background.imageUrl})`
+		backgroundImage: backgroundImageUrl
+			? `linear-gradient(rgba(0,0,0,${1 - safeConfig.background.opacity}), rgba(0,0,0,${1 - safeConfig.background.opacity})), url(${backgroundImageUrl})`
 			: undefined,
 		backgroundSize: 'cover',
 		backgroundPosition: 'center',
@@ -46,7 +47,7 @@ export default function TemplatePreviewCard({ config, context, className = '' })
 					<div className="pointer-events-none absolute inset-0" style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.3) 1px, transparent 1px)', backgroundSize: '14px 14px' }} />
 				) : null}
 
-				{safeConfig.placeholders.featuredImage ? (
+				{safeConfig.placeholders.featuredImage && !backgroundImageUrl ? (
 					<div className="absolute inset-x-[8%] top-[42%] h-[34%] rounded-xl border border-white/45 bg-white/20 backdrop-blur-sm" />
 				) : null}
 
