@@ -289,10 +289,15 @@ export async function resolveConfiguredImageProvider(providerCode = '', options 
 	const requested = normalizeImageProviderAlias(requestedRaw);
 
 	logger.info('[resolveConfiguredImageProvider] before', {
-		requestedRaw: requestedRaw || '(empty)',
-		requested: requested || '(empty)',
+		requestedRaw: requestedRaw || null,
+		requested: requested || null,
 		allowWorkspaceDefault,
 	});
+	console.log(`[INFO] [resolveConfiguredImageProvider] before ${JSON.stringify({
+		requestedRaw: requestedRaw || null,
+		requested: requested || null,
+		allowWorkspaceDefault,
+	})}`);
 
 	let code = requested;
 
@@ -324,10 +329,17 @@ export async function resolveConfiguredImageProvider(providerCode = '', options 
 		}
 
 		logger.info('[resolveConfiguredImageProvider] after', {
-			requestedRaw: requestedRaw || '(empty)',
+			requestedRaw: requestedRaw || null,
 			resolved: provider.code,
+			providerName: provider.name || null,
 			usedWorkspaceDefault: !requestedRaw,
 		});
+		console.log(`[INFO] [resolveConfiguredImageProvider] after ${JSON.stringify({
+			requestedRaw: requestedRaw || null,
+			resolved: provider.code,
+			providerName: provider.name || null,
+			usedWorkspaceDefault: !requestedRaw,
+		})}`);
 		return provider;
 	}
 

@@ -108,8 +108,23 @@ async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' 
 	}
 }
 
+const IMAGE_PROVIDER_MARKER_RE = /\[pinblog_image_provider:([a-z0-9_-]+)\]/i;
+
+function dumpProviderTrace(label, data) {
+	const payload = {
+		label,
+		at: new Date().toISOString(),
+		...data,
+	};
+	console.log(`[INFO] ${label} ${JSON.stringify(payload)}`);
+	logger.info(label, payload);
+}
+
 function readJobPromptPayload(job) {
 	let raw = job?.prompt_payload;
+	if (Buffer.isBuffer(raw)) {
+		raw = raw.toString('utf8');
+	}
 	if (typeof raw === 'string') {
 		try {
 			raw = JSON.parse(raw);
@@ -123,12 +138,19 @@ function readJobPromptPayload(job) {
 	return raw;
 }
 
+function readProviderFromPromptMarker(prompt) {
+	const match = String(prompt || '').match(IMAGE_PROVIDER_MARKER_RE);
+	return match?.[1] ? String(match[1]).trim().toLowerCase() : '';
+}
+
 function readJobImageProvider(job) {
 	const payload = readJobPromptPayload(job);
 	const candidates = [
+		job?.image_provider,
 		payload.provider,
 		payload.requestedProvider,
 		job?.provider,
+		readProviderFromPromptMarker(job?.prompt),
 	];
 	for (const candidate of candidates) {
 		if (typeof candidate === 'string' && candidate.trim()) {
@@ -166,11 +188,17 @@ async function processJob(job) {
 	const storedProvider = readJobImageProvider(job);
 	const hasExplicitProvider = Boolean(storedProvider);
 
-	logger.info('[ai-pin-image-queue] before assertImageProviderConfigured', {
+	dumpProviderTrace('[ai-pin-image-queue] before assertImageProviderConfigured', {
 		jobId: job.id,
-		storedProvider: storedProvider || '(empty)',
-		requestedProvider: promptPayload.requestedProvider || '(empty)',
-		promptPayloadType: typeof job.prompt_payload,
+		requestedProvider: promptPayload.requestedProvider ?? null,
+		storedProvider: storedProvider || null,
+		'job.image_provider': job.image_provider ?? null,
+		'job.provider': job.provider ?? null,
+		'prompt_payload.provider': promptPayload.provider ?? null,
+		'prompt_payload.requestedProvider': promptPayload.requestedProvider ?? null,
+		promptMarker: readProviderFromPromptMarker(job.prompt) || null,
+		prompt_payload_full: promptPayload,
+		prompt_payload_raw_type: typeof job.prompt_payload,
 		hasExplicitProvider,
 	});
 
@@ -181,11 +209,15 @@ async function processJob(job) {
 
 	const provider = readyProvider.code;
 
-	logger.info('[ai-pin-image-queue] after assertImageProviderConfigured', {
+	dumpProviderTrace('[ai-pin-image-queue] after assertImageProviderConfigured', {
 		jobId: job.id,
-		requested: storedProvider || '(empty)',
-		provider,
-		providerName: readyProvider.name || '',
+		requestedProvider: promptPayload.requestedProvider ?? null,
+		storedProvider: storedProvider || null,
+		resolvedProvider: provider,
+		providerName: readyProvider.name || null,
+		providerCode: readyProvider.code || null,
+		'job.image_provider': job.image_provider ?? null,
+		'prompt_payload.provider': promptPayload.provider ?? null,
 	});
 
 	if (hasExplicitProvider) {
@@ -279,10 +311,15 @@ async function processJob(job) {
 		prompt_payload: promptPayload,
 	});
 
-	logger.info('[ai-pin-image-queue] Final provider passed to image-providers registry', {
+	dumpProviderTrace('[ai-pin-image-queue] Final provider passed to image-providers registry', {
 		jobId: job.id,
 		provider,
-		preferredModelId: preferredModelId || '(none)',
+		providerName: readyProvider.name || null,
+		preferredModelId: preferredModelId || null,
+		requestedProvider: promptPayload.requestedProvider ?? null,
+		storedProvider: storedProvider || null,
+		'job.image_provider': job.image_provider ?? null,
+		'prompt_payload.provider': promptPayload.provider ?? null,
 	});
 
 	const generatedList = await generateImagesWithProvider({

@@ -13,10 +13,30 @@ import { mirrorImageJob } from '../services/queue/mirrors.js';
 
 const router = Router();
 
+const IMAGE_PROVIDER_MARKER_RE = /\[pinblog_image_provider:([a-z0-9_-]+)\]/i;
+
 function httpError(status, message) {
 	const error = new Error(message);
 	error.status = status;
 	return error;
+}
+
+function dumpProviderTrace(label, data) {
+	const payload = {
+		label,
+		at: new Date().toISOString(),
+		...data,
+	};
+	// Single-line JSON so Docker/journald never hide nested fields as [Object]
+	console.log(`[INFO] ${label} ${JSON.stringify(payload)}`);
+	logger.info(label, payload);
+}
+
+function appendProviderMarker(prompt, provider) {
+	const code = String(provider || '').trim().toLowerCase();
+	const base = String(prompt || '').replace(IMAGE_PROVIDER_MARKER_RE, '').trim();
+	if (!code) return base;
+	return `${base}\n[pinblog_image_provider:${code}]`;
 }
 
 function normalizeString(value, fieldName, { required = false, max = 0 } = {}) {
@@ -69,9 +89,11 @@ async function ensureOwnedPin({ owner, pinId }) {
 }
 
 function mapJob(job) {
-	const payload = job.prompt_payload && typeof job.prompt_payload === 'object'
+	const payload = job.prompt_payload && typeof job.prompt_payload === 'object' && !Array.isArray(job.prompt_payload)
 		? job.prompt_payload
-		: {};
+		: (typeof job.prompt_payload === 'string'
+			? (() => { try { return JSON.parse(job.prompt_payload); } catch { return {}; } })()
+			: {});
 	return {
 		id: job.id,
 		aiPinId: job.ai_pin || '',
@@ -80,7 +102,7 @@ function mapJob(job) {
 		clientToken: job.client_token || '',
 		status: job.status,
 		imageMode: job.image_mode,
-		provider: payload.provider || '',
+		provider: job.image_provider || payload.provider || '',
 		imageUrl: job.image_url || '',
 		featuredImageUrl: job.featured_image_url || '',
 		lastError: job.last_error || '',
@@ -162,15 +184,16 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			throw httpError(422, 'provider must be openai, fal, flux, or gemini');
 		}
 
-		logger.info('[ai-pin-images] Provider flow (create job)', {
-			requestedProvider: requestedProvider || '(empty)',
-			resolvedProvider: provider || '(empty)',
+		dumpProviderTrace('[ai-pin-images] Provider flow (create job)', {
+			requestedProvider: requestedProvider || null,
+			resolvedProvider: provider || null,
 			imageMode,
 			articleId,
 			clientToken,
+			rawItemProvider: rawItem?.provider ?? null,
 		});
 
-		const prompt = [
+		const prompt = appendProviderMarker([
 			'Professional Pinterest marketing visual, vertical 2:3.',
 			'Target size 1000x1500.',
 			`Article title: ${title}`,
@@ -179,7 +202,20 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			keywords.length ? `Keywords: ${keywords.join(', ')}` : '',
 			overlayText ? `Overlay text: ${overlayText}` : '',
 			imagePrompt ? `Creative direction: ${imagePrompt}` : '',
-		].filter(Boolean).join('\n');
+		].filter(Boolean).join('\n'), provider);
+
+		const promptPayload = {
+			articleTitle: article.title || '',
+			metaDescription: article.meta_description || '',
+			category,
+			keywords,
+			overlayText,
+			pinTitle: title,
+			pinDescription: description,
+			imagePrompt,
+			provider,
+			requestedProvider: requestedProvider || provider,
+		};
 
 		const createPayload = await sanitizeCollectionPayload({
 			collection: 'ai_pin_image_jobs',
@@ -193,18 +229,8 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			source_type: pin ? 'pin' : 'preview',
 			image_mode: imageMode,
 			prompt,
-			prompt_payload: {
-				articleTitle: article.title || '',
-				metaDescription: article.meta_description || '',
-				category,
-				keywords,
-				overlayText,
-				pinTitle: title,
-				pinDescription: description,
-				imagePrompt,
-				provider,
-				requestedProvider: requestedProvider || provider,
-			},
+			prompt_payload: promptPayload,
+			image_provider: provider,
 			featured_image_url: featuredImageUrl,
 			status: 'queued',
 			attempt_count: 0,
@@ -214,21 +240,41 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			},
 		});
 
-		const job = await pocketbaseClient.collection('ai_pin_image_jobs').create(createPayload);
-
-		logger.info('[ai-pin-images] Provider stored on ai_pin_image_jobs', {
-			jobId: job.id,
-			storedProvider: job.prompt_payload?.provider || '(missing-on-record)',
-			requestedProvider: requestedProvider || '(empty)',
-			resolvedProvider: provider || '(empty)',
+		dumpProviderTrace('[ai-pin-images] createPayload before PocketBase create', {
+			image_provider: createPayload.image_provider ?? null,
+			prompt_payload: createPayload.prompt_payload ?? null,
+			promptMarker: String(createPayload.prompt || '').match(IMAGE_PROVIDER_MARKER_RE)?.[1] || null,
+			droppedImageProvider: !Object.prototype.hasOwnProperty.call(createPayload, 'image_provider'),
 		});
 
-		if (provider && job.prompt_payload?.provider !== provider) {
-			logger.error('[ai-pin-images] prompt_payload.provider did not persist', {
+		const job = await pocketbaseClient.collection('ai_pin_image_jobs').create(createPayload);
+
+		let storedPayload = job.prompt_payload;
+		if (typeof storedPayload === 'string') {
+			try { storedPayload = JSON.parse(storedPayload); } catch { storedPayload = null; }
+		}
+
+		dumpProviderTrace('[ai-pin-images] Provider stored on ai_pin_image_jobs', {
+			jobId: job.id,
+			requestedProvider: requestedProvider || null,
+			resolvedProvider: provider || null,
+			'job.image_provider': job.image_provider ?? null,
+			'job.provider': job.provider ?? null,
+			'prompt_payload.provider': storedPayload?.provider ?? null,
+			'prompt_payload.requestedProvider': storedPayload?.requestedProvider ?? null,
+			prompt_payload_raw_type: typeof job.prompt_payload,
+			prompt_payload_full: storedPayload,
+			promptMarker: String(job.prompt || '').match(IMAGE_PROVIDER_MARKER_RE)?.[1] || null,
+		});
+
+		const persistedProvider = job.image_provider || storedPayload?.provider || null;
+		if (provider && persistedProvider !== provider) {
+			logger.error('[ai-pin-images] provider did not persist on job record', {
 				jobId: job.id,
 				expected: provider,
-				actual: job.prompt_payload?.provider || null,
-				promptPayloadType: typeof job.prompt_payload,
+				persistedProvider,
+				image_provider: job.image_provider ?? null,
+				prompt_payload_provider: storedPayload?.provider ?? null,
 			});
 		}
 
@@ -285,6 +331,9 @@ router.post('/jobs/:jobId/regenerate', integratedAiRateLimit, async (req, res) =
 		image_mode: 'generate_ai',
 		prompt: normalizeString(req.body?.prompt, 'prompt', { max: 5000 }) || sourceJob.prompt,
 		prompt_payload: sourceJob.prompt_payload || null,
+		image_provider: sourceJob.image_provider
+			|| (typeof sourceJob.prompt_payload === 'object' ? sourceJob.prompt_payload?.provider : '')
+			|| '',
 		featured_image_url: sourceJob.featured_image_url || '',
 		status: 'queued',
 		attempt_count: 0,

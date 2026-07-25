@@ -82,11 +82,12 @@ export async function generateImagesWithProvider({
 		throw error;
 	}
 
-	console.log('[INFO]', '[image-providers] Resolved image generation model', {
+	console.log('[INFO]', '[image-providers] Resolved image generation model', JSON.stringify({
 		provider: code,
 		model: resolvedModel || '(adapter default)',
 		modelSource,
-	});
+		preferredModelId: preferred || null,
+	}));
 
 	return adapter.generate({
 		apiKey,

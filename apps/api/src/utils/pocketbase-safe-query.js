@@ -15,6 +15,7 @@ const FALLBACK_SCHEMA_FIELDS = {
 		'image_mode',
 		'prompt',
 		'prompt_payload',
+		'image_provider',
 		'featured_image_url',
 		'image_url',
 		'status',
