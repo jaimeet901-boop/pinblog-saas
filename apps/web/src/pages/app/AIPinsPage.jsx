@@ -1123,6 +1123,7 @@ export default function AIPinsPage() {
 						articleId: article.id,
 						websiteId: article.websiteId,
 						title: String(pin.title || analysis?.title || article.title || article.slug || 'Draft AI Pin').trim(),
+						subtitle: String(pin.subtitle || '').trim(),
 						description: String(pin.description || analysis?.seoDescription || workingPanel.pinDescription || '').trim(),
 						overlayText: String(pin.overlayText || analysis?.cta || workingPanel.textOverlay || '').trim(),
 						imagePrompt: String(pin.imagePrompt || '').trim(),
@@ -2136,6 +2137,7 @@ export default function AIPinsPage() {
 															logoUrl={selectedBrandKit?.logoUrl || ''}
 															context={{
 																title: pin.title,
+																subtitle: pin.subtitle,
 																description: pin.description,
 																category: pin.category,
 																website: pin.website,
@@ -2413,6 +2415,7 @@ export default function AIPinsPage() {
 											logoUrl={selectedBrandKit?.logoUrl || ''}
 											context={{
 												title: inspectorPin.title,
+												subtitle: inspectorPin.subtitle,
 												description: inspectorPin.description,
 												category: inspectorPin.category,
 												website: inspectorPin.website,
@@ -2429,6 +2432,7 @@ export default function AIPinsPage() {
 
 						<div className="space-y-3">
 							<Input label="Title" value={inspectorPin.title || ''} onChange={(e) => updateInspectorField('title', e.target.value)} />
+							<Input label="Subtitle" value={inspectorPin.subtitle || ''} onChange={(e) => updateInspectorField('subtitle', e.target.value)} />
 							<Textarea label="Description" rows={4} value={inspectorPin.description || ''} onChange={(e) => updateInspectorField('description', e.target.value)} />
 							<Input label="Overlay" value={inspectorPin.overlayText || ''} onChange={(e) => updateInspectorField('overlayText', e.target.value)} />
 							<Textarea label="Image prompt" rows={4} value={inspectorPin.imagePrompt || ''} onChange={(e) => updateInspectorField('imagePrompt', e.target.value)} />

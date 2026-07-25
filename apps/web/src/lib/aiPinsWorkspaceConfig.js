@@ -198,12 +198,16 @@ export function buildPinPromptFromConfig({ config, article, count, panel }) {
 	const guidance = userSeed ? `Platform guidance: ${userSeed}\n` : '';
 
 	return `${header}
-${guidance}You are a senior Pinterest art director (BlogToPin / Canva quality).
-First ANALYZE the recipe: category family (dessert|healthy|dinner|breakfast|drinks|snacks|general), ingredients cues, mood, cooking time, difficulty, and target audience.
-Then for EACH pin recommend BOTH unique marketing copy AND a full designRecommendation that fits that recipe family identity.
-Dessert = warm pink/gold script accents. Healthy = clean green minimal. Dinner = rich amber editorial. Breakfast = sunny cheerful. Drinks = cool vignette. Snacks = bold playful.
+${guidance}You are a senior Pinterest art director creating PREMIUM BlogToPin / Canva-quality pins.
+First ANALYZE the recipe: category family (dessert|healthy|dinner|breakfast|drinks|snacks|general), ingredients, mood, cooking time, difficulty, audience.
+Then for EACH pin write short luxury marketing copy AND a designRecommendation for that family identity.
+STRICT COPY RULES:
+- title MUST be 3 to 7 words only (punchy Pinterest headline, no long sentences).
+- subtitle is optional (max 6 words) — soft supporting line under the title.
+- overlayText is a short CTA badge (2–4 words), e.g. "Save Recipe", "Try Tonight".
+Dessert = warm blush/gold script. Healthy = clean sage minimal. Dinner = rich amber editorial. Breakfast = sunny. Drinks = cool vignette. Snacks = bold playful.
 layoutStyle/template MUST be one of: centered_hero, top_title_bottom_cta, dark_title_box, white_rounded_card, brush_stroke, ribbon_banner, magazine, minimal_modern, bold_typography, handwritten_accent.
-Prefer templates from the matching family identity; still vary templates inside the family — never duplicate template in this batch.
+Prefer templates from the matching family; vary templates inside the family — never duplicate template in this batch.
 Return ONLY a valid JSON object in this exact shape:
 {
   "recipeAnalysis": {
@@ -216,14 +220,15 @@ Return ONLY a valid JSON object in this exact shape:
   },
   "pins": [
     {
-      "title": "Pinterest SEO title",
-      "description": "Pinterest description optimized for clicks",
-      "overlayText": "short CTA / badge text",
+      "title": "Molten Chocolate Cake",
+      "subtitle": "Gooey center",
+      "description": "Short pin description for clicks",
+      "overlayText": "Save Recipe",
       "layoutStyle": "handwritten_accent",
       "designRecommendation": {
         "template": "handwritten_accent",
-        "fontPair": { "heading": "Georgia, serif", "script": "Segoe Script, cursive" },
-        "colorPalette": { "primary": "#BE185D", "secondary": "#FBCFE8", "accent": "#F59E0B", "text": "#FFF7ED", "overlay": "#4C0519", "ctaBg": "#FDE68A", "ctaText": "#831843", "brush": "#DB2777" },
+        "fontPair": { "heading": "Georgia, \"Times New Roman\", serif", "script": "\\"Segoe Script\\", cursive" },
+        "colorPalette": { "primary": "#9F1239", "secondary": "#FFE4E6", "accent": "#E8B86D", "text": "#FFF8F1", "overlay": "#4C0519", "ctaBg": "#FFF7ED", "ctaText": "#9F1239", "brush": "#BE123C" },
         "titlePosition": "bottom",
         "ctaStyle": "pill-warm",
         "overlayStyle": "gradient",

@@ -22,182 +22,213 @@ export const RECIPE_FAMILIES = [
 	'general',
 ];
 
+/** Premium font combinations (heading + optional script). */
+export const PREMIUM_FONT_PAIRS = [
+	{ id: 'editorial-serif', heading: 'Georgia, "Times New Roman", serif', script: '"Segoe Script", "Brush Script MT", cursive' },
+	{ id: 'magazine-palatino', heading: 'Palatino Linotype, Palatino, "Book Antiqua", serif', script: 'Georgia, "Times New Roman", serif' },
+	{ id: 'clean-gothic', heading: '"Century Gothic", "Apple Gothic", sans-serif', script: 'Georgia, "Times New Roman", serif' },
+	{ id: 'modern-trebuchet', heading: '"Trebuchet MS", "Segoe UI", sans-serif', script: '"Segoe Script", "Brush Script MT", cursive' },
+	{ id: 'impact-bold', heading: 'Impact, Haettenschweiler, "Arial Black", sans-serif', script: 'Georgia, "Times New Roman", serif' },
+	{ id: 'classic-black', heading: '"Arial Black", Gadget, sans-serif', script: '"Brush Script MT", "Segoe Script", cursive' },
+];
+
 /** Recognizable visual identity per recipe family (BlogToPin / Canva designer logic). */
 export const CATEGORY_VISUAL_IDENTITIES = {
 	dessert: {
 		label: 'Dessert',
 		moods: ['indulgent', 'romantic', 'cozy'],
 		preferredLayouts: ['handwritten_accent', 'brush_stroke', 'white_rounded_card', 'centered_hero', 'ribbon_banner'],
-		fontHeading: 'Georgia, "Times New Roman", serif',
-		fontScript: '"Segoe Script", "Brush Script MT", cursive',
+		fontHeading: PREMIUM_FONT_PAIRS[0].heading,
+		fontScript: PREMIUM_FONT_PAIRS[0].script,
+		fontPairs: [PREMIUM_FONT_PAIRS[0], PREMIUM_FONT_PAIRS[1], PREMIUM_FONT_PAIRS[3]],
 		palette: {
-			primary: '#BE185D',
-			secondary: '#FBCFE8',
-			accent: '#F59E0B',
-			text: '#FFF7ED',
-			overlay: '#4C0519',
-			ctaBg: '#FDE68A',
-			ctaText: '#831843',
-			brush: '#DB2777',
-			brandBar: 'rgba(76,5,25,0.55)',
+			primary: '#9F1239',
+			secondary: '#FFE4E6',
+			accent: '#E8B86D',
+			text: '#FFF8F1',
+			overlay: '#3F0A1A',
+			ctaBg: '#FFF7ED',
+			ctaText: '#9F1239',
+			brush: '#BE123C',
+			brandBar: 'rgba(63,10,26,0.52)',
 		},
 		titlePosition: 'bottom',
 		overlayStyle: 'gradient',
-		overlayIntensity: 0.62,
+		overlayIntensity: 0.56,
 		decoration: 'brush',
+		accentStyle: 'flourish',
 		ctaStyle: 'pill-warm',
 		brandPlacement: 'bottom-bar',
 		scriptAccent: true,
+		foodFocusY: 0.36,
 	},
 	healthy: {
 		label: 'Healthy',
 		moods: ['fresh', 'clean', 'energizing'],
 		preferredLayouts: ['white_rounded_card', 'minimal_modern', 'top_title_bottom_cta', 'magazine', 'centered_hero'],
-		fontHeading: 'Helvetica Neue, Helvetica, Arial, sans-serif',
-		fontScript: 'Georgia, "Times New Roman", serif',
+		fontHeading: PREMIUM_FONT_PAIRS[2].heading,
+		fontScript: PREMIUM_FONT_PAIRS[2].script,
+		fontPairs: [PREMIUM_FONT_PAIRS[2], PREMIUM_FONT_PAIRS[3], PREMIUM_FONT_PAIRS[1]],
 		palette: {
-			primary: '#15803D',
-			secondary: '#BBF7D0',
-			accent: '#84CC16',
+			primary: '#166534',
+			secondary: '#DCFCE7',
+			accent: '#86EFAC',
 			text: '#FFFFFF',
 			overlay: '#052E16',
 			ctaBg: '#FFFFFF',
 			ctaText: '#14532D',
-			brush: '#22C55E',
-			brandBar: 'rgba(5,46,22,0.5)',
+			brush: '#16A34A',
+			brandBar: 'rgba(5,46,22,0.48)',
 		},
 		titlePosition: 'bottom',
 		overlayStyle: 'gradient',
-		overlayIntensity: 0.48,
+		overlayIntensity: 0.44,
 		decoration: 'underline',
+		accentStyle: 'dots',
 		ctaStyle: 'pill-clean',
 		brandPlacement: 'bottom-bar',
 		scriptAccent: false,
+		foodFocusY: 0.4,
 	},
 	dinner: {
 		label: 'Dinner',
 		moods: ['savory', 'comforting', 'hearty'],
 		preferredLayouts: ['magazine', 'dark_title_box', 'top_title_bottom_cta', 'bold_typography', 'brush_stroke'],
-		fontHeading: 'Palatino Linotype, Palatino, "Book Antiqua", serif',
-		fontScript: 'Georgia, "Times New Roman", serif',
+		fontHeading: PREMIUM_FONT_PAIRS[1].heading,
+		fontScript: PREMIUM_FONT_PAIRS[1].script,
+		fontPairs: [PREMIUM_FONT_PAIRS[1], PREMIUM_FONT_PAIRS[0], PREMIUM_FONT_PAIRS[4]],
 		palette: {
-			primary: '#9A3412',
-			secondary: '#FED7AA',
-			accent: '#F97316',
+			primary: '#7C2D12',
+			secondary: '#FFEDD5',
+			accent: '#C4A574',
 			text: '#FFF7ED',
 			overlay: '#1C1917',
-			ctaBg: '#F97316',
+			ctaBg: '#C4A574',
 			ctaText: '#1C1917',
-			brush: '#EA580C',
-			brandBar: 'rgba(28,25,23,0.65)',
+			brush: '#9A3412',
+			brandBar: 'rgba(28,25,23,0.62)',
 		},
 		titlePosition: 'bottom',
 		overlayStyle: 'gradient',
-		overlayIntensity: 0.72,
+		overlayIntensity: 0.66,
 		decoration: 'accent',
+		accentStyle: 'rule',
 		ctaStyle: 'solid-warm',
 		brandPlacement: 'bottom-bar',
 		scriptAccent: false,
+		foodFocusY: 0.38,
 	},
 	breakfast: {
 		label: 'Breakfast',
 		moods: ['bright', 'cheerful', 'morning'],
 		preferredLayouts: ['brush_stroke', 'top_title_bottom_cta', 'centered_hero', 'ribbon_banner', 'white_rounded_card'],
-		fontHeading: 'Georgia, "Times New Roman", serif',
-		fontScript: '"Segoe Script", "Brush Script MT", cursive',
+		fontHeading: PREMIUM_FONT_PAIRS[0].heading,
+		fontScript: PREMIUM_FONT_PAIRS[0].script,
+		fontPairs: [PREMIUM_FONT_PAIRS[0], PREMIUM_FONT_PAIRS[5], PREMIUM_FONT_PAIRS[2]],
 		palette: {
-			primary: '#D97706',
+			primary: '#B45309',
 			secondary: '#FEF3C7',
-			accent: '#FBBF24',
+			accent: '#F5E6C8',
 			text: '#FFFFFF',
 			overlay: '#78350F',
 			ctaBg: '#FFFFFF',
 			ctaText: '#92400E',
-			brush: '#F59E0B',
-			brandBar: 'rgba(120,53,15,0.5)',
+			brush: '#D97706',
+			brandBar: 'rgba(120,53,15,0.48)',
 		},
 		titlePosition: 'top',
 		overlayStyle: 'gradient',
-		overlayIntensity: 0.58,
+		overlayIntensity: 0.52,
 		decoration: 'brush',
+		accentStyle: 'arcs',
 		ctaStyle: 'pill-sunny',
 		brandPlacement: 'bottom-bar',
 		scriptAccent: false,
+		foodFocusY: 0.35,
 	},
 	drinks: {
 		label: 'Drinks',
 		moods: ['refreshing', 'festive', 'cool'],
 		preferredLayouts: ['centered_hero', 'minimal_modern', 'dark_title_box', 'ribbon_banner', 'bold_typography'],
-		fontHeading: 'Helvetica Neue, Helvetica, Arial, sans-serif',
-		fontScript: '"Segoe Script", "Brush Script MT", cursive',
+		fontHeading: PREMIUM_FONT_PAIRS[3].heading,
+		fontScript: PREMIUM_FONT_PAIRS[3].script,
+		fontPairs: [PREMIUM_FONT_PAIRS[3], PREMIUM_FONT_PAIRS[2], PREMIUM_FONT_PAIRS[0]],
 		palette: {
-			primary: '#0369A1',
-			secondary: '#BAE6FD',
-			accent: '#22D3EE',
-			text: '#F0F9FF',
-			overlay: '#0C4A6E',
+			primary: '#0E7490',
+			secondary: '#CFFAFE',
+			accent: '#67E8F9',
+			text: '#ECFEFF',
+			overlay: '#164E63',
 			ctaBg: '#ECFEFF',
 			ctaText: '#155E75',
-			brush: '#06B6D4',
-			brandBar: 'rgba(12,74,110,0.55)',
+			brush: '#0891B2',
+			brandBar: 'rgba(22,78,99,0.52)',
 		},
 		titlePosition: 'center',
 		overlayStyle: 'vignette',
-		overlayIntensity: 0.55,
+		overlayIntensity: 0.5,
 		decoration: 'accent',
+		accentStyle: 'orbits',
 		ctaStyle: 'pill-cool',
 		brandPlacement: 'corner',
 		scriptAccent: false,
+		foodFocusY: 0.42,
 	},
 	snacks: {
 		label: 'Snacks',
 		moods: ['playful', 'quick', 'craveable'],
 		preferredLayouts: ['bold_typography', 'ribbon_banner', 'dark_title_box', 'centered_hero', 'brush_stroke'],
-		fontHeading: 'Impact, Haettenschweiler, "Arial Black", sans-serif',
-		fontScript: 'Georgia, "Times New Roman", serif',
+		fontHeading: PREMIUM_FONT_PAIRS[4].heading,
+		fontScript: PREMIUM_FONT_PAIRS[4].script,
+		fontPairs: [PREMIUM_FONT_PAIRS[4], PREMIUM_FONT_PAIRS[5], PREMIUM_FONT_PAIRS[3]],
 		palette: {
-			primary: '#DC2626',
-			secondary: '#FECACA',
-			accent: '#FB923C',
+			primary: '#B91C1C',
+			secondary: '#FEE2E2',
+			accent: '#FDBA74',
 			text: '#FFFFFF',
 			overlay: '#450A0A',
 			ctaBg: '#FFFFFF',
 			ctaText: '#991B1B',
-			brush: '#EF4444',
-			brandBar: 'rgba(69,10,10,0.55)',
+			brush: '#DC2626',
+			brandBar: 'rgba(69,10,10,0.52)',
 		},
 		titlePosition: 'center',
 		overlayStyle: 'dark',
-		overlayIntensity: 0.42,
+		overlayIntensity: 0.38,
 		decoration: 'ribbon',
+		accentStyle: 'slash',
 		ctaStyle: 'sharp',
 		brandPlacement: 'corner',
 		scriptAccent: false,
+		foodFocusY: 0.4,
 	},
 	general: {
 		label: 'Recipe',
 		moods: ['inviting', 'reliable', 'homey'],
 		preferredLayouts: ['brush_stroke', 'centered_hero', 'white_rounded_card', 'top_title_bottom_cta', 'magazine'],
-		fontHeading: 'Georgia, "Times New Roman", serif',
-		fontScript: '"Segoe Script", "Brush Script MT", cursive',
+		fontHeading: PREMIUM_FONT_PAIRS[0].heading,
+		fontScript: PREMIUM_FONT_PAIRS[0].script,
+		fontPairs: [PREMIUM_FONT_PAIRS[0], PREMIUM_FONT_PAIRS[1], PREMIUM_FONT_PAIRS[2]],
 		palette: {
-			primary: '#B45309',
-			secondary: '#FDE68A',
-			accent: '#F59E0B',
+			primary: '#92400E',
+			secondary: '#FEF3C7',
+			accent: '#E8B86D',
 			text: '#FFFFFF',
 			overlay: '#1C1917',
 			ctaBg: '#FFFFFF',
 			ctaText: '#78350F',
-			brush: '#D97706',
-			brandBar: 'rgba(28,25,23,0.5)',
+			brush: '#B45309',
+			brandBar: 'rgba(28,25,23,0.48)',
 		},
 		titlePosition: 'bottom',
 		overlayStyle: 'gradient',
-		overlayIntensity: 0.6,
+		overlayIntensity: 0.54,
 		decoration: 'brush',
+		accentStyle: 'corner',
 		ctaStyle: 'pill-warm',
 		brandPlacement: 'bottom-bar',
 		scriptAccent: false,
+		foodFocusY: 0.38,
 	},
 };
 
@@ -357,31 +388,33 @@ export function analyzeRecipeSignals({ article = null, pin = null, analysis = nu
 function ctaStyleToButton(ctaStyle, palette) {
 	switch (ctaStyle) {
 		case 'pill-clean':
-			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 999, padding: 14, shadow: false };
+			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 999, padding: 16, shadow: false };
 		case 'pill-sunny':
 		case 'pill-warm':
-			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 999, padding: 15, shadow: true };
+			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 999, padding: 18, shadow: true };
 		case 'pill-cool':
-			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 999, padding: 14, shadow: true };
+			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 999, padding: 17, shadow: true };
 		case 'solid-warm':
-			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 14, padding: 16, shadow: true };
+			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 16, padding: 18, shadow: true };
 		case 'sharp':
-			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 6, padding: 14, shadow: true };
+			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 8, padding: 16, shadow: true };
 		default:
-			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 999, padding: 14, shadow: true };
+			return { background: palette.ctaBg, textColor: palette.ctaText, borderRadius: 999, padding: 17, shadow: true };
 	}
 }
 
-function decorationPatch(decoration, palette, scriptAccent) {
+function decorationPatch(decoration, palette, scriptAccent, accentStyle) {
+	const style = accentStyle || 'orbits';
 	switch (decoration) {
 		case 'brush':
 			return {
 				brushHighlight: true,
 				brushColor: palette.brush,
-				brushOpacity: 0.88,
+				brushOpacity: 0.82,
 				roundedLabel: true,
 				underline: false,
 				accentShapes: true,
+				accentStyle: style === 'none' ? 'flourish' : style,
 				accentColor: palette.secondary,
 			};
 		case 'underline':
@@ -390,7 +423,8 @@ function decorationPatch(decoration, palette, scriptAccent) {
 				roundedLabel: false,
 				underline: true,
 				underlineColor: palette.secondary,
-				accentShapes: false,
+				accentShapes: true,
+				accentStyle: style === 'none' ? 'dots' : style,
 				brushColor: palette.brush,
 				accentColor: palette.accent,
 			};
@@ -400,6 +434,7 @@ function decorationPatch(decoration, palette, scriptAccent) {
 				roundedLabel: false,
 				underline: false,
 				accentShapes: true,
+				accentStyle: style === 'none' ? 'diamonds' : style,
 				brushColor: palette.primary,
 				accentColor: palette.secondary,
 			};
@@ -409,6 +444,7 @@ function decorationPatch(decoration, palette, scriptAccent) {
 				roundedLabel: true,
 				underline: false,
 				accentShapes: true,
+				accentStyle: style === 'none' ? 'rule' : style,
 				brushColor: palette.brush,
 				accentColor: palette.accent,
 			};
@@ -416,10 +452,11 @@ function decorationPatch(decoration, palette, scriptAccent) {
 			return {
 				brushHighlight: Boolean(scriptAccent),
 				brushColor: palette.brush,
-				brushOpacity: 0.8,
+				brushOpacity: 0.78,
 				roundedLabel: true,
 				underline: false,
 				accentShapes: true,
+				accentStyle: style,
 				accentColor: palette.accent,
 			};
 	}
@@ -435,6 +472,20 @@ function hashPick(seed, list) {
 		hash = Math.imul(hash, 16777619);
 	}
 	return items[(hash >>> 0) % items.length];
+}
+
+/** Enforce premium Pinterest headline length (3–7 words). */
+function clampPinHeadline(value) {
+	const words = String(value || '')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.split(' ')
+		.filter(Boolean);
+	if (words.length === 0) return 'Must-Try Recipe';
+	if (words.length < 3) {
+		return [...words, 'Recipe', 'Tonight'].slice(0, 3).join(' ');
+	}
+	return words.slice(0, 7).join(' ');
 }
 
 function layoutFitsSignals(layoutId, signals) {
@@ -523,10 +574,26 @@ export function recommendPinDesign({
 		? aiRecommendation.brandPlacement
 		: identity.brandPlacement;
 
+	const pairPool = Array.isArray(identity.fontPairs) && identity.fontPairs.length
+		? identity.fontPairs
+		: [{ heading: identity.fontHeading, script: identity.fontScript }];
+	const pickedPair = hashPick(`${signals.family}:${templateId}:${index}`, pairPool) || pairPool[0];
 	const fontPair = {
-		heading: aiRecommendation?.fontPair?.heading || identity.fontHeading,
-		script: aiRecommendation?.fontPair?.script || identity.fontScript,
+		heading: aiRecommendation?.fontPair?.heading || pickedPair.heading || identity.fontHeading,
+		script: aiRecommendation?.fontPair?.script || pickedPair.script || identity.fontScript,
 	};
+
+	const accentPools = {
+		brush: ['flourish', 'arcs', 'orbits'],
+		underline: ['dots', 'rule', 'corner'],
+		ribbon: ['diamonds', 'slash', 'orbits'],
+		accent: ['rule', 'corner', 'arcs', 'orbits'],
+	};
+	const allAccentStyles = ['orbits', 'arcs', 'diamonds', 'corner', 'dots', 'slash', 'flourish', 'rule'];
+	const accentPool = accentPools[decoration] || allAccentStyles;
+	const accentStyle = allAccentStyles.includes(String(aiRecommendation?.accentStyle || ''))
+		? String(aiRecommendation.accentStyle)
+		: (hashPick(`${signals.family}:${templateId}:${index}:accent`, accentPool) || identity.accentStyle || 'orbits');
 
 	const ctaStyle = String(aiRecommendation?.ctaStyle || identity.ctaStyle);
 	const scriptEnabled = Boolean(
@@ -534,6 +601,7 @@ export function recommendPinDesign({
 		?? (identity.scriptAccent && (templateId === 'handwritten_accent' || signals.mood === 'indulgent' || signals.mood === 'elegant')),
 	);
 
+	const foodFocusY = Number(aiRecommendation?.foodFocusY);
 	const recommendation = {
 		family: signals.family,
 		familyLabel: identity.label,
@@ -547,8 +615,11 @@ export function recommendPinDesign({
 		overlayStyle,
 		overlayIntensity: Number(aiRecommendation?.overlayIntensity) || identity.overlayIntensity,
 		decoration,
+		accentStyle,
 		brandPlacement,
 		scriptAccent: scriptEnabled,
+		foodFocusY: Number.isFinite(foodFocusY) ? foodFocusY : (identity.foodFocusY ?? 0.38),
+		showSubtitle: true,
 		rationale: [
 			`${identity.label} identity`,
 			`mood:${signals.mood}`,
@@ -567,13 +638,22 @@ export function recommendPinDesign({
 export function recommendationToTemplatePatch(recommendation) {
 	const palette = recommendation.colorPalette || CATEGORY_VISUAL_IDENTITIES.general.palette;
 	const button = ctaStyleToButton(recommendation.ctaStyle, palette);
-	const decorations = decorationPatch(recommendation.decoration, palette, recommendation.scriptAccent);
+	const decorations = decorationPatch(
+		recommendation.decoration,
+		palette,
+		recommendation.scriptAccent,
+		recommendation.accentStyle,
+	);
 
 	return {
 		layout: {
 			textPosition: recommendation.titlePosition,
 			brandPlacement: recommendation.brandPlacement,
 			showBrandBar: recommendation.brandPlacement === 'bottom-bar' || recommendation.brandPlacement === 'inside-card',
+			showSubtitle: recommendation.showSubtitle !== false,
+			foodFocusY: Number.isFinite(Number(recommendation.foodFocusY))
+				? Number(recommendation.foodFocusY)
+				: 0.38,
 		},
 		textOverlay: {
 			style: recommendation.overlayStyle,
@@ -587,6 +667,8 @@ export function recommendationToTemplatePatch(recommendation) {
 			scriptFontFamily: recommendation.fontPair?.script,
 			scriptColor: palette.accent,
 			textShadow: recommendation.overlayStyle !== 'none',
+			maxLines: 3,
+			letterSpacing: -0.8,
 		},
 		decorations: {
 			...decorations,
@@ -646,6 +728,8 @@ export function assignIntelligentPinDesigns(pins, {
 
 		return {
 			...pin,
+			title: clampPinHeadline(pin?.title),
+			subtitle: String(pin?.subtitle || '').trim().split(/\s+/).filter(Boolean).slice(0, 6).join(' '),
 			layoutId: recommendation.template,
 			layoutLabel: recommendation.templateLabel,
 			layoutStyle: recommendation.template,

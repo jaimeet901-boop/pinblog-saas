@@ -29,6 +29,7 @@ export async function composeAndUploadFeaturedPins(pins, {
 				templateConfig: pin.templateConfig,
 				context: {
 					title: pin.title,
+					subtitle: pin.subtitle,
 					description: pin.description,
 					overlayText: pin.overlayText,
 					category: pin.category,

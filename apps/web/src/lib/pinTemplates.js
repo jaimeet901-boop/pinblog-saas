@@ -22,9 +22,10 @@ export const OVERLAY_STYLES = [
 export const HEADING_FONT_PRESETS = [
 	{ id: 'georgia', label: 'Georgia (classic)', value: 'Georgia, "Times New Roman", serif' },
 	{ id: 'palatino', label: 'Palatino (editorial)', value: 'Palatino Linotype, Palatino, "Book Antiqua", serif' },
+	{ id: 'century', label: 'Century Gothic (minimal)', value: '"Century Gothic", "Apple Gothic", sans-serif' },
+	{ id: 'trebuchet', label: 'Trebuchet (modern)', value: '"Trebuchet MS", "Segoe UI", sans-serif' },
 	{ id: 'impact', label: 'Impact (bold pin)', value: 'Impact, Haettenschweiler, "Arial Black", sans-serif' },
 	{ id: 'arial-black', label: 'Arial Black', value: '"Arial Black", Gadget, sans-serif' },
-	{ id: 'helvetica', label: 'Helvetica Bold', value: 'Helvetica Neue, Helvetica, Arial, sans-serif' },
 ];
 
 export const SCRIPT_FONT_PRESETS = [
@@ -52,8 +53,9 @@ export function createDefaultTemplateConfig() {
 		layout: {
 			textPosition: 'bottom',
 			textAlign: 'center',
-			safeMargin: 72,
+			safeMargin: 88,
 			showDescription: false,
+			showSubtitle: true,
 			showCta: true,
 			showBrandBar: true,
 			frameStyle: 'none',
@@ -61,10 +63,11 @@ export function createDefaultTemplateConfig() {
 			brandPlacement: 'bottom-bar',
 			variantId: '',
 			variantLabel: '',
+			foodFocusY: 0.38,
 		},
 		textOverlay: {
 			style: 'gradient',
-			intensity: 0.62,
+			intensity: 0.56,
 			color: '#000000',
 		},
 		positions: {
@@ -75,46 +78,47 @@ export function createDefaultTemplateConfig() {
 		},
 		typography: {
 			fontFamily: 'Georgia, "Times New Roman", serif',
-			fontSize: 78,
-			minFontSize: 36,
+			fontSize: 88,
+			minFontSize: 42,
 			fontWeight: 800,
 			textColor: '#FFFFFF',
-			lineHeight: 1.12,
-			letterSpacing: -0.8,
-			maxLines: 5,
+			lineHeight: 1.08,
+			letterSpacing: -1,
+			maxLines: 3,
 			textShadow: true,
 			scriptEnabled: false,
 			scriptFontFamily: '"Segoe Script", "Brush Script MT", cursive',
-			scriptColor: '#FDE68A',
+			scriptColor: '#E8B86D',
 		},
 		decorations: {
 			brushHighlight: true,
-			brushColor: '#F59E0B',
-			brushOpacity: 0.88,
+			brushColor: '#C4A574',
+			brushOpacity: 0.82,
 			roundedLabel: true,
 			underline: false,
 			underlineColor: '#FFFFFF',
 			accentShapes: true,
 			accentColor: '#FFFFFF',
+			accentStyle: 'orbits',
 		},
 		brandBar: {
 			enabled: true,
 			showLogo: true,
 			showDomain: true,
-			background: 'rgba(0,0,0,0.42)',
+			background: 'rgba(0,0,0,0.4)',
 			textColor: '#FFFFFF',
 		},
 		buttonStyle: {
 			background: '#FFFFFF',
-			textColor: '#111827',
+			textColor: '#1C1917',
 			borderRadius: 999,
-			padding: 16,
+			padding: 18,
 			shadow: true,
 			opacity: 1,
 		},
 		container: {
 			borderRadius: 0,
-			padding: 72,
+			padding: 88,
 			shadow: false,
 			opacity: 1,
 		},
@@ -193,6 +197,7 @@ export function normalizeTemplateConfig(inputConfig) {
 				: base.layout.textAlign,
 			safeMargin: clampNumber(layoutInput.safeMargin ?? input?.container?.padding, 40, 160, base.layout.safeMargin),
 			showDescription: Boolean(layoutInput.showDescription ?? base.layout.showDescription),
+			showSubtitle: Boolean(layoutInput.showSubtitle ?? base.layout.showSubtitle),
 			showCta: Boolean(layoutInput.showCta ?? base.layout.showCta),
 			showBrandBar: Boolean(layoutInput.showBrandBar ?? brandInput.enabled ?? base.layout.showBrandBar),
 			frameStyle: ['none', 'darkBox', 'whiteCard', 'ribbon', 'magazine'].includes(String(layoutInput.frameStyle || ''))
@@ -206,6 +211,7 @@ export function normalizeTemplateConfig(inputConfig) {
 				: base.layout.brandPlacement,
 			variantId: String(layoutInput.variantId || ''),
 			variantLabel: String(layoutInput.variantLabel || ''),
+			foodFocusY: clampNumber(layoutInput.foodFocusY, 0.2, 0.7, base.layout.foodFocusY),
 		},
 		textOverlay: {
 			style: normalizeOverlayStyle(overlayInput.style, base.textOverlay.style),
@@ -241,6 +247,9 @@ export function normalizeTemplateConfig(inputConfig) {
 			underlineColor: String(decorationsInput.underlineColor || base.decorations.underlineColor),
 			accentShapes: Boolean(decorationsInput.accentShapes ?? base.decorations.accentShapes),
 			accentColor: String(decorationsInput.accentColor || base.decorations.accentColor),
+			accentStyle: ['none', 'orbits', 'arcs', 'diamonds', 'corner', 'dots', 'slash', 'flourish', 'rule'].includes(String(decorationsInput.accentStyle || ''))
+				? String(decorationsInput.accentStyle)
+				: base.decorations.accentStyle,
 		},
 		brandBar: {
 			enabled: Boolean(brandInput.enabled ?? layoutInput.showBrandBar ?? base.brandBar.enabled),
@@ -279,12 +288,12 @@ export function applyTemplateVariables(value, context) {
 export function resolveTitleBand(config) {
 	const position = config?.layout?.textPosition || 'bottom';
 	if (position === 'top') {
-		return { start: 0.10, end: 0.42 };
+		return { start: 0.08, end: 0.38 };
 	}
 	if (position === 'center') {
-		return { start: 0.32, end: 0.68 };
+		return { start: 0.30, end: 0.66 };
 	}
-	return { start: 0.48, end: 0.78 };
+	return { start: 0.50, end: 0.76 };
 }
 
 export function formatPinDomain(website) {
@@ -329,7 +338,7 @@ export function resolveFeaturedTemplateConfig(inputConfig) {
 			...normalized.typography,
 			textColor: darkTitle ? '#FFFFFF' : normalized.typography.textColor,
 			textShadow: frame === 'whiteCard' ? false : (normalized.typography.textShadow !== false),
-			maxLines: normalized.typography.maxLines || 5,
+			maxLines: Math.min(normalized.typography.maxLines || 3, 3),
 		},
 		textOverlay: {
 			...normalized.textOverlay,
@@ -337,12 +346,12 @@ export function resolveFeaturedTemplateConfig(inputConfig) {
 				? 'gradient'
 				: (normalized.textOverlay.style === 'none' ? 'gradient' : normalized.textOverlay.style),
 			intensity: hasFramedContrast
-				? Math.max(Number(normalized.textOverlay.intensity) || 0, 0.25)
-				: Math.max(Number(normalized.textOverlay.intensity) || 0, 0.45),
+				? Math.max(Number(normalized.textOverlay.intensity) || 0, 0.22)
+				: Math.max(Number(normalized.textOverlay.intensity) || 0, 0.42),
 		},
 		layout: {
 			...normalized.layout,
-			safeMargin: Math.max(normalized.layout.safeMargin || 0, 56),
+			safeMargin: Math.max(normalized.layout.safeMargin || 0, 72),
 		},
 		brandBar: {
 			...normalized.brandBar,

@@ -1,6 +1,6 @@
 /**
  * Local (non-AI) pin copy for Featured Image mode.
- * Titles/CTAs vary; Template Intelligence assigns the visual system.
+ * Premium Pinterest copy: 3–7 word headlines + optional subtitle.
  */
 
 function truncate(value, max = 160) {
@@ -18,27 +18,55 @@ function safeArray(value) {
 	return [];
 }
 
-const TITLE_PATTERNS = [
-	(title) => title,
-	(title) => `Easy ${title}`,
-	(title) => `${title} You’ll Love`,
-	(title) => `Best ${title} Ideas`,
-	(title) => `${title} in Minutes`,
-	(title) => `How to Make ${title}`,
-	(title) => `${title}: Simple & Delicious`,
-	(title) => `Weeknight ${title}`,
-	(title) => `${title} Recipe`,
-	(title) => `Save This ${title}`,
+function cleanTitleSeed(value) {
+	return String(value || '')
+		.replace(/\s*[|–—:].*$/, '')
+		.replace(/\b(recipe|ideas?|guide|tips?)\b/gi, '')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+function clampWordCount(text, min = 3, max = 7) {
+	const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+	if (words.length === 0) return 'Must-Try Recipe';
+	if (words.length < min) {
+		const fillers = ['Recipe', 'Made Easy', 'You Need'];
+		return [...words, ...fillers].slice(0, min).join(' ');
+	}
+	return words.slice(0, max).join(' ');
+}
+
+const HEADLINE_BUILDERS = [
+	(words) => words.slice(0, Math.min(5, words.length)).join(' '),
+	(words) => `Easy ${words.slice(0, 4).join(' ')}`,
+	(words) => `${words.slice(0, 3).join(' ')} Recipe`,
+	(words) => `Best ${words.slice(0, 4).join(' ')}`,
+	(words) => `${words.slice(0, 4).join(' ')} Tonight`,
+	(words) => `Creamy ${words.slice(0, 4).join(' ')}`,
+	(words) => `${words.slice(0, 3).join(' ')} in Minutes`,
+	(words) => `Homemade ${words.slice(0, 4).join(' ')}`,
+	(words) => `Simple ${words.slice(0, 4).join(' ')}`,
+	(words) => `${words.slice(0, 5).join(' ')}`,
 ];
 
+const SUBTITLE_BY_FAMILY = {
+	dessert: ['Sweet · Decadent · Easy', 'Bakery-style at home', 'Worth every bite'],
+	healthy: ['Fresh · Light · Nourishing', 'Clean ingredients', 'Feel-good flavor'],
+	dinner: ['Weeknight comfort', 'Family favorite', 'Savory & satisfying'],
+	breakfast: ['Morning made better', 'Brunch-worthy', 'Start bright'],
+	drinks: ['Sip-worthy refreshment', 'Cool · Bright · Easy', 'Blend & enjoy'],
+	snacks: ['Crispy · Shareable', 'Party-ready bites', 'Craveable & quick'],
+	general: ['Save for later', 'Simple & delicious', 'Pin-worthy classic'],
+};
+
 const CTA_BY_FAMILY = {
-	dessert: ['Save Dessert', 'Bake This', 'Sweet Treat', 'Try Tonight'],
-	healthy: ['Eat Fresh', 'Try Clean', 'Get Recipe', 'Feel Good'],
-	dinner: ['Make Dinner', 'Cook Tonight', 'Get Recipe', 'Save Meal'],
-	breakfast: ['Make Morning', 'Brunch Idea', 'Start Day', 'Try Breakfast'],
-	drinks: ['Mix This', 'Sip & Save', 'Try Drink', 'Cheers'],
-	snacks: ['Snack Time', 'Party Bite', 'Crunch This', 'Save Snack'],
-	general: ['Save Recipe', 'Try This', 'Get the Recipe', 'Pin for Later'],
+	dessert: ['Save Recipe', 'Bake This', 'Try Tonight'],
+	healthy: ['Get Recipe', 'Cook Fresh', 'Try This'],
+	dinner: ['Make Tonight', 'Get Recipe', 'Save Meal'],
+	breakfast: ['Make Morning', 'Try Brunch', 'Get Recipe'],
+	drinks: ['Mix This', 'Sip & Save', 'Try Drink'],
+	snacks: ['Snack Time', 'Save Bite', 'Make These'],
+	general: ['Save Recipe', 'Try This', 'Get Recipe'],
 };
 
 function inferFamilyHint({ article, analysis, panel }) {
@@ -66,43 +94,47 @@ export function buildLocalPinsFromArticle({ article, count = 1, panel = {}, anal
 	const n = Math.max(1, Number(count) || 1);
 	const family = inferFamilyHint({ article, analysis, panel });
 	const ctas = CTA_BY_FAMILY[family] || CTA_BY_FAMILY.general;
-	const baseTitle = String(
+	const subtitles = SUBTITLE_BY_FAMILY[family] || SUBTITLE_BY_FAMILY.general;
+	const seed = cleanTitleSeed(
 		panel.pinTitle
 		|| analysis?.title
 		|| article?.title
 		|| article?.slug
-		|| 'Pinterest Pin',
-	).trim();
+		|| 'Perfect Recipe',
+	);
+	const words = seed.split(/\s+/).filter(Boolean);
 	const baseDescription = String(
 		panel.pinDescription
 		|| analysis?.seoDescription
 		|| article?.metaDescription
 		|| article?.excerpt
-		|| `Discover more: ${article?.title || 'this article'}`,
+		|| '',
 	).trim();
 	const keywords = safeArray(
 		analysis?.keywords?.length
 			? analysis.keywords
-			: [article?.category, 'pinterest', 'blog'].filter(Boolean),
+			: [article?.category, 'pinterest', 'recipe'].filter(Boolean),
 	);
 	const hashtags = safeArray(
 		analysis?.hashtags?.length
 			? analysis.hashtags
-			: ['#pinterest', '#blog'],
+			: ['#pinterest', '#recipe'],
 	);
 
 	return Array.from({ length: n }).map((_, index) => {
-		const pattern = TITLE_PATTERNS[index % TITLE_PATTERNS.length];
-		const title = truncate(pattern(baseTitle), 100);
+		const builder = HEADLINE_BUILDERS[index % HEADLINE_BUILDERS.length];
+		const title = clampWordCount(builder(words.length ? words : ['Perfect', 'Recipe']));
+		const subtitle = subtitles[index % subtitles.length];
 		const overlayText = truncate(
 			panel.textOverlay
 			|| analysis?.cta
 			|| ctas[index % ctas.length],
-			48,
+			28,
 		);
 		return {
 			title,
-			description: truncate(baseDescription, 500),
+			subtitle,
+			description: truncate(baseDescription || subtitle, 160),
 			overlayText,
 			suggestedKeywords: keywords,
 			suggestedHashtags: hashtags,

@@ -178,6 +178,15 @@ export default function TemplatePreviewCard({
 						/>
 					) : null}
 
+					{safeConfig.layout.showSubtitle && context?.subtitle ? (
+						<p
+							className="mt-2 line-clamp-2 text-[10px] font-medium opacity-85"
+							style={{ color: safeConfig.typography.textColor, fontFamily: safeConfig.typography.fontFamily }}
+						>
+							{context.subtitle}
+						</p>
+					) : null}
+
 					{safeConfig.layout.showDescription && context?.description ? (
 						<p
 							className="mt-2 line-clamp-2 text-[10px] opacity-90"
