@@ -22,10 +22,12 @@ export const OVERLAY_STYLES = [
 export const HEADING_FONT_PRESETS = [
 	{ id: 'georgia', label: 'Georgia (classic)', value: 'Georgia, "Times New Roman", serif' },
 	{ id: 'palatino', label: 'Palatino (editorial)', value: 'Palatino Linotype, Palatino, "Book Antiqua", serif' },
+	{ id: 'garamond', label: 'Garamond (luxury)', value: 'Garamond, "Times New Roman", serif' },
+	{ id: 'didot', label: 'Didot (fashion)', value: 'Didot, "Bodoni MT", serif' },
 	{ id: 'century', label: 'Century Gothic (minimal)', value: '"Century Gothic", "Apple Gothic", sans-serif' },
-	{ id: 'trebuchet', label: 'Trebuchet (modern)', value: '"Trebuchet MS", "Segoe UI", sans-serif' },
+	{ id: 'optima', label: 'Optima (elegant)', value: 'Optima, Candara, sans-serif' },
+	{ id: 'futura', label: 'Futura (geometric)', value: 'Futura, "Trebuchet MS", sans-serif' },
 	{ id: 'impact', label: 'Impact (bold pin)', value: 'Impact, Haettenschweiler, "Arial Black", sans-serif' },
-	{ id: 'arial-black', label: 'Arial Black', value: '"Arial Black", Gadget, sans-serif' },
 ];
 
 export const SCRIPT_FONT_PRESETS = [
@@ -64,6 +66,9 @@ export function createDefaultTemplateConfig() {
 			variantId: '',
 			variantLabel: '',
 			foodFocusY: 0.38,
+			dynamicGapAfterTitle: 26,
+			titleScaleBoost: 1,
+			subtitleOpacity: 0.86,
 		},
 		textOverlay: {
 			style: 'gradient',
@@ -115,6 +120,7 @@ export function createDefaultTemplateConfig() {
 			padding: 18,
 			shadow: true,
 			opacity: 1,
+			variant: 'pill',
 		},
 		container: {
 			borderRadius: 0,
@@ -200,7 +206,7 @@ export function normalizeTemplateConfig(inputConfig) {
 			showSubtitle: Boolean(layoutInput.showSubtitle ?? base.layout.showSubtitle),
 			showCta: Boolean(layoutInput.showCta ?? base.layout.showCta),
 			showBrandBar: Boolean(layoutInput.showBrandBar ?? brandInput.enabled ?? base.layout.showBrandBar),
-			frameStyle: ['none', 'darkBox', 'whiteCard', 'ribbon', 'magazine'].includes(String(layoutInput.frameStyle || ''))
+			frameStyle: ['none', 'darkBox', 'whiteCard', 'softCard', 'glassCard', 'ribbon', 'bannerStrip', 'magazine', 'polaroid', 'insetFrame'].includes(String(layoutInput.frameStyle || ''))
 				? String(layoutInput.frameStyle)
 				: base.layout.frameStyle,
 			ctaPosition: ['below-title', 'bottom', 'inside-frame', 'none'].includes(String(layoutInput.ctaPosition || ''))
@@ -212,6 +218,9 @@ export function normalizeTemplateConfig(inputConfig) {
 			variantId: String(layoutInput.variantId || ''),
 			variantLabel: String(layoutInput.variantLabel || ''),
 			foodFocusY: clampNumber(layoutInput.foodFocusY, 0.2, 0.7, base.layout.foodFocusY),
+			dynamicGapAfterTitle: clampNumber(layoutInput.dynamicGapAfterTitle, 12, 48, 26),
+			titleScaleBoost: clampNumber(layoutInput.titleScaleBoost, 0.85, 1.2, 1),
+			subtitleOpacity: clampNumber(layoutInput.subtitleOpacity, 0.5, 1, 0.86),
 		},
 		textOverlay: {
 			style: normalizeOverlayStyle(overlayInput.style, base.textOverlay.style),
@@ -247,7 +256,7 @@ export function normalizeTemplateConfig(inputConfig) {
 			underlineColor: String(decorationsInput.underlineColor || base.decorations.underlineColor),
 			accentShapes: Boolean(decorationsInput.accentShapes ?? base.decorations.accentShapes),
 			accentColor: String(decorationsInput.accentColor || base.decorations.accentColor),
-			accentStyle: ['none', 'orbits', 'arcs', 'diamonds', 'corner', 'dots', 'slash', 'flourish', 'rule'].includes(String(decorationsInput.accentStyle || ''))
+			accentStyle: ['none', 'orbits', 'arcs', 'diamonds', 'corner', 'dots', 'slash', 'flourish', 'rule', 'spark', 'brackets'].includes(String(decorationsInput.accentStyle || ''))
 				? String(decorationsInput.accentStyle)
 				: base.decorations.accentStyle,
 		},
@@ -265,6 +274,7 @@ export function normalizeTemplateConfig(inputConfig) {
 			padding: clampNumber(input?.buttonStyle?.padding, 0, 64, base.buttonStyle.padding),
 			shadow: Boolean(input?.buttonStyle?.shadow ?? base.buttonStyle.shadow),
 			opacity: clampNumber(input?.buttonStyle?.opacity, 0, 1, base.buttonStyle.opacity),
+			variant: String(input?.buttonStyle?.variant || base.buttonStyle.variant || 'pill'),
 		},
 		container: {
 			borderRadius: clampNumber(input?.container?.borderRadius, 0, 120, base.container.borderRadius),
@@ -328,8 +338,9 @@ function luminance(hexColor) {
 export function resolveFeaturedTemplateConfig(inputConfig) {
 	const normalized = normalizeTemplateConfig(inputConfig);
 	const frame = normalized.layout.frameStyle || 'none';
-	const hasFramedContrast = ['darkBox', 'whiteCard', 'ribbon'].includes(frame);
-	const darkTitle = luminance(normalized.typography.textColor) < 0.45 && frame !== 'whiteCard';
+	const hasFramedContrast = ['darkBox', 'whiteCard', 'softCard', 'glassCard', 'ribbon', 'bannerStrip', 'polaroid', 'insetFrame'].includes(frame);
+	const darkTitle = luminance(normalized.typography.textColor) < 0.45
+		&& !['whiteCard', 'softCard', 'polaroid'].includes(frame);
 
 	return normalizeTemplateConfig({
 		...normalized,
@@ -337,7 +348,9 @@ export function resolveFeaturedTemplateConfig(inputConfig) {
 		typography: {
 			...normalized.typography,
 			textColor: darkTitle ? '#FFFFFF' : normalized.typography.textColor,
-			textShadow: frame === 'whiteCard' ? false : (normalized.typography.textShadow !== false),
+			textShadow: ['whiteCard', 'softCard', 'polaroid'].includes(frame)
+				? false
+				: (normalized.typography.textShadow !== false),
 			maxLines: Math.min(normalized.typography.maxLines || 3, 3),
 		},
 		textOverlay: {

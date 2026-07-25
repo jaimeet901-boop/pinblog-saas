@@ -57,20 +57,76 @@ export async function fetchImageForCanvas(remoteUrl) {
 	}
 }
 
-function drawCoverImage(ctx, img, width, height, { focusY = 0.38 } = {}) {
+function drawCoverImage(ctx, img, width, height, { focusY = 0.38, focusX = 0.5 } = {}) {
 	const scale = Math.max(width / img.width, height / img.height);
 	const drawW = img.width * scale;
 	const drawH = img.height * scale;
-	const x = (width - drawW) / 2;
-	// Bias crop toward food (usually upper-center of lifestyle photos).
-	const focal = Math.max(0.2, Math.min(0.65, Number(focusY) || 0.38));
-	const srcFocus = focal * drawH;
-	const destFocus = height * 0.4;
-	let y = destFocus - srcFocus;
+	const focalY = Math.max(0.2, Math.min(0.65, Number(focusY) || 0.38));
+	const focalX = Math.max(0.3, Math.min(0.7, Number(focusX) || 0.5));
+	const srcFocusY = focalY * drawH;
+	const destFocusY = height * 0.4;
+	let y = destFocusY - srcFocusY;
 	const minY = Math.min(0, height - drawH);
-	const maxY = 0;
-	y = Math.max(minY, Math.min(maxY, y));
+	y = Math.max(minY, Math.min(0, y));
+	const srcFocusX = focalX * drawW;
+	const destFocusX = width * 0.5;
+	let x = destFocusX - srcFocusX;
+	const minX = Math.min(0, width - drawW);
+	x = Math.max(minX, Math.min(0, x));
 	ctx.drawImage(img, x, y, drawW, drawH);
+}
+
+/**
+ * Sample average luminance in the title band to auto-tune overlay + text contrast.
+ */
+function sampleBandBrightness(ctx, width, height, band) {
+	try {
+		const y0 = Math.max(0, Math.floor(height * (band?.start ?? 0.5)));
+		const y1 = Math.min(height, Math.floor(height * (band?.end ?? 0.78)));
+		const sampleH = Math.max(8, y1 - y0);
+		const step = 12;
+		const data = ctx.getImageData(0, y0, width, sampleH).data;
+		let sum = 0;
+		let count = 0;
+		for (let py = 0; py < sampleH; py += step) {
+			for (let px = 0; px < width; px += step) {
+				const i = (py * width + px) * 4;
+				const r = data[i];
+				const g = data[i + 1];
+				const b = data[i + 2];
+				sum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+				count += 1;
+			}
+		}
+		return count ? sum / count / 255 : 0.45;
+	} catch {
+		return 0.45;
+	}
+}
+
+function applyAutoContrast(config, brightness) {
+	const next = {
+		...config,
+		textOverlay: { ...config.textOverlay },
+		typography: { ...config.typography },
+	};
+	const frame = config.layout.frameStyle || 'none';
+	const framed = ['darkBox', 'whiteCard', 'softCard', 'glassCard', 'ribbon', 'bannerStrip', 'polaroid', 'insetFrame'].includes(frame);
+	if (framed) return { config: next, brightness };
+
+	if (brightness > 0.62) {
+		next.textOverlay.intensity = Math.min(0.88, Math.max(next.textOverlay.intensity || 0.5, 0.68));
+		next.textOverlay.style = next.textOverlay.style === 'none' ? 'gradient' : next.textOverlay.style;
+		next.typography.textColor = '#FFFFFF';
+		next.typography.textShadow = true;
+	} else if (brightness < 0.28) {
+		next.textOverlay.intensity = Math.max(0.28, Math.min(next.textOverlay.intensity || 0.5, 0.42));
+		next.typography.textColor = '#FFFBEB';
+		next.typography.textShadow = true;
+	} else {
+		next.textOverlay.intensity = Math.max(next.textOverlay.intensity || 0.5, 0.52);
+	}
+	return { config: next, brightness };
 }
 
 function hexToRgba(color, alpha = 1) {
@@ -371,6 +427,36 @@ function drawAccentShapes(ctx, {
 		ctx.globalAlpha = 0.5;
 		roundRectPath(ctx, margin, height * 0.5 - size * 0.2, size * 4.5, size * 0.35, size);
 		ctx.fill();
+	} else if (style === 'spark') {
+		ctx.globalAlpha = 0.5;
+		const cx = width - margin - size * 2;
+		const cy = margin + size * 2.5;
+		for (let i = 0; i < 4; i += 1) {
+			const ang = (Math.PI / 2) * i;
+			ctx.beginPath();
+			ctx.moveTo(cx, cy);
+			ctx.lineTo(cx + Math.cos(ang) * size * 2.2, cy + Math.sin(ang) * size * 2.2);
+			ctx.lineWidth = Math.max(2, size * 0.28);
+			ctx.stroke();
+		}
+		ctx.beginPath();
+		ctx.arc(cx, cy, size * 0.45, 0, Math.PI * 2);
+		ctx.fill();
+	} else if (style === 'brackets') {
+		ctx.globalAlpha = 0.45;
+		ctx.lineWidth = Math.max(3, size * 0.4);
+		ctx.beginPath();
+		ctx.moveTo(margin + size * 2, margin + size);
+		ctx.lineTo(margin, margin + size);
+		ctx.lineTo(margin, margin + size * 4);
+		ctx.lineTo(margin + size * 2, margin + size * 4);
+		ctx.stroke();
+		ctx.beginPath();
+		ctx.moveTo(width - margin - size * 2, height * 0.48);
+		ctx.lineTo(width - margin, height * 0.48);
+		ctx.lineTo(width - margin, height * 0.48 + size * 3);
+		ctx.lineTo(width - margin - size * 2, height * 0.48 + size * 3);
+		ctx.stroke();
 	} else {
 		// orbits (default)
 		ctx.globalAlpha = 0.42;
@@ -402,52 +488,63 @@ function drawPremiumBadge(ctx, {
 	padding = 16,
 	borderRadius = 999,
 	shadow = true,
+	variant = 'pill',
 }) {
 	const label = String(text || '').trim();
 	if (!label) return { height: 0, width: 0 };
 	const fontSize = 24;
 	ctx.font = `700 ${fontSize}px ${fontFamily}`;
 	try {
-		ctx.letterSpacing = '0.8px';
+		ctx.letterSpacing = '1px';
 	} catch {
 		// ignore
 	}
-	const textWidth = ctx.measureText(label.toUpperCase()).width;
-	const w = textWidth + padding * 2.4;
-	const h = fontSize + padding * 1.15;
+	const display = label.toUpperCase();
+	const textWidth = ctx.measureText(display).width;
+	const w = textWidth + padding * 2.5;
+	const h = fontSize + padding * 1.2;
 	const radius = borderRadius >= 999 ? h / 2 : Math.min(borderRadius, h / 2);
 	const drawX = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+	const isOutline = variant === 'outline' || String(background).includes('rgba(255,255,255,0.1');
 
 	ctx.save();
-	if (shadow) {
+	if (shadow && !isOutline) {
 		ctx.shadowColor = 'rgba(0,0,0,0.28)';
 		ctx.shadowBlur = 16;
 		ctx.shadowOffsetY = 5;
 	}
-	ctx.fillStyle = background;
-	roundRectPath(ctx, drawX, y, w, h, radius);
-	ctx.fill();
+	if (isOutline) {
+		ctx.fillStyle = 'rgba(255,255,255,0.1)';
+		roundRectPath(ctx, drawX, y, w, h, radius);
+		ctx.fill();
+		ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+		ctx.lineWidth = 2;
+		roundRectPath(ctx, drawX, y, w, h, radius);
+		ctx.stroke();
+	} else {
+		ctx.fillStyle = background;
+		roundRectPath(ctx, drawX, y, w, h, radius);
+		ctx.fill();
+		ctx.shadowColor = 'transparent';
+		ctx.shadowBlur = 0;
+		ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+		ctx.lineWidth = 1.5;
+		roundRectPath(ctx, drawX + 2, y + 2, w - 4, h - 4, Math.max(0, radius - 2));
+		ctx.stroke();
+	}
 	ctx.shadowColor = 'transparent';
 	ctx.shadowBlur = 0;
-	ctx.shadowOffsetY = 0;
-
-	// Soft inner ring for luxury badge feel
-	ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-	ctx.lineWidth = 1.5;
-	roundRectPath(ctx, drawX + 2, y + 2, w - 4, h - 4, Math.max(0, radius - 2));
-	ctx.stroke();
-
 	ctx.fillStyle = textColor;
 	ctx.textBaseline = 'middle';
 	ctx.textAlign = 'left';
-	ctx.fillText(label.toUpperCase(), drawX + padding * 1.2, y + h / 2 + 1);
+	ctx.fillText(display, drawX + padding * 1.25, y + h / 2 + 1);
 	ctx.restore();
 	try {
 		ctx.letterSpacing = '0px';
 	} catch {
 		// ignore
 	}
-	return { height: h + 20, width: w };
+	return { height: h + 22, width: w };
 }
 
 function drawRoundedLabel(ctx, options) {
@@ -470,6 +567,62 @@ function drawWhiteCard(ctx, { x, y, width, height, radius = 36 }) {
 	ctx.fillStyle = 'rgba(255,255,255,0.96)';
 	roundRectPath(ctx, x, y, width, height, radius);
 	ctx.fill();
+	ctx.restore();
+}
+
+function drawSoftCard(ctx, { x, y, width, height, radius = 44 }) {
+	ctx.save();
+	ctx.shadowColor = 'rgba(0,0,0,0.22)';
+	ctx.shadowBlur = 36;
+	ctx.shadowOffsetY = 14;
+	ctx.fillStyle = 'rgba(255,251,235,0.95)';
+	roundRectPath(ctx, x, y, width, height, radius);
+	ctx.fill();
+	ctx.restore();
+}
+
+function drawGlassCard(ctx, { x, y, width, height, radius = 28 }) {
+	ctx.save();
+	ctx.fillStyle = 'rgba(255,255,255,0.18)';
+	roundRectPath(ctx, x, y, width, height, radius);
+	ctx.fill();
+	ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+	ctx.lineWidth = 1.5;
+	roundRectPath(ctx, x, y, width, height, radius);
+	ctx.stroke();
+	ctx.restore();
+}
+
+function drawBannerStrip(ctx, { x, y, width, height, color = 'rgba(28,25,23,0.82)' }) {
+	ctx.save();
+	ctx.fillStyle = color;
+	ctx.fillRect(x, y, width, height);
+	ctx.fillStyle = 'rgba(255,255,255,0.12)';
+	ctx.fillRect(x, y, width, 3);
+	ctx.fillRect(x, y + height - 3, width, 3);
+	ctx.restore();
+}
+
+function drawPolaroid(ctx, { x, y, width, height }) {
+	ctx.save();
+	ctx.shadowColor = 'rgba(0,0,0,0.3)';
+	ctx.shadowBlur = 24;
+	ctx.shadowOffsetY = 10;
+	ctx.fillStyle = '#FAFAF9';
+	roundRectPath(ctx, x, y, width, height + 36, 8);
+	ctx.fill();
+	ctx.restore();
+}
+
+function drawInsetFrame(ctx, { margin, width, height, brandReserved }) {
+	ctx.save();
+	ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+	ctx.lineWidth = 2;
+	const inset = margin * 0.55;
+	ctx.strokeRect(inset, inset, width - inset * 2, height - brandReserved - inset * 0.6);
+	ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+	ctx.lineWidth = 1;
+	ctx.strokeRect(inset + 10, inset + 10, width - inset * 2 - 20, height - brandReserved - inset * 0.6 - 20);
 	ctx.restore();
 }
 
@@ -564,7 +717,7 @@ export async function renderFeaturedPinToBlob({
 	watermarkText = '',
 	websiteDomain = '',
 }) {
-	const config = resolveFeaturedTemplateConfig(templateConfig);
+	let config = resolveFeaturedTemplateConfig(templateConfig);
 	const width = 1000;
 	const height = 1500;
 	const canvas = document.createElement('canvas');
@@ -578,12 +731,38 @@ export async function renderFeaturedPinToBlob({
 	ctx.fillStyle = config.background.color || '#111111';
 	ctx.fillRect(0, 0, width, height);
 
+	const bandPreview = resolveTitleBand(config);
 	if (featuredImageUrl) {
 		const featured = await fetchImageForCanvas(featuredImageUrl);
 		drawCoverImage(ctx, featured, width, height, {
 			focusY: config.layout.foodFocusY ?? 0.38,
+			focusX: 0.5,
 		});
+		const brightness = sampleBandBrightness(ctx, width, height, bandPreview);
+		const contrast = applyAutoContrast(config, brightness);
+		config = contrast.config;
 	}
+
+	// Dynamic spacing from headline length
+	const titleWordCount = String(context.title || '').trim().split(/\s+/).filter(Boolean).length;
+	const dynMargin = titleWordCount <= 3
+		? Math.max(config.layout.safeMargin, 112)
+		: titleWordCount <= 5
+			? Math.max(config.layout.safeMargin, 88)
+			: Math.max(72, config.layout.safeMargin - 8);
+	config = {
+		...config,
+		layout: {
+			...config.layout,
+			safeMargin: dynMargin,
+			dynamicGapAfterTitle: config.layout.dynamicGapAfterTitle
+				|| (titleWordCount <= 3 ? 32 : titleWordCount <= 5 ? 26 : 20),
+		},
+		typography: {
+			...config.typography,
+			fontSize: Math.round(config.typography.fontSize * (titleWordCount <= 3 ? 1.06 : titleWordCount >= 6 ? 0.94 : 1)),
+		},
+	};
 
 	drawReadabilityOverlay(ctx, width, height, config);
 
@@ -636,10 +815,13 @@ export async function renderFeaturedPinToBlob({
 
 	if (frameStyle === 'magazine') {
 		drawMagazineFrame(ctx, { margin, width, height, brandReserved });
+	} else if (frameStyle === 'insetFrame') {
+		drawInsetFrame(ctx, { margin, width, height, brandReserved });
 	}
 
 	let cursorY = bandTop;
-	const framePad = frameStyle === 'whiteCard' || frameStyle === 'darkBox' ? 36 : 0;
+	const framedContent = ['whiteCard', 'softCard', 'glassCard', 'darkBox', 'polaroid'].includes(frameStyle);
+	const framePad = framedContent ? 36 : 0;
 	const contentWidth = width - margin * 2 - framePad * 2;
 	const textMaxWidth = Math.max(280, contentWidth);
 
@@ -673,6 +855,26 @@ export async function renderFeaturedPinToBlob({
 	} else if (frameStyle === 'whiteCard') {
 		drawWhiteCard(ctx, { x: frameX, y: frameY, width: frameWidth, height: frameHeight, radius: 36 });
 		cursorY = frameY + framePad + 8;
+	} else if (frameStyle === 'softCard') {
+		drawSoftCard(ctx, { x: frameX, y: frameY, width: frameWidth, height: frameHeight, radius: 44 });
+		cursorY = frameY + framePad + 8;
+	} else if (frameStyle === 'glassCard') {
+		drawGlassCard(ctx, { x: frameX, y: frameY, width: frameWidth, height: frameHeight, radius: 28 });
+		cursorY = frameY + framePad + 8;
+	} else if (frameStyle === 'polaroid') {
+		drawPolaroid(ctx, { x: frameX, y: frameY, width: frameWidth, height: frameHeight });
+		cursorY = frameY + framePad + 8;
+	} else if (frameStyle === 'bannerStrip') {
+		const stripH = Math.max(probeBlockH + 56, 140);
+		frameY = (bandTop + bandBottom) / 2 - stripH / 2;
+		drawBannerStrip(ctx, {
+			x: 0,
+			y: frameY,
+			width,
+			height: stripH,
+			color: hexToRgba(config.decorations.brushColor || '#1C1917', 0.82),
+		});
+		cursorY = frameY + (stripH - probeBlockH) / 2;
 	} else if (frameStyle === 'ribbon') {
 		const ribbonH = Math.max(probeBlockH + 48, 120);
 		frameY = (bandTop + bandBottom) / 2 - ribbonH / 2;
@@ -762,7 +964,7 @@ export async function renderFeaturedPinToBlob({
 	} catch {
 		// ignore
 	}
-	if (config.typography.textShadow && frameStyle !== 'whiteCard') {
+	if (config.typography.textShadow && !['whiteCard', 'softCard', 'polaroid'].includes(frameStyle)) {
 		ctx.shadowColor = 'rgba(0,0,0,0.45)';
 		ctx.shadowBlur = 18;
 		ctx.shadowOffsetY = 4;
@@ -804,14 +1006,17 @@ export async function renderFeaturedPinToBlob({
 		ctx.restore();
 	}
 
-	let afterTitleY = titleBottom + (config.decorations.underline ? 40 : 28);
+	let afterTitleY = titleBottom + (config.decorations.underline
+		? Math.max(36, config.layout.dynamicGapAfterTitle || 26) + 12
+		: (config.layout.dynamicGapAfterTitle || 26));
 
 	if (config.layout.showSubtitle && subtitleText) {
 		const subSize = Math.max(22, Math.round(fitted.fontSize * 0.28));
 		ctx.save();
 		ctx.font = `500 ${subSize}px ${config.typography.fontFamily}`;
 		ctx.fillStyle = config.typography.textColor;
-		ctx.globalAlpha = frameStyle === 'whiteCard' ? 0.72 : 0.86;
+		ctx.globalAlpha = config.layout.subtitleOpacity
+			?? (['whiteCard', 'softCard', 'polaroid'].includes(frameStyle) ? 0.72 : 0.86);
 		ctx.textAlign = align === 'left' ? 'left' : align === 'right' ? 'right' : 'center';
 		ctx.textBaseline = 'top';
 		const subLines = wrapTitleBalanced(ctx, subtitleText, textMaxWidth * 0.92, 2);
@@ -845,6 +1050,7 @@ export async function renderFeaturedPinToBlob({
 		padding: config.buttonStyle.padding,
 		borderRadius: config.buttonStyle.borderRadius,
 		shadow: config.buttonStyle.shadow,
+		variant: config.buttonStyle.variant || 'pill',
 	};
 
 	if (config.layout.showCta && ctaLabel && (ctaPosition === 'below-title' || ctaPosition === 'inside-frame') && !config.decorations.roundedLabel) {

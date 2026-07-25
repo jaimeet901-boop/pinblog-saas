@@ -1,6 +1,6 @@
 /**
  * Local (non-AI) pin copy for Featured Image mode.
- * Premium Pinterest copy: 3–7 word headlines + optional subtitle.
+ * Premium Pinterest copy: 3–6 word headlines + optional subtitle.
  */
 
 function truncate(value, max = 160) {
@@ -26,7 +26,7 @@ function cleanTitleSeed(value) {
 		.trim();
 }
 
-function clampWordCount(text, min = 3, max = 7) {
+function clampWordCount(text, min = 3, max = 6) {
 	const words = String(text || '').trim().split(/\s+/).filter(Boolean);
 	if (words.length === 0) return 'Must-Try Recipe';
 	if (words.length < min) {
@@ -37,16 +37,16 @@ function clampWordCount(text, min = 3, max = 7) {
 }
 
 const HEADLINE_BUILDERS = [
-	(words) => words.slice(0, Math.min(5, words.length)).join(' '),
-	(words) => `Easy ${words.slice(0, 4).join(' ')}`,
+	(words) => words.slice(0, Math.min(4, words.length)).join(' '),
+	(words) => `Easy ${words.slice(0, 3).join(' ')}`,
 	(words) => `${words.slice(0, 3).join(' ')} Recipe`,
-	(words) => `Best ${words.slice(0, 4).join(' ')}`,
-	(words) => `${words.slice(0, 4).join(' ')} Tonight`,
-	(words) => `Creamy ${words.slice(0, 4).join(' ')}`,
-	(words) => `${words.slice(0, 3).join(' ')} in Minutes`,
-	(words) => `Homemade ${words.slice(0, 4).join(' ')}`,
-	(words) => `Simple ${words.slice(0, 4).join(' ')}`,
-	(words) => `${words.slice(0, 5).join(' ')}`,
+	(words) => `Best ${words.slice(0, 3).join(' ')}`,
+	(words) => `${words.slice(0, 3).join(' ')} Tonight`,
+	(words) => `Homemade ${words.slice(0, 3).join(' ')}`,
+	(words) => `Simple ${words.slice(0, 3).join(' ')}`,
+	(words) => `${words.slice(0, 4).join(' ')}`,
+	(words) => `Perfect ${words.slice(0, 3).join(' ')}`,
+	(words) => `${words.slice(0, 3).join(' ')} Now`,
 ];
 
 const SUBTITLE_BY_FAMILY = {

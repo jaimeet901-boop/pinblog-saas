@@ -1,154 +1,197 @@
 /**
- * Distinct Pinterest pin layout catalog (BlogToPin / Canva style variety).
- * Premium presets: larger type, more whitespace, luxury font stacks, short headlines.
+ * Premium layout catalog — 32 layouts composed from design tokens.
+ * Visual variety comes from token combinations, not one-off CSS.
  */
 
 import { createDefaultTemplateConfig, normalizeTemplateConfig } from '@/lib/pinTemplates';
+import {
+	PIN_SAFE_MARGIN,
+	composeLayoutPatch,
+} from '@/lib/pinDesignTokens';
+
+function layout(id, label, tags, tokenOptions) {
+	return {
+		id,
+		label,
+		tags,
+		patch: composeLayoutPatch(tokenOptions),
+	};
+}
 
 export const PIN_LAYOUT_CATALOG = [
-	{
-		id: 'centered_hero',
-		label: 'Big centered title',
-		tags: ['hero', 'short', 'bold'],
-		patch: {
-			layout: { textPosition: 'center', textAlign: 'center', showCta: true, showBrandBar: true, showDescription: false, showSubtitle: true, frameStyle: 'none', ctaPosition: 'below-title', brandPlacement: 'bottom-bar', safeMargin: 96, foodFocusY: 0.38 },
-			textOverlay: { style: 'vignette', intensity: 0.62, color: '#000000' },
-			typography: { fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 98, minFontSize: 48, fontWeight: 800, textColor: '#FFFFFF', lineHeight: 1.05, letterSpacing: -1.6, maxLines: 3, textShadow: true, scriptEnabled: false },
-			decorations: { brushHighlight: false, roundedLabel: true, underline: false, accentShapes: true, accentStyle: 'orbits', brushColor: '#E8B86D', accentColor: '#FFFFFF' },
-			buttonStyle: { background: '#FFFFFF', textColor: '#1C1917', borderRadius: 999, padding: 18, shadow: true },
-			brandBar: { enabled: true, showLogo: true, showDomain: true, background: 'rgba(0,0,0,0.42)', textColor: '#FFFFFF' },
-		},
-	},
-	{
-		id: 'top_title_bottom_cta',
-		label: 'Title top + CTA bottom',
-		tags: ['editorial', 'long', 'recipe'],
-		patch: {
-			layout: { textPosition: 'top', textAlign: 'left', showCta: true, showBrandBar: true, showDescription: false, showSubtitle: true, frameStyle: 'none', ctaPosition: 'bottom', brandPlacement: 'bottom-bar', safeMargin: 88, foodFocusY: 0.42 },
-			textOverlay: { style: 'gradient', intensity: 0.68, color: '#000000' },
-			typography: { fontFamily: 'Palatino Linotype, Palatino, "Book Antiqua", serif', fontSize: 84, minFontSize: 42, fontWeight: 700, textColor: '#FFFFFF', lineHeight: 1.1, letterSpacing: -0.6, maxLines: 3, textShadow: true, scriptEnabled: false },
-			decorations: { brushHighlight: false, roundedLabel: false, underline: true, underlineColor: '#F5E6C8', accentShapes: true, accentStyle: 'corner', brushColor: '#C4A574', accentColor: '#F5E6C8' },
-			buttonStyle: { background: '#C4A574', textColor: '#1C1917', borderRadius: 16, padding: 20, shadow: true },
-			brandBar: { enabled: true, showLogo: true, showDomain: true, background: 'rgba(0,0,0,0.48)', textColor: '#FFFFFF' },
-		},
-	},
-	{
-		id: 'dark_title_box',
-		label: 'Dark title box',
-		tags: ['box', 'medium', 'contrast'],
-		patch: {
-			layout: { textPosition: 'center', textAlign: 'center', showCta: true, showBrandBar: true, showDescription: false, showSubtitle: true, frameStyle: 'darkBox', ctaPosition: 'below-title', brandPlacement: 'bottom-bar', safeMargin: 80, foodFocusY: 0.4 },
-			textOverlay: { style: 'gradient', intensity: 0.32, color: '#000000' },
-			typography: { fontFamily: '"Trebuchet MS", "Segoe UI", sans-serif', fontSize: 76, minFontSize: 40, fontWeight: 800, textColor: '#FFFFFF', lineHeight: 1.08, letterSpacing: -0.8, maxLines: 3, textShadow: false, scriptEnabled: false },
-			decorations: { brushHighlight: false, roundedLabel: true, underline: false, accentShapes: false, accentStyle: 'none', brushColor: '#111827', accentColor: '#FFFFFF' },
-			buttonStyle: { background: '#E8B86D', textColor: '#1C1917', borderRadius: 999, padding: 16, shadow: true },
-			brandBar: { enabled: true, showLogo: true, showDomain: true, background: 'rgba(0,0,0,0.52)', textColor: '#FFFFFF' },
-		},
-	},
-	{
-		id: 'white_rounded_card',
-		label: 'White rounded card',
-		tags: ['card', 'clean', 'recipe'],
-		patch: {
-			layout: { textPosition: 'bottom', textAlign: 'center', showCta: true, showBrandBar: false, showDescription: false, showSubtitle: true, frameStyle: 'whiteCard', ctaPosition: 'inside-frame', brandPlacement: 'inside-card', safeMargin: 72, foodFocusY: 0.36 },
-			textOverlay: { style: 'gradient', intensity: 0.36, color: '#000000' },
-			typography: { fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 72, minFontSize: 38, fontWeight: 700, textColor: '#1C1917', lineHeight: 1.12, letterSpacing: -0.4, maxLines: 3, textShadow: false, scriptEnabled: false },
-			decorations: { brushHighlight: false, roundedLabel: true, underline: false, accentShapes: false, accentStyle: 'none', brushColor: '#C4A574', accentColor: '#A16207' },
-			buttonStyle: { background: '#1C1917', textColor: '#FFFFFF', borderRadius: 999, padding: 16, shadow: false },
-			brandBar: { enabled: false, showLogo: true, showDomain: true, background: 'transparent', textColor: '#78716C' },
-		},
-	},
-	{
-		id: 'brush_stroke',
-		label: 'Brush stroke headline',
-		tags: ['brush', 'warm', 'food'],
-		patch: {
-			layout: { textPosition: 'bottom', textAlign: 'center', showCta: true, showBrandBar: true, showDescription: false, showSubtitle: true, frameStyle: 'none', ctaPosition: 'below-title', brandPlacement: 'bottom-bar', safeMargin: 90, foodFocusY: 0.35 },
-			textOverlay: { style: 'gradient', intensity: 0.6, color: '#000000' },
-			typography: { fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 90, minFontSize: 44, fontWeight: 800, textColor: '#FFFBEB', lineHeight: 1.06, letterSpacing: -1, maxLines: 3, textShadow: true, scriptEnabled: false },
-			decorations: { brushHighlight: true, brushColor: '#C4A574', brushOpacity: 0.88, roundedLabel: true, underline: false, accentShapes: true, accentStyle: 'arcs', accentColor: '#F5E6C8' },
-			buttonStyle: { background: '#FFFFFF', textColor: '#78350F', borderRadius: 999, padding: 17, shadow: true },
-			brandBar: { enabled: true, showLogo: true, showDomain: true, background: 'rgba(0,0,0,0.4)', textColor: '#FFFFFF' },
-		},
-	},
-	{
-		id: 'ribbon_banner',
-		label: 'Ribbon banner',
-		tags: ['ribbon', 'short', 'cta'],
-		patch: {
-			layout: { textPosition: 'center', textAlign: 'center', showCta: true, showBrandBar: true, showDescription: false, showSubtitle: false, frameStyle: 'ribbon', ctaPosition: 'below-title', brandPlacement: 'corner', safeMargin: 80, foodFocusY: 0.4 },
-			textOverlay: { style: 'dark', intensity: 0.24, color: '#000000' },
-			typography: { fontFamily: '"Arial Black", Gadget, sans-serif', fontSize: 70, minFontSize: 36, fontWeight: 900, textColor: '#FFFFFF', lineHeight: 1.04, letterSpacing: 0.4, maxLines: 2, textShadow: false, scriptEnabled: false },
-			decorations: { brushHighlight: false, roundedLabel: false, underline: false, accentShapes: true, accentStyle: 'diamonds', brushColor: '#9F1239', accentColor: '#FFE4E6' },
-			buttonStyle: { background: '#FFFFFF', textColor: '#9F1239', borderRadius: 10, padding: 16, shadow: true },
-			brandBar: { enabled: false, showLogo: true, showDomain: true, background: 'transparent', textColor: '#FFFFFF' },
-		},
-	},
-	{
-		id: 'magazine',
-		label: 'Magazine style',
-		tags: ['magazine', 'long', 'editorial'],
-		patch: {
-			layout: { textPosition: 'bottom', textAlign: 'left', showCta: false, showBrandBar: true, showDescription: false, showSubtitle: true, frameStyle: 'magazine', ctaPosition: 'none', brandPlacement: 'bottom-bar', safeMargin: 84, foodFocusY: 0.38 },
-			textOverlay: { style: 'gradient', intensity: 0.66, color: '#0C0A09' },
-			typography: { fontFamily: 'Palatino Linotype, Palatino, "Book Antiqua", serif', fontSize: 82, minFontSize: 40, fontWeight: 700, textColor: '#FAFAF9', lineHeight: 1.12, letterSpacing: -0.3, maxLines: 3, textShadow: true, scriptEnabled: false },
-			decorations: { brushHighlight: false, roundedLabel: false, underline: true, underlineColor: '#A8A29E', accentShapes: true, accentStyle: 'rule', accentColor: '#E7E5E4', brushColor: '#78716C' },
-			buttonStyle: { background: '#FAFAF9', textColor: '#0C0A09', borderRadius: 4, padding: 14, shadow: false },
-			brandBar: { enabled: true, showLogo: true, showDomain: true, background: 'rgba(12,10,9,0.72)', textColor: '#E7E5E4' },
-		},
-	},
-	{
-		id: 'minimal_modern',
-		label: 'Minimal modern',
-		tags: ['minimal', 'short', 'modern'],
-		patch: {
-			layout: { textPosition: 'bottom', textAlign: 'center', showCta: true, showBrandBar: true, showDescription: false, showSubtitle: true, frameStyle: 'none', ctaPosition: 'below-title', brandPlacement: 'bottom-bar', safeMargin: 108, foodFocusY: 0.4 },
-			textOverlay: { style: 'gradient', intensity: 0.44, color: '#000000' },
-			typography: { fontFamily: '"Century Gothic", "Apple Gothic", sans-serif', fontSize: 68, minFontSize: 36, fontWeight: 600, textColor: '#FFFFFF', lineHeight: 1.16, letterSpacing: 2.2, maxLines: 3, textShadow: false, scriptEnabled: false },
-			decorations: { brushHighlight: false, roundedLabel: false, underline: true, underlineColor: '#FFFFFF', accentShapes: true, accentStyle: 'dots', brushColor: '#FFFFFF', accentColor: '#FFFFFF' },
-			buttonStyle: { background: 'rgba(255,255,255,0.94)', textColor: '#1C1917', borderRadius: 0, padding: 14, shadow: false },
-			brandBar: { enabled: true, showLogo: false, showDomain: true, background: 'rgba(0,0,0,0.26)', textColor: '#FFFFFF' },
-		},
-	},
-	{
-		id: 'bold_typography',
-		label: 'Bold typography',
-		tags: ['bold', 'short', 'impact'],
-		patch: {
-			layout: { textPosition: 'center', textAlign: 'center', showCta: true, showBrandBar: true, showDescription: false, showSubtitle: false, frameStyle: 'none', ctaPosition: 'below-title', brandPlacement: 'bottom-bar', safeMargin: 72, foodFocusY: 0.42 },
-			textOverlay: { style: 'dark', intensity: 0.4, color: '#000000' },
-			typography: { fontFamily: 'Impact, Haettenschweiler, "Arial Black", sans-serif', fontSize: 108, minFontSize: 52, fontWeight: 900, textColor: '#FFFFFF', lineHeight: 0.96, letterSpacing: -2, maxLines: 2, textShadow: true, scriptEnabled: false },
-			decorations: { brushHighlight: false, roundedLabel: true, underline: false, accentShapes: true, accentStyle: 'slash', brushColor: '#B91C1C', accentColor: '#FECACA' },
-			buttonStyle: { background: '#B91C1C', textColor: '#FFFFFF', borderRadius: 8, padding: 18, shadow: true },
-			brandBar: { enabled: true, showLogo: true, showDomain: true, background: 'rgba(0,0,0,0.5)', textColor: '#FFFFFF' },
-		},
-	},
-	{
-		id: 'handwritten_accent',
-		label: 'Elegant handwritten accent',
-		tags: ['script', 'elegant', 'dessert', 'medium'],
-		patch: {
-			layout: { textPosition: 'bottom', textAlign: 'center', showCta: true, showBrandBar: true, showDescription: false, showSubtitle: true, frameStyle: 'none', ctaPosition: 'below-title', brandPlacement: 'bottom-bar', safeMargin: 92, foodFocusY: 0.36 },
-			textOverlay: { style: 'gradient', intensity: 0.56, color: '#1C1917' },
-			typography: {
-				fontFamily: 'Georgia, "Times New Roman", serif',
-				fontSize: 82,
-				minFontSize: 40,
-				fontWeight: 700,
-				textColor: '#FFF7ED',
-				lineHeight: 1.1,
-				letterSpacing: -0.5,
-				maxLines: 3,
-				textShadow: true,
-				scriptEnabled: true,
-				scriptFontFamily: '"Segoe Script", "Brush Script MT", cursive',
-				scriptColor: '#E8B86D',
-			},
-			decorations: { brushHighlight: true, brushColor: '#9F1239', brushOpacity: 0.72, roundedLabel: true, underline: false, accentShapes: true, accentStyle: 'flourish', accentColor: '#FBCFE8' },
-			buttonStyle: { background: '#FFF7ED', textColor: '#9F1239', borderRadius: 999, padding: 17, shadow: true },
-			brandBar: { enabled: true, showLogo: true, showDomain: true, background: 'rgba(28,25,23,0.52)', textColor: '#FEF3C7' },
-		},
-	},
+	layout('centered_hero', 'Centered hero', ['hero', 'short', 'bold'], {
+		fontPairId: 'georgia-script', typeScale: 'hero', overlay: 'softVignette', cta: 'pillLight',
+		textPosition: 'center', ctaPosition: 'below-title', roundedLabel: true, accentStyle: 'orbits',
+		safeMargin: PIN_SAFE_MARGIN.luxury, foodFocusY: 0.38,
+	}),
+	layout('top_title_bottom_cta', 'Title top · CTA bottom', ['editorial', 'recipe'], {
+		fontPairId: 'palatino-georgia', typeScale: 'editorial', overlay: 'richGradient', cta: 'capsuleWarm',
+		textPosition: 'top', textAlign: 'left', ctaPosition: 'bottom', roundedLabel: false, underline: true,
+		accentStyle: 'corner', underlineColor: '#F5E6C8', brushColor: '#C4A574', accentColor: '#F5E6C8',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.42,
+	}),
+	layout('dark_title_box', 'Dark title box', ['box', 'contrast'], {
+		fontPairId: 'trebuchet-script', typeScale: 'editorial', overlay: 'softGradient', cta: 'pillGold',
+		textPosition: 'center', frameStyle: 'darkBox', roundedLabel: true, accentShapes: false, accentStyle: 'none',
+		safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.4,
+	}),
+	layout('white_rounded_card', 'White rounded card', ['card', 'clean'], {
+		fontPairId: 'georgia-script', typeScale: 'card', overlay: 'softGradient', cta: 'pillDark',
+		textPosition: 'bottom', frameStyle: 'whiteCard', ctaPosition: 'inside-frame', brandPlacement: 'inside-card',
+		showBrandBar: false, textColor: '#1C1917', roundedLabel: true, accentShapes: false, accentStyle: 'none',
+		safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.36,
+	}),
+	layout('brush_stroke', 'Brush stroke headline', ['brush', 'warm', 'food'], {
+		fontPairId: 'georgia-script', typeScale: 'display', overlay: 'richGradient', cta: 'pillLight',
+		textPosition: 'bottom', brushHighlight: true, roundedLabel: true, accentStyle: 'arcs',
+		brushColor: '#C4A574', accentColor: '#F5E6C8', safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.35,
+	}),
+	layout('ribbon_banner', 'Ribbon banner', ['ribbon', 'short', 'cta'], {
+		fontPairId: 'arial-black-brush', typeScale: 'editorial', overlay: 'softDark', cta: 'pillLight',
+		textPosition: 'center', frameStyle: 'ribbon', brandPlacement: 'corner', showBrandBar: false,
+		showSubtitle: false, roundedLabel: false, accentStyle: 'diamonds', brushColor: '#9F1239',
+		accentColor: '#FFE4E6', safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.4,
+	}),
+	layout('magazine', 'Magazine editorial', ['magazine', 'editorial'], {
+		fontPairId: 'palatino-georgia', typeScale: 'editorial', overlay: 'deepGradient', cta: 'squareClean',
+		textPosition: 'bottom', textAlign: 'left', frameStyle: 'magazine', showCta: false, ctaPosition: 'none',
+		roundedLabel: false, underline: true, underlineColor: '#A8A29E', accentStyle: 'rule',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.38, brandBarBg: 'rgba(12,10,9,0.72)',
+	}),
+	layout('minimal_modern', 'Minimal modern', ['minimal', 'short', 'modern'], {
+		fontPairId: 'century-georgia', typeScale: 'minimal', overlay: 'softGradient', cta: 'squareClean',
+		textPosition: 'bottom', roundedLabel: false, underline: true, accentStyle: 'dots',
+		safeMargin: PIN_SAFE_MARGIN.luxury, foodFocusY: 0.4, brandBarBg: 'rgba(0,0,0,0.26)',
+	}),
+	layout('bold_typography', 'Bold typography', ['bold', 'short', 'impact'], {
+		fontPairId: 'impact-georgia', typeScale: 'impact', overlay: 'richDark', cta: 'sharpBadge',
+		textPosition: 'center', showSubtitle: false, roundedLabel: true, accentStyle: 'slash',
+		brushColor: '#B91C1C', accentColor: '#FECACA', safeMargin: PIN_SAFE_MARGIN.tight, foodFocusY: 0.42,
+	}),
+	layout('handwritten_accent', 'Handwritten accent', ['script', 'elegant', 'dessert'], {
+		fontPairId: 'georgia-script', typeScale: 'scriptLead', overlay: 'richGradient', cta: 'pillSoft',
+		textPosition: 'bottom', brushHighlight: true, scriptEnabled: true, accentStyle: 'flourish',
+		brushColor: '#9F1239', accentColor: '#FBCFE8', textColor: '#FFF7ED',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.36, brandBarBg: 'rgba(28,25,23,0.52)',
+	}),
+	layout('soft_card_float', 'Soft floating card', ['card', 'soft', 'clean'], {
+		fontPairId: 'baskerville-italic', typeScale: 'card', overlay: 'softGradient', cta: 'pillSoft',
+		textPosition: 'bottom', frameStyle: 'softCard', ctaPosition: 'inside-frame', brandPlacement: 'inside-card',
+		showBrandBar: false, textColor: '#1C1917', roundedLabel: true, accentShapes: false, accentStyle: 'none',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.37,
+	}),
+	layout('glass_panel', 'Glass panel', ['glass', 'modern', 'drinks'], {
+		fontPairId: 'optima-script', typeScale: 'editorial', overlay: 'softVignette', cta: 'outlineLight',
+		textPosition: 'center', frameStyle: 'glassCard', roundedLabel: false, accentStyle: 'orbits',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.4,
+	}),
+	layout('banner_strip', 'Banner strip', ['banner', 'short'], {
+		fontPairId: 'futura-georgia', typeScale: 'display', overlay: 'softDark', cta: 'pillGold',
+		textPosition: 'center', frameStyle: 'bannerStrip', showSubtitle: false, roundedLabel: false,
+		accentStyle: 'spark', safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.39,
+	}),
+	layout('polaroid_memory', 'Polaroid memory', ['card', 'playful', 'breakfast'], {
+		fontPairId: 'gill-script', typeScale: 'card', overlay: 'softGradient', cta: 'pillDark',
+		textPosition: 'bottom', frameStyle: 'polaroid', ctaPosition: 'inside-frame', brandPlacement: 'inside-card',
+		showBrandBar: false, textColor: '#292524', roundedLabel: false, underline: true, underlineColor: '#A8A29E',
+		accentShapes: false, accentStyle: 'none', safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.34,
+	}),
+	layout('inset_frame', 'Inset luxury frame', ['frame', 'luxury', 'editorial'], {
+		fontPairId: 'didot-script', typeScale: 'editorial', overlay: 'deepGradient', cta: 'pillGold',
+		textPosition: 'bottom', frameStyle: 'insetFrame', roundedLabel: true, accentStyle: 'brackets',
+		safeMargin: PIN_SAFE_MARGIN.luxury, foodFocusY: 0.38,
+	}),
+	layout('left_rail_editorial', 'Left-rail editorial', ['editorial', 'long', 'dinner'], {
+		fontPairId: 'garamond-script', typeScale: 'editorial', overlay: 'richGradient', cta: 'capsuleWarm',
+		textPosition: 'bottom', textAlign: 'left', ctaPosition: 'below-title', roundedLabel: false,
+		underline: true, accentStyle: 'rule', underlineColor: '#E8B86D',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.4,
+	}),
+	layout('top_center_badge', 'Top badge + title', ['hero', 'cta', 'short'], {
+		fontPairId: 'segoe-ui-script', typeScale: 'display', overlay: 'softGradient', cta: 'pillLight',
+		textPosition: 'top', textAlign: 'center', ctaPosition: 'below-title', roundedLabel: true,
+		accentStyle: 'dots', safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.41,
+	}),
+	layout('bottom_stack_luxe', 'Bottom luxury stack', ['luxury', 'dessert', 'food'], {
+		fontPairId: 'copperplate-georgia', typeScale: 'display', overlay: 'deepGradient', cta: 'pillGold',
+		textPosition: 'bottom', brushHighlight: true, scriptEnabled: true, accentStyle: 'flourish',
+		brushColor: '#E8B86D', safeMargin: PIN_SAFE_MARGIN.luxury, foodFocusY: 0.35,
+	}),
+	layout('center_script_hero', 'Center script hero', ['script', 'elegant', 'short'], {
+		fontPairId: 'perpetua-script', typeScale: 'scriptLead', overlay: 'richVignette', cta: 'pillSoft',
+		textPosition: 'center', scriptEnabled: true, roundedLabel: true, accentStyle: 'arcs',
+		safeMargin: PIN_SAFE_MARGIN.luxury, foodFocusY: 0.39,
+	}),
+	layout('healthy_clean_card', 'Healthy clean card', ['card', 'clean', 'healthy'], {
+		fontPairId: 'verdana-georgia', typeScale: 'card', overlay: 'softGradient', cta: 'pillDark',
+		textPosition: 'bottom', frameStyle: 'whiteCard', ctaPosition: 'inside-frame', brandPlacement: 'inside-card',
+		showBrandBar: false, textColor: '#14532D', roundedLabel: true, accentShapes: false, accentStyle: 'none',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.4,
+	}),
+	layout('dinner_dark_panel', 'Dinner dark panel', ['box', 'dinner', 'savory'], {
+		fontPairId: 'constantia-script', typeScale: 'editorial', overlay: 'softGradient', cta: 'capsuleWarm',
+		textPosition: 'center', frameStyle: 'darkBox', roundedLabel: true, accentShapes: false, accentStyle: 'none',
+		safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.38,
+	}),
+	layout('breakfast_sunburst', 'Breakfast sunburst', ['brush', 'bright', 'breakfast'], {
+		fontPairId: 'cambria-script', typeScale: 'display', overlay: 'richGradient', cta: 'pillLight',
+		textPosition: 'top', brushHighlight: true, accentStyle: 'spark', brushColor: '#D97706',
+		accentColor: '#FEF3C7', safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.34,
+	}),
+	layout('drink_cool_center', 'Cool drink center', ['hero', 'drinks', 'cool'], {
+		fontPairId: 'candara-georgia', typeScale: 'hero', overlay: 'richVignette', cta: 'outlineLight',
+		textPosition: 'center', roundedLabel: false, underline: true, underlineColor: '#67E8F9',
+		accentStyle: 'orbits', brandPlacement: 'corner', showBrandBar: false,
+		safeMargin: PIN_SAFE_MARGIN.luxury, foodFocusY: 0.42,
+	}),
+	layout('snack_impact_block', 'Snack impact block', ['bold', 'snacks', 'impact'], {
+		fontPairId: 'rockwell-georgia', typeScale: 'impact', overlay: 'richDark', cta: 'sharpBadge',
+		textPosition: 'center', showSubtitle: false, roundedLabel: true, accentStyle: 'slash',
+		safeMargin: PIN_SAFE_MARGIN.tight, foodFocusY: 0.4,
+	}),
+	layout('asymmetric_top_left', 'Asymmetric top-left', ['editorial', 'modern'], {
+		fontPairId: 'tahoma-script', typeScale: 'editorial', overlay: 'richGradient', cta: 'pillSoft',
+		textPosition: 'top', textAlign: 'left', ctaPosition: 'below-title', roundedLabel: false,
+		underline: true, accentStyle: 'corner', safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.4,
+	}),
+	layout('lower_third_serif', 'Lower-third serif', ['editorial', 'food'], {
+		fontPairId: 'lucida-georgia', typeScale: 'display', overlay: 'deepGradient', cta: 'pillGold',
+		textPosition: 'bottom', roundedLabel: true, accentStyle: 'rule',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.36,
+	}),
+	layout('ribbon_elegant', 'Elegant ribbon', ['ribbon', 'elegant', 'dessert'], {
+		fontPairId: 'didot-script', typeScale: 'editorial', overlay: 'softDark', cta: 'pillSoft',
+		textPosition: 'center', frameStyle: 'ribbon', brandPlacement: 'corner', showBrandBar: false,
+		showSubtitle: true, roundedLabel: false, accentStyle: 'flourish', brushColor: '#9F1239',
+		safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.38,
+	}),
+	layout('glass_bottom_stack', 'Glass bottom stack', ['glass', 'modern'], {
+		fontPairId: 'futura-georgia', typeScale: 'editorial', overlay: 'softVignette', cta: 'pillLight',
+		textPosition: 'bottom', frameStyle: 'glassCard', ctaPosition: 'inside-frame', roundedLabel: true,
+		accentStyle: 'dots', safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.37,
+	}),
+	layout('magazine_right_rule', 'Magazine right rule', ['magazine', 'dinner'], {
+		fontPairId: 'palatino-georgia', typeScale: 'editorial', overlay: 'deepGradient', cta: 'outlineLight',
+		textPosition: 'bottom', textAlign: 'left', frameStyle: 'magazine', showCta: true, ctaPosition: 'below-title',
+		roundedLabel: false, underline: true, accentStyle: 'brackets',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.39,
+	}),
+	layout('inset_center_title', 'Inset center title', ['frame', 'luxury', 'short'], {
+		fontPairId: 'optima-script', typeScale: 'hero', overlay: 'richGradient', cta: 'pillGold',
+		textPosition: 'center', frameStyle: 'insetFrame', showSubtitle: false, roundedLabel: true,
+		accentStyle: 'orbits', safeMargin: PIN_SAFE_MARGIN.luxury, foodFocusY: 0.4,
+	}),
+	layout('polaroid_script', 'Polaroid script', ['card', 'script', 'breakfast'], {
+		fontPairId: 'georgia-script', typeScale: 'scriptLead', overlay: 'softGradient', cta: 'pillDark',
+		textPosition: 'bottom', frameStyle: 'polaroid', ctaPosition: 'inside-frame', brandPlacement: 'inside-card',
+		showBrandBar: false, textColor: '#1C1917', scriptEnabled: true, roundedLabel: false,
+		accentShapes: false, accentStyle: 'none', safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.35,
+	}),
+	layout('banner_editorial', 'Banner editorial', ['banner', 'editorial'], {
+		fontPairId: 'garamond-script', typeScale: 'display', overlay: 'softDark', cta: 'capsuleWarm',
+		textPosition: 'center', frameStyle: 'bannerStrip', roundedLabel: false, accentStyle: 'rule',
+		safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.4,
+	}),
 ];
 
 export function getPinLayoutById(id) {
@@ -173,13 +216,10 @@ function deepMerge(base, patch) {
 	return out;
 }
 
-/**
- * Merge a catalog layout + optional brand kit into a renderable template config.
- */
 export function applyPinLayoutToTemplateConfig(baseConfig, layoutId, { brandKit = null } = {}) {
-	const layout = getPinLayoutById(layoutId) || PIN_LAYOUT_CATALOG[0];
+	const layoutDef = getPinLayoutById(layoutId) || PIN_LAYOUT_CATALOG[0];
 	const base = normalizeTemplateConfig(baseConfig || createDefaultTemplateConfig());
-	let merged = deepMerge(base, layout.patch || {});
+	let merged = deepMerge(base, layoutDef.patch || {});
 
 	if (brandKit) {
 		merged = deepMerge(merged, {
@@ -191,7 +231,7 @@ export function applyPinLayoutToTemplateConfig(baseConfig, layoutId, { brandKit 
 				fontFamily: brandKit.fontHeading || merged.typography.fontFamily,
 			},
 			buttonStyle: {
-				background: brandKit.primaryColor && layout.id !== 'white_rounded_card'
+				background: brandKit.primaryColor && layoutDef.id !== 'white_rounded_card'
 					? (merged.buttonStyle.background === '#FFFFFF' ? merged.buttonStyle.background : brandKit.primaryColor)
 					: merged.buttonStyle.background,
 			},
@@ -200,8 +240,8 @@ export function applyPinLayoutToTemplateConfig(baseConfig, layoutId, { brandKit 
 
 	merged.layout = {
 		...merged.layout,
-		variantId: layout.id,
-		variantLabel: layout.label,
+		variantId: layoutDef.id,
+		variantLabel: layoutDef.label,
 	};
 
 	return normalizeTemplateConfig({

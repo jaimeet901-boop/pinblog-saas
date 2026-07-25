@@ -202,12 +202,10 @@ ${guidance}You are a senior Pinterest art director creating PREMIUM BlogToPin / 
 First ANALYZE the recipe: category family (dessert|healthy|dinner|breakfast|drinks|snacks|general), ingredients, mood, cooking time, difficulty, audience.
 Then for EACH pin write short luxury marketing copy AND a designRecommendation for that family identity.
 STRICT COPY RULES:
-- title MUST be 3 to 7 words only (punchy Pinterest headline, no long sentences).
+- title MUST be 3 to 6 words only (punchy Pinterest headline, no long sentences).
 - subtitle is optional (max 6 words) — soft supporting line under the title.
 - overlayText is a short CTA badge (2–4 words), e.g. "Save Recipe", "Try Tonight".
-Dessert = warm blush/gold script. Healthy = clean sage minimal. Dinner = rich amber editorial. Breakfast = sunny. Drinks = cool vignette. Snacks = bold playful.
-layoutStyle/template MUST be one of: centered_hero, top_title_bottom_cta, dark_title_box, white_rounded_card, brush_stroke, ribbon_banner, magazine, minimal_modern, bold_typography, handwritten_accent.
-Prefer templates from the matching family; vary templates inside the family — never duplicate template in this batch.
+Use the Premium Design System: prefer distinct templates from the recipe family identity; never reuse the same template, font mood, or CTA style in this batch.
 Return ONLY a valid JSON object in this exact shape:
 {
   "recipeAnalysis": {
