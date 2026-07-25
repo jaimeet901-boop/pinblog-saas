@@ -1150,7 +1150,7 @@ export default function AIPinsPage() {
 						author: article.author,
 						featuredImage: article.featuredImage || '',
 						imageSource: workingPanel.imageMode === 'use_featured' ? 'featured' : 'ai_generated',
-						imageGenerationStatus: workingPanel.imageMode === 'use_featured' ? 'rendering' : 'queued',
+						imageGenerationStatus: workingPanel.imageMode === 'use_featured' ? 'processing' : 'queued',
 						imageGenerationError: '',
 						imageJobId: '',
 						imageMode: workingPanel.imageMode,

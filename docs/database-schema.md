@@ -241,8 +241,8 @@ API layer exposes camelCase DTOs (`logoUrl`, …).
 | `published_at` | date | |
 | `publish_error` | text | |
 | `performance` | json | |
-| `image_source` | select | `featured` \| `ai_generated` \| `featured_fallback` |
-| `image_generation_status` | select | `idle` \| `queued` \| `processing` \| `completed` \| `failed` \| `fallback` |
+| `image_source` | select | `featured` \| `ai_generated` \| `featured_fallback` \| `featured_composed` |
+| `image_generation_status` | select | `idle` \| `queued` \| `processing` \| `completed` \| `failed` \| `fallback` \| `rendering` |
 | `image_generation_error` | text | |
 | `image_job_id` | text/relation | |
 | `analysis` | json | |

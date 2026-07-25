@@ -5,6 +5,23 @@
 import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
 
+const IMAGE_SOURCE_VALUES = new Set([
+	'featured',
+	'ai_generated',
+	'featured_fallback',
+	'featured_composed',
+]);
+
+const IMAGE_GENERATION_STATUS_VALUES = new Set([
+	'idle',
+	'queued',
+	'processing',
+	'completed',
+	'failed',
+	'fallback',
+	'rendering',
+]);
+
 function safeArray(value) {
 	if (!value) return [];
 	if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -12,6 +29,81 @@ function safeArray(value) {
 		return value.split(',').map((item) => item.trim()).filter(Boolean);
 	}
 	return [];
+}
+
+function truncateText(value, max) {
+	const text = String(value || '');
+	if (text.length <= max) return text;
+	return text.slice(0, max);
+}
+
+/**
+ * Extract the real PocketBase validation / API error instead of the generic
+ * "Failed to create record" message.
+ */
+export function formatPocketBaseError(error, fallback = 'Failed to save pin') {
+	if (!error) return fallback;
+
+	const responseData = error?.response || error?.data || {};
+	const fieldErrors = responseData?.data && typeof responseData.data === 'object'
+		? responseData.data
+		: (error?.data && typeof error.data === 'object' ? error.data : null);
+
+	const fieldMessages = [];
+	if (fieldErrors) {
+		Object.entries(fieldErrors).forEach(([field, detail]) => {
+			if (!detail) return;
+			if (typeof detail === 'string') {
+				fieldMessages.push(`${field}: ${detail}`);
+				return;
+			}
+			const message = detail.message || detail.code || JSON.stringify(detail);
+			fieldMessages.push(`${field}: ${message}`);
+		});
+	}
+
+	const topMessage = String(
+		responseData?.message
+		|| error?.message
+		|| fallback,
+	).trim();
+
+	if (fieldMessages.length > 0) {
+		const joined = fieldMessages.join(' · ');
+		if (topMessage && !fieldMessages.some((item) => item.includes(topMessage))) {
+			return `${topMessage} — ${joined}`;
+		}
+		return joined;
+	}
+
+	if (error?.status) {
+		return `${topMessage} (HTTP ${error.status})`;
+	}
+	return topMessage || fallback;
+}
+
+function normalizeImageSource(value) {
+	const raw = String(value || '').trim();
+	if (IMAGE_SOURCE_VALUES.has(raw)) return raw;
+	if (raw === 'composed' || raw === 'canvas') return 'featured_composed';
+	return 'featured';
+}
+
+function normalizeImageGenerationStatus(value) {
+	const raw = String(value || '').trim();
+	if (IMAGE_GENERATION_STATUS_VALUES.has(raw)) return raw;
+	if (raw === 'done' || raw === 'success') return 'completed';
+	if (raw === 'error') return 'failed';
+	if (raw === 'pending' || raw === 'running') return 'processing';
+	return 'idle';
+}
+
+function normalizeImageUrl(value) {
+	const url = String(value || '').trim();
+	if (!url) return '';
+	// Blob URLs are browser-local and cannot be persisted meaningfully.
+	if (url.startsWith('blob:')) return '';
+	return truncateText(url, 4000);
 }
 
 export function mapSavedPin(pin) {
@@ -39,8 +131,54 @@ export function mapSavedPin(pin) {
 		targetAudience: pin.target_audience,
 		toneOfVoice: pin.tone_of_voice,
 		language: pin.language,
+		imageSource: pin.image_source || '',
+		imageGenerationStatus: pin.image_generation_status || '',
 		created: pin.created,
 		updated: pin.updated,
+	};
+}
+
+function buildDraftPayload(pin, panel) {
+	const ownerId = pb.authStore?.record?.id;
+	if (!ownerId) {
+		throw new Error('You must be signed in to save pins');
+	}
+
+	const articleId = String(pin.articleId || '').trim();
+	const websiteId = String(pin.websiteId || '').trim();
+	if (!articleId) {
+		throw new Error('Cannot save pin: articleId is missing (required relation)');
+	}
+	if (!websiteId) {
+		throw new Error('Cannot save pin: websiteId is missing (required relation)');
+	}
+
+	return {
+		owner: ownerId,
+		articleId,
+		websiteId,
+		image_prompt: truncateText(pin.imagePrompt || '', 4000),
+		overlay_text: truncateText(pin.overlayText || '', 600),
+		title: truncateText(pin.title || 'Draft AI Pin', 300) || 'Draft AI Pin',
+		description: truncateText(pin.description || '', 2000),
+		image_url: normalizeImageUrl(pin.imageUrl),
+		pinterest_account_id: truncateText(pin.accountId || '', 80),
+		pinterest_account_label: truncateText(pin.accountLabel || '', 255),
+		pinterest_board_id: truncateText(pin.boardId || '', 120),
+		pinterest_board_name: truncateText(pin.boardName || '', 300),
+		suggested_keywords: safeArray(pin.suggestedKeywords),
+		suggested_hashtags: safeArray(pin.suggestedHashtags),
+		target_audience: truncateText(panel?.targetAudience || '', 200),
+		tone_of_voice: truncateText(panel?.toneOfVoice || '', 100),
+		language: truncateText(panel?.language || '', 60),
+		status: 'draft',
+		image_source: normalizeImageSource(pin.imageSource),
+		image_generation_status: normalizeImageGenerationStatus(pin.imageGenerationStatus),
+		image_generation_error: truncateText(pin.imageGenerationError || '', 3000),
+		cta: truncateText(pin.cta || '', 300),
+		style: truncateText(pin.style || '', 64),
+		...(pin.brandKitId ? { brand_kit: String(pin.brandKitId).trim() } : {}),
+		...(pin.analysis ? { analysis: pin.analysis } : {}),
 	};
 }
 
@@ -49,32 +187,39 @@ export function mapSavedPin(pin) {
  */
 export async function saveDrafts({ previewPins, panel }) {
 	const records = [];
-	for (const pin of previewPins) {
-		const payload = {
-			owner: pb.authStore.record.id,
-			articleId: pin.articleId,
-			websiteId: pin.websiteId,
-			image_prompt: String(pin.imagePrompt || '').trim(),
-			overlay_text: String(pin.overlayText || '').trim(),
-			title: String(pin.title || 'Draft AI Pin').trim(),
-			description: String(pin.description || '').trim(),
-			image_url: String(pin.imageUrl || '').trim(),
-			pinterest_account_id: String(pin.accountId || '').trim(),
-			pinterest_account_label: String(pin.accountLabel || '').trim(),
-			pinterest_board_id: String(pin.boardId || '').trim(),
-			pinterest_board_name: String(pin.boardName || '').trim(),
-			suggested_keywords: safeArray(pin.suggestedKeywords),
-			suggested_hashtags: safeArray(pin.suggestedHashtags),
-			target_audience: panel?.targetAudience || '',
-			tone_of_voice: panel?.toneOfVoice || '',
-			language: panel?.language || '',
-			status: 'draft',
-			image_source: String(pin.imageSource || '').trim() || 'featured',
-			image_generation_status: String(pin.imageGenerationStatus || '').trim() || 'idle',
-			image_generation_error: String(pin.imageGenerationError || '').trim(),
-		};
-		const created = await pb.collection('ai_pins').create(payload);
-		records.push(mapSavedPin(created));
+	const pins = Array.isArray(previewPins) ? previewPins : [];
+	if (pins.length === 0) {
+		throw new Error('No pins to save');
+	}
+
+	for (const pin of pins) {
+		const pinLabel = String(pin?.title || pin?.tempId || 'pin').slice(0, 80);
+		try {
+			const payload = buildDraftPayload(pin, panel);
+			let created;
+			try {
+				created = await pb.collection('ai_pins').create(payload);
+			} catch (firstError) {
+				const detail = formatPocketBaseError(firstError);
+				const imageSourceRejected = /image_source/i.test(detail)
+					&& payload.image_source === 'featured_composed';
+				const statusRejected = /image_generation_status/i.test(detail)
+					&& payload.image_generation_status === 'rendering';
+				if (!imageSourceRejected && !statusRejected) {
+					throw firstError;
+				}
+				// Backward-compatible retry before PocketBase migration is applied.
+				created = await pb.collection('ai_pins').create({
+					...payload,
+					image_source: imageSourceRejected ? 'featured' : payload.image_source,
+					image_generation_status: statusRejected ? 'processing' : payload.image_generation_status,
+				});
+			}
+			records.push(mapSavedPin(created));
+		} catch (error) {
+			const detail = formatPocketBaseError(error, 'Failed to create record');
+			throw new Error(`Save failed for "${pinLabel}": ${detail}`);
+		}
 	}
 	return records;
 }
@@ -92,36 +237,43 @@ export async function duplicatePin(pin, { titleSuffix = ' (Copy)' } = {}) {
 		: null;
 
 	const base = source || {};
-	const payload = {
-		owner: pb.authStore.record.id,
-		articleId: base.articleId || pin.articleId || '',
-		websiteId: base.websiteId || pin.websiteId || '',
-		image_prompt: base.image_prompt || pin.imagePrompt || '',
-		overlay_text: base.overlay_text || pin.overlayText || '',
-		title: `${(base.title || pin.title || 'AI Pin').trim()}${titleSuffix}`.slice(0, 200),
-		description: base.description || pin.description || '',
-		image_url: base.image_url || pin.imageUrl || '',
-		pinterest_account_id: base.pinterest_account_id || pin.accountId || '',
-		pinterest_account_label: base.pinterest_account_label || pin.accountLabel || '',
-		pinterest_board_id: base.pinterest_board_id || pin.boardId || '',
-		pinterest_board_name: base.pinterest_board_name || pin.boardName || '',
-		suggested_keywords: safeArray(base.suggested_keywords || pin.suggestedKeywords),
-		suggested_hashtags: safeArray(base.suggested_hashtags || pin.suggestedHashtags),
-		target_audience: base.target_audience || pin.targetAudience || '',
-		tone_of_voice: base.tone_of_voice || pin.toneOfVoice || '',
-		language: base.language || pin.language || '',
-		status: 'draft',
-		image_source: base.image_source || 'featured',
-		image_generation_status: 'idle',
-		image_generation_error: '',
-		cta: base.cta || '',
-		style: base.style || '',
-		analysis: base.analysis || null,
-		editor_state: base.editor_state || null,
-	};
+	try {
+		const payload = buildDraftPayload({
+			articleId: base.articleId || pin.articleId || '',
+			websiteId: base.websiteId || pin.websiteId || '',
+			imagePrompt: base.image_prompt || pin.imagePrompt || '',
+			overlayText: base.overlay_text || pin.overlayText || '',
+			title: `${(base.title || pin.title || 'AI Pin').trim()}${titleSuffix}`.slice(0, 200),
+			description: base.description || pin.description || '',
+			imageUrl: base.image_url || pin.imageUrl || '',
+			accountId: base.pinterest_account_id || pin.accountId || '',
+			accountLabel: base.pinterest_account_label || pin.accountLabel || '',
+			boardId: base.pinterest_board_id || pin.boardId || '',
+			boardName: base.pinterest_board_name || pin.boardName || '',
+			suggestedKeywords: safeArray(base.suggested_keywords || pin.suggestedKeywords),
+			suggestedHashtags: safeArray(base.suggested_hashtags || pin.suggestedHashtags),
+			imageSource: base.image_source || pin.imageSource || 'featured',
+			imageGenerationStatus: 'idle',
+			imageGenerationError: '',
+			cta: base.cta || '',
+			style: base.style || '',
+			analysis: base.analysis || null,
+			brandKitId: base.brand_kit || pin.brandKitId || '',
+		}, {
+			targetAudience: base.target_audience || pin.targetAudience || '',
+			toneOfVoice: base.tone_of_voice || pin.toneOfVoice || '',
+			language: base.language || pin.language || '',
+		});
 
-	const created = await pb.collection('ai_pins').create(payload);
-	return mapSavedPin(created);
+		if (base.editor_state) {
+			payload.editor_state = base.editor_state;
+		}
+
+		const created = await pb.collection('ai_pins').create(payload);
+		return mapSavedPin(created);
+	} catch (error) {
+		throw new Error(formatPocketBaseError(error, 'Failed to duplicate pin'));
+	}
 }
 
 /**

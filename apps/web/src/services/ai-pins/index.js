@@ -25,6 +25,7 @@ export {
 } from './queueService.js';
 export {
 	mapSavedPin,
+	formatPocketBaseError,
 	saveDrafts,
 	duplicatePin,
 	duplicatePinMany,
