@@ -1,9 +1,15 @@
 /**
- * Local pin canvas renderer — featured image + template overlays.
- * No AI providers. Used for Featured Image mode.
+ * Professional Pinterest-style Featured Image composer (local canvas only).
+ * BlogToPin-inspired: full-bleed photo, readability overlay, large title,
+ * decorations, brand bar — no AI image generation.
  */
 
-import { applyTemplateVariables, normalizeTemplateConfig } from '@/lib/pinTemplates';
+import {
+	applyTemplateVariables,
+	formatPinDomain,
+	resolveFeaturedTemplateConfig,
+	resolveTitleBand,
+} from '@/lib/pinTemplates';
 import { API_SERVER_URL } from '@/lib/apiServerClient';
 import { getPocketbaseAuthHeader } from '@/lib/pocketbaseClient';
 
@@ -21,9 +27,6 @@ function loadImageFromUrl(url) {
 	});
 }
 
-/**
- * Fetch remote image via same-origin API proxy so canvas export is not tainted.
- */
 export async function fetchImageForCanvas(remoteUrl) {
 	const source = String(remoteUrl || '').trim();
 	if (!source) {
@@ -63,31 +66,324 @@ function drawCoverImage(ctx, img, width, height) {
 	ctx.drawImage(img, x, y, drawW, drawH);
 }
 
-function wrapText(ctx, text, maxWidth, maxLines = 6) {
-	const words = String(text || '').trim().split(/\s+/).filter(Boolean);
-	if (words.length === 0) return [];
-	const lines = [];
-	let current = '';
-	for (const word of words) {
-		const next = current ? `${current} ${word}` : word;
-		if (ctx.measureText(next).width <= maxWidth) {
-			current = next;
-		} else {
-			if (current) lines.push(current);
-			current = word;
-			if (lines.length >= maxLines) break;
-		}
+function hexToRgba(color, alpha = 1) {
+	const raw = String(color || '#000000').trim();
+	if (raw.startsWith('rgba') || raw.startsWith('rgb')) {
+		return raw;
 	}
-	if (current && lines.length < maxLines) lines.push(current);
-	if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
-		const last = lines[maxLines - 1];
-		lines[maxLines - 1] = `${last.replace(/\s+\S*$/, '')}…`;
+	const hex = raw.replace('#', '');
+	const full = hex.length === 3
+		? hex.split('').map((ch) => ch + ch).join('')
+		: hex.padEnd(6, '0').slice(0, 6);
+	const r = Number.parseInt(full.slice(0, 2), 16) || 0;
+	const g = Number.parseInt(full.slice(2, 4), 16) || 0;
+	const b = Number.parseInt(full.slice(4, 6), 16) || 0;
+	return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, alpha))})`;
+}
+
+function roundRectPath(ctx, x, y, w, h, radius) {
+	const r = Math.max(0, Math.min(radius, w / 2, h / 2));
+	ctx.beginPath();
+	if (typeof ctx.roundRect === 'function') {
+		ctx.roundRect(x, y, w, h, r);
+		return;
 	}
-	return lines;
+	ctx.moveTo(x + r, y);
+	ctx.arcTo(x + w, y, x + w, y + h, r);
+	ctx.arcTo(x + w, y + h, x, y + h, r);
+	ctx.arcTo(x, y + h, x, y, r);
+	ctx.arcTo(x, y, x + w, y, r);
+	ctx.closePath();
 }
 
 /**
- * Render a pin to a PNG Blob using featured image + template config.
+ * Greedy wrap, then rebalance line lengths for a more editorial look.
+ */
+export function wrapTitleBalanced(ctx, text, maxWidth, maxLines = 5) {
+	const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+	if (words.length === 0) return [];
+
+	const fits = (line) => ctx.measureText(line).width <= maxWidth;
+
+	const greedy = [];
+	let current = '';
+	for (const word of words) {
+		const next = current ? `${current} ${word}` : word;
+		if (!current || fits(next)) {
+			current = next;
+			continue;
+		}
+		greedy.push(current);
+		current = word;
+		if (greedy.length >= maxLines) break;
+	}
+	if (current && greedy.length < maxLines) greedy.push(current);
+
+	if (greedy.length === maxLines) {
+		const used = greedy.join(' ').split(/\s+/).length;
+		if (used < words.length) {
+			const last = greedy[maxLines - 1];
+			greedy[maxLines - 1] = `${last.replace(/\s+\S*$/, '').trim()}…`;
+		}
+	}
+
+	// Balance: pull words from longer lines into shorter neighbors.
+	const lines = [...greedy];
+	for (let pass = 0; pass < 4; pass += 1) {
+		for (let i = 0; i < lines.length - 1; i += 1) {
+			const left = lines[i].split(/\s+/);
+			const right = lines[i + 1].split(/\s+/);
+			if (left.length < 2) continue;
+			const candidateLeft = left.slice(0, -1).join(' ');
+			const moved = left[left.length - 1];
+			const candidateRight = `${moved} ${right.join(' ')}`.trim();
+			if (!fits(candidateLeft) || !fits(candidateRight)) continue;
+			const before = Math.abs(ctx.measureText(lines[i]).width - ctx.measureText(lines[i + 1]).width);
+			const after = Math.abs(ctx.measureText(candidateLeft).width - ctx.measureText(candidateRight).width);
+			if (after + 8 < before) {
+				lines[i] = candidateLeft;
+				lines[i + 1] = candidateRight;
+			}
+		}
+	}
+
+	return lines.filter(Boolean);
+}
+
+function measureLinesHeight(fontSize, lineCount, lineHeight) {
+	return fontSize * lineHeight * Math.max(1, lineCount);
+}
+
+export function fitTitleBlock(ctx, {
+	text,
+	maxWidth,
+	maxHeight,
+	maxFontSize,
+	minFontSize,
+	fontFamily,
+	fontWeight,
+	lineHeight,
+	maxLines,
+	letterSpacing = 0,
+}) {
+	let lo = minFontSize;
+	let hi = maxFontSize;
+	let best = {
+		fontSize: minFontSize,
+		lines: wrapTitleBalanced(ctx, text, maxWidth, maxLines),
+	};
+
+	while (lo <= hi) {
+		const mid = Math.floor((lo + hi) / 2);
+		ctx.font = `${fontWeight} ${mid}px ${fontFamily}`;
+		try {
+			if (letterSpacing) ctx.letterSpacing = `${letterSpacing}px`;
+		} catch {
+			// letterSpacing is not supported in all browsers
+		}
+		const lines = wrapTitleBalanced(ctx, text, maxWidth, maxLines);
+		const height = measureLinesHeight(mid, lines.length, lineHeight);
+		const overflow = lines.some((line) => ctx.measureText(line).width > maxWidth + 1);
+		if (!overflow && height <= maxHeight && lines.length > 0) {
+			best = { fontSize: mid, lines };
+			lo = mid + 1;
+		} else {
+			hi = mid - 1;
+		}
+	}
+
+	try {
+		ctx.letterSpacing = '0px';
+	} catch {
+		// ignore
+	}
+	return best;
+}
+
+function drawReadabilityOverlay(ctx, width, height, config) {
+	const { style, intensity, color } = config.textOverlay;
+	if (style === 'none' || intensity <= 0) return;
+
+	const position = config.layout.textPosition;
+	const alpha = intensity;
+
+	if (style === 'dark') {
+		ctx.fillStyle = hexToRgba(color, alpha * 0.55);
+		ctx.fillRect(0, 0, width, height);
+		return;
+	}
+
+	if (style === 'vignette') {
+		const gradient = ctx.createRadialGradient(
+			width / 2,
+			height / 2,
+			Math.min(width, height) * 0.15,
+			width / 2,
+			height / 2,
+			Math.max(width, height) * 0.72,
+		);
+		gradient.addColorStop(0, hexToRgba(color, 0));
+		gradient.addColorStop(1, hexToRgba(color, alpha));
+		ctx.fillStyle = gradient;
+		ctx.fillRect(0, 0, width, height);
+		return;
+	}
+
+	// gradient (default) — stronger behind the title band
+	if (position === 'top') {
+		const g = ctx.createLinearGradient(0, 0, 0, height * 0.55);
+		g.addColorStop(0, hexToRgba(color, Math.min(0.92, alpha + 0.15)));
+		g.addColorStop(0.55, hexToRgba(color, alpha * 0.45));
+		g.addColorStop(1, hexToRgba(color, 0));
+		ctx.fillStyle = g;
+		ctx.fillRect(0, 0, width, height * 0.55);
+	} else if (position === 'center') {
+		const g = ctx.createLinearGradient(0, height * 0.2, 0, height * 0.8);
+		g.addColorStop(0, hexToRgba(color, 0));
+		g.addColorStop(0.35, hexToRgba(color, alpha * 0.72));
+		g.addColorStop(0.65, hexToRgba(color, alpha * 0.72));
+		g.addColorStop(1, hexToRgba(color, 0));
+		ctx.fillStyle = g;
+		ctx.fillRect(0, height * 0.2, width, height * 0.6);
+		const soft = ctx.createLinearGradient(0, height * 0.75, 0, height);
+		soft.addColorStop(0, hexToRgba(color, 0));
+		soft.addColorStop(1, hexToRgba(color, alpha * 0.45));
+		ctx.fillStyle = soft;
+		ctx.fillRect(0, height * 0.75, width, height * 0.25);
+	} else {
+		const g = ctx.createLinearGradient(0, height * 0.28, 0, height);
+		g.addColorStop(0, hexToRgba(color, 0));
+		g.addColorStop(0.35, hexToRgba(color, alpha * 0.35));
+		g.addColorStop(0.7, hexToRgba(color, Math.min(0.9, alpha + 0.08)));
+		g.addColorStop(1, hexToRgba(color, Math.min(0.95, alpha + 0.2)));
+		ctx.fillStyle = g;
+		ctx.fillRect(0, height * 0.28, width, height * 0.72);
+	}
+}
+
+function drawBrushHighlight(ctx, {
+	x, y, width, height, color, opacity,
+}) {
+	ctx.save();
+	ctx.globalAlpha = opacity;
+	ctx.fillStyle = color;
+	ctx.beginPath();
+	const midY = y + height / 2;
+	ctx.moveTo(x, midY + height * 0.15);
+	ctx.bezierCurveTo(
+		x + width * 0.15, y - height * 0.1,
+		x + width * 0.45, y - height * 0.2,
+		x + width * 0.55, midY - height * 0.05,
+	);
+	ctx.bezierCurveTo(
+		x + width * 0.7, y + height * 1.05,
+		x + width * 0.9, y + height * 0.95,
+		x + width, midY + height * 0.2,
+	);
+	ctx.bezierCurveTo(
+		x + width * 0.85, y + height * 1.15,
+		x + width * 0.4, y + height * 1.2,
+		x, midY + height * 0.35,
+	);
+	ctx.closePath();
+	ctx.fill();
+	ctx.restore();
+}
+
+function drawAccentShapes(ctx, {
+	width, height, margin, color, position,
+}) {
+	ctx.save();
+	ctx.fillStyle = color;
+	ctx.globalAlpha = 0.55;
+	const size = Math.max(10, width * 0.018);
+	if (position === 'top') {
+		ctx.beginPath();
+		ctx.arc(width - margin - size, margin + size * 2, size, 0, Math.PI * 2);
+		ctx.fill();
+		ctx.globalAlpha = 0.35;
+		roundRectPath(ctx, margin, margin + size * 0.5, size * 3.2, size * 0.45, size);
+		ctx.fill();
+	} else if (position === 'center') {
+		ctx.globalAlpha = 0.4;
+		roundRectPath(ctx, width / 2 - size * 2, height * 0.3 - size, size * 4, size * 0.4, size);
+		ctx.fill();
+	} else {
+		ctx.beginPath();
+		ctx.arc(margin + size * 1.2, height * 0.46, size * 0.7, 0, Math.PI * 2);
+		ctx.fill();
+		ctx.globalAlpha = 0.3;
+		roundRectPath(ctx, width - margin - size * 3.5, height * 0.5, size * 3.2, size * 0.4, size);
+		ctx.fill();
+	}
+	ctx.restore();
+}
+
+function drawRoundedLabel(ctx, {
+	text, x, y, align = 'center', background, textColor, fontFamily, padding = 14,
+}) {
+	const label = String(text || '').trim();
+	if (!label) return { height: 0 };
+	const fontSize = 22;
+	ctx.font = `700 ${fontSize}px ${fontFamily}`;
+	const textWidth = ctx.measureText(label).width;
+	const w = textWidth + padding * 2.2;
+	const h = fontSize + padding * 1.1;
+	const drawX = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+	ctx.save();
+	if (ctx.shadowBlur !== undefined) {
+		ctx.shadowColor = 'rgba(0,0,0,0.25)';
+		ctx.shadowBlur = 12;
+		ctx.shadowOffsetY = 4;
+	}
+	ctx.fillStyle = background;
+	roundRectPath(ctx, drawX, y, w, h, h / 2);
+	ctx.fill();
+	ctx.shadowColor = 'transparent';
+	ctx.shadowBlur = 0;
+	ctx.fillStyle = textColor;
+	ctx.textBaseline = 'middle';
+	ctx.textAlign = 'left';
+	ctx.fillText(label, drawX + padding * 1.1, y + h / 2 + 1);
+	ctx.restore();
+	return { height: h + 16, width: w };
+}
+
+function drawBrandBar(ctx, {
+	width, height, margin, brandBar, logoImage, domain, fontFamily,
+}) {
+	if (!brandBar.enabled) return;
+	const barH = 96;
+	const y = height - barH;
+	ctx.save();
+	ctx.fillStyle = brandBar.background;
+	ctx.fillRect(0, y, width, barH);
+
+	const contentY = y + barH / 2;
+	let cursorX = margin;
+	const logoSize = 44;
+
+	if (brandBar.showLogo && logoImage) {
+		const aspect = logoImage.width / Math.max(1, logoImage.height);
+		const drawH = logoSize;
+		const drawW = Math.min(120, drawH * aspect);
+		ctx.drawImage(logoImage, cursorX, contentY - drawH / 2, drawW, drawH);
+		cursorX += drawW + 16;
+	}
+
+	if (brandBar.showDomain && domain) {
+		ctx.fillStyle = brandBar.textColor;
+		ctx.font = `600 24px ${fontFamily}`;
+		ctx.textBaseline = 'middle';
+		ctx.textAlign = 'left';
+		ctx.globalAlpha = 0.92;
+		ctx.fillText(domain, cursorX, contentY);
+	}
+	ctx.restore();
+}
+
+/**
+ * Render a professional Featured pin to PNG Blob.
  */
 export async function renderFeaturedPinToBlob({
 	featuredImageUrl,
@@ -95,10 +391,12 @@ export async function renderFeaturedPinToBlob({
 	context = {},
 	logoUrl = '',
 	watermarkText = '',
+	websiteDomain = '',
 }) {
-	const config = normalizeTemplateConfig(templateConfig);
-	const width = config.canvas.width;
-	const height = config.canvas.height;
+	const config = resolveFeaturedTemplateConfig(templateConfig);
+	// Featured pins always ship at Pinterest standard 1000×1500.
+	const width = 1000;
+	const height = 1500;
 	const canvas = document.createElement('canvas');
 	canvas.width = width;
 	canvas.height = height;
@@ -107,125 +405,218 @@ export async function renderFeaturedPinToBlob({
 		throw new Error('Canvas is not available in this browser');
 	}
 
-	ctx.fillStyle = config.background.color || '#F6F1E9';
+	ctx.fillStyle = config.background.color || '#111111';
 	ctx.fillRect(0, 0, width, height);
 
 	if (featuredImageUrl) {
 		const featured = await fetchImageForCanvas(featuredImageUrl);
 		drawCoverImage(ctx, featured, width, height);
-		const dim = Math.max(0, Math.min(1, 1 - Number(config.background.opacity ?? 1)));
-		if (dim > 0) {
-			ctx.fillStyle = `rgba(0,0,0,${dim})`;
-			ctx.fillRect(0, 0, width, height);
-		}
 	}
 
-	if (config.placeholders.backgroundPattern) {
-		ctx.fillStyle = 'rgba(255,255,255,0.28)';
-		for (let y = 0; y < height; y += 14) {
-			for (let x = 0; x < width; x += 14) {
-				ctx.beginPath();
-				ctx.arc(x, y, 1, 0, Math.PI * 2);
-				ctx.fill();
-			}
-		}
-	}
+	drawReadabilityOverlay(ctx, width, height, config);
+
+	const margin = config.layout.safeMargin;
+	const maxTextWidth = width - margin * 2;
+	const align = config.layout.textAlign || 'center';
+	const band = resolveTitleBand(config);
+	const brandReserved = config.brandBar.enabled || config.layout.showBrandBar ? 110 : margin;
+	const bandTop = height * band.start;
+	const bandBottom = Math.min(height * band.end, height - brandReserved - 24);
+	const bandHeight = Math.max(120, bandBottom - bandTop);
 
 	const baseContext = {
 		title: context.title || 'Pin Title',
 		description: context.description || '',
 		category: context.category || '',
-		website: context.website || '',
+		website: context.website || websiteDomain || '',
 		author: context.author || '',
 	};
 
-	const pad = config.container.padding || 28;
-	const maxTextWidth = width - pad * 2;
-	const titleX = (config.positions.title.x / 100) * width;
-	const titleY = (config.positions.title.y / 100) * height;
-	const descX = (config.positions.description.x / 100) * width;
-	const descY = (config.positions.description.y / 100) * height;
-	const overlayX = (config.positions.overlayText.x / 100) * width;
-	const overlayY = (config.positions.overlayText.y / 100) * height;
-	const logoX = (config.positions.logo.x / 100) * width;
-	const logoY = (config.positions.logo.y / 100) * height;
+	const titleText = applyTemplateVariables('{{title}}', baseContext).trim() || 'Pin Title';
+	const domain = formatPinDomain(websiteDomain || baseContext.website || watermarkText);
 
-	ctx.textBaseline = 'top';
+	if (config.decorations.accentShapes) {
+		drawAccentShapes(ctx, {
+			width,
+			height,
+			margin,
+			color: config.decorations.accentColor,
+			position: config.layout.textPosition,
+		});
+	}
+
+	let cursorY = bandTop;
+	const centerX = width / 2;
+
+	// Optional category / CTA pill above title
+	if (config.decorations.roundedLabel && (context.overlayText || context.category)) {
+		const label = String(context.overlayText || context.category || '').trim();
+		const labelResult = drawRoundedLabel(ctx, {
+			text: label.slice(0, 42),
+			x: align === 'left' ? margin : align === 'right' ? width - margin : centerX,
+			y: cursorY,
+			align,
+			background: config.buttonStyle.background,
+			textColor: config.buttonStyle.textColor,
+			fontFamily: config.typography.fontFamily,
+			padding: Math.max(10, config.buttonStyle.padding * 0.7),
+		});
+		cursorY += labelResult.height || 0;
+	}
+
+	const titleMaxHeight = Math.max(80, bandBottom - cursorY - (config.layout.showCta && !config.decorations.roundedLabel ? 70 : 20));
+	const fitted = fitTitleBlock(ctx, {
+		text: titleText,
+		maxWidth: maxTextWidth,
+		maxHeight: titleMaxHeight,
+		maxFontSize: config.typography.fontSize,
+		minFontSize: config.typography.minFontSize,
+		fontFamily: config.typography.fontFamily,
+		fontWeight: config.typography.fontWeight,
+		lineHeight: config.typography.lineHeight,
+		maxLines: config.typography.maxLines,
+		letterSpacing: config.typography.letterSpacing,
+	});
+
+	const lineHeightPx = fitted.fontSize * config.typography.lineHeight;
+	const blockHeight = fitted.lines.length * lineHeightPx;
+	// Vertically center the title block inside remaining band space.
+	const remaining = bandBottom - cursorY;
+	if (blockHeight < remaining * 0.92) {
+		cursorY += (remaining - blockHeight) * (config.layout.textPosition === 'top' ? 0.15 : 0.35);
+	}
+
+	const blockTop = cursorY;
+	const longest = fitted.lines.reduce((max, line) => {
+		ctx.font = `${config.typography.fontWeight} ${fitted.fontSize}px ${config.typography.fontFamily}`;
+		return Math.max(max, ctx.measureText(line).width);
+	}, 0);
+	const brushPadX = 28;
+	const brushPadY = 18;
+	const brushX = align === 'left'
+		? margin - brushPadX * 0.3
+		: align === 'right'
+			? width - margin - longest - brushPadX * 0.3
+			: centerX - longest / 2 - brushPadX;
+	const brushW = longest + brushPadX * 2;
+
+	if (config.decorations.brushHighlight && fitted.lines.length > 0) {
+		drawBrushHighlight(ctx, {
+			x: brushX,
+			y: blockTop - brushPadY,
+			width: brushW,
+			height: blockHeight + brushPadY * 2,
+			color: config.decorations.brushColor,
+			opacity: config.decorations.brushOpacity,
+		});
+	}
+
+	ctx.save();
+	ctx.font = `${config.typography.fontWeight} ${fitted.fontSize}px ${config.typography.fontFamily}`;
 	ctx.fillStyle = config.typography.textColor;
-	ctx.font = `${config.typography.fontWeight} ${config.typography.fontSize}px ${config.typography.fontFamily}`;
-	const titleLines = wrapText(
-		ctx,
-		applyTemplateVariables('{{title}}', baseContext),
-		Math.min(maxTextWidth, width - titleX - pad),
-		5,
-	);
-	const titleLineHeight = config.typography.fontSize * 1.15;
-	titleLines.forEach((line, index) => {
-		ctx.fillText(line, titleX, titleY + index * titleLineHeight);
-	});
-
-	const descSize = Math.max(18, Math.round(config.typography.fontSize * 0.42));
-	ctx.globalAlpha = 0.86;
-	ctx.font = `${Math.max(400, config.typography.fontWeight - 200)} ${descSize}px ${config.typography.fontFamily}`;
-	const descLines = wrapText(
-		ctx,
-		applyTemplateVariables('{{description}}', baseContext),
-		Math.min(maxTextWidth, width - descX - pad),
-		4,
-	);
-	const descLineHeight = descSize * 1.25;
-	descLines.forEach((line, index) => {
-		ctx.fillText(line, descX, descY + index * descLineHeight);
-	});
-	ctx.globalAlpha = 1;
-
-	const overlayLabel = String(context.overlayText || 'Read More').trim() || 'Read More';
-	const btnPad = config.buttonStyle.padding || 12;
-	const btnFontSize = Math.max(18, Math.round(config.typography.fontSize * 0.38));
-	ctx.font = `${config.typography.fontWeight} ${btnFontSize}px ${config.typography.fontFamily}`;
-	const btnTextWidth = ctx.measureText(overlayLabel).width;
-	const btnW = btnTextWidth + btnPad * 2;
-	const btnH = btnFontSize + btnPad * 1.4;
-	const btnRadius = config.buttonStyle.borderRadius || 18;
-
-	ctx.globalAlpha = config.buttonStyle.opacity ?? 1;
-	if (config.buttonStyle.shadow) {
-		ctx.shadowColor = 'rgba(0,0,0,0.25)';
+	ctx.textBaseline = 'top';
+	ctx.textAlign = align === 'left' ? 'left' : align === 'right' ? 'right' : 'center';
+	try {
+		if (config.typography.letterSpacing) {
+			ctx.letterSpacing = `${config.typography.letterSpacing}px`;
+		}
+	} catch {
+		// ignore unsupported letterSpacing
+	}
+	if (config.typography.textShadow) {
+		ctx.shadowColor = 'rgba(0,0,0,0.45)';
 		ctx.shadowBlur = 18;
-		ctx.shadowOffsetY = 8;
+		ctx.shadowOffsetY = 4;
 	}
-	ctx.fillStyle = config.buttonStyle.background;
-	ctx.beginPath();
-	if (typeof ctx.roundRect === 'function') {
-		ctx.roundRect(overlayX, overlayY, btnW, btnH, btnRadius);
-	} else {
-		ctx.rect(overlayX, overlayY, btnW, btnH);
-	}
-	ctx.fill();
-	ctx.shadowColor = 'transparent';
-	ctx.shadowBlur = 0;
-	ctx.shadowOffsetY = 0;
-	ctx.fillStyle = config.buttonStyle.textColor;
-	ctx.fillText(overlayLabel, overlayX + btnPad, overlayY + btnPad * 0.55);
-	ctx.globalAlpha = 1;
 
-	if (config.placeholders.websiteLogo && logoUrl) {
+	const textX = align === 'left' ? margin : align === 'right' ? width - margin : centerX;
+	fitted.lines.forEach((line, index) => {
+		const isLast = index === fitted.lines.length - 1;
+		const useScript = config.typography.scriptEnabled && isLast && fitted.lines.length > 1;
+		if (useScript) {
+			ctx.font = `600 ${Math.round(fitted.fontSize * 0.92)}px ${config.typography.scriptFontFamily}`;
+			ctx.fillStyle = config.typography.scriptColor;
+		} else {
+			ctx.font = `${config.typography.fontWeight} ${fitted.fontSize}px ${config.typography.fontFamily}`;
+			ctx.fillStyle = config.typography.textColor;
+		}
+		ctx.fillText(line, textX, blockTop + index * lineHeightPx);
+	});
+	ctx.restore();
+
+	const titleBottom = blockTop + blockHeight;
+
+	if (config.decorations.underline && fitted.lines.length > 0) {
+		ctx.save();
+		ctx.strokeStyle = config.decorations.underlineColor;
+		ctx.lineWidth = Math.max(3, fitted.fontSize * 0.06);
+		ctx.lineCap = 'round';
+		const underlineW = Math.min(longest * 0.55, maxTextWidth * 0.45);
+		const ux = align === 'left' ? margin : align === 'right' ? width - margin - underlineW : centerX - underlineW / 2;
+		const uy = titleBottom + 14;
+		ctx.beginPath();
+		ctx.moveTo(ux, uy);
+		ctx.lineTo(ux + underlineW, uy);
+		ctx.stroke();
+		ctx.restore();
+	}
+
+	let afterTitleY = titleBottom + (config.decorations.underline ? 36 : 22);
+
+	if (config.layout.showDescription && baseContext.description) {
+		const descSize = Math.max(22, Math.round(fitted.fontSize * 0.32));
+		ctx.save();
+		ctx.font = `500 ${descSize}px ${config.typography.fontFamily}`;
+		ctx.fillStyle = config.typography.textColor;
+		ctx.globalAlpha = 0.88;
+		ctx.textAlign = align === 'left' ? 'left' : align === 'right' ? 'right' : 'center';
+		ctx.textBaseline = 'top';
+		if (config.typography.textShadow) {
+			ctx.shadowColor = 'rgba(0,0,0,0.35)';
+			ctx.shadowBlur = 10;
+		}
+		const descLines = wrapTitleBalanced(ctx, baseContext.description, maxTextWidth, 3);
+		descLines.forEach((line, index) => {
+			ctx.fillText(line, textX, afterTitleY + index * descSize * 1.25);
+		});
+		afterTitleY += descLines.length * descSize * 1.25 + 18;
+		ctx.restore();
+	}
+
+	if (config.layout.showCta && !config.decorations.roundedLabel && context.overlayText) {
+		drawRoundedLabel(ctx, {
+			text: String(context.overlayText).slice(0, 48),
+			x: textX,
+			y: Math.min(afterTitleY, height - brandReserved - 70),
+			align,
+			background: config.buttonStyle.background,
+			textColor: config.buttonStyle.textColor,
+			fontFamily: config.typography.fontFamily,
+			padding: config.buttonStyle.padding,
+		});
+	}
+
+	let logoImage = null;
+	if ((config.brandBar.showLogo || config.placeholders.websiteLogo) && logoUrl) {
 		try {
-			const logo = await fetchImageForCanvas(logoUrl);
-			const logoSize = Math.min(width, height) * 0.08;
-			ctx.drawImage(logo, logoX, logoY, logoSize, logoSize);
+			logoImage = await fetchImageForCanvas(logoUrl);
 		} catch {
-			// Logo is optional — skip if unavailable
+			logoImage = null;
 		}
 	}
 
-	if (watermarkText) {
-		ctx.globalAlpha = 0.55;
-		ctx.fillStyle = config.typography.textColor;
-		ctx.font = `500 ${Math.max(14, Math.round(config.typography.fontSize * 0.28))}px ${config.typography.fontFamily}`;
-		ctx.fillText(String(watermarkText).slice(0, 60), pad, height - pad - 24);
-		ctx.globalAlpha = 1;
-	}
+	drawBrandBar(ctx, {
+		width,
+		height,
+		margin,
+		brandBar: {
+			...config.brandBar,
+			enabled: config.layout.showBrandBar || config.brandBar.enabled,
+		},
+		logoImage,
+		domain,
+		fontFamily: config.typography.fontFamily,
+	});
 
 	return new Promise((resolve, reject) => {
 		canvas.toBlob((blob) => {

@@ -17,7 +17,7 @@ import ManualArticleForm from '@/components/ai-pins/ManualArticleForm';
 import SchedulePinModal from '@/components/ai-pins/SchedulePinModal';
 import PreviewPinModal from '@/components/ai-pins/PreviewPinModal';
 import PublishProgressModal from '@/components/ai-pins/PublishProgressModal';
-import { createDefaultTemplateConfig } from '@/lib/pinTemplates';
+import { createDefaultTemplateConfig, normalizeTemplateConfig } from '@/lib/pinTemplates';
 import { buildLocalPinsFromArticle } from '@/lib/featuredPinLocal';
 import { useWorkspaceConfig } from '@/context/WorkspaceConfigContext';
 import {
@@ -881,30 +881,55 @@ export default function AIPinsPage() {
 		imageProviderOverride = '',
 		brandKit = null,
 	) => {
-		// Featured Image mode: local canvas/template compose only — never Gemini/Fal/credits.
-		if (imageModeOverride !== 'generate_ai') {
+		const mode = String(imageModeOverride || '').trim();
+
+		// Featured Image mode: local BlogToPin canvas only — never Gemini/Fal/queue/raw photo.
+		if (mode !== 'generate_ai') {
 			setGeneratingImages(true);
 			try {
+				console.info('[AI Pins] featured canvas compose start', {
+					count: pins.length,
+					mode,
+					hasBrandKit: Boolean(brandKit?.id || brandKit?.logoUrl),
+				});
 				const composed = await composeAndUploadFeaturedPins(pins, { brandKit });
 				setGeneratedPreviewPins((prev) => prev.map((pin) => {
 					const result = composed.find((item) => item.tempId === pin.tempId);
 					if (!result) {
 						return {
 							...pin,
-							imageUrl: pin.featuredImage || pin.imageUrl || '',
+							imageUrl: '',
 							imageSource: 'featured',
-							imageGenerationStatus: pin.featuredImage ? 'completed' : 'failed',
-							imageGenerationError: pin.featuredImage ? '' : 'Article featured image is missing',
+							imageGenerationStatus: 'failed',
+							imageGenerationError: 'Featured canvas compose did not return a result',
+						};
+					}
+					if (!result.ok || !result.imageUrl) {
+						return {
+							...pin,
+							imageUrl: '',
+							imageSource: 'featured',
+							imageGenerationStatus: 'failed',
+							imageGenerationError: result.error || 'Featured canvas compose failed',
 						};
 					}
 					return {
 						...pin,
-						imageUrl: result.imageUrl || pin.featuredImage || pin.imageUrl || '',
-						imageSource: result.ok ? 'featured_composed' : 'featured',
-						imageGenerationStatus: (result.imageUrl || pin.featuredImage) ? 'completed' : 'failed',
-						imageGenerationError: result.ok ? '' : (result.error || ''),
+						imageUrl: result.imageUrl,
+						imageSource: 'featured_composed',
+						imageGenerationStatus: 'completed',
+						imageGenerationError: result.hosted === false ? (result.error || '') : '',
 					};
 				}));
+			} catch (error) {
+				console.error('[AI Pins] featured canvas compose crashed', error);
+				setGeneratedPreviewPins((prev) => prev.map((pin) => ({
+					...pin,
+					imageUrl: '',
+					imageSource: 'featured',
+					imageGenerationStatus: 'failed',
+					imageGenerationError: error?.message || 'Featured canvas compose crashed',
+				})));
 			} finally {
 				setGeneratingImages(false);
 			}
@@ -964,6 +989,7 @@ export default function AIPinsPage() {
 		const quality = imageQualities.find((item) => item.id === imageQuality) || imageQualities[0];
 		const ratio = PIN_ASPECT_RATIOS.find((item) => item.id === aspectRatio);
 		const websiteLabel = activeWebsite?.domain || activeWebsite?.url || activeWebsite?.name || '';
+		const featuredMode = imageQuality === 'featured' || quality?.imageMode === 'use_featured';
 
 		// Explicit UI selection wins. Workspace default is last-resort only.
 		const textProviderCode = resolveDefaultTextProvider(config);
@@ -973,10 +999,10 @@ export default function AIPinsPage() {
 
 		let workingPanel = {
 			...panel,
-			imageMode: quality.imageMode,
-			imageProvider: quality.imageMode === 'generate_ai'
-				? (imageProviderCode || '')
-				: quality.imageProvider,
+			imageMode: featuredMode ? 'use_featured' : 'generate_ai',
+			imageProvider: featuredMode
+				? ''
+				: (imageProviderCode || quality?.imageProvider || ''),
 			textProvider: textProviderCode || '',
 		};
 
@@ -1063,7 +1089,7 @@ export default function AIPinsPage() {
 			const generatedRecords = [];
 			const activeAccount = accounts.find((account) => account.id === selectedAccountId);
 			const activeBoard = boards.find((board) => board.boardId === selectedBoardId);
-			const templateConfig = selectedTemplate?.configuration || createDefaultTemplateConfig();
+			const templateConfig = normalizeTemplateConfig(selectedTemplate?.configuration || createDefaultTemplateConfig());
 			const selectedBrand = brandKits.find((item) => item.id === selectedBrandKitId) || null;
 			for (let articleIndex = 0; articleIndex < targets.length; articleIndex += 1) {
 				const article = targets[articleIndex];
@@ -1074,6 +1100,12 @@ export default function AIPinsPage() {
 					message: `Generating pins for ${article.title || article.slug || 'article'}...`,
 				});
 				const generatedPins = await generatePinsForArticle(article, workingPanel.count, workingPanel);
+				const siteMeta = websites.find((site) => site.id === article.websiteId);
+				const websiteLabel = selectedBrand?.websiteUrl
+					|| siteMeta?.domain
+					|| siteMeta?.url
+					|| siteMeta?.name
+					|| '';
 				generatedRecords.push(
 					...generatedPins.map((pin, index) => ({
 						tempId: `${article.id}-${Date.now()}-${index}`,
@@ -1083,7 +1115,7 @@ export default function AIPinsPage() {
 						description: String(pin.description || analysis?.seoDescription || workingPanel.pinDescription || '').trim(),
 						overlayText: String(pin.overlayText || analysis?.cta || workingPanel.textOverlay || '').trim(),
 						imagePrompt: String(pin.imagePrompt || '').trim(),
-						imageUrl: workingPanel.imageMode === 'use_featured' ? (article.featuredImage || '') : '',
+						imageUrl: '',
 						suggestedKeywords: safeArray(pin.suggestedKeywords?.length ? pin.suggestedKeywords : analysis?.keywords),
 						suggestedHashtags: safeArray(pin.suggestedHashtags?.length ? pin.suggestedHashtags : analysis?.hashtags),
 						accountId: selectedAccountId,
@@ -1092,20 +1124,23 @@ export default function AIPinsPage() {
 						boardName: activeBoard?.name || '',
 						templateId: selectedTemplate?.id || '',
 						templateName: selectedTemplate?.name || 'Default Template',
-						templateConfig: {
+						templateConfig: normalizeTemplateConfig({
 							...templateConfig,
+							canvas: { width: 1000, height: 1500 },
 							...(selectedBrand ? {
-								colors: {
-									primary: selectedBrand.primaryColor,
-									secondary: selectedBrand.secondaryColor,
-									accent: selectedBrand.accentColor,
+								decorations: {
+									...templateConfig.decorations,
+									brushColor: selectedBrand.accentColor || templateConfig.decorations.brushColor,
+									accentColor: selectedBrand.secondaryColor || templateConfig.decorations.accentColor,
 								},
-								watermark: selectedBrand.watermarkText || selectedBrand.watermarkUrl || '',
-								website: selectedBrand.websiteUrl || '',
+								typography: {
+									...templateConfig.typography,
+									fontFamily: selectedBrand.fontHeading || templateConfig.typography.fontFamily,
+								},
 							} : {}),
-						},
+						}),
 						category: article.category || analysis?.pinterestCategory || '',
-						website: selectedBrand?.websiteUrl || websites.find((site) => site.id === article.websiteId)?.name || '',
+						website: websiteLabel,
 						author: article.author,
 						featuredImage: article.featuredImage || '',
 						imageSource: workingPanel.imageMode === 'use_featured' ? 'featured' : 'ai_generated',
@@ -2093,6 +2128,7 @@ export default function AIPinsPage() {
 														<TemplatePreviewCard
 															config={pin.templateConfig}
 															featuredImageUrl={pin.featuredImage || ''}
+															logoUrl={selectedBrandKit?.logoUrl || ''}
 															context={{
 																title: pin.title,
 																description: pin.description,
@@ -2367,6 +2403,7 @@ export default function AIPinsPage() {
 										<TemplatePreviewCard
 											config={inspectorPin.templateConfig}
 											featuredImageUrl={inspectorPin.featuredImage || ''}
+											logoUrl={selectedBrandKit?.logoUrl || ''}
 											context={{
 												title: inspectorPin.title,
 												description: inspectorPin.description,

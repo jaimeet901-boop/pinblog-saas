@@ -14,18 +14,24 @@ import {
 	normalizeTemplateConfig,
 	PINTEREST_CANVAS_PRESETS,
 	TEMPLATE_VARIABLES,
+	TEXT_POSITIONS,
+	OVERLAY_STYLES,
+	HEADING_FONT_PRESETS,
+	SCRIPT_FONT_PRESETS,
 } from '@/lib/pinTemplates';
 import './TemplatesPage.css';
 
 const SECTIONS = [
 	{ id: 'canvas', label: 'Canvas', icon: Ratio },
+	{ id: 'layout', label: 'Pin Layout', icon: Maximize2 },
 	{ id: 'typography', label: 'Typography', icon: Type },
 	{ id: 'colors', label: 'Colors', icon: Palette },
 	{ id: 'background', label: 'Background', icon: ImageIcon },
-	{ id: 'overlay', label: 'Overlay', icon: Layers },
-	{ id: 'logo', label: 'Logo', icon: LayoutTemplate },
-	{ id: 'positioning', label: 'Positioning', icon: MapPin },
-	{ id: 'effects', label: 'Effects', icon: Sparkles },
+	{ id: 'overlay', label: 'Readability Overlay', icon: Layers },
+	{ id: 'decorations', label: 'Decorations', icon: Sparkles },
+	{ id: 'logo', label: 'Brand Bar', icon: LayoutTemplate },
+	{ id: 'positioning', label: 'Legacy Positions', icon: MapPin },
+	{ id: 'effects', label: 'CTA Style', icon: Sparkles },
 	{ id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
 ];
 
@@ -77,10 +83,12 @@ export default function TemplatesPage() {
 	const [previewZoom, setPreviewZoom] = useState('fit');
 	const [openSections, setOpenSections] = useState({
 		canvas: true,
+		layout: true,
 		typography: true,
 		colors: false,
-		background: true,
-		overlay: false,
+		background: false,
+		overlay: true,
+		decorations: true,
 		logo: false,
 		positioning: false,
 		effects: false,
@@ -449,87 +457,194 @@ export default function TemplatesPage() {
 										</option>
 									))}
 								</Select>
-								<FieldHint>Pinterest-friendly presets used when generating pins.</FieldHint>
+								<FieldHint>Featured Image pins default to 1000×1500 (Pinterest 2:3).</FieldHint>
+							</Section>
+
+							<Section id="layout" open={openSections.layout} onToggle={toggleSection}>
+								<p className="mb-1.5 text-sm font-medium">Title position</p>
+								<div className="mb-3 grid grid-cols-3 gap-2">
+									{TEXT_POSITIONS.map((item) => (
+										<button
+											key={item.id}
+											type="button"
+											className={`rounded-xl border px-2 py-2 text-xs font-semibold ${draftConfig.layout.textPosition === item.id ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
+											onClick={() => updatePath(['layout', 'textPosition'], item.id)}
+										>
+											{item.label}
+										</button>
+									))}
+								</div>
+								<Select label="Text align" value={draftConfig.layout.textAlign} onChange={(e) => updatePath(['layout', 'textAlign'], e.target.value)}>
+									<option value="center">Center</option>
+									<option value="left">Left</option>
+									<option value="right">Right</option>
+								</Select>
+								<label className="block">
+									<span className="mb-1.5 block text-sm font-medium">Safe margin ({draftConfig.layout.safeMargin}px)</span>
+									<input className="tpl-range" type="range" min="40" max="140" value={draftConfig.layout.safeMargin} onChange={(e) => updatePath(['layout', 'safeMargin'], Number(e.target.value))} />
+								</label>
+								<label className="tpl-switch">
+									<input type="checkbox" checked={draftConfig.layout.showDescription} onChange={(e) => updatePath(['layout', 'showDescription'], e.target.checked)} />
+									Show description under title
+								</label>
+								<label className="tpl-switch">
+									<input type="checkbox" checked={draftConfig.layout.showCta} onChange={(e) => updatePath(['layout', 'showCta'], e.target.checked)} />
+									Show CTA label
+								</label>
+								<label className="tpl-switch">
+									<input type="checkbox" checked={draftConfig.layout.showBrandBar} onChange={(e) => updatePath(['layout', 'showBrandBar'], e.target.checked)} />
+									Show logo + domain brand bar
+								</label>
 							</Section>
 
 							<Section id="typography" open={openSections.typography} onToggle={toggleSection}>
+								<Select
+									label="Heading font"
+									value={HEADING_FONT_PRESETS.find((item) => item.value === draftConfig.typography.fontFamily)?.id || 'custom'}
+									onChange={(e) => {
+										const preset = HEADING_FONT_PRESETS.find((item) => item.id === e.target.value);
+										if (preset) updatePath(['typography', 'fontFamily'], preset.value);
+									}}
+								>
+									{HEADING_FONT_PRESETS.map((preset) => (
+										<option key={preset.id} value={preset.id}>{preset.label}</option>
+									))}
+									<option value="custom">Custom (keep current)</option>
+								</Select>
 								<Input label="Font family" value={draftConfig.typography.fontFamily} onChange={(e) => updatePath(['typography', 'fontFamily'], e.target.value)} />
 								<div className="grid grid-cols-2 gap-3">
 									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Font size ({draftConfig.typography.fontSize})</span>
-										<input className="tpl-range" type="range" min="12" max="140" value={draftConfig.typography.fontSize} onChange={(e) => updatePath(['typography', 'fontSize'], Number(e.target.value))} />
+										<span className="mb-1.5 block text-sm font-medium">Max size ({draftConfig.typography.fontSize})</span>
+										<input className="tpl-range" type="range" min="36" max="140" value={draftConfig.typography.fontSize} onChange={(e) => updatePath(['typography', 'fontSize'], Number(e.target.value))} />
 									</label>
 									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Font weight ({draftConfig.typography.fontWeight})</span>
+										<span className="mb-1.5 block text-sm font-medium">Min size ({draftConfig.typography.minFontSize})</span>
+										<input className="tpl-range" type="range" min="22" max="72" value={draftConfig.typography.minFontSize} onChange={(e) => updatePath(['typography', 'minFontSize'], Number(e.target.value))} />
+									</label>
+									<label className="block">
+										<span className="mb-1.5 block text-sm font-medium">Weight ({draftConfig.typography.fontWeight})</span>
 										<input className="tpl-range" type="range" min="300" max="900" step="100" value={draftConfig.typography.fontWeight} onChange={(e) => updatePath(['typography', 'fontWeight'], Number(e.target.value))} />
 									</label>
+									<label className="block">
+										<span className="mb-1.5 block text-sm font-medium">Line height ({draftConfig.typography.lineHeight})</span>
+										<input className="tpl-range" type="range" min="0.95" max="1.45" step="0.01" value={draftConfig.typography.lineHeight} onChange={(e) => updatePath(['typography', 'lineHeight'], Number(e.target.value))} />
+									</label>
 								</div>
+								<label className="block">
+									<span className="mb-1.5 block text-sm font-medium">Max title lines ({draftConfig.typography.maxLines})</span>
+									<input className="tpl-range" type="range" min="2" max="6" value={draftConfig.typography.maxLines} onChange={(e) => updatePath(['typography', 'maxLines'], Number(e.target.value))} />
+								</label>
 								<Input label="Text color" type="color" value={draftConfig.typography.textColor} onChange={(e) => updatePath(['typography', 'textColor'], e.target.value)} />
+								<label className="tpl-switch">
+									<input type="checkbox" checked={draftConfig.typography.textShadow} onChange={(e) => updatePath(['typography', 'textShadow'], e.target.checked)} />
+									Title text shadow
+								</label>
+								<label className="tpl-switch">
+									<input type="checkbox" checked={draftConfig.typography.scriptEnabled} onChange={(e) => updatePath(['typography', 'scriptEnabled'], e.target.checked)} />
+									Script emphasis on last line
+								</label>
+								{draftConfig.typography.scriptEnabled ? (
+									<>
+										<Select
+											label="Script font"
+											value={SCRIPT_FONT_PRESETS.find((item) => item.value === draftConfig.typography.scriptFontFamily)?.id || 'custom'}
+											onChange={(e) => {
+												const preset = SCRIPT_FONT_PRESETS.find((item) => item.id === e.target.value);
+												if (preset) updatePath(['typography', 'scriptFontFamily'], preset.value);
+											}}
+										>
+											{SCRIPT_FONT_PRESETS.map((preset) => (
+												<option key={preset.id} value={preset.id}>{preset.label}</option>
+											))}
+										</Select>
+										<Input label="Script color" type="color" value={draftConfig.typography.scriptColor} onChange={(e) => updatePath(['typography', 'scriptColor'], e.target.value)} />
+									</>
+								) : null}
+								<FieldHint>Title size auto-shrinks to fit safe margins without overflow.</FieldHint>
 							</Section>
 
 							<Section id="colors" open={openSections.colors} onToggle={toggleSection}>
 								<div className="grid grid-cols-2 gap-3">
-									<Input label="Background color" type="color" value={draftConfig.background.color} onChange={(e) => updatePath(['background', 'color'], e.target.value)} />
-									<Input label="Text color" type="color" value={draftConfig.typography.textColor} onChange={(e) => updatePath(['typography', 'textColor'], e.target.value)} />
-									<Input label="Overlay background" type="color" value={draftConfig.buttonStyle.background} onChange={(e) => updatePath(['buttonStyle', 'background'], e.target.value)} />
-									<Input label="Overlay text" type="color" value={draftConfig.buttonStyle.textColor} onChange={(e) => updatePath(['buttonStyle', 'textColor'], e.target.value)} />
+									<Input label="Fallback color" type="color" value={draftConfig.background.color} onChange={(e) => updatePath(['background', 'color'], e.target.value)} />
+									<Input label="Title color" type="color" value={draftConfig.typography.textColor} onChange={(e) => updatePath(['typography', 'textColor'], e.target.value)} />
+									<Input label="Label background" type="color" value={draftConfig.buttonStyle.background} onChange={(e) => updatePath(['buttonStyle', 'background'], e.target.value)} />
+									<Input label="Label text" type="color" value={draftConfig.buttonStyle.textColor} onChange={(e) => updatePath(['buttonStyle', 'textColor'], e.target.value)} />
+									<Input label="Brush highlight" type="color" value={draftConfig.decorations.brushColor} onChange={(e) => updatePath(['decorations', 'brushColor'], e.target.value)} />
+									<Input label="Accent shapes" type="color" value={draftConfig.decorations.accentColor} onChange={(e) => updatePath(['decorations', 'accentColor'], e.target.value)} />
 								</div>
 							</Section>
 
 							<Section id="background" open={openSections.background} onToggle={toggleSection}>
-								<Input label="Background color" type="color" value={draftConfig.background.color} onChange={(e) => updatePath(['background', 'color'], e.target.value)} />
-								<Input label="Background image URL" value={draftConfig.background.imageUrl} onChange={(e) => updatePath(['background', 'imageUrl'], e.target.value)} placeholder="https://..." />
-								<label className="block">
-									<span className="mb-1.5 block text-sm font-medium">Background opacity ({draftConfig.background.opacity})</span>
-									<input className="tpl-range" type="range" min="0" max="1" step="0.05" value={draftConfig.background.opacity} onChange={(e) => updatePath(['background', 'opacity'], Number(e.target.value))} />
-								</label>
-								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.placeholders.backgroundPattern} onChange={(e) => updatePath(['placeholders', 'backgroundPattern'], e.target.checked)} />
-									Show background pattern
-								</label>
+								<Input label="Fallback color" type="color" value={draftConfig.background.color} onChange={(e) => updatePath(['background', 'color'], e.target.value)} />
+								<Input label="Preview image URL" value={draftConfig.background.imageUrl} onChange={(e) => updatePath(['background', 'imageUrl'], e.target.value)} placeholder="https://..." />
 								<label className="tpl-switch">
 									<input type="checkbox" checked={draftConfig.placeholders.featuredImage} onChange={(e) => updatePath(['placeholders', 'featuredImage'], e.target.checked)} />
-									Reserve featured image area
+									Use article featured image as full background
 								</label>
+								<FieldHint>Featured Image mode always fills the canvas with the article photo.</FieldHint>
 							</Section>
 
 							<Section id="overlay" open={openSections.overlay} onToggle={toggleSection}>
-								<div className="grid grid-cols-2 gap-3">
-									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Button radius ({draftConfig.buttonStyle.borderRadius})</span>
-										<input className="tpl-range" type="range" min="0" max="80" value={draftConfig.buttonStyle.borderRadius} onChange={(e) => updatePath(['buttonStyle', 'borderRadius'], Number(e.target.value))} />
-									</label>
-									<label className="block">
-										<span className="mb-1.5 block text-sm font-medium">Button padding ({draftConfig.buttonStyle.padding})</span>
-										<input className="tpl-range" type="range" min="0" max="64" value={draftConfig.buttonStyle.padding} onChange={(e) => updatePath(['buttonStyle', 'padding'], Number(e.target.value))} />
-									</label>
-								</div>
+								<Select label="Overlay style" value={draftConfig.textOverlay.style} onChange={(e) => updatePath(['textOverlay', 'style'], e.target.value)}>
+									{OVERLAY_STYLES.map((item) => (
+										<option key={item.id} value={item.id}>{item.label}</option>
+									))}
+								</Select>
 								<label className="block">
-									<span className="mb-1.5 block text-sm font-medium">Overlay opacity ({draftConfig.buttonStyle.opacity})</span>
-									<input className="tpl-range" type="range" min="0" max="1" step="0.05" value={draftConfig.buttonStyle.opacity} onChange={(e) => updatePath(['buttonStyle', 'opacity'], Number(e.target.value))} />
+									<span className="mb-1.5 block text-sm font-medium">Overlay intensity ({draftConfig.textOverlay.intensity})</span>
+									<input className="tpl-range" type="range" min="0" max="1" step="0.05" value={draftConfig.textOverlay.intensity} onChange={(e) => updatePath(['textOverlay', 'intensity'], Number(e.target.value))} />
+								</label>
+								<Input label="Overlay color" type="color" value={draftConfig.textOverlay.color} onChange={(e) => updatePath(['textOverlay', 'color'], e.target.value)} />
+								<FieldHint>Dark/gradient scrims sit behind the title so large type stays readable.</FieldHint>
+							</Section>
+
+							<Section id="decorations" open={openSections.decorations} onToggle={toggleSection}>
+								<label className="tpl-switch">
+									<input type="checkbox" checked={draftConfig.decorations.brushHighlight} onChange={(e) => updatePath(['decorations', 'brushHighlight'], e.target.checked)} />
+									Brush highlight behind title
 								</label>
 								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.buttonStyle.shadow} onChange={(e) => updatePath(['buttonStyle', 'shadow'], e.target.checked)} />
-									Overlay shadow
+									<input type="checkbox" checked={draftConfig.decorations.roundedLabel} onChange={(e) => updatePath(['decorations', 'roundedLabel'], e.target.checked)} />
+									Rounded label (CTA / category)
 								</label>
-								<div className="grid grid-cols-2 gap-3">
-									<Input label="Overlay position X" type="number" value={draftConfig.positions.overlayText.x} onChange={(e) => updatePath(['positions', 'overlayText', 'x'], Number(e.target.value))} />
-									<Input label="Overlay position Y" type="number" value={draftConfig.positions.overlayText.y} onChange={(e) => updatePath(['positions', 'overlayText', 'y'], Number(e.target.value))} />
-								</div>
+								<label className="tpl-switch">
+									<input type="checkbox" checked={draftConfig.decorations.underline} onChange={(e) => updatePath(['decorations', 'underline'], e.target.checked)} />
+									Title underline
+								</label>
+								<label className="tpl-switch">
+									<input type="checkbox" checked={draftConfig.decorations.accentShapes} onChange={(e) => updatePath(['decorations', 'accentShapes'], e.target.checked)} />
+									Accent shapes
+								</label>
+								{draftConfig.decorations.brushHighlight ? (
+									<label className="block">
+										<span className="mb-1.5 block text-sm font-medium">Brush opacity ({draftConfig.decorations.brushOpacity})</span>
+										<input className="tpl-range" type="range" min="0.2" max="1" step="0.05" value={draftConfig.decorations.brushOpacity} onChange={(e) => updatePath(['decorations', 'brushOpacity'], Number(e.target.value))} />
+									</label>
+								) : null}
+								{draftConfig.decorations.underline ? (
+									<Input label="Underline color" type="color" value={draftConfig.decorations.underlineColor} onChange={(e) => updatePath(['decorations', 'underlineColor'], e.target.value)} />
+								) : null}
 							</Section>
 
 							<Section id="logo" open={openSections.logo} onToggle={toggleSection}>
 								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.placeholders.websiteLogo} onChange={(e) => updatePath(['placeholders', 'websiteLogo'], e.target.checked)} />
-									Show website logo placeholder
+									<input type="checkbox" checked={draftConfig.brandBar.enabled} onChange={(e) => updatePath(['brandBar', 'enabled'], e.target.checked)} />
+									Enable brand bar
 								</label>
-								<div className="grid grid-cols-2 gap-3">
-									<Input label="Logo position X" type="number" value={draftConfig.positions.logo.x} onChange={(e) => updatePath(['positions', 'logo', 'x'], Number(e.target.value))} />
-									<Input label="Logo position Y" type="number" value={draftConfig.positions.logo.y} onChange={(e) => updatePath(['positions', 'logo', 'y'], Number(e.target.value))} />
-								</div>
+								<label className="tpl-switch">
+									<input type="checkbox" checked={draftConfig.brandBar.showLogo} onChange={(e) => updatePath(['brandBar', 'showLogo'], e.target.checked)} />
+									Show website logo
+								</label>
+								<label className="tpl-switch">
+									<input type="checkbox" checked={draftConfig.brandBar.showDomain} onChange={(e) => updatePath(['brandBar', 'showDomain'], e.target.checked)} />
+									Show domain
+								</label>
+								<Input label="Brand bar color" value={draftConfig.brandBar.background} onChange={(e) => updatePath(['brandBar', 'background'], e.target.value)} placeholder="rgba(0,0,0,0.42)" />
+								<Input label="Brand text color" type="color" value={draftConfig.brandBar.textColor} onChange={(e) => updatePath(['brandBar', 'textColor'], e.target.value)} />
 							</Section>
 
 							<Section id="positioning" open={openSections.positioning} onToggle={toggleSection}>
+								<FieldHint>Legacy absolute positions (kept for compatibility). Prefer Pin Layout → Title position.</FieldHint>
 								<div className="grid grid-cols-2 gap-3">
 									<Input label="Title X" type="number" value={draftConfig.positions.title.x} onChange={(e) => updatePath(['positions', 'title', 'x'], Number(e.target.value))} />
 									<Input label="Title Y" type="number" value={draftConfig.positions.title.y} onChange={(e) => updatePath(['positions', 'title', 'y'], Number(e.target.value))} />
@@ -540,25 +655,22 @@ export default function TemplatesPage() {
 									<Input label="Logo X" type="number" value={draftConfig.positions.logo.x} onChange={(e) => updatePath(['positions', 'logo', 'x'], Number(e.target.value))} />
 									<Input label="Logo Y" type="number" value={draftConfig.positions.logo.y} onChange={(e) => updatePath(['positions', 'logo', 'y'], Number(e.target.value))} />
 								</div>
-								<FieldHint>Positions are percentages of the canvas (0–100).</FieldHint>
 							</Section>
 
 							<Section id="effects" open={openSections.effects} onToggle={toggleSection}>
-								<label className="block">
-									<span className="mb-1.5 block text-sm font-medium">Container padding ({draftConfig.container.padding})</span>
-									<input className="tpl-range" type="range" min="0" max="120" value={draftConfig.container.padding} onChange={(e) => updatePath(['container', 'padding'], Number(e.target.value))} />
-								</label>
-								<label className="block">
-									<span className="mb-1.5 block text-sm font-medium">Container radius ({draftConfig.container.borderRadius})</span>
-									<input className="tpl-range" type="range" min="0" max="120" value={draftConfig.container.borderRadius} onChange={(e) => updatePath(['container', 'borderRadius'], Number(e.target.value))} />
-								</label>
-								<label className="block">
-									<span className="mb-1.5 block text-sm font-medium">Container opacity ({draftConfig.container.opacity})</span>
-									<input className="tpl-range" type="range" min="0.05" max="1" step="0.05" value={draftConfig.container.opacity} onChange={(e) => updatePath(['container', 'opacity'], Number(e.target.value))} />
-								</label>
+								<div className="grid grid-cols-2 gap-3">
+									<label className="block">
+										<span className="mb-1.5 block text-sm font-medium">Label radius ({draftConfig.buttonStyle.borderRadius})</span>
+										<input className="tpl-range" type="range" min="0" max="999" value={draftConfig.buttonStyle.borderRadius} onChange={(e) => updatePath(['buttonStyle', 'borderRadius'], Number(e.target.value))} />
+									</label>
+									<label className="block">
+										<span className="mb-1.5 block text-sm font-medium">Label padding ({draftConfig.buttonStyle.padding})</span>
+										<input className="tpl-range" type="range" min="0" max="64" value={draftConfig.buttonStyle.padding} onChange={(e) => updatePath(['buttonStyle', 'padding'], Number(e.target.value))} />
+									</label>
+								</div>
 								<label className="tpl-switch">
-									<input type="checkbox" checked={draftConfig.container.shadow} onChange={(e) => updatePath(['container', 'shadow'], e.target.checked)} />
-									Pin shadow
+									<input type="checkbox" checked={draftConfig.buttonStyle.shadow} onChange={(e) => updatePath(['buttonStyle', 'shadow'], e.target.checked)} />
+									Label shadow
 								</label>
 							</Section>
 
@@ -566,13 +678,12 @@ export default function TemplatesPage() {
 								<div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
 									<p className="font-medium text-foreground">Dynamic variables</p>
 									<p className="mt-1">{TEMPLATE_VARIABLES.join(' • ')}</p>
-									<p className="mt-2">Image placeholders: Featured Image, Website Logo, Background Pattern.</p>
+									<p className="mt-2">Featured Image mode renders locally (canvas) — no Gemini / Fal.</p>
 								</div>
 								<div className="grid grid-cols-2 gap-3">
 									<Input label="Canvas width" type="number" value={draftConfig.canvas.width} onChange={(e) => updatePath(['canvas', 'width'], Number(e.target.value))} />
 									<Input label="Canvas height" type="number" value={draftConfig.canvas.height} onChange={(e) => updatePath(['canvas', 'height'], Number(e.target.value))} />
 								</div>
-								<FieldHint>Advanced size overrides still use the same saved configuration shape.</FieldHint>
 							</Section>
 						</div>
 					</section>
