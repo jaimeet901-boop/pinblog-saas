@@ -198,13 +198,39 @@ export function buildPinPromptFromConfig({ config, article, count, panel }) {
 	const guidance = userSeed ? `Platform guidance: ${userSeed}\n` : '';
 
 	return `${header}
-${guidance}Return ONLY a valid JSON object in this exact shape:
+${guidance}You are a senior Pinterest art director (BlogToPin / Canva quality).
+First ANALYZE the recipe: category family (dessert|healthy|dinner|breakfast|drinks|snacks|general), ingredients cues, mood, cooking time, difficulty, and target audience.
+Then for EACH pin recommend BOTH unique marketing copy AND a full designRecommendation that fits that recipe family identity.
+Dessert = warm pink/gold script accents. Healthy = clean green minimal. Dinner = rich amber editorial. Breakfast = sunny cheerful. Drinks = cool vignette. Snacks = bold playful.
+layoutStyle/template MUST be one of: centered_hero, top_title_bottom_cta, dark_title_box, white_rounded_card, brush_stroke, ribbon_banner, magazine, minimal_modern, bold_typography, handwritten_accent.
+Prefer templates from the matching family identity; still vary templates inside the family — never duplicate template in this batch.
+Return ONLY a valid JSON object in this exact shape:
 {
+  "recipeAnalysis": {
+    "family": "dessert",
+    "mood": "indulgent",
+    "cookingTime": "under_30",
+    "difficulty": "easy",
+    "audience": "families",
+    "ingredients": ["chocolate", "butter"]
+  },
   "pins": [
     {
       "title": "Pinterest SEO title",
       "description": "Pinterest description optimized for clicks",
-      "overlayText": "short image overlay text",
+      "overlayText": "short CTA / badge text",
+      "layoutStyle": "handwritten_accent",
+      "designRecommendation": {
+        "template": "handwritten_accent",
+        "fontPair": { "heading": "Georgia, serif", "script": "Segoe Script, cursive" },
+        "colorPalette": { "primary": "#BE185D", "secondary": "#FBCFE8", "accent": "#F59E0B", "text": "#FFF7ED", "overlay": "#4C0519", "ctaBg": "#FDE68A", "ctaText": "#831843", "brush": "#DB2777" },
+        "titlePosition": "bottom",
+        "ctaStyle": "pill-warm",
+        "overlayStyle": "gradient",
+        "decoration": "brush",
+        "brandPlacement": "bottom-bar",
+        "scriptAccent": true
+      },
       "suggestedKeywords": ["keyword1", "keyword2", "keyword3"],
       "suggestedHashtags": ["#tag1", "#tag2", "#tag3"],
       "imagePrompt": "detailed AI image prompt for a vertical Pinterest pin"

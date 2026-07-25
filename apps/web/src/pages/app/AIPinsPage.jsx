@@ -19,6 +19,10 @@ import PreviewPinModal from '@/components/ai-pins/PreviewPinModal';
 import PublishProgressModal from '@/components/ai-pins/PublishProgressModal';
 import { createDefaultTemplateConfig, normalizeTemplateConfig } from '@/lib/pinTemplates';
 import { buildLocalPinsFromArticle } from '@/lib/featuredPinLocal';
+import {
+	assignIntelligentPinDesigns,
+	applyIntelligentTemplateConfig,
+} from '@/lib/pinTemplateIntelligence';
 import { useWorkspaceConfig } from '@/context/WorkspaceConfigContext';
 import {
 	PIN_ASPECT_RATIOS,
@@ -1106,8 +1110,15 @@ export default function AIPinsPage() {
 					|| siteMeta?.url
 					|| siteMeta?.name
 					|| '';
+				const styledPins = assignIntelligentPinDesigns(
+					generatedPins.map((pin) => ({
+						...pin,
+						category: article.category || analysis?.pinterestCategory || '',
+					})),
+					{ article, analysis, panel: workingPanel },
+				);
 				generatedRecords.push(
-					...generatedPins.map((pin, index) => ({
+					...styledPins.map((pin, index) => ({
 						tempId: `${article.id}-${Date.now()}-${index}`,
 						articleId: article.id,
 						websiteId: article.websiteId,
@@ -1123,22 +1134,16 @@ export default function AIPinsPage() {
 						boardId: selectedBoardId,
 						boardName: activeBoard?.name || '',
 						templateId: selectedTemplate?.id || '',
-						templateName: selectedTemplate?.name || 'Default Template',
-						templateConfig: normalizeTemplateConfig({
-							...templateConfig,
-							canvas: { width: 1000, height: 1500 },
-							...(selectedBrand ? {
-								decorations: {
-									...templateConfig.decorations,
-									brushColor: selectedBrand.accentColor || templateConfig.decorations.brushColor,
-									accentColor: selectedBrand.secondaryColor || templateConfig.decorations.accentColor,
-								},
-								typography: {
-									...templateConfig.typography,
-									fontFamily: selectedBrand.fontHeading || templateConfig.typography.fontFamily,
-								},
-							} : {}),
-						}),
+						templateName: pin.layoutLabel || pin.recipeFamilyLabel || selectedTemplate?.name || 'Pin Layout',
+						layoutId: pin.layoutId || '',
+						layoutLabel: pin.layoutLabel || '',
+						recipeFamily: pin.recipeFamily || '',
+						designRecommendation: pin.designRecommendation || null,
+						templateConfig: applyIntelligentTemplateConfig(
+							templateConfig,
+							pin.designRecommendation,
+							{ brandKit: selectedBrand },
+						),
 						category: article.category || analysis?.pinterestCategory || '',
 						website: websiteLabel,
 						author: article.author,
@@ -2146,7 +2151,9 @@ export default function AIPinsPage() {
 													<Badge tone={pin.imageGenerationStatus === 'failed' ? 'red' : pin.imageGenerationStatus === 'completed' ? 'green' : 'amber'}>
 														{pin.imageGenerationStatus || 'draft'}
 													</Badge>
-													<span className="truncate text-[10px] text-muted-foreground">{pin.templateName}</span>
+													<span className="truncate text-[10px] text-muted-foreground">
+														{[pin.recipeFamilyLabel, pin.layoutLabel || pin.templateName].filter(Boolean).join(' · ')}
+													</span>
 												</div>
 												<h3 className="line-clamp-2 font-display text-sm font-semibold leading-snug">{pin.title}</h3>
 												<p className="line-clamp-2 text-xs text-muted-foreground">{pin.description}</p>

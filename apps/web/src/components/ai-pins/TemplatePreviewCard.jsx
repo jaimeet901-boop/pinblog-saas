@@ -94,41 +94,82 @@ export default function TemplatePreviewCard({
 				) : null}
 
 				<div style={textBlockStyle}>
-					{safeConfig.decorations.roundedLabel && (context?.overlayText || context?.category) ? (
-						<span
-							className="mb-2 inline-flex max-w-full truncate rounded-full px-2.5 py-1 text-[9px] font-semibold shadow"
+					{['darkBox', 'whiteCard', 'ribbon'].includes(safeConfig.layout.frameStyle) ? (
+						<div
+							className="mb-1 w-full px-2 py-2"
 							style={{
-								backgroundColor: safeConfig.buttonStyle.background,
-								color: safeConfig.buttonStyle.textColor,
+								background: safeConfig.layout.frameStyle === 'whiteCard'
+									? 'rgba(255,255,255,0.95)'
+									: safeConfig.layout.frameStyle === 'ribbon'
+										? (safeConfig.decorations.brushColor || '#B91C1C')
+										: 'rgba(15,23,42,0.82)',
+								borderRadius: safeConfig.layout.frameStyle === 'ribbon' ? '4px' : '14px',
+								color: safeConfig.layout.frameStyle === 'whiteCard' ? '#1F2937' : '#fff',
 							}}
 						>
-							{(context?.overlayText || context?.category || '').slice(0, 36)}
-						</span>
-					) : null}
+							{safeConfig.decorations.roundedLabel && (context?.overlayText || context?.category) ? (
+								<span
+									className="mb-1 inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[8px] font-semibold"
+									style={{
+										backgroundColor: safeConfig.buttonStyle.background,
+										color: safeConfig.buttonStyle.textColor,
+									}}
+								>
+									{(context?.overlayText || context?.category || '').slice(0, 28)}
+								</span>
+							) : null}
+							<p
+								className="max-w-full whitespace-pre-wrap break-words font-bold leading-tight"
+								style={{
+									fontFamily: safeConfig.typography.fontFamily,
+									fontSize: `${previewFontSize}px`,
+									fontWeight: safeConfig.typography.fontWeight,
+									color: safeConfig.typography.textColor,
+									lineHeight: safeConfig.typography.lineHeight,
+								}}
+							>
+								{title}
+							</p>
+						</div>
+					) : (
+						<>
+							{safeConfig.decorations.roundedLabel && (context?.overlayText || context?.category) ? (
+								<span
+									className="mb-2 inline-flex max-w-full truncate rounded-full px-2.5 py-1 text-[9px] font-semibold shadow"
+									style={{
+										backgroundColor: safeConfig.buttonStyle.background,
+										color: safeConfig.buttonStyle.textColor,
+									}}
+								>
+									{(context?.overlayText || context?.category || '').slice(0, 36)}
+								</span>
+							) : null}
 
-					<div className="relative max-w-full">
-						{safeConfig.decorations.brushHighlight ? (
-							<span
-								aria-hidden
-								className="absolute inset-x-[-6%] inset-y-[-8%] -z-0 rounded-[40%] opacity-90"
-								style={{ backgroundColor: safeConfig.decorations.brushColor, opacity: safeConfig.decorations.brushOpacity }}
-							/>
-						) : null}
-						<p
-							className="relative z-[1] max-w-full whitespace-pre-wrap break-words font-bold leading-tight"
-							style={{
-								fontFamily: safeConfig.typography.fontFamily,
-								fontSize: `${previewFontSize}px`,
-								fontWeight: safeConfig.typography.fontWeight,
-								color: safeConfig.typography.textColor,
-								lineHeight: safeConfig.typography.lineHeight,
-								letterSpacing: `${safeConfig.typography.letterSpacing / 10}px`,
-								textShadow: safeConfig.typography.textShadow ? '0 2px 10px rgba(0,0,0,0.45)' : 'none',
-							}}
-						>
-							{title}
-						</p>
-					</div>
+							<div className="relative max-w-full">
+								{safeConfig.decorations.brushHighlight ? (
+									<span
+										aria-hidden
+										className="absolute inset-x-[-6%] inset-y-[-8%] -z-0 rounded-[40%] opacity-90"
+										style={{ backgroundColor: safeConfig.decorations.brushColor, opacity: safeConfig.decorations.brushOpacity }}
+									/>
+								) : null}
+								<p
+									className="relative z-[1] max-w-full whitespace-pre-wrap break-words font-bold leading-tight"
+									style={{
+										fontFamily: safeConfig.typography.fontFamily,
+										fontSize: `${previewFontSize}px`,
+										fontWeight: safeConfig.typography.fontWeight,
+										color: safeConfig.typography.textColor,
+										lineHeight: safeConfig.typography.lineHeight,
+										letterSpacing: `${safeConfig.typography.letterSpacing / 10}px`,
+										textShadow: safeConfig.typography.textShadow ? '0 2px 10px rgba(0,0,0,0.45)' : 'none',
+									}}
+								>
+									{title}
+								</p>
+							</div>
+						</>
+					)}
 
 					{safeConfig.decorations.underline ? (
 						<span
@@ -171,7 +212,7 @@ export default function TemplatePreviewCard({
 			</div>
 			<div className="flex items-center justify-between px-3 py-2 text-[11px] text-muted-foreground">
 				<span>{safeConfig.canvas.width}×{safeConfig.canvas.height}</span>
-				<span className="capitalize">{safeConfig.layout.textPosition} · ratio {ratio.toFixed(2)}</span>
+				<span className="truncate capitalize">{safeConfig.layout.variantLabel || safeConfig.layout.textPosition} · {ratio.toFixed(2)}</span>
 			</div>
 		</div>
 	);

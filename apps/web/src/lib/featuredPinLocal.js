@@ -1,5 +1,6 @@
 /**
  * Local (non-AI) pin copy for Featured Image mode.
+ * Titles/CTAs vary; Template Intelligence assigns the visual system.
  */
 
 function truncate(value, max = 160) {
@@ -17,11 +18,54 @@ function safeArray(value) {
 	return [];
 }
 
+const TITLE_PATTERNS = [
+	(title) => title,
+	(title) => `Easy ${title}`,
+	(title) => `${title} You’ll Love`,
+	(title) => `Best ${title} Ideas`,
+	(title) => `${title} in Minutes`,
+	(title) => `How to Make ${title}`,
+	(title) => `${title}: Simple & Delicious`,
+	(title) => `Weeknight ${title}`,
+	(title) => `${title} Recipe`,
+	(title) => `Save This ${title}`,
+];
+
+const CTA_BY_FAMILY = {
+	dessert: ['Save Dessert', 'Bake This', 'Sweet Treat', 'Try Tonight'],
+	healthy: ['Eat Fresh', 'Try Clean', 'Get Recipe', 'Feel Good'],
+	dinner: ['Make Dinner', 'Cook Tonight', 'Get Recipe', 'Save Meal'],
+	breakfast: ['Make Morning', 'Brunch Idea', 'Start Day', 'Try Breakfast'],
+	drinks: ['Mix This', 'Sip & Save', 'Try Drink', 'Cheers'],
+	snacks: ['Snack Time', 'Party Bite', 'Crunch This', 'Save Snack'],
+	general: ['Save Recipe', 'Try This', 'Get the Recipe', 'Pin for Later'],
+};
+
+function inferFamilyHint({ article, analysis, panel }) {
+	const text = [
+		article?.title,
+		article?.category,
+		article?.metaDescription,
+		analysis?.pinterestCategory,
+		analysis?.title,
+		panel?.pinTitle,
+	].filter(Boolean).join(' ');
+	if (/\b(dessert|cake|cookie|brownie|pie|sweet|chocolate)\b/i.test(text)) return 'dessert';
+	if (/\b(healthy|salad|vegan|keto|protein|clean)\b/i.test(text)) return 'healthy';
+	if (/\b(dinner|pasta|roast|chicken|steak|casserole)\b/i.test(text)) return 'dinner';
+	if (/\b(breakfast|brunch|pancake|waffle|oatmeal)\b/i.test(text)) return 'breakfast';
+	if (/\b(drink|cocktail|smoothie|latte|juice|tea)\b/i.test(text)) return 'drinks';
+	if (/\b(snack|appetizer|dip|chips|bites)\b/i.test(text)) return 'snacks';
+	return 'general';
+}
+
 /**
  * Build pin drafts from article + panel fields without calling any AI provider.
  */
 export function buildLocalPinsFromArticle({ article, count = 1, panel = {}, analysis = null }) {
 	const n = Math.max(1, Number(count) || 1);
+	const family = inferFamilyHint({ article, analysis, panel });
+	const ctas = CTA_BY_FAMILY[family] || CTA_BY_FAMILY.general;
 	const baseTitle = String(
 		panel.pinTitle
 		|| analysis?.title
@@ -36,14 +80,6 @@ export function buildLocalPinsFromArticle({ article, count = 1, panel = {}, anal
 		|| article?.excerpt
 		|| `Discover more: ${article?.title || 'this article'}`,
 	).trim();
-	const baseOverlay = truncate(
-		panel.textOverlay
-		|| analysis?.cta
-		|| article?.title
-		|| article?.slug
-		|| 'Read now',
-		48,
-	);
 	const keywords = safeArray(
 		analysis?.keywords?.length
 			? analysis.keywords
@@ -56,14 +92,22 @@ export function buildLocalPinsFromArticle({ article, count = 1, panel = {}, anal
 	);
 
 	return Array.from({ length: n }).map((_, index) => {
-		const suffix = n > 1 ? ` (${index + 1})` : '';
+		const pattern = TITLE_PATTERNS[index % TITLE_PATTERNS.length];
+		const title = truncate(pattern(baseTitle), 100);
+		const overlayText = truncate(
+			panel.textOverlay
+			|| analysis?.cta
+			|| ctas[index % ctas.length],
+			48,
+		);
 		return {
-			title: truncate(`${baseTitle}${suffix}`, 100),
+			title,
 			description: truncate(baseDescription, 500),
-			overlayText: baseOverlay,
+			overlayText,
 			suggestedKeywords: keywords,
 			suggestedHashtags: hashtags,
 			imagePrompt: '',
+			category: article?.category || analysis?.pinterestCategory || family,
 		};
 	});
 }

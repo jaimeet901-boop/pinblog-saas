@@ -349,6 +349,72 @@ function drawRoundedLabel(ctx, {
 	return { height: h + 16, width: w };
 }
 
+function drawDarkTitleBox(ctx, { x, y, width, height, radius = 28 }) {
+	ctx.save();
+	ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+	roundRectPath(ctx, x, y, width, height, radius);
+	ctx.fill();
+	ctx.restore();
+}
+
+function drawWhiteCard(ctx, { x, y, width, height, radius = 36 }) {
+	ctx.save();
+	ctx.shadowColor = 'rgba(0,0,0,0.28)';
+	ctx.shadowBlur = 28;
+	ctx.shadowOffsetY = 10;
+	ctx.fillStyle = 'rgba(255,255,255,0.96)';
+	roundRectPath(ctx, x, y, width, height, radius);
+	ctx.fill();
+	ctx.restore();
+}
+
+function drawRibbonBanner(ctx, { x, y, width, height, color = '#B91C1C' }) {
+	ctx.save();
+	ctx.fillStyle = color;
+	ctx.beginPath();
+	const notch = Math.min(36, height * 0.45);
+	ctx.moveTo(x + notch, y);
+	ctx.lineTo(x + width - notch, y);
+	ctx.lineTo(x + width, y + height / 2);
+	ctx.lineTo(x + width - notch, y + height);
+	ctx.lineTo(x + notch, y + height);
+	ctx.lineTo(x, y + height / 2);
+	ctx.closePath();
+	ctx.fill();
+	ctx.restore();
+}
+
+function drawMagazineFrame(ctx, { margin, width, height, brandReserved }) {
+	ctx.save();
+	ctx.strokeStyle = 'rgba(248,250,252,0.55)';
+	ctx.lineWidth = 2;
+	ctx.strokeRect(margin * 0.55, margin * 0.55, width - margin * 1.1, height - brandReserved - margin * 0.4);
+	ctx.fillStyle = 'rgba(248,250,252,0.9)';
+	ctx.fillRect(margin, height * 0.52, 8, Math.min(180, height * 0.18));
+	ctx.restore();
+}
+
+function drawCornerBrand(ctx, { width, margin, logoImage, domain, textColor, fontFamily }) {
+	ctx.save();
+	const y = margin + 8;
+	let x = width - margin;
+	if (domain) {
+		ctx.fillStyle = textColor || '#FFFFFF';
+		ctx.font = `600 20px ${fontFamily}`;
+		ctx.textAlign = 'right';
+		ctx.textBaseline = 'middle';
+		ctx.globalAlpha = 0.92;
+		ctx.fillText(domain, x, y + 22);
+		x -= ctx.measureText(domain).width + 12;
+	}
+	if (logoImage) {
+		const size = 36;
+		ctx.globalAlpha = 1;
+		ctx.drawImage(logoImage, x - size, y, size, size);
+	}
+	ctx.restore();
+}
+
 function drawBrandBar(ctx, {
 	width, height, margin, brandBar, logoImage, domain, fontFamily,
 }) {
@@ -394,7 +460,6 @@ export async function renderFeaturedPinToBlob({
 	websiteDomain = '',
 }) {
 	const config = resolveFeaturedTemplateConfig(templateConfig);
-	// Featured pins always ship at Pinterest standard 1000×1500.
 	const width = 1000;
 	const height = 1500;
 	const canvas = document.createElement('canvas');
@@ -416,13 +481,15 @@ export async function renderFeaturedPinToBlob({
 	drawReadabilityOverlay(ctx, width, height, config);
 
 	const margin = config.layout.safeMargin;
-	const maxTextWidth = width - margin * 2;
 	const align = config.layout.textAlign || 'center';
+	const frameStyle = config.layout.frameStyle || 'none';
+	const ctaPosition = config.layout.ctaPosition || 'below-title';
+	const brandPlacement = config.layout.brandPlacement || 'bottom-bar';
 	const band = resolveTitleBand(config);
-	const brandReserved = config.brandBar.enabled || config.layout.showBrandBar ? 110 : margin;
+	const useBottomBar = brandPlacement === 'bottom-bar' && (config.brandBar.enabled || config.layout.showBrandBar);
+	const brandReserved = useBottomBar ? 110 : margin;
 	const bandTop = height * band.start;
 	const bandBottom = Math.min(height * band.end, height - brandReserved - 24);
-	const bandHeight = Math.max(120, bandBottom - bandTop);
 
 	const baseContext = {
 		title: context.title || 'Pin Title',
@@ -434,8 +501,19 @@ export async function renderFeaturedPinToBlob({
 
 	const titleText = applyTemplateVariables('{{title}}', baseContext).trim() || 'Pin Title';
 	const domain = formatPinDomain(websiteDomain || baseContext.website || watermarkText);
+	const centerX = width / 2;
+	const ctaLabel = String(context.overlayText || context.category || '').trim();
 
-	if (config.decorations.accentShapes) {
+	let logoImage = null;
+	if ((config.brandBar.showLogo || config.placeholders.websiteLogo || brandPlacement === 'corner' || brandPlacement === 'inside-card') && logoUrl) {
+		try {
+			logoImage = await fetchImageForCanvas(logoUrl);
+		} catch {
+			logoImage = null;
+		}
+	}
+
+	if (config.decorations.accentShapes && frameStyle === 'none') {
 		drawAccentShapes(ctx, {
 			width,
 			height,
@@ -445,15 +523,61 @@ export async function renderFeaturedPinToBlob({
 		});
 	}
 
-	let cursorY = bandTop;
-	const centerX = width / 2;
+	if (frameStyle === 'magazine') {
+		drawMagazineFrame(ctx, { margin, width, height, brandReserved });
+	}
 
-	// Optional category / CTA pill above title
-	if (config.decorations.roundedLabel && (context.overlayText || context.category)) {
-		const label = String(context.overlayText || context.category || '').trim();
+	let cursorY = bandTop;
+	const framePad = frameStyle === 'whiteCard' || frameStyle === 'darkBox' ? 36 : 0;
+	const contentWidth = width - margin * 2 - framePad * 2;
+	const textMaxWidth = Math.max(280, contentWidth);
+
+	// Estimate title size first so framed layouts can size the box.
+	const probeFit = fitTitleBlock(ctx, {
+		text: titleText,
+		maxWidth: textMaxWidth,
+		maxHeight: Math.max(100, bandBottom - bandTop - 40),
+		maxFontSize: config.typography.fontSize,
+		minFontSize: config.typography.minFontSize,
+		fontFamily: config.typography.fontFamily,
+		fontWeight: config.typography.fontWeight,
+		lineHeight: config.typography.lineHeight,
+		maxLines: config.typography.maxLines,
+		letterSpacing: config.typography.letterSpacing,
+	});
+	const probeLineH = probeFit.fontSize * config.typography.lineHeight;
+	const probeBlockH = probeFit.lines.length * probeLineH;
+	const labelReserve = (config.decorations.roundedLabel && ctaLabel && ctaPosition !== 'bottom' && ctaPosition !== 'none') ? 56 : 0;
+	const ctaReserve = (config.layout.showCta && ctaPosition === 'inside-frame' && ctaLabel) ? 70 : 0;
+	const brandInsideReserve = brandPlacement === 'inside-card' ? 48 : 0;
+	const frameHeight = probeBlockH + labelReserve + ctaReserve + brandInsideReserve + framePad * 2 + 28;
+	const frameWidth = width - margin * 2;
+	const frameX = margin;
+	let frameY = bandTop + Math.max(0, ((bandBottom - bandTop) - frameHeight) * 0.35);
+
+	if (frameStyle === 'darkBox') {
+		drawDarkTitleBox(ctx, { x: frameX, y: frameY, width: frameWidth, height: frameHeight, radius: 28 });
+		cursorY = frameY + framePad + 8;
+	} else if (frameStyle === 'whiteCard') {
+		drawWhiteCard(ctx, { x: frameX, y: frameY, width: frameWidth, height: frameHeight, radius: 36 });
+		cursorY = frameY + framePad + 8;
+	} else if (frameStyle === 'ribbon') {
+		const ribbonH = Math.max(probeBlockH + 48, 120);
+		frameY = (bandTop + bandBottom) / 2 - ribbonH / 2;
+		drawRibbonBanner(ctx, {
+			x: margin * 0.35,
+			y: frameY,
+			width: width - margin * 0.7,
+			height: ribbonH,
+			color: config.decorations.brushColor || '#B91C1C',
+		});
+		cursorY = frameY + (ribbonH - probeBlockH) / 2;
+	}
+
+	if (config.decorations.roundedLabel && ctaLabel && ctaPosition !== 'bottom' && ctaPosition !== 'none' && ctaPosition !== 'inside-frame') {
 		const labelResult = drawRoundedLabel(ctx, {
-			text: label.slice(0, 42),
-			x: align === 'left' ? margin : align === 'right' ? width - margin : centerX,
+			text: ctaLabel.slice(0, 42),
+			x: align === 'left' ? margin + framePad : align === 'right' ? width - margin - framePad : centerX,
 			y: cursorY,
 			align,
 			background: config.buttonStyle.background,
@@ -464,10 +588,10 @@ export async function renderFeaturedPinToBlob({
 		cursorY += labelResult.height || 0;
 	}
 
-	const titleMaxHeight = Math.max(80, bandBottom - cursorY - (config.layout.showCta && !config.decorations.roundedLabel ? 70 : 20));
+	const titleMaxHeight = Math.max(80, (frameStyle === 'none' ? bandBottom : frameY + frameHeight - framePad) - cursorY - 12);
 	const fitted = fitTitleBlock(ctx, {
 		text: titleText,
-		maxWidth: maxTextWidth,
+		maxWidth: textMaxWidth,
 		maxHeight: titleMaxHeight,
 		maxFontSize: config.typography.fontSize,
 		minFontSize: config.typography.minFontSize,
@@ -480,10 +604,11 @@ export async function renderFeaturedPinToBlob({
 
 	const lineHeightPx = fitted.fontSize * config.typography.lineHeight;
 	const blockHeight = fitted.lines.length * lineHeightPx;
-	// Vertically center the title block inside remaining band space.
-	const remaining = bandBottom - cursorY;
-	if (blockHeight < remaining * 0.92) {
-		cursorY += (remaining - blockHeight) * (config.layout.textPosition === 'top' ? 0.15 : 0.35);
+	if (frameStyle === 'none') {
+		const remaining = bandBottom - cursorY;
+		if (blockHeight < remaining * 0.92) {
+			cursorY += (remaining - blockHeight) * (config.layout.textPosition === 'top' ? 0.15 : 0.35);
+		}
 	}
 
 	const blockTop = cursorY;
@@ -494,13 +619,13 @@ export async function renderFeaturedPinToBlob({
 	const brushPadX = 28;
 	const brushPadY = 18;
 	const brushX = align === 'left'
-		? margin - brushPadX * 0.3
+		? margin + framePad - brushPadX * 0.3
 		: align === 'right'
-			? width - margin - longest - brushPadX * 0.3
+			? width - margin - framePad - longest - brushPadX * 0.3
 			: centerX - longest / 2 - brushPadX;
 	const brushW = longest + brushPadX * 2;
 
-	if (config.decorations.brushHighlight && fitted.lines.length > 0) {
+	if (config.decorations.brushHighlight && fitted.lines.length > 0 && frameStyle === 'none') {
 		drawBrushHighlight(ctx, {
 			x: brushX,
 			y: blockTop - brushPadY,
@@ -521,15 +646,19 @@ export async function renderFeaturedPinToBlob({
 			ctx.letterSpacing = `${config.typography.letterSpacing}px`;
 		}
 	} catch {
-		// ignore unsupported letterSpacing
+		// ignore
 	}
-	if (config.typography.textShadow) {
+	if (config.typography.textShadow && frameStyle !== 'whiteCard') {
 		ctx.shadowColor = 'rgba(0,0,0,0.45)';
 		ctx.shadowBlur = 18;
 		ctx.shadowOffsetY = 4;
 	}
 
-	const textX = align === 'left' ? margin : align === 'right' ? width - margin : centerX;
+	const textX = align === 'left'
+		? margin + framePad
+		: align === 'right'
+			? width - margin - framePad
+			: centerX;
 	fitted.lines.forEach((line, index) => {
 		const isLast = index === fitted.lines.length - 1;
 		const useScript = config.typography.scriptEnabled && isLast && fitted.lines.length > 1;
@@ -551,8 +680,8 @@ export async function renderFeaturedPinToBlob({
 		ctx.strokeStyle = config.decorations.underlineColor;
 		ctx.lineWidth = Math.max(3, fitted.fontSize * 0.06);
 		ctx.lineCap = 'round';
-		const underlineW = Math.min(longest * 0.55, maxTextWidth * 0.45);
-		const ux = align === 'left' ? margin : align === 'right' ? width - margin - underlineW : centerX - underlineW / 2;
+		const underlineW = Math.min(longest * 0.55, textMaxWidth * 0.45);
+		const ux = align === 'left' ? textX : align === 'right' ? textX - underlineW : centerX - underlineW / 2;
 		const uy = titleBottom + 14;
 		ctx.beginPath();
 		ctx.moveTo(ux, uy);
@@ -564,18 +693,14 @@ export async function renderFeaturedPinToBlob({
 	let afterTitleY = titleBottom + (config.decorations.underline ? 36 : 22);
 
 	if (config.layout.showDescription && baseContext.description) {
-		const descSize = Math.max(22, Math.round(fitted.fontSize * 0.32));
+		const descSize = Math.max(20, Math.round(fitted.fontSize * 0.3));
 		ctx.save();
 		ctx.font = `500 ${descSize}px ${config.typography.fontFamily}`;
 		ctx.fillStyle = config.typography.textColor;
 		ctx.globalAlpha = 0.88;
 		ctx.textAlign = align === 'left' ? 'left' : align === 'right' ? 'right' : 'center';
 		ctx.textBaseline = 'top';
-		if (config.typography.textShadow) {
-			ctx.shadowColor = 'rgba(0,0,0,0.35)';
-			ctx.shadowBlur = 10;
-		}
-		const descLines = wrapTitleBalanced(ctx, baseContext.description, maxTextWidth, 3);
+		const descLines = wrapTitleBalanced(ctx, baseContext.description, textMaxWidth, 3);
 		descLines.forEach((line, index) => {
 			ctx.fillText(line, textX, afterTitleY + index * descSize * 1.25);
 		});
@@ -583,9 +708,9 @@ export async function renderFeaturedPinToBlob({
 		ctx.restore();
 	}
 
-	if (config.layout.showCta && !config.decorations.roundedLabel && context.overlayText) {
+	if (config.layout.showCta && ctaLabel && (ctaPosition === 'below-title' || ctaPosition === 'inside-frame') && !config.decorations.roundedLabel) {
 		drawRoundedLabel(ctx, {
-			text: String(context.overlayText).slice(0, 48),
+			text: ctaLabel.slice(0, 48),
 			x: textX,
 			y: Math.min(afterTitleY, height - brandReserved - 70),
 			align,
@@ -594,29 +719,75 @@ export async function renderFeaturedPinToBlob({
 			fontFamily: config.typography.fontFamily,
 			padding: config.buttonStyle.padding,
 		});
+		afterTitleY += 64;
+	} else if (config.layout.showCta && ctaLabel && ctaPosition === 'inside-frame' && config.decorations.roundedLabel) {
+		drawRoundedLabel(ctx, {
+			text: ctaLabel.slice(0, 42),
+			x: centerX,
+			y: Math.min(afterTitleY, frameY + frameHeight - framePad - 52),
+			align: 'center',
+			background: config.buttonStyle.background,
+			textColor: config.buttonStyle.textColor,
+			fontFamily: config.typography.fontFamily,
+			padding: config.buttonStyle.padding,
+		});
+		afterTitleY += 60;
 	}
 
-	let logoImage = null;
-	if ((config.brandBar.showLogo || config.placeholders.websiteLogo) && logoUrl) {
-		try {
-			logoImage = await fetchImageForCanvas(logoUrl);
-		} catch {
-			logoImage = null;
+	if (config.layout.showCta && ctaLabel && ctaPosition === 'bottom') {
+		drawRoundedLabel(ctx, {
+			text: ctaLabel.slice(0, 48),
+			x: centerX,
+			y: height - brandReserved - 78,
+			align: 'center',
+			background: config.buttonStyle.background,
+			textColor: config.buttonStyle.textColor,
+			fontFamily: config.typography.fontFamily,
+			padding: config.buttonStyle.padding,
+		});
+	}
+
+	if (brandPlacement === 'inside-card' && (logoImage || domain)) {
+		ctx.save();
+		const by = Math.min(afterTitleY + 8, frameY + frameHeight - 40);
+		ctx.fillStyle = config.brandBar.textColor || '#6B7280';
+		ctx.font = `600 18px ${config.typography.fontFamily}`;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		if (logoImage) {
+			ctx.drawImage(logoImage, centerX - 70, by - 14, 28, 28);
+			ctx.fillText(domain || 'website', centerX + 10, by);
+		} else if (domain) {
+			ctx.fillText(domain, centerX, by);
 		}
+		ctx.restore();
 	}
 
-	drawBrandBar(ctx, {
-		width,
-		height,
-		margin,
-		brandBar: {
-			...config.brandBar,
-			enabled: config.layout.showBrandBar || config.brandBar.enabled,
-		},
-		logoImage,
-		domain,
-		fontFamily: config.typography.fontFamily,
-	});
+	if (brandPlacement === 'corner') {
+		drawCornerBrand(ctx, {
+			width,
+			margin,
+			logoImage: config.brandBar.showLogo ? logoImage : null,
+			domain: config.brandBar.showDomain ? domain : '',
+			textColor: config.brandBar.textColor || '#FFFFFF',
+			fontFamily: config.typography.fontFamily,
+		});
+	}
+
+	if (useBottomBar) {
+		drawBrandBar(ctx, {
+			width,
+			height,
+			margin,
+			brandBar: {
+				...config.brandBar,
+				enabled: true,
+			},
+			logoImage,
+			domain,
+			fontFamily: config.typography.fontFamily,
+		});
+	}
 
 	return new Promise((resolve, reject) => {
 		canvas.toBlob((blob) => {

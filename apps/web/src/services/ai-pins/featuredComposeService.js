@@ -1,6 +1,5 @@
 import apiServerClient from '@/lib/apiServerClient';
 import { renderFeaturedPinToBlob } from '@/lib/pinCanvasRenderer';
-import { resolveFeaturedTemplateConfig } from '@/lib/pinTemplates';
 
 /**
  * Compose featured pins with the BlogToPin-style canvas engine and upload PNGs.
@@ -27,7 +26,7 @@ export async function composeAndUploadFeaturedPins(pins, {
 		try {
 			const blob = await renderFeaturedPinToBlob({
 				featuredImageUrl,
-				templateConfig: resolveFeaturedTemplateConfig(pin.templateConfig),
+				templateConfig: pin.templateConfig,
 				context: {
 					title: pin.title,
 					description: pin.description,

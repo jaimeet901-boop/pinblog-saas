@@ -56,6 +56,11 @@ export function createDefaultTemplateConfig() {
 			showDescription: false,
 			showCta: true,
 			showBrandBar: true,
+			frameStyle: 'none',
+			ctaPosition: 'below-title',
+			brandPlacement: 'bottom-bar',
+			variantId: '',
+			variantLabel: '',
 		},
 		textOverlay: {
 			style: 'gradient',
@@ -190,6 +195,17 @@ export function normalizeTemplateConfig(inputConfig) {
 			showDescription: Boolean(layoutInput.showDescription ?? base.layout.showDescription),
 			showCta: Boolean(layoutInput.showCta ?? base.layout.showCta),
 			showBrandBar: Boolean(layoutInput.showBrandBar ?? brandInput.enabled ?? base.layout.showBrandBar),
+			frameStyle: ['none', 'darkBox', 'whiteCard', 'ribbon', 'magazine'].includes(String(layoutInput.frameStyle || ''))
+				? String(layoutInput.frameStyle)
+				: base.layout.frameStyle,
+			ctaPosition: ['below-title', 'bottom', 'inside-frame', 'none'].includes(String(layoutInput.ctaPosition || ''))
+				? String(layoutInput.ctaPosition)
+				: base.layout.ctaPosition,
+			brandPlacement: ['bottom-bar', 'corner', 'inside-card', 'hidden'].includes(String(layoutInput.brandPlacement || ''))
+				? String(layoutInput.brandPlacement)
+				: base.layout.brandPlacement,
+			variantId: String(layoutInput.variantId || ''),
+			variantLabel: String(layoutInput.variantLabel || ''),
 		},
 		textOverlay: {
 			style: normalizeOverlayStyle(overlayInput.style, base.textOverlay.style),
@@ -296,47 +312,43 @@ function luminance(hexColor) {
 }
 
 /**
- * Force BlogToPin-style chrome for Featured Image canvas renders.
- * Legacy saved templates often have dark title text / no overlay and would
- * look like a plain photo if used as-is over a featured image.
+ * Normalize featured pin config for canvas render.
+ * Preserves per-pin layout variety from the catalog; only enforces canvas size
+ * and minimum readability when the frame itself does not provide contrast.
  */
 export function resolveFeaturedTemplateConfig(inputConfig) {
-	const base = createDefaultTemplateConfig();
 	const normalized = normalizeTemplateConfig(inputConfig);
-	const darkTitle = luminance(normalized.typography.textColor) < 0.55;
+	const frame = normalized.layout.frameStyle || 'none';
+	const hasFramedContrast = ['darkBox', 'whiteCard', 'ribbon'].includes(frame);
+	const darkTitle = luminance(normalized.typography.textColor) < 0.45 && frame !== 'whiteCard';
 
 	return normalizeTemplateConfig({
 		...normalized,
 		canvas: { width: 1000, height: 1500 },
 		typography: {
 			...normalized.typography,
-			textColor: darkTitle ? base.typography.textColor : normalized.typography.textColor,
-			fontSize: Math.max(normalized.typography.fontSize, 64),
-			fontWeight: Math.max(normalized.typography.fontWeight, 700),
-			textShadow: true,
+			textColor: darkTitle ? '#FFFFFF' : normalized.typography.textColor,
+			textShadow: frame === 'whiteCard' ? false : (normalized.typography.textShadow !== false),
 			maxLines: normalized.typography.maxLines || 5,
 		},
 		textOverlay: {
 			...normalized.textOverlay,
-			style: normalized.textOverlay.style === 'none' ? 'gradient' : normalized.textOverlay.style,
-			intensity: Math.max(Number(normalized.textOverlay.intensity) || 0, 0.58),
+			style: hasFramedContrast && normalized.textOverlay.style === 'none'
+				? 'gradient'
+				: (normalized.textOverlay.style === 'none' ? 'gradient' : normalized.textOverlay.style),
+			intensity: hasFramedContrast
+				? Math.max(Number(normalized.textOverlay.intensity) || 0, 0.25)
+				: Math.max(Number(normalized.textOverlay.intensity) || 0, 0.45),
 		},
 		layout: {
 			...normalized.layout,
-			showBrandBar: true,
-			showCta: normalized.layout.showCta !== false,
-			safeMargin: Math.max(normalized.layout.safeMargin || 0, 64),
-		},
-		decorations: {
-			...normalized.decorations,
-			brushHighlight: normalized.decorations.brushHighlight !== false,
-			roundedLabel: normalized.decorations.roundedLabel !== false,
+			safeMargin: Math.max(normalized.layout.safeMargin || 0, 56),
 		},
 		brandBar: {
 			...normalized.brandBar,
-			enabled: true,
-			showLogo: normalized.brandBar.showLogo !== false,
-			showDomain: normalized.brandBar.showDomain !== false,
+			enabled: normalized.layout.brandPlacement === 'hidden'
+				? false
+				: (normalized.layout.showBrandBar || normalized.brandBar.enabled),
 		},
 	});
 }
