@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button, Card, Input, Select, Spinner } from '@/components/kit';
 import {
@@ -43,6 +43,10 @@ export default function SchedulePinModal({
 	const [accountId, setAccountId] = useState(defaultAccountId);
 	const [boardId, setBoardId] = useState(defaultBoardId);
 	const [error, setError] = useState('');
+	// Native date/datetime pickers render outside the Card DOM. Chromium often
+	// synthesizes a click on the backdrop when interacting with that UI. Only
+	// dismiss when pointerdown + click both started on the backdrop itself.
+	const backdropPointerDownRef = useRef(false);
 
 	useEffect(() => {
 		if (!open) return;
@@ -54,6 +58,7 @@ export default function SchedulePinModal({
 		setAccountId(defaultAccountId || '');
 		setBoardId(defaultBoardId || '');
 		setError('');
+		backdropPointerDownRef.current = false;
 	}, [open, defaultAccountId, defaultBoardId, defaultTimezone, defaultScheduledAt]);
 
 	const timezoneOptions = useMemo(() => {
@@ -62,6 +67,18 @@ export default function SchedulePinModal({
 	}, [timezone]);
 
 	if (!open) return null;
+
+	const handleBackdropPointerDown = (event) => {
+		backdropPointerDownRef.current = event.target === event.currentTarget;
+	};
+
+	const handleBackdropClick = (event) => {
+		const pressedOnBackdrop = backdropPointerDownRef.current;
+		backdropPointerDownRef.current = false;
+		if (event.target !== event.currentTarget) return;
+		if (!pressedOnBackdrop) return;
+		onClose?.();
+	};
 
 	const handleSubmit = async (event) => {
 		event.preventDefault();
@@ -88,8 +105,16 @@ export default function SchedulePinModal({
 	};
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-			<Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+			onPointerDown={handleBackdropPointerDown}
+			onClick={handleBackdropClick}
+		>
+			<Card
+				className="w-full max-w-lg max-h-[90vh] overflow-y-auto"
+				onClick={(e) => e.stopPropagation()}
+				onPointerDown={(e) => e.stopPropagation()}
+			>
 				<div className="mb-4 flex items-center justify-between">
 					<div>
 						<h3 className="font-semibold">Schedule pin{pinCount > 1 ? 's' : ''}</h3>
