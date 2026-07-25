@@ -9,14 +9,17 @@ import {
 	isProviderConfigured,
 	isTextOrientedProvider,
 	matchPreferredProvider,
+	normalizeImageProviderAlias,
 	providerHasCredentials,
 } from './ai-provider-readiness.js';
+import logger from '../utils/logger.js';
 
 export {
 	isImageOrientedProvider,
 	isProviderConfigured,
 	isTextOrientedProvider,
 	matchPreferredProvider,
+	normalizeImageProviderAlias,
 	providerHasCredentials,
 };
 
@@ -271,28 +274,60 @@ export async function assertTextProviderConfigured() {
 	throw error;
 }
 
-/** Backend gate for AI image jobs (Fal / OpenAI Images / Gemini Image).
- * Never swaps a non-empty requested provider to a different catalog code
- * (only normalizes aliases: flux→fal, google gemini→gemini).
+/**
+ * Resolve a configured image provider from the Admin registry.
+ *
+ * Rules:
+ * - If providerCode is non-empty and valid → use that code unchanged (alias-normalized only).
+ * - NEVER substitute another provider (e.g. gemini → fal).
+ * - Workspace/default provider is used ONLY when providerCode is empty AND allowWorkspaceDefault.
  */
-export async function assertImageProviderConfigured(providerCode = '') {
+export async function resolveConfiguredImageProvider(providerCode = '', options = {}) {
+	const allowWorkspaceDefault = options.allowWorkspaceDefault !== false;
 	const providers = await listProviders().catch(() => []);
-	const requested = String(providerCode || '').trim().toLowerCase();
+	const requestedRaw = String(providerCode || '').trim().toLowerCase();
+	const requested = normalizeImageProviderAlias(requestedRaw);
+
+	logger.info('[resolveConfiguredImageProvider] before', {
+		requestedRaw: requestedRaw || '(empty)',
+		requested: requested || '(empty)',
+		allowWorkspaceDefault,
+	});
+
 	let code = requested;
 
 	if (!code) {
+		if (!allowWorkspaceDefault) {
+			const error = new Error('Image provider is required on the job and was missing.');
+			error.status = 400;
+			error.errorCode = 'AI_IMAGE_PROVIDER_MISSING';
+			throw error;
+		}
 		const { getPlatformSettings } = await import('./platform-settings.js');
 		const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
 		const preferred = settings?.images?.defaultImageProvider || '';
 		const matched = matchPreferredProvider(providers, preferred);
-		code = String(matched?.code || '').toLowerCase();
+		code = normalizeImageProviderAlias(matched?.code || '');
 	}
-
-	if (code === 'flux') code = 'fal';
-	if (code === 'google' || code === 'google gemini') code = 'gemini';
 
 	const provider = providers.find((item) => String(item.code || '').toLowerCase() === code);
 	if (provider && isProviderConfigured(provider)) {
+		// Hard guarantee: never return a different provider than the job asked for.
+		if (requested && provider.code !== requested) {
+			const error = new Error(
+				`Image provider mismatch: job requested "${requestedRaw}" but registry resolved "${provider.code}".`,
+			);
+			error.status = 500;
+			error.errorCode = 'AI_IMAGE_PROVIDER_MUTATED';
+			error.meta = { requested: requestedRaw, resolved: provider.code };
+			throw error;
+		}
+
+		logger.info('[resolveConfiguredImageProvider] after', {
+			requestedRaw: requestedRaw || '(empty)',
+			resolved: provider.code,
+			usedWorkspaceDefault: !requestedRaw,
+		});
 		return provider;
 	}
 
@@ -300,14 +335,23 @@ export async function assertImageProviderConfigured(providerCode = '') {
 	const error = new Error(
 		provider && !provider.enabled
 			? `Image provider ${label} is disabled. Enable it in Admin Settings.`
-			: requested
-				? `Image provider "${requested}" is not configured. Enable it and add credentials in Admin Settings.`
+			: requestedRaw
+				? `Image provider "${requestedRaw}" is not configured. Enable it and add credentials in Admin Settings.`
 				: `No image AI provider configured. Enable an image provider (e.g. Fal.ai or Google Gemini) in Admin Settings.`,
 	);
 	error.status = 400;
 	error.errorCode = 'AI_IMAGE_PROVIDER_NOT_CONFIGURED';
-	error.meta = { providerCode: code || null, requestedProvider: requested || null };
+	error.meta = { providerCode: code || null, requestedProvider: requestedRaw || null };
 	throw error;
+}
+
+/** Backend gate for AI image jobs (Fal / OpenAI Images / Gemini Image). */
+export async function assertImageProviderConfigured(providerCode = '') {
+	const hasExplicit = Boolean(String(providerCode || '').trim());
+	return resolveConfiguredImageProvider(providerCode, {
+		// Only fall back to workspace default when the caller passed nothing.
+		allowWorkspaceDefault: !hasExplicit,
+	});
 }
 
 export async function createProvider(payload = {}) {

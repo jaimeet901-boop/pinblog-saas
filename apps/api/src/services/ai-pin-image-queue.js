@@ -108,6 +108,36 @@ async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' 
 	}
 }
 
+function readJobPromptPayload(job) {
+	let raw = job?.prompt_payload;
+	if (typeof raw === 'string') {
+		try {
+			raw = JSON.parse(raw);
+		} catch {
+			raw = {};
+		}
+	}
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+		return {};
+	}
+	return raw;
+}
+
+function readJobImageProvider(job) {
+	const payload = readJobPromptPayload(job);
+	const candidates = [
+		payload.provider,
+		payload.requestedProvider,
+		job?.provider,
+	];
+	for (const candidate of candidates) {
+		if (typeof candidate === 'string' && candidate.trim()) {
+			return candidate.trim();
+		}
+	}
+	return '';
+}
+
 async function processJob(job) {
 	const fallbackImage = normalizeText(job.featured_image_url, 1000);
 
@@ -124,28 +154,51 @@ async function processJob(job) {
 		return;
 	}
 
-	const { assertImageProviderConfigured, getPlatformProviderApiKey } = await import('./ai-providers.js');
+	const {
+		assertImageProviderConfigured,
+		getPlatformProviderApiKey,
+		normalizeImageProviderAlias,
+		resolveConfiguredImageProvider,
+	} = await import('./ai-providers.js');
 	const { getPlatformSettings } = await import('./platform-settings.js');
 
-	const storedProvider = normalizeText(
-		job.prompt_payload?.provider || job.prompt_payload?.requestedProvider || '',
-		40,
-	);
-	logger.info('[ai-pin-image-queue] Provider loaded from job', {
+	const promptPayload = readJobPromptPayload(job);
+	const storedProvider = readJobImageProvider(job);
+	const hasExplicitProvider = Boolean(storedProvider);
+
+	logger.info('[ai-pin-image-queue] before assertImageProviderConfigured', {
 		jobId: job.id,
 		storedProvider: storedProvider || '(empty)',
-		requestedProvider: job.prompt_payload?.requestedProvider || '(empty)',
+		requestedProvider: promptPayload.requestedProvider || '(empty)',
+		promptPayloadType: typeof job.prompt_payload,
+		hasExplicitProvider,
 	});
 
-	let provider = storedProvider;
-	const readyProvider = await assertImageProviderConfigured(provider);
-	provider = readyProvider.code;
+	// Job-specified provider must win. Never allow workspace default to replace it.
+	const readyProvider = hasExplicitProvider
+		? await resolveConfiguredImageProvider(storedProvider, { allowWorkspaceDefault: false })
+		: await assertImageProviderConfigured('');
 
-	logger.info('[ai-pin-image-queue] Provider after assertImageProviderConfigured', {
+	const provider = readyProvider.code;
+
+	logger.info('[ai-pin-image-queue] after assertImageProviderConfigured', {
 		jobId: job.id,
+		requested: storedProvider || '(empty)',
 		provider,
 		providerName: readyProvider.name || '',
 	});
+
+	if (hasExplicitProvider) {
+		const expected = normalizeImageProviderAlias(storedProvider);
+		if (provider !== expected) {
+			const error = new Error(
+				`Image provider mutated in worker: job had "${storedProvider}" but resolved "${provider}".`,
+			);
+			error.status = 500;
+			error.errorCode = 'AI_IMAGE_PROVIDER_MUTATED';
+			throw error;
+		}
+	}
 
 	const openaiKey = await getDecryptedOpenAIKey(job.owner)
 		|| await getPlatformProviderApiKey('openai');
@@ -214,14 +267,17 @@ async function processJob(job) {
 
 	const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
 	const preferredModelId = normalizeText(
-		job.prompt_payload?.model
-		|| job.prompt_payload?.imageModel
+		promptPayload.model
+		|| promptPayload.imageModel
 		|| settings?.images?.defaultImageModel
 		|| '',
 		120,
 	);
 
-	const prompt = normalizeText(job.prompt, 5000) || buildPinterestImagePrompt(job);
+	const prompt = normalizeText(job.prompt, 5000) || buildPinterestImagePrompt({
+		...job,
+		prompt_payload: promptPayload,
+	});
 
 	logger.info('[ai-pin-image-queue] Final provider passed to image-providers registry', {
 		jobId: job.id,
@@ -345,37 +401,40 @@ async function processDueJobs() {
 				continue;
 			}
 
-			await mirrorImageJob(locked, 'Image worker claimed job').catch(() => null);
+			// Re-fetch full record so prompt_payload.provider is never dropped by a partial update response.
+			const fullJob = await pocketbaseClient.collection('ai_pin_image_jobs').getOne(locked.id).catch(() => locked);
 
-			if (locked.ai_pin) {
-				await pocketbaseClient.collection('ai_pins').update(locked.ai_pin, {
+			await mirrorImageJob(fullJob, 'Image worker claimed job').catch(() => null);
+
+			if (fullJob.ai_pin) {
+				await pocketbaseClient.collection('ai_pins').update(fullJob.ai_pin, {
 					image_generation_status: 'processing',
 					image_generation_error: '',
-					image_job_id: locked.id,
+					image_job_id: fullJob.id,
 				}).catch(() => null);
 			}
 
 			try {
-				await processJob(locked);
+				await processJob(fullJob);
 				processedTotal += 1;
 				lastSuccessAt = new Date().toISOString();
-				logger.info(`AI pin image job completed: ${locked.id}`);
+				logger.info(`AI pin image job completed: ${fullJob.id}`);
 			} catch (error) {
-				const nextAttempts = (locked.attempt_count || 0) + 1;
-				const maxAttempts = locked.max_attempts || 3;
-				const fallbackImage = normalizeText(locked.featured_image_url, 1000);
+				const nextAttempts = (fullJob.attempt_count || 0) + 1;
+				const maxAttempts = fullJob.max_attempts || 3;
+				const fallbackImage = normalizeText(fullJob.featured_image_url, 1000);
 				const exhausted = nextAttempts >= maxAttempts;
 
 				if (exhausted && fallbackImage) {
 					await setJobTerminalState({
-						job: locked,
+						job: fullJob,
 						status: 'fallback',
 						imageUrl: fallbackImage,
 						lastError: error?.message || 'Image generation failed. Fallback image used.',
 					});
 					processedTotal += 1;
 					lastSuccessAt = new Date().toISOString();
-					logger.warn(`AI pin image job fallback used: ${locked.id}`);
+					logger.warn(`AI pin image job fallback used: ${fullJob.id}`);
 					continue;
 				}
 
@@ -391,19 +450,19 @@ async function processDueJobs() {
 					},
 				});
 
-				await pocketbaseClient.collection('ai_pin_image_jobs').update(locked.id, retryPayload).catch(() => null);
+				await pocketbaseClient.collection('ai_pin_image_jobs').update(fullJob.id, retryPayload).catch(() => null);
 
-				if (locked.ai_pin) {
-					await pocketbaseClient.collection('ai_pins').update(locked.ai_pin, {
+				if (fullJob.ai_pin) {
+					await pocketbaseClient.collection('ai_pins').update(fullJob.ai_pin, {
 						image_generation_status: shouldRetry ? 'queued' : 'failed',
 						image_generation_error: error?.message || 'Image generation failed',
-						image_job_id: locked.id,
+						image_job_id: fullJob.id,
 					}).catch(() => null);
 				}
 
 				failedTotal += 1;
 				lastErrorMessage = error?.message || 'Image generation failed';
-				logger.error(`AI pin image job failed: ${locked.id}`, error);
+				logger.error(`AI pin image job failed: ${fullJob.id}`, error);
 			}
 		}
 	} catch (error) {

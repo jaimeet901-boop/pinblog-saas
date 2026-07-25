@@ -152,8 +152,10 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		const requestedProvider = normalizeString(rawItem?.provider || '', 'provider', { max: 40 });
 		let provider = requestedProvider;
 		if (imageMode === 'generate_ai') {
-			const { assertImageProviderConfigured } = await import('../services/ai-providers.js');
-			const ready = await assertImageProviderConfigured(provider);
+			const { resolveConfiguredImageProvider } = await import('../services/ai-providers.js');
+			const ready = await resolveConfiguredImageProvider(provider, {
+				allowWorkspaceDefault: !provider,
+			});
 			provider = ready.code;
 		}
 		if (provider && !['openai', 'fal', 'flux', 'gemini'].includes(provider)) {
@@ -216,9 +218,19 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 
 		logger.info('[ai-pin-images] Provider stored on ai_pin_image_jobs', {
 			jobId: job.id,
-			storedProvider: job.prompt_payload?.provider || provider || '(empty)',
+			storedProvider: job.prompt_payload?.provider || '(missing-on-record)',
 			requestedProvider: requestedProvider || '(empty)',
+			resolvedProvider: provider || '(empty)',
 		});
+
+		if (provider && job.prompt_payload?.provider !== provider) {
+			logger.error('[ai-pin-images] prompt_payload.provider did not persist', {
+				jobId: job.id,
+				expected: provider,
+				actual: job.prompt_payload?.provider || null,
+				promptPayloadType: typeof job.prompt_payload,
+			});
+		}
 
 		if (pin) {
 			await pocketbaseClient.collection('ai_pins').update(pin.id, {
