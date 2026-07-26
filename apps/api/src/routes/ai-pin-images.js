@@ -3,6 +3,7 @@ import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js
 import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
 import { uploadFiles } from '../middleware/file-upload.js';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
+import { getPublicFileUrl } from '../utils/public-file-url.js';
 import logger from '../utils/logger.js';
 import {
 	buildSchemaSafeFilter,
@@ -236,7 +237,7 @@ router.post('/composed', (req, res, next) => {
 		logger.error('Failed to store composed featured pin image', { error: error?.message, owner });
 		throw httpError(500, 'Failed to store composed pin image');
 	});
-	const imageUrl = pocketbaseClient.files.getURL(record, record.file);
+	const imageUrl = getPublicFileUrl(record, record.file);
 
 	logger.info('[ai-pin-images] composed featured pin uploaded', {
 		owner,

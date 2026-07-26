@@ -2,6 +2,7 @@ import process from 'node:process';
 import { PassThrough } from 'node:stream';
 import logger from '../utils/logger.js';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
+import { getPublicFileUrl } from '../utils/public-file-url.js';
 import { streamTextWithRegistry } from '../services/text-providers/index.js';
 
 const MessageRole = Object.freeze({
@@ -219,13 +220,7 @@ export async function uploadImagesToPocketBase({ images }) {
 			throw pocketBaseRequestError(error, 'uploadImagesToPocketBase(_integratedAiImages.create)');
 		}
 
-		const url = pocketbaseClient.files.getURL(record, record.file);
-		const websiteDomain = String(process.env.WEBSITE_DOMAIN || '').trim();
-		if (!websiteDomain) {
-			return url;
-		}
-
-		return url.replace(/^https?:\/\/[^/]+/i, `https://${websiteDomain}/hcgi/platform`);
+		return getPublicFileUrl(record, record.file);
 	});
 
 	return Promise.all(uploadPromises);

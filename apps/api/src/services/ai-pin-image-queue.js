@@ -1,4 +1,5 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
+import { getPublicFileUrl } from '../utils/public-file-url.js';
 import logger from '../utils/logger.js';
 import { getDecryptedOpenAIKey, getDecryptedFalKey } from './user-settings.js';
 import { generateImagesWithProvider } from './image-providers/index.js';
@@ -63,7 +64,7 @@ async function uploadGeneratedImage({ owner, bytes, contentType = 'image/png' })
 	formData.append('file', blob, fileName);
 
 	const record = await pocketbaseClient.collection('_integratedAiImages').create(formData);
-	return pocketbaseClient.files.getURL(record, record.file);
+	return getPublicFileUrl(record, record.file);
 }
 
 async function generateOpenAIImage({ apiKey, prompt }) {
