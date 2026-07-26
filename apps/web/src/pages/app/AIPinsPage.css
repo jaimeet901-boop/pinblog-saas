@@ -354,6 +354,13 @@
 	text-transform: capitalize;
 }
 
+.ai-pins-template-step__unavailable {
+	margin: 0;
+	font-size: 0.7rem;
+	font-weight: 600;
+	color: hsl(var(--destructive));
+}
+
 .ai-pins-template-step__cta {
 	display: inline-flex;
 	align-items: center;

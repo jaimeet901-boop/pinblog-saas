@@ -10,6 +10,11 @@ import {
 	ensurePinsReadyForSave,
 	isPersistableImageUrl,
 } from './imageLifecycle.js';
+import {
+	mapTemplateSnapshotFromRecord,
+	toTemplateEditorPatch,
+	toTemplateSnapshotPayload,
+} from './templateSnapshot.js';
 
 const IMAGE_SOURCE_VALUES = new Set([
 	'featured',
@@ -114,6 +119,7 @@ function normalizeImageUrl(value) {
 }
 
 export function mapSavedPin(pin) {
+	const templateSnapshot = mapTemplateSnapshotFromRecord(pin);
 	return {
 		id: pin.id,
 		articleId: pin.articleId,
@@ -142,6 +148,7 @@ export function mapSavedPin(pin) {
 		imageGenerationStatus: pin.image_generation_status || '',
 		created: pin.created,
 		updated: pin.updated,
+		...templateSnapshot,
 	};
 }
 
@@ -190,6 +197,7 @@ function buildDraftPayload(pin, panel) {
 		style: truncateText(pin.style || '', 64),
 		...(pin.brandKitId ? { brand_kit: String(pin.brandKitId).trim() } : {}),
 		...(pin.analysis ? { analysis: pin.analysis } : {}),
+		...toTemplateSnapshotPayload(pin),
 	};
 }
 
@@ -264,6 +272,17 @@ export async function duplicatePin(pin, { titleSuffix = ' (Copy)' } = {}) {
 
 	const base = source || {};
 	try {
+		const fromRecord = mapTemplateSnapshotFromRecord(base);
+		const fromPin = mapTemplateSnapshotFromRecord(pin);
+		const sourceSnapshot = {
+			templateId: fromPin.templateId || fromRecord.templateId,
+			templateName: fromPin.templateName || fromRecord.templateName,
+			templateVersion: fromPin.templateVersion || fromRecord.templateVersion,
+			templateConfig: fromPin.templateConfig || fromRecord.templateConfig,
+			templateConfiguration: fromPin.templateConfiguration || fromRecord.templateConfiguration,
+			templateThumbnail: fromPin.templateThumbnail || fromRecord.templateThumbnail,
+			templateSnapshotAt: fromPin.templateSnapshotAt || fromRecord.templateSnapshotAt,
+		};
 		const payload = buildDraftPayload({
 			articleId: base.articleId || pin.articleId || '',
 			websiteId: base.websiteId || pin.websiteId || '',
@@ -285,6 +304,12 @@ export async function duplicatePin(pin, { titleSuffix = ' (Copy)' } = {}) {
 			style: base.style || '',
 			analysis: base.analysis || null,
 			brandKitId: base.brand_kit || pin.brandKitId || '',
+			templateId: sourceSnapshot.templateId,
+			templateName: sourceSnapshot.templateName,
+			templateVersion: sourceSnapshot.templateVersion,
+			templateConfig: sourceSnapshot.templateConfig,
+			templateThumbnail: sourceSnapshot.templateThumbnail,
+			templateSnapshotAt: sourceSnapshot.templateSnapshotAt,
 		}, {
 			targetAudience: base.target_audience || pin.targetAudience || '',
 			toneOfVoice: base.tone_of_voice || pin.toneOfVoice || '',
@@ -346,6 +371,7 @@ export async function updateDraftPin({
 			},
 			suggestedKeywords: safeArray(readyPin.suggestedKeywords),
 			suggestedHashtags: safeArray(readyPin.suggestedHashtags),
+			...toTemplateEditorPatch(readyPin),
 		}),
 	});
 	const editorPayload = await editorResponse.json().catch(() => ({}));
@@ -385,6 +411,15 @@ export async function updateDraftPin({
 		}
 	}
 
+	const editorSnapshot = mapTemplateSnapshotFromRecord(editorPayload);
+	const editorHasSnapshot = Boolean(
+		editorPayload.templateId
+		|| editorPayload.template_id
+		|| editorPayload.templateConfiguration
+		|| editorPayload.template_configuration
+		|| editorPayload.templateConfig,
+	);
+
 	return {
 		...readyPin,
 		...(updated ? mapSavedPin(updated) : {}),
@@ -396,6 +431,7 @@ export async function updateDraftPin({
 		cta: editorPayload.cta || '',
 		style: editorPayload.style || panel.style,
 		analysis: editorPayload.analysis || analysis,
+		...(editorHasSnapshot ? editorSnapshot : {}),
 	};
 }
 

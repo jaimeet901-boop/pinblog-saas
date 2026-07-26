@@ -680,6 +680,35 @@ router.patch('/pins/:pinId/editor', async (req, res) => {
 	if (Array.isArray(req.body?.suggestedKeywords)) updates.suggested_keywords = req.body.suggestedKeywords;
 	if (Array.isArray(req.body?.suggestedHashtags)) updates.suggested_hashtags = req.body.suggestedHashtags;
 
+	// Template snapshot: omit = leave unchanged. clearTemplate = explicit user removal only.
+	if (req.body?.clearTemplate === true) {
+		updates.template_id = '';
+		updates.template_name = '';
+		updates.template_version = '';
+		updates.template_configuration = null;
+		updates.template_thumbnail = '';
+		updates.template_snapshot_at = '';
+	} else {
+		if (typeof req.body?.templateId === 'string') {
+			updates.template_id = req.body.templateId.trim().slice(0, 80);
+		}
+		if (typeof req.body?.templateName === 'string') {
+			updates.template_name = req.body.templateName.trim().slice(0, 180);
+		}
+		if (typeof req.body?.templateVersion === 'string') {
+			updates.template_version = req.body.templateVersion.trim().slice(0, 120);
+		}
+		if (req.body?.templateConfiguration && typeof req.body.templateConfiguration === 'object') {
+			updates.template_configuration = req.body.templateConfiguration;
+		}
+		if (typeof req.body?.templateThumbnail === 'string') {
+			updates.template_thumbnail = req.body.templateThumbnail.trim().slice(0, 4000);
+		}
+		if (typeof req.body?.templateSnapshotAt === 'string' && req.body.templateSnapshotAt.trim()) {
+			updates.template_snapshot_at = req.body.templateSnapshotAt.trim();
+		}
+	}
+
 	const updated = await pocketbaseClient.collection('ai_pins').update(pin.id, updates);
 	await recordGenerationHistory(pocketbaseClient, {
 		owner: req.pocketbaseUserId,
@@ -708,6 +737,12 @@ router.patch('/pins/:pinId/editor', async (req, res) => {
 		editorState: updated.editor_state || null,
 		suggestedKeywords: updated.suggested_keywords || [],
 		suggestedHashtags: updated.suggested_hashtags || [],
+		templateId: updated.template_id || '',
+		templateName: updated.template_name || '',
+		templateVersion: updated.template_version || '',
+		templateConfiguration: updated.template_configuration || null,
+		templateThumbnail: updated.template_thumbnail || '',
+		templateSnapshotAt: updated.template_snapshot_at || '',
 	});
 });
 

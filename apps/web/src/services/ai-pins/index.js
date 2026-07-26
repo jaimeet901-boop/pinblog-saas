@@ -58,6 +58,16 @@ export {
 	resolveGenerateTemplate,
 } from './templateHydration.js';
 export {
+	formatTemplateVersionSnapshot,
+	buildTemplateSnapshotFields,
+	mapTemplateSnapshotFromRecord,
+	hasTemplateSnapshot,
+	toTemplateSnapshotPayload,
+	toTemplateEditorPatch,
+	buildPinExportPackage,
+	ORIGINAL_TEMPLATE_UNAVAILABLE,
+} from './templateSnapshot.js';
+export {
 	findNextAvailableSlot,
 	allocateSmartSlots,
 } from './smartSlot.js';

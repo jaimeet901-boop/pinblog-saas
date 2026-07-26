@@ -63,6 +63,8 @@ import {
 	readPersistedGalleryTemplateSelection,
 	clearPersistedGalleryTemplateSelection,
 	resolveGenerateTemplate,
+	formatTemplateVersionSnapshot,
+	ORIGINAL_TEMPLATE_UNAVAILABLE,
 } from '@/services/ai-pins';
 import { isPremiumGalleryTemplate } from '@/services/ai-pins/templateHydration';
 import { resolveGalleryThumbnail } from '@/services/templates/previewCache';
@@ -188,6 +190,7 @@ export default function AIPinsPage() {
 	const [templateHydrationError, setTemplateHydrationError] = useState('');
 	const [templateHydrating, setTemplateHydrating] = useState(false);
 	const [templateChooserOpen, setTemplateChooserOpen] = useState(false);
+	const [originalTemplateUnavailable, setOriginalTemplateUnavailable] = useState(false);
 	const [generatedPreviewPins, setGeneratedPreviewPins] = useState([]);
 	const [savingGenerated, setSavingGenerated] = useState(false);
 	const [generatingImages, setGeneratingImages] = useState(false);
@@ -406,7 +409,11 @@ export default function AIPinsPage() {
 		const resolved = resolveGalleryThumbnail(selectedTemplate);
 		if (resolved.url) return resolved;
 		return {
-			url: selectedTemplate.thumbnailUrl || selectedTemplate.thumbnail || selectedTemplate.previewUrl || '',
+			url: selectedTemplate.thumbnailUrl
+				|| selectedTemplate.thumbnail
+				|| selectedTemplate.previewUrl
+				|| selectedTemplate.templateThumbnail
+				|| '',
 			fromCache: false,
 		};
 	}, [selectedTemplate]);
@@ -415,6 +422,44 @@ export default function AIPinsPage() {
 		() => (selectedTemplate ? isPremiumGalleryTemplate(selectedTemplate) : false),
 		[selectedTemplate],
 	);
+
+	// Restore Step 2 card from draft snapshot (historical SoT). Soft-check live template only for unavailable label.
+	useEffect(() => {
+		if (!editingPinId) return undefined;
+		const pin = savedPins.find((item) => item.id === editingPinId);
+		if (!pin || (!pin.templateConfig && !pin.templateId)) return undefined;
+
+		const snapshotHydrated = {
+			id: pin.templateId || '',
+			name: pin.templateName || 'Pin Layout',
+			configuration: pin.templateConfig || null,
+			thumbnail: pin.templateThumbnail || '',
+			thumbnailUrl: pin.templateThumbnail || '',
+			previewUrl: pin.templateThumbnail || '',
+			fromDraftSnapshot: true,
+		};
+		setHydratedTemplate(snapshotHydrated);
+		if (pin.templateId) {
+			setSelectedTemplateId(pin.templateId);
+			setGallerySelectionActive(true);
+			persistGalleryTemplateSelection({ id: pin.templateId, source: 'gallery' });
+		}
+		setOriginalTemplateUnavailable(false);
+
+		if (!pin.templateId) return undefined;
+		let cancelled = false;
+		fetchTemplateCached(pin.templateId)
+			.then(() => {
+				if (!cancelled) setOriginalTemplateUnavailable(false);
+			})
+			.catch(() => {
+				// Keep stored snapshot — never invalidate the draft.
+				if (!cancelled) setOriginalTemplateUnavailable(true);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [editingPinId, savedPins]);
 
 	const selectedBrandKit = useMemo(
 		() => brandKits.find((kit) => kit.id === selectedBrandKitId) || null,
@@ -874,6 +919,7 @@ export default function AIPinsPage() {
 		setGallerySelectionActive(false);
 		setHydratedTemplate(null);
 		setTemplateHydrationError('');
+		setOriginalTemplateUnavailable(false);
 		clearPersistedGalleryTemplateSelection();
 	};
 
@@ -888,6 +934,7 @@ export default function AIPinsPage() {
 		persistGalleryTemplateSelection({ id, source: 'gallery' });
 		setTemplateHydrating(true);
 		setTemplateHydrationError('');
+		setOriginalTemplateUnavailable(false);
 
 		try {
 			const full = await fetchTemplateCached(id);
@@ -1256,6 +1303,19 @@ export default function AIPinsPage() {
 				studioTemplate: gallerySelectionActive ? null : selectedTemplate,
 			});
 			const templateConfig = resolvedTemplate.configuration;
+			const templateThumb = resolveGalleryThumbnail(hydratedTemplate || selectedTemplate || {}).url
+				|| hydratedTemplate?.thumbnail
+				|| hydratedTemplate?.thumbnailUrl
+				|| hydratedTemplate?.previewUrl
+				|| selectedTemplate?.thumbnailUrl
+				|| '';
+			const templateVersion = formatTemplateVersionSnapshot({
+				revision: hydratedTemplate?.revision,
+				editorVersion: hydratedTemplate?.editorVersion,
+				schemaVersion: hydratedTemplate?.schemaVersion,
+				configChecksum: hydratedTemplate?.configChecksum || hydratedTemplate?.config_checksum,
+			});
+			const templateSnapshotAt = new Date().toISOString();
 			const selectedBrand = brandKits.find((item) => item.id === selectedBrandKitId) || null;
 			for (let articleIndex = 0; articleIndex < targets.length; articleIndex += 1) {
 				const article = targets[articleIndex];
@@ -1298,6 +1358,9 @@ export default function AIPinsPage() {
 						boardName: activeBoard?.name || '',
 						templateId: resolvedTemplate.id || '',
 						templateName: pin.layoutLabel || pin.recipeFamilyLabel || resolvedTemplate.name || 'Pin Layout',
+						templateVersion,
+						templateThumbnail: templateThumb,
+						templateSnapshotAt,
 						layoutId: pin.layoutId || '',
 						layoutLabel: pin.layoutLabel || '',
 						recipeFamily: pin.recipeFamily || '',
@@ -2113,6 +2176,11 @@ export default function AIPinsPage() {
 												{selectedTemplate?.category || 'general'}
 												{templateHydrating ? ' · Loading…' : ''}
 											</p>
+											{originalTemplateUnavailable ? (
+												<p className="ai-pins-template-step__unavailable" role="status">
+													{ORIGINAL_TEMPLATE_UNAVAILABLE}
+												</p>
+											) : null}
 											<span className="ai-pins-template-step__cta">Change Template</span>
 										</div>
 									</>
@@ -2130,6 +2198,11 @@ export default function AIPinsPage() {
 							</button>
 							{templateHydrationError ? (
 								<p className="ai-pins-template-step__error" role="alert">{templateHydrationError}</p>
+							) : null}
+							{originalTemplateUnavailable && !templateHydrationError ? (
+								<p className="ai-pins-template-step__error" role="status">
+									{ORIGINAL_TEMPLATE_UNAVAILABLE}. The draft still uses its stored template snapshot.
+								</p>
 							) : null}
 						</div>
 
