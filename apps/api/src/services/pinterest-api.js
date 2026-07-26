@@ -13,12 +13,12 @@ import {
 	assertPinterestOAuthReady,
 	getPinterestAppCredentials,
 } from './pinterest-app-credentials.js';
+import { DEFAULT_SCOPES, analyzeGrantedScopes, mergeRequiredScopes } from './pinterest-scopes.js';
 import { ensureUserWorkspace } from './workspace-context.js';
 import logger from '../utils/logger.js';
 
 const PINTEREST_API_BASE = 'https://api.pinterest.com/v5';
 const PINTEREST_AUTH_BASE = 'https://www.pinterest.com/oauth';
-const DEFAULT_SCOPES = ['boards:read', 'pins:read', 'pins:write', 'user_accounts:read'];
 const STATE_TTL_MS = 10 * 60 * 1000;
 
 function httpError(status, message, extras = {}) {
@@ -391,7 +391,7 @@ export async function createPinterestOAuthState({ owner, accountId = '', request
 	const expiresAt = new Date(Date.now() + STATE_TTL_MS).toISOString();
 	const redirectUri = credentials.redirectUri;
 	const clientId = credentials.appId;
-	const scopes = credentials.scopes?.length ? credentials.scopes : DEFAULT_SCOPES;
+	const scopes = mergeRequiredScopes(credentials.scopes?.length ? credentials.scopes : DEFAULT_SCOPES);
 
 	let resolvedWorkspaceId = workspaceId;
 	let resolvedWorkspaceKey = workspaceKey;
@@ -434,10 +434,18 @@ export async function createPinterestOAuthState({ owner, accountId = '', request
 		state,
 	});
 
+	const authUrl = `${PINTEREST_AUTH_BASE}/?${query.toString()}`;
+	logger.info('[pinterest-oauth] authorization URL built', {
+		requestedScopes: scopes,
+		redirectUri,
+		authUrl,
+	});
+
 	return {
 		state,
-		authUrl: `${PINTEREST_AUTH_BASE}/?${query.toString()}`,
+		authUrl,
 		redirectUri,
+		requestedScopes: scopes,
 		workspaceId: resolvedWorkspaceId,
 		workspaceKey: resolvedWorkspaceKey,
 	};

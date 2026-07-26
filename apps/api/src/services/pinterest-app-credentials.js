@@ -1,10 +1,10 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { encryptPinterestSecret, decryptPinterestSecret, isEncryptedSecret } from '../utils/secretCrypto.js';
 import { writeAuditLog } from './audit/write.js';
+import { DEFAULT_SCOPES, mergeRequiredScopes } from './pinterest-scopes.js';
 
 const CONFIG_KEY = 'platform';
 const PLACEHOLDER_APP_ID = 'YOUR_PINTEREST_APP_ID';
-const DEFAULT_SCOPES = ['boards:read', 'pins:read', 'pins:write', 'user_accounts:read'];
 
 function httpError(status, message, errorCode = 'PINTEREST_OAUTH_CONFIG') {
 	const error = new Error(message);
@@ -46,7 +46,7 @@ function mapPublicConfig(row) {
 		? Boolean(row.trial_access_pending)
 		: !envReady;
 	const redirectUri = row?.redirect_uri || defaultRedirectUri();
-	const scopes = row?.scopes || (process.env.PINTEREST_SCOPES || DEFAULT_SCOPES.join(','));
+	const scopes = mergeRequiredScopes(row?.scopes || process.env.PINTEREST_SCOPES || DEFAULT_SCOPES.join(','));
 	const configured = Boolean(
 		(row?.app_id && row?.app_secret_ciphertext && !isPlaceholderAppId(row.app_id) && !trialPending)
 		|| (envReady && !row),
@@ -57,7 +57,7 @@ function mapPublicConfig(row) {
 		appSecretMasked: hasSecret ? maskSecret(row?.app_secret_ciphertext || 'secret') : '',
 		hasAppSecret: hasSecret,
 		redirectUri,
-		scopes,
+		scopes: scopes.join(','),
 		enabled: row ? Boolean(row.enabled) : envReady,
 		trialAccessPending: trialPending,
 		configured: configured || (envReady && !trialPending),
@@ -96,10 +96,7 @@ export async function getPinterestAppCredentials() {
 	}
 
 	const redirectUri = row?.redirect_uri || defaultRedirectUri();
-	const scopes = String(row?.scopes || process.env.PINTEREST_SCOPES || DEFAULT_SCOPES.join(','))
-		.split(',')
-		.map((item) => item.trim())
-		.filter(Boolean);
+	const scopes = mergeRequiredScopes(row?.scopes || process.env.PINTEREST_SCOPES || DEFAULT_SCOPES.join(','));
 
 	return {
 		appId,
@@ -153,9 +150,11 @@ export async function upsertPinterestAppCredentials(payload = {}, actor = {}) {
 	const nextRedirect = payload.redirectUri != null
 		? String(payload.redirectUri).trim()
 		: (existing?.redirect_uri || defaultRedirectUri());
-	const nextScopes = payload.scopes != null
-		? String(payload.scopes).trim()
-		: (existing?.scopes || DEFAULT_SCOPES.join(','));
+	const nextScopes = mergeRequiredScopes(
+		payload.scopes != null
+			? String(payload.scopes).trim()
+			: (existing?.scopes || DEFAULT_SCOPES.join(',')),
+	).join(',');
 	const trialPending = payload.trialAccessPending != null
 		? Boolean(payload.trialAccessPending)
 		: (existing ? Boolean(existing.trial_access_pending) : true);
@@ -228,7 +227,7 @@ export async function ensurePinterestAppCredentialsSeeded() {
 			? encryptPinterestSecret(process.env.PINTEREST_CLIENT_SECRET)
 			: '',
 		redirect_uri: defaultRedirectUri(),
-		scopes: process.env.PINTEREST_SCOPES || DEFAULT_SCOPES.join(','),
+		scopes: mergeRequiredScopes(process.env.PINTEREST_SCOPES || DEFAULT_SCOPES.join(',')).join(','),
 		enabled: fromEnv,
 		trial_access_pending: !fromEnv,
 		kek_version: 'v1',

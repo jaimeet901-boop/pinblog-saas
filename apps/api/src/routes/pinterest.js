@@ -43,6 +43,8 @@ import {
 import { resolveScheduledAtUtc } from '../utils/timezone.js';
 import { normalizeDestinationUrl, validatePinForPinterestPublish } from '../utils/pin-publish-destination.js';
 import { ensureAiPinsPublishFields } from '../utils/ensure-ai-pins-publish-fields.js';
+import { analyzeGrantedScopes, DEFAULT_SCOPES, mergeRequiredScopes } from '../services/pinterest-scopes.js';
+import { getPinterestAppCredentials } from '../services/pinterest-app-credentials.js';
 import { listPublishProviders, setPublishProvider, getPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
 import { mirrorPinterestJob } from '../services/queue/mirrors.js';
 
@@ -463,15 +465,33 @@ router.get('/oauth/callback', async (req, res) => {
 			? new Date(Date.now() + Number(tokenPayload.expires_in) * 1000).toISOString()
 			: '';
 		const scope = normalizeString(tokenPayload.scope, 'scope', { max: 1000 });
+		const credentials = await getPinterestAppCredentials();
+		const requestedScopes = mergeRequiredScopes(credentials.scopes?.length ? credentials.scopes : DEFAULT_SCOPES);
+		const scopeCheck = analyzeGrantedScopes({
+			requested: requestedScopes,
+			granted: scope,
+		});
 
 		logger.info('[pinterest-oauth] token exchange succeeded', {
 			hasAccessToken: Boolean(accessToken),
 			hasRefreshToken: Boolean(refreshToken),
 			expiresIn: tokenPayload.expires_in ?? null,
 			expiresAt: expiresAt || null,
+			requestedScopes: scopeCheck.requested,
+			grantedScopes: scopeCheck.granted,
+			missingScopes: scopeCheck.missing,
 			tokenPayloadKeys: Object.keys(tokenPayload || {}),
 			reconnectAccountId: normalizeString(stateRecord.account_id, 'account_id', { max: 80 }) || null,
 		});
+
+		if (!scopeCheck.ok) {
+			throw httpError(
+				422,
+				`Pinterest reconnect is missing required scopes: ${scopeCheck.missing.join(', ')}. `
+				+ `Requested: [${scopeCheck.requested.join(', ')}]. Granted: [${scopeCheck.granted.join(', ') || 'none'}]. `
+				+ 'Reconnect and approve all requested permissions.',
+			);
+		}
 
 		const profile = await fetchPinterestProfile({ accessToken });
 

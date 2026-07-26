@@ -18,7 +18,7 @@ const EMPTY_OAUTH = {
 	appSecretMasked: '',
 	hasAppSecret: false,
 	redirectUri: '',
-	scopes: 'boards:read,pins:read,pins:write,user_accounts:read',
+	scopes: 'boards:read,boards:write,pins:read,pins:write,user_accounts:read',
 	enabled: false,
 	trialAccessPending: true,
 	configured: false,
@@ -182,7 +182,7 @@ export default function AdminPinterestPage() {
 								<input
 									value={scopes}
 									onChange={(e) => setScopes(e.target.value)}
-									placeholder="boards:read,pins:read,pins:write,user_accounts:read"
+									placeholder="boards:read,boards:write,pins:read,pins:write,user_accounts:read"
 									autoComplete="off"
 								/>
 							</label>
