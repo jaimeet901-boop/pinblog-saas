@@ -138,7 +138,7 @@ export default function SignupPage() {
 						<input type="checkbox" checked={form.acceptTerms} onChange={set('acceptTerms')} />
 						<span>
 							I agree to the <a href="#terms" className="text-primary hover:underline">Terms</a> and{' '}
-							<a href="#privacy" className="text-primary hover:underline">Privacy Policy</a>.
+							<Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link>.
 						</span>
 					</label>
 					<Button type="submit" disabled={loading} className="w-full">

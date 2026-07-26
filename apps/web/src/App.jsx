@@ -11,6 +11,7 @@ import { ThemeProvider } from '@/context/ThemeContext';
 import { WorkspaceConfigProvider } from '@/context/WorkspaceConfigContext';
 
 import LandingPage from '@/pages/LandingPage';
+import PrivacyPolicyPage from '@/pages/PrivacyPolicyPage';
 import LoginPage from '@/pages/auth/LoginPage';
 import SignupPage from '@/pages/auth/SignupPage';
 import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage';
@@ -96,6 +97,7 @@ function App() {
 					<ScrollToTop />
 					<Routes>
 						<Route path="/" element={<LandingPage />} />
+						<Route path="/privacy" element={<PrivacyPolicyPage />} />
 						<Route path="/login" element={<LoginPage />} />
 						<Route path="/signup" element={<SignupPage />} />
 						<Route path="/forgot-password" element={<ForgotPasswordPage />} />

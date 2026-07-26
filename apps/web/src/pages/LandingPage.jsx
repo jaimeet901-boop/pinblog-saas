@@ -41,11 +41,11 @@ const PLANS = [
 ];
 
 const FOOTER_LINKS = [
-	{ label: 'Privacy Policy', href: '#privacy' },
+	{ label: 'Privacy Policy', to: '/privacy' },
 	{ label: 'Terms', href: '#terms' },
 	{ label: 'Documentation', href: '#docs' },
-	{ label: 'Support', href: '#support' },
-	{ label: 'Contact', href: '#contact' },
+	{ label: 'Support', href: 'mailto:support@tbuy.store' },
+	{ label: 'Contact', href: 'mailto:privacy@tbuy.store' },
 ];
 
 export default function LandingPage() {
@@ -219,7 +219,9 @@ export default function LandingPage() {
 					</div>
 					<div className="auth-footer__links">
 						{FOOTER_LINKS.map((link) => (
-							<a key={link.label} href={link.href}>{link.label}</a>
+							link.to
+								? <Link key={link.label} to={link.to}>{link.label}</Link>
+								: <a key={link.label} href={link.href}>{link.label}</a>
 						))}
 					</div>
 				</div>
