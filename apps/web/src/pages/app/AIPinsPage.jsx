@@ -265,7 +265,9 @@ export default function AIPinsPage() {
 			toneOfVoice: prev.toneOfVoice || defaultTone,
 			targetAudience: prev.targetAudience || defaultAudience,
 			style: prev.style || styles[0] || '',
-			imageProvider: defaultQuality?.imageProvider || defaultProvider || prev.imageProvider,
+			imageProvider: defaultQuality?.imageMode === 'use_featured'
+				? ''
+				: (defaultQuality?.imageProvider || defaultProvider || prev.imageProvider),
 			imageMode: defaultQuality?.imageMode || prev.imageMode,
 			count: pinCounts.includes(prev.count) ? prev.count : (pinCounts[1] || pinCounts[0] || 1),
 		}));
@@ -277,17 +279,26 @@ export default function AIPinsPage() {
 	}, [hasValidConfig, config, imageQualities, pinCounts, templates, brandKits]);
 
 	useEffect(() => {
-		// Live config: keep selection valid when Admin removes providers/templates/kits.
-		if (imageQualities.length > 0 && !imageQualities.some((item) => item.id === imageQuality)) {
+		// Live config: always follow Admin default image provider; keep other selections valid.
+		if (hasValidConfig && imageQualities.length > 0) {
 			const next = resolveDefaultImageQualityId(config, imageQualities);
-			setImageQuality(next);
-			const quality = imageQualities.find((item) => item.id === next);
+			const quality = imageQualities.find((item) => item.id === next) || imageQualities[0];
 			if (quality) {
-				setPanel((prev) => ({
-					...prev,
-					imageMode: quality.imageMode,
-					imageProvider: quality.imageProvider,
-				}));
+				const nextProvider = quality.imageMode === 'use_featured'
+					? ''
+					: (quality.imageProvider || resolveDefaultImageProvider(config));
+				if (
+					imageQuality !== quality.id
+					|| panel.imageMode !== quality.imageMode
+					|| panel.imageProvider !== nextProvider
+				) {
+					setImageQuality(quality.id);
+					setPanel((prev) => ({
+						...prev,
+						imageMode: quality.imageMode,
+						imageProvider: nextProvider,
+					}));
+				}
 			}
 		}
 		if (selectedTemplateId && templates.length > 0 && !templates.some((item) => item.id === selectedTemplateId)) {
@@ -301,7 +312,7 @@ export default function AIPinsPage() {
 		if (panel.style && pinStyles.length > 0 && !pinStyles.includes(panel.style)) {
 			setPanel((prev) => ({ ...prev, style: pinStyles[0] || '' }));
 		}
-	}, [configVersion, imageQualities, imageQuality, templates, selectedTemplateId, brandKits, selectedBrandKitId, pinStyles, panel.style, config]);
+	}, [configVersion, hasValidConfig, imageQualities, imageQuality, templates, selectedTemplateId, brandKits, selectedBrandKitId, pinStyles, panel.style, panel.imageMode, panel.imageProvider, config]);
 
 	const activeArticle = useMemo(
 		() => articles.find((article) => article.id === activeArticleId) || null,
@@ -1925,22 +1936,24 @@ export default function AIPinsPage() {
 							</Select>
 						</div>
 
-						<div>
-							<p className="mb-1.5 text-sm font-medium">Image quality</p>
-							<div className="ai-pins-chip-row">
-								{imageQualities.map((item) => (
-									<button
-										key={item.id}
-										type="button"
-										className={`ai-pins-chip ${imageQuality === item.id ? 'is-active' : ''}`}
-										onClick={() => applyImageQuality(item.id)}
-									>
-										<p className="text-xs font-semibold">{item.label}</p>
-										<p className="mt-0.5 text-[10px] text-muted-foreground">{item.hint}</p>
-									</button>
-								))}
+						{false ? (
+							<div>
+								<p className="mb-1.5 text-sm font-medium">Image quality</p>
+								<div className="ai-pins-chip-row">
+									{imageQualities.map((item) => (
+										<button
+											key={item.id}
+											type="button"
+											className={`ai-pins-chip ${imageQuality === item.id ? 'is-active' : ''}`}
+											onClick={() => applyImageQuality(item.id)}
+										>
+											<p className="text-xs font-semibold">{item.label}</p>
+											<p className="mt-0.5 text-[10px] text-muted-foreground">{item.hint}</p>
+										</button>
+									))}
+								</div>
 							</div>
-						</div>
+						) : null}
 
 						<div>
 							<p className="mb-1.5 text-sm font-medium">Pinterest size</p>
@@ -2031,6 +2044,8 @@ export default function AIPinsPage() {
 								<Input label="Target audience" value={panel.targetAudience} onChange={(e) => setPanel((prev) => ({ ...prev, targetAudience: e.target.value }))} />
 								<Input label="Tone of voice" value={panel.toneOfVoice} onChange={(e) => setPanel((prev) => ({ ...prev, toneOfVoice: e.target.value }))} />
 								<Input label="Language" value={panel.language} onChange={(e) => setPanel((prev) => ({ ...prev, language: e.target.value }))} />
+								{/* Image provider is Admin Console only (defaultImageProvider). */}
+								{false ? (
 								<Select
 									label="Image provider"
 									value={panel.imageProvider}
@@ -2049,6 +2064,7 @@ export default function AIPinsPage() {
 										<option key={provider.id || provider.code} value={provider.code}>{provider.name || provider.code}</option>
 									))}
 								</Select>
+								) : null}
 								{analysis ? (
 									<div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground space-y-1">
 										<p><span className="font-medium text-foreground">CTA:</span> {analysis.cta || '—'}</p>

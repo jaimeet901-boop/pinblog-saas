@@ -98,14 +98,19 @@ export function buildImageQualityOptions(config) {
 
 export function resolveDefaultImageQualityId(config, qualities) {
 	const list = Array.isArray(qualities) ? qualities : buildImageQualityOptions(config);
-	const preferred = resolveDefaultImageProvider(config);
+	const preferredLabel = String(config?.images?.defaultImageProvider || '').trim().toLowerCase();
 	const qualitySetting = String(config?.images?.quality || '').toLowerCase();
-	if (qualitySetting.includes('feature') || qualitySetting === 'budget') {
+	if (
+		preferredLabel.includes('feature')
+		|| qualitySetting.includes('feature')
+		|| qualitySetting === 'budget'
+	) {
 		const featured = list.find((item) => item.imageMode === 'use_featured');
 		if (featured) return featured.id;
 	}
+	const preferred = resolveDefaultImageProvider(config);
 	const match = list.find((item) => item.imageMode === 'generate_ai' && item.imageProvider === preferred);
-	return match?.id || list[0]?.id || 'featured';
+	return match?.id || list.find((item) => item.imageMode === 'generate_ai')?.id || list[0]?.id || 'featured';
 }
 
 export function buildPinCountOptions(config) {
