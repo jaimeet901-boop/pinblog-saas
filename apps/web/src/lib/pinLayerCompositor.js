@@ -221,14 +221,8 @@ function wrapText(surface, text, font, maxWidth, maxLines) {
 async function loadImage(src, loadImageFn) {
 	const url = String(src || '').trim();
 	if (!url || url.includes('{{')) return null;
-	if (typeof loadImageFn === 'function') {
-		try {
-			return await loadImageFn(url);
-		} catch {
-			return null;
-		}
-	}
-	return null;
+	if (typeof loadImageFn !== 'function') return null;
+	return loadImageFn(url);
 }
 
 function drawCover(surface, image, x, y, w, h, focusX = 0.5, focusY = 0.5) {
@@ -262,16 +256,34 @@ async function drawLayer(surface, layer, { loadImageFn }) {
 	switch (type) {
 		case 'background': {
 			surface.fillRect(0, 0, width, height, props.color || '#111111');
-			const img = await loadImage(props.imageSrc || props.src, loadImageFn);
-			if (img) drawCover(surface, img, 0, 0, width, height);
+			const backgroundSrc = String(props.imageSrc || props.src || '').trim();
+			if (backgroundSrc && !backgroundSrc.includes('{{')) {
+				const img = await loadImage(backgroundSrc, loadImageFn);
+				if (!img) {
+					throw new Error(`Background image failed to load: ${backgroundSrc.slice(0, 120)}`);
+				}
+				drawCover(surface, img, 0, 0, width, height);
+			}
 			break;
 		}
 		case 'image':
 		case 'aiImage':
 		case 'sticker':
 		case 'logo': {
-			const img = await loadImage(props.src, loadImageFn);
+			const layerSrc = String(props.src || '').trim();
+			let img = null;
+			try {
+				img = await loadImage(layerSrc, loadImageFn);
+			} catch (error) {
+				if (type === 'image' || type === 'aiImage') {
+					throw error;
+				}
+				img = null;
+			}
 			if (!img) {
+				if (type === 'image' || type === 'aiImage') {
+					throw new Error(`Image layer failed to load: ${layerSrc.slice(0, 120)}`);
+				}
 				surface.fillRect(0, 0, width, height, 'rgba(255,255,255,0.08)');
 				break;
 			}

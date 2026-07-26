@@ -22,9 +22,24 @@ function loadImageFromUrl(url) {
 			return;
 		}
 		const img = new Image();
-		img.decoding = 'async';
-		img.onload = () => resolve(img);
-		img.onerror = () => reject(new Error(`Failed to load image: ${url.slice(0, 120)}`));
+		// Must be fully decoded before canvas drawImage — async onload can fire too early,
+		// producing a successful compose with a blank photo background.
+		img.decoding = 'sync';
+		img.onload = () => {
+			const finish = () => {
+				if (!img.naturalWidth || !img.naturalHeight) {
+					reject(new Error(`Image decoded with empty dimensions: ${String(url).slice(0, 120)}`));
+					return;
+				}
+				resolve(img);
+			};
+			if (typeof img.decode === 'function') {
+				img.decode().then(finish).catch(() => finish());
+			} else {
+				finish();
+			}
+		};
+		img.onerror = () => reject(new Error(`Failed to load image: ${String(url).slice(0, 120)}`));
 		img.src = url;
 	});
 }
@@ -40,6 +55,7 @@ export async function fetchImageForCanvas(remoteUrl) {
 
 	const authorization = getPocketbaseAuthHeader();
 	const proxyUrl = `${API_SERVER_URL}/ai-pin-images/proxy?url=${encodeURIComponent(source)}`;
+	console.info('[pin-canvas] fetch featured image for compose', { source: source.slice(0, 160) });
 	const response = await fetch(proxyUrl, {
 		method: 'GET',
 		headers: {
@@ -51,18 +67,44 @@ export async function fetchImageForCanvas(remoteUrl) {
 		throw new Error(payload?.message || `Failed to fetch featured image (${response.status})`);
 	}
 	const blob = await response.blob();
+	if (!blob || blob.size <= 0) {
+		throw new Error('Featured image proxy returned an empty body');
+	}
+
+	// Prefer ImageBitmap so pixels are ready before drawImage (no async-decode race).
+	if (typeof createImageBitmap === 'function') {
+		const bitmap = await createImageBitmap(blob);
+		if (!bitmap.width || !bitmap.height) {
+			bitmap.close?.();
+			throw new Error('Featured image bitmap has empty dimensions');
+		}
+		console.info('[pin-canvas] featured image ready', { width: bitmap.width, height: bitmap.height, bytes: blob.size });
+		return bitmap;
+	}
+
 	const objectUrl = URL.createObjectURL(blob);
 	try {
-		return await loadImageFromUrl(objectUrl);
+		const img = await loadImageFromUrl(objectUrl);
+		console.info('[pin-canvas] featured image ready', {
+			width: img.naturalWidth || img.width,
+			height: img.naturalHeight || img.height,
+			bytes: blob.size,
+		});
+		return img;
 	} finally {
 		URL.revokeObjectURL(objectUrl);
 	}
 }
 
 function drawCoverImage(ctx, img, width, height, { focusY = 0.38, focusX = 0.5 } = {}) {
-	const scale = Math.max(width / img.width, height / img.height);
-	const drawW = img.width * scale;
-	const drawH = img.height * scale;
+	const iw = Number(img.naturalWidth || img.width) || 0;
+	const ih = Number(img.naturalHeight || img.height) || 0;
+	if (!iw || !ih) {
+		throw new Error('Cannot draw featured image with empty dimensions');
+	}
+	const scale = Math.max(width / iw, height / ih);
+	const drawW = iw * scale;
+	const drawH = ih * scale;
 	const focalY = Math.max(0.2, Math.min(0.65, Number(focusY) || 0.38));
 	const focalX = Math.max(0.3, Math.min(0.7, Number(focusX) || 0.5));
 	const srcFocusY = focalY * drawH;
@@ -760,9 +802,14 @@ export async function renderFeaturedPinToBlob({
 			focusY: config.layout.foodFocusY ?? 0.38,
 			focusX: 0.5,
 		});
+		if (typeof featured.close === 'function') {
+			try { featured.close(); } catch { /* ImageBitmap cleanup */ }
+		}
 		const brightness = sampleBandBrightness(ctx, width, height, bandPreview);
 		const contrast = applyAutoContrast(config, brightness);
 		config = contrast.config;
+	} else {
+		throw new Error('Featured image URL is required for pin compose');
 	}
 
 	// Dynamic spacing from headline length

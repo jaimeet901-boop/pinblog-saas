@@ -10,7 +10,12 @@ export async function composeAndUploadFeaturedPins(pins, {
 } = {}) {
 	const results = [];
 	for (const pin of pins) {
-		const featuredImageUrl = String(pin.featuredImage || '').trim();
+		const featuredImageUrl = String(pin.featuredImage || pin.sourceImageUrl || '').trim();
+		console.info('[featured-compose] background assignment', {
+			tempId: pin.tempId,
+			featuredImageUrl: featuredImageUrl.slice(0, 160),
+			hasTemplateConfig: Boolean(pin.templateConfig),
+		});
 		if (!featuredImageUrl) {
 			results.push({
 				tempId: pin.tempId,
@@ -41,7 +46,16 @@ export async function composeAndUploadFeaturedPins(pins, {
 				websiteDomain: brandKit?.websiteUrl || pin.website || '',
 			});
 
+			if (!blob || blob.size <= 0) {
+				throw new Error('Composer returned an empty image blob');
+			}
+
 			objectUrl = URL.createObjectURL(blob);
+			console.info('[featured-compose] canvas blob ready', {
+				tempId: pin.tempId,
+				bytes: blob.size,
+				type: blob.type,
+			});
 
 			try {
 				const uploaded = await uploadImageBlob(blob, {
@@ -51,6 +65,10 @@ export async function composeAndUploadFeaturedPins(pins, {
 				});
 				URL.revokeObjectURL(objectUrl);
 				objectUrl = '';
+				console.info('[featured-compose] hosted imageUrl assigned', {
+					tempId: pin.tempId,
+					imageUrl: String(uploaded.imageUrl || '').slice(0, 160),
+				});
 				results.push({
 					tempId: pin.tempId,
 					ok: true,
@@ -63,6 +81,7 @@ export async function composeAndUploadFeaturedPins(pins, {
 				console.warn('[featured-compose] upload failed, keeping local blob for preview', {
 					status: uploadError?.message,
 					tempId: pin.tempId,
+					imageUrl: objectUrl.slice(0, 80),
 				});
 				results.push({
 					tempId: pin.tempId,
@@ -78,6 +97,7 @@ export async function composeAndUploadFeaturedPins(pins, {
 			}
 			console.error('[featured-compose] canvas render failed', {
 				tempId: pin.tempId,
+				featuredImageUrl: featuredImageUrl.slice(0, 160),
 				error: error?.message || error,
 			});
 			results.push({

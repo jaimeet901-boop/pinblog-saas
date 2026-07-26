@@ -1112,6 +1112,11 @@ export default function AIPinsPage() {
 				return pin;
 			}
 			if (!result.ok || !result.imageUrl) {
+				console.warn('[AI Pins] compose failed — clearing imageUrl', {
+					tempId: pin.tempId,
+					featuredImage: String(pin.featuredImage || '').slice(0, 120),
+					error: result.error || 'Template compose failed',
+				});
 				return {
 					...pin,
 					imageUrl: '',
@@ -1119,6 +1124,12 @@ export default function AIPinsPage() {
 					imageGenerationError: result.error || 'Template compose failed',
 				};
 			}
+			console.info('[AI Pins] pin.imageUrl assigned from compose', {
+				tempId: pin.tempId,
+				imageUrl: String(result.imageUrl || '').slice(0, 160),
+				imageSource: result.imageSource || imageSource,
+				featuredImageKept: String(pin.featuredImage || '').slice(0, 120),
+			});
 			return {
 				...pin,
 				imageUrl: result.imageUrl,
