@@ -134,6 +134,27 @@ describe('AI Pin image lifecycle', () => {
 		}])).rejects.toThrow(/storage unavailable|upload|hosted/i);
 	});
 
+	it('surfaces clear error on HTTP 413 Payload Too Large', async () => {
+		global.fetch.mockResolvedValue({
+			ok: true,
+			blob: async () => new Blob(['png'], { type: 'image/png' }),
+		});
+		apiServerClient.fetch.mockResolvedValue({
+			ok: false,
+			status: 413,
+			json: async () => ({}),
+		});
+
+		await expect(ensurePinsReadyForSave([{
+			tempId: 't413',
+			title: 'Huge pin',
+			articleId: 'art1',
+			websiteId: 'ws1',
+			imageUrl: 'blob:http://localhost/huge',
+			imageGenerationStatus: 'completed',
+		}])).rejects.toThrow(/413|Payload Too Large|upload limit/i);
+	});
+
 	it('Save Draft refuses empty image_url and writes hosted URL only', async () => {
 		await expect(saveDrafts({
 			previewPins: [{

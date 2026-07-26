@@ -25,8 +25,12 @@ export const SUPPORTED_IMAGE_PROVIDER_CODES = new Set(['openai', 'fal', 'flux', 
 export function normalizeImageProviderAlias(code) {
 	const normalized = String(code || '').trim().toLowerCase();
 	if (!normalized) return '';
-	if (normalized === 'flux') return 'fal';
-	if (normalized === 'google' || normalized === 'google gemini') return 'gemini';
+	if (normalized === 'flux' || normalized === 'fal.ai' || normalized === 'falai') return 'fal';
+	if (
+		normalized === 'google'
+		|| normalized === 'google gemini'
+		|| normalized === 'gemini.ai'
+	) return 'gemini';
 	return normalized;
 }
 

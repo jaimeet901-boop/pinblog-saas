@@ -13,6 +13,8 @@ import { mirrorImageJob } from './queue/mirrors.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_POLL_MS || '12000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.AI_IMAGE_QUEUE_BATCH || '5', 10);
+const JOB_TIMEOUT_MS = Number.parseInt(process.env.AI_IMAGE_JOB_TIMEOUT_MS || '180000', 10);
+const STUCK_PROCESSING_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_STUCK_MS || '900000', 10);
 
 let workerTimer = null;
 let running = false;
@@ -429,6 +431,20 @@ async function getDueImageJobs(now) {
 	}
 }
 
+function withTimeout(promise, ms, label) {
+	let timer;
+	return Promise.race([
+		Promise.resolve(promise).finally(() => {
+			if (timer) clearTimeout(timer);
+		}),
+		new Promise((_, reject) => {
+			timer = setTimeout(() => {
+				reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`));
+			}, ms);
+		}),
+	]);
+}
+
 async function processDueJobs() {
 	if (running) {
 		return;
@@ -438,6 +454,10 @@ async function processDueJobs() {
 	lastRunAt = new Date().toISOString();
 
 	try {
+		await recoverStuckProcessingJobs({ onlyOlderThanMs: STUCK_PROCESSING_MS }).catch((error) => {
+			logger.warn('AI image stuck-job recovery failed', { message: error?.message });
+		});
+
 		const now = new Date().toISOString();
 		const dueJobs = await getDueImageJobs(now);
 
@@ -470,7 +490,7 @@ async function processDueJobs() {
 			}
 
 			try {
-				await processJob(fullJob);
+				await withTimeout(processJob(fullJob), JOB_TIMEOUT_MS, `AI image job ${fullJob.id}`);
 				processedTotal += 1;
 				lastSuccessAt = new Date().toISOString();
 				logger.info(`AI pin image job completed: ${fullJob.id}`);
@@ -528,7 +548,7 @@ async function processDueJobs() {
 	}
 }
 
-async function recoverStuckProcessingJobs() {
+async function recoverStuckProcessingJobs({ onlyOlderThanMs = 0 } = {}) {
 	const { filter } = await buildSchemaSafeFilter({
 		collection: 'ai_pin_image_jobs',
 		context: 'ai-image-queue:recover-stuck',
@@ -541,26 +561,36 @@ async function recoverStuckProcessingJobs() {
 		sort: '',
 	});
 
-	if (stuck.length === 0) {
+	const nowMs = Date.now();
+	const eligible = stuck.filter((job) => {
+		if (!onlyOlderThanMs || onlyOlderThanMs <= 0) return true;
+		const updatedMs = new Date(job.updated || job.created || 0).getTime();
+		if (!Number.isFinite(updatedMs)) return true;
+		return (nowMs - updatedMs) >= onlyOlderThanMs;
+	});
+
+	if (eligible.length === 0) {
 		return;
 	}
 
 	const now = new Date().toISOString();
-	await Promise.all(stuck.map(async (job) => {
+	await Promise.all(eligible.map(async (job) => {
 		const recoveryPayload = await sanitizeCollectionPayload({
 			collection: 'ai_pin_image_jobs',
 			context: 'ai-image-queue:recover-update',
 			payload: {
 				status: 'queued',
 				next_retry_at: now,
-				last_error: 'Recovered after worker restart',
+				last_error: onlyOlderThanMs > 0
+					? `Recovered stuck processing job (>${Math.round(onlyOlderThanMs / 60000)}m)`
+					: 'Recovered after worker restart',
 			},
 		});
 
 		return pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, recoveryPayload).catch(() => null);
 	}));
 
-	logger.info(`Recovered ${stuck.length} AI image jobs after restart`);
+	logger.info(`Recovered ${eligible.length} AI image jobs${onlyOlderThanMs > 0 ? ' (stuck processing)' : ' after restart'}`);
 }
 
 export function getAIPinImageQueueStatus() {

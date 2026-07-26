@@ -855,8 +855,10 @@ export default function AIPinsPage() {
 
 		setGeneratingImages(true);
 		const doneStatuses = new Set(['completed', 'fallback', 'failed']);
+		const pendingStatuses = new Set(['queued', 'processing', 'rendering', 'pending', 'running']);
+		let finishedCleanly = false;
 
-		for (let attempt = 0; attempt < 40; attempt += 1) {
+		for (let attempt = 0; attempt < 48; attempt += 1) {
 			const response = await apiServerClient.fetch(`/ai-pin-images/jobs?ids=${encodeURIComponent(jobIds.join(','))}`, { method: 'GET' });
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
@@ -881,10 +883,30 @@ export default function AIPinsPage() {
 			}));
 
 			if (jobs.length > 0 && jobs.every((job) => doneStatuses.has(job.status))) {
+				finishedCleanly = true;
 				break;
 			}
 
 			await new Promise((resolve) => setTimeout(resolve, 2500));
+		}
+
+		if (!finishedCleanly) {
+			setGeneratedPreviewPins((prev) => prev.map((pin) => {
+				if (!pendingStatuses.has(String(pin.imageGenerationStatus || '').toLowerCase())) {
+					return pin;
+				}
+				return {
+					...pin,
+					imageGenerationStatus: 'failed',
+					imageGenerationError: pin.imageGenerationError
+						|| 'Image generation timed out in Studio. Tap Retry, or verify Admin default image provider credentials and that the API image worker is running.',
+				};
+			}));
+			toast({
+				variant: 'destructive',
+				title: 'Image generation timed out',
+				description: 'Studio stopped waiting. Use Retry on each pin, or check Admin → Providers / API logs.',
+			});
 		}
 
 		setGeneratingImages(false);
@@ -1236,6 +1258,14 @@ export default function AIPinsPage() {
 
 	const saveGeneratedPreviewPins = async () => {
 		if (generatedPreviewPins.length === 0) {
+			return;
+		}
+		if (generatingImages) {
+			toast({
+				variant: 'destructive',
+				title: 'Images still generating',
+				description: 'Wait until Studio finishes rendering images, then Save Draft.',
+			});
 			return;
 		}
 
@@ -2116,7 +2146,7 @@ export default function AIPinsPage() {
 							{generatedPreviewPins.length > 0 ? (
 								<>
 									<Button size="sm" variant="outline" onClick={() => setGeneratedPreviewPins([])}>Discard</Button>
-									<Button size="sm" onClick={saveGeneratedPreviewPins} disabled={savingGenerated}>
+									<Button size="sm" onClick={saveGeneratedPreviewPins} disabled={savingGenerated || generatingImages}>
 										{savingGenerated ? <Spinner className="h-4 w-4" /> : null} Save drafts
 									</Button>
 								</>

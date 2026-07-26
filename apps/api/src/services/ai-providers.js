@@ -315,10 +315,14 @@ export async function resolveConfiguredImageProvider(providerCode = '', options 
 		code = normalizeImageProviderAlias(matched?.code || '');
 	}
 
-	const provider = providers.find((item) => String(item.code || '').toLowerCase() === code);
+	const provider = providers.find((item) => (
+		normalizeImageProviderAlias(item.code) === code
+		|| String(item.code || '').toLowerCase() === code
+	));
 	if (provider && isProviderConfigured(provider)) {
+		const resolvedCode = normalizeImageProviderAlias(provider.code) || String(provider.code || '').toLowerCase();
 		// Hard guarantee: never return a different provider than the job asked for.
-		if (requested && provider.code !== requested) {
+		if (requested && resolvedCode !== requested) {
 			const error = new Error(
 				`Image provider mismatch: job requested "${requestedRaw}" but registry resolved "${provider.code}".`,
 			);

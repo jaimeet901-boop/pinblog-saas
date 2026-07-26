@@ -33,14 +33,23 @@ export function resolveDefaultImageProvider(config) {
 		? config.imageProviders.filter((item) => item?.enabled !== false && item?.hasCredentials !== false)
 		: [];
 	if (preferred) {
-		const match = providers.find((item) => {
-			const code = String(item.code || '').toLowerCase();
-			const name = String(item.name || '').toLowerCase();
-			return code === preferred
-				|| name === preferred
-				|| (preferred.length >= 3 && (name.includes(preferred) || preferred.includes(code)));
-		});
-		if (match?.code) return match.code;
+		const exactCode = providers.find((item) => String(item.code || '').toLowerCase() === preferred);
+		if (exactCode?.code) return exactCode.code;
+		const exactName = providers.find((item) => String(item.name || '').toLowerCase() === preferred);
+		if (exactName?.code) return exactName.code;
+		// Admin labels like "Fal.ai" / "Google Gemini"
+		if (preferred === 'fal.ai' || preferred === 'falai' || preferred === 'flux') {
+			const fal = providers.find((item) => ['fal', 'flux'].includes(String(item.code || '').toLowerCase()));
+			if (fal?.code) return fal.code;
+		}
+		if (preferred.includes('gemini') || preferred === 'google') {
+			const gemini = providers.find((item) => String(item.code || '').toLowerCase() === 'gemini');
+			if (gemini?.code) return gemini.code;
+		}
+		if (preferred.includes('openai') || preferred === 'open ai') {
+			const openai = providers.find((item) => String(item.code || '').toLowerCase() === 'openai');
+			if (openai?.code) return openai.code;
+		}
 	}
 	return providers[0]?.code || '';
 }

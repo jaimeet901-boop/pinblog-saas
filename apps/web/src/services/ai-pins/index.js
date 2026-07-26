@@ -41,6 +41,7 @@ export {
 	ensurePinsReadyForSave,
 	uploadImageBlob,
 	uploadBlobImageUrl,
+	prepareImageBlobForUpload,
 } from './imageLifecycle.js';
 export {
 	buildPinPreview,

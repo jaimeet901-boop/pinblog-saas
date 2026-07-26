@@ -213,6 +213,9 @@ router.get('/proxy', async (req, res) => {
 router.post('/composed', (req, res, next) => {
 	uploadComposedImage(req, res, (error) => {
 		if (error) {
+			if (error.code === 'LIMIT_FILE_SIZE') {
+				return next(httpError(413, 'Image is too large (max 12MB). Re-generate or compress and try again.'));
+			}
 			return next(httpError(422, error.message || 'Invalid composed image upload'));
 		}
 		return next();

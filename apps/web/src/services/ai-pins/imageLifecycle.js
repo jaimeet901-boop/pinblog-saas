@@ -7,6 +7,9 @@ import apiServerClient from '@/lib/apiServerClient';
 
 const PENDING_STATUSES = new Set(['queued', 'processing', 'rendering', 'pending', 'running']);
 
+/** Stay under common edge-proxy defaults (often 1MB) including multipart overhead. */
+const TARGET_UPLOAD_BYTES = 900 * 1024;
+
 export function isBlobImageUrl(value) {
 	return String(value || '').trim().startsWith('blob:');
 }
@@ -27,6 +30,88 @@ export function assertPersistableImageUrl(value, label = 'Pin') {
 	);
 }
 
+function blobToJpeg(blob, quality) {
+	return new Promise((resolve, reject) => {
+		const url = URL.createObjectURL(blob);
+		const img = new Image();
+		img.onload = () => {
+			try {
+				const canvas = document.createElement('canvas');
+				canvas.width = img.naturalWidth || img.width;
+				canvas.height = img.naturalHeight || img.height;
+				const ctx = canvas.getContext('2d');
+				if (!ctx) {
+					reject(new Error('Canvas unavailable'));
+					return;
+				}
+				ctx.drawImage(img, 0, 0);
+				canvas.toBlob((out) => {
+					URL.revokeObjectURL(url);
+					if (!out) {
+						reject(new Error('JPEG encode failed'));
+						return;
+					}
+					resolve(out);
+				}, 'image/jpeg', quality);
+			} catch (error) {
+				URL.revokeObjectURL(url);
+				reject(error);
+			}
+		};
+		img.onerror = () => {
+			URL.revokeObjectURL(url);
+			reject(new Error('Could not decode image for compression'));
+		};
+		img.src = url;
+	});
+}
+
+/**
+ * Re-encode large PNG/canvas exports to JPEG so uploads survive 1MB edge proxies.
+ * No-op in non-browser/test environments or when already small enough.
+ */
+export async function prepareImageBlobForUpload(blob, fileName = '') {
+	const source = blob;
+	const originalName = String(fileName || `pin-image-${Date.now()}.png`);
+	if (!source || typeof source !== 'object' || typeof source.size !== 'number') {
+		return { blob: source, fileName: originalName };
+	}
+
+	const canCompress = typeof document !== 'undefined'
+		&& typeof Image !== 'undefined'
+		&& typeof source.type === 'string'
+		&& source.type.startsWith('image/')
+		&& source.type !== 'image/gif';
+
+	if (!canCompress) {
+		return { blob: source, fileName: originalName };
+	}
+
+	if (source.size <= TARGET_UPLOAD_BYTES && (source.type === 'image/jpeg' || source.type === 'image/webp')) {
+		return { blob: source, fileName: originalName };
+	}
+
+	let best = source;
+	for (const quality of [0.9, 0.82, 0.72, 0.62]) {
+		try {
+			const encoded = await blobToJpeg(source, quality);
+			if (!best || encoded.size < best.size) {
+				best = encoded;
+			}
+			if (encoded.size <= TARGET_UPLOAD_BYTES) {
+				best = encoded;
+				break;
+			}
+		} catch {
+			break;
+		}
+	}
+
+	const base = originalName.replace(/\.[^.]+$/, '') || `pin-image-${Date.now()}`;
+	const nextName = best.type === 'image/jpeg' ? `${base}.jpg` : originalName;
+	return { blob: best, fileName: nextName };
+}
+
 /**
  * Upload a Blob/File to the composed-image endpoint (same storage as featured compose).
  */
@@ -39,9 +124,9 @@ export async function uploadImageBlob(blob, {
 		throw new Error('Nothing to upload — image blob is missing');
 	}
 
+	const prepared = await prepareImageBlobForUpload(blob, fileName || `pin-image-${Date.now()}.png`);
 	const formData = new FormData();
-	const name = fileName || `pin-image-${Date.now()}.png`;
-	formData.append('image', blob, name);
+	formData.append('image', prepared.blob, prepared.fileName);
 	if (articleId) formData.append('articleId', String(articleId));
 	if (title) formData.append('title', String(title).slice(0, 220));
 
@@ -51,6 +136,12 @@ export async function uploadImageBlob(blob, {
 	});
 	const payload = await response.json().catch(() => ({}));
 	if (!response.ok) {
+		if (response.status === 413) {
+			throw new Error(
+				payload?.message
+				|| 'Image upload failed (413 Payload Too Large). The pin image exceeds the server upload limit.',
+			);
+		}
 		throw new Error(payload?.message || `Image upload failed (${response.status})`);
 	}
 

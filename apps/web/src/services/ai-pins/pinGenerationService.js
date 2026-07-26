@@ -21,6 +21,7 @@ import {
 	PIN_GENERATION_STAGES,
 	stageProgress,
 } from '@/lib/pinGenerationConstants.js';
+import { uploadImageBlob } from './imageLifecycle.js';
 
 async function apiJson(path, options = {}) {
 	const response = await apiServerClient.fetch(path, {
@@ -44,26 +45,18 @@ async function uploadExportedBytes({ bytes, mimeType = 'image/png', articleId = 
 	const blob = bytes instanceof Blob
 		? bytes
 		: new Blob([bytes], { type: mimeType });
-	const formData = new FormData();
-	formData.append('image', blob, `pin-gen-${Date.now()}.png`);
-	if (articleId) formData.append('articleId', String(articleId));
-	if (title) formData.append('title', String(title).slice(0, 220));
-
-	const response = await apiServerClient.fetch('/ai-pin-images/composed', {
-		method: 'POST',
-		body: formData,
-	});
-	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) {
-		throw new PinGenerationError(payload.message || 'Upload failed', {
+	try {
+		return await uploadImageBlob(blob, {
+			articleId,
+			title,
+			fileName: `pin-gen-${Date.now()}.png`,
+		});
+	} catch (error) {
+		throw new PinGenerationError(error?.message || 'Upload failed', {
 			code: 'UPLOAD_TRANSIENT',
 			recoverable: true,
 		});
 	}
-	return {
-		imageUrl: String(payload.imageUrl || ''),
-		imageSource: payload.imageSource || 'featured_composed',
-	};
 }
 
 async function pollImageJob(jobId, { signal, intervalMs = 2500, maxAttempts = 48 } = {}) {

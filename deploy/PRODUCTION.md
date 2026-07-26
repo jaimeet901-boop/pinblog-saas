@@ -67,6 +67,8 @@ pm2 save
 ## 8) Reverse proxy
 - Main reverse proxy config: `deploy/nginx/reverse-proxy.conf`
 - Web static config for containerized web image: `deploy/nginx/web.conf`
+- Docker nginx sets `client_max_body_size 25m` for AI Pin image uploads (`POST /api/ai-pin-images/composed`).
+- If CloudPanel (or another edge nginx) fronts Docker, set the same limit there — otherwise Save Draft returns **413 Payload Too Large**.
 
 ## 9) Rollback strategy
 - Keep previous container image tags

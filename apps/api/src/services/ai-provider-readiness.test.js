@@ -5,6 +5,7 @@ import {
 	isProviderConfigured,
 	isTextOrientedProvider,
 	matchPreferredProvider,
+	normalizeImageProviderAlias,
 	providerHasCredentials,
 } from './ai-provider-readiness.js';
 
@@ -43,6 +44,8 @@ describe('ai-provider-readiness helpers', () => {
 		assert.equal(matchPreferredProvider(providers, 'Google Gemini')?.code, 'gemini');
 		assert.equal(matchPreferredProvider(providers, 'Fal.ai')?.code, 'fal');
 		assert.equal(matchPreferredProvider(providers, 'fal')?.code, 'fal');
+		assert.equal(normalizeImageProviderAlias('Fal.ai'), 'fal');
+		assert.equal(normalizeImageProviderAlias('Google Gemini'), 'gemini');
 		// Must never cross-map gemini → fal via loose includes()
 		assert.equal(matchPreferredProvider(providers, 'gemini')?.code, 'gemini');
 		assert.notEqual(matchPreferredProvider(providers, 'gemini')?.code, 'fal');
