@@ -15,13 +15,16 @@ const QUICK_ACTIONS = [
 	{ label: 'Write Article', to: '/app/writer', icon: PenLine },
 	{ label: 'Generate Image', to: '/app/images', icon: ImageIcon },
 	{ label: 'Create Pins', to: '/app/ai-pins', icon: Wand2 },
-	{ label: 'Open Templates', to: '/app/ai-pins/templates', icon: LayoutTemplate },
-	{ label: 'Brand Kit', to: '/app/ai-pins/brand-kit', icon: Palette },
+	// Templates + Brand Kit remain available via Admin Console only.
+	{ label: 'Open Templates', to: '/app/ai-pins/templates', icon: LayoutTemplate, adminOnly: true },
+	{ label: 'Brand Kit', to: '/app/ai-pins/brand-kit', icon: Palette, adminOnly: true },
 	{ label: 'Pinterest Hub', to: '/app/pinterest', icon: Pin },
 	{ label: 'Publishing Center', to: '/app/pinterest-history', icon: ListOrdered },
 	{ label: 'Calendar', to: '/app/calendar', icon: CalendarClock },
 	{ label: 'Settings', to: '/app/settings', icon: Settings },
 ];
+
+const WORKSPACE_QUICK_ACTIONS = QUICK_ACTIONS.filter((action) => !action.adminOnly);
 
 function greetingForHour(hour) {
 	if (hour < 12) return 'Good morning';
@@ -356,7 +359,7 @@ export default function DashboardPage() {
 							</div>
 						</div>
 						<div className="dash-actions">
-							{QUICK_ACTIONS.map((action) => {
+							{WORKSPACE_QUICK_ACTIONS.map((action) => {
 								const Icon = action.icon;
 								return (
 									<Link key={action.to} to={action.to} className="dash-action">

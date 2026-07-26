@@ -1724,8 +1724,9 @@ export default function AIPinsPage() {
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
-					{showBrandKit ? <Link to="/app/ai-pins/brand-kit"><Button variant="outline" size="sm"><Palette size={14} /> Brand Kit</Button></Link> : null}
-					{showTemplates ? <Link to="/app/ai-pins/templates"><Button variant="outline" size="sm"><LayoutTemplate size={14} /> Templates</Button></Link> : null}
+					{/* Templates / Brand Kit managers: Admin Console only (routes kept). */}
+					{false && showBrandKit ? <Link to="/app/ai-pins/brand-kit"><Button variant="outline" size="sm"><Palette size={14} /> Brand Kit</Button></Link> : null}
+					{false && showTemplates ? <Link to="/app/ai-pins/templates"><Button variant="outline" size="sm"><LayoutTemplate size={14} /> Templates</Button></Link> : null}
 					{showHistory ? <Link to="/app/ai-pins/history"><Button variant="outline" size="sm"><History size={14} /> History</Button></Link> : null}
 					<div
 						className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium shadow-sm"

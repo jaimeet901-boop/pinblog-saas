@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import {
 	LayoutDashboard, Users, Building2, CreditCard, Coins, Cpu, Boxes, Globe, Pin,
 	BarChart3, ListOrdered, Briefcase, ScrollText, Bell, Settings, Activity,
-	Menu, X, LogOut, ArrowLeftRight, Shield, ChevronRight,
+	Menu, X, LogOut, ArrowLeftRight, Shield, ChevronRight, Palette,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_NAV } from '@/lib/adminRbac';
@@ -26,6 +26,8 @@ const ICONS = {
 	'/admin/notifications': Bell,
 	'/admin/settings': Settings,
 	'/admin/system': Activity,
+	'/app/ai-pins/templates': Boxes,
+	'/app/ai-pins/brand-kit': Palette,
 };
 
 function NavItems({ onNavigate }) {

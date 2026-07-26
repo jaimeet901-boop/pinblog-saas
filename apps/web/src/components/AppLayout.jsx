@@ -16,8 +16,8 @@ const NAV = [
 	{ to: '/app', label: 'Dashboard', icon: LayoutDashboard, end: true },
 	{ to: '/app/websites', label: 'Websites', icon: Globe },
 	{ to: '/app/ai-pins', label: 'AI Pins', icon: Wand2 },
-	{ to: '/app/ai-pins/templates', label: 'Templates', icon: Sparkles },
-	{ to: '/app/ai-pins/brand-kit', label: 'Brand Kit', icon: Sparkles },
+	// Templates + Brand Kit stay routed (/app/ai-pins/templates, /app/ai-pins/brand-kit)
+	// but are admin-only via Admin Console — not shown in the workspace sidebar.
 	{ to: '/app/ai-pins/history', label: 'Pin History', icon: History },
 	{ to: '/app/writer', label: 'AI Writer', icon: PenLine },
 	{ to: '/app/images', label: 'Image Generator', icon: Image },

@@ -20,4 +20,7 @@ export const ADMIN_NAV = [
 	{ to: '/admin/notifications', label: 'Notifications' },
 	{ to: '/admin/settings', label: 'Global Settings' },
 	{ to: '/admin/system', label: 'System Health' },
+	// Workspace managers — same routes, not shown in user sidebar
+	{ to: '/app/ai-pins/templates', label: 'Templates' },
+	{ to: '/app/ai-pins/brand-kit', label: 'Brand Kit' },
 ];
