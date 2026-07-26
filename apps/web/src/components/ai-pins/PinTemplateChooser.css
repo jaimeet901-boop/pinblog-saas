@@ -248,6 +248,32 @@
 	font-size: 0.8rem;
 }
 
+.pin-tpl-library-card__skeleton {
+	display: grid;
+	place-items: center;
+	height: 100%;
+	min-height: 100%;
+	padding: 1rem;
+	text-align: center;
+	font-size: 0.78rem;
+	font-weight: 600;
+	color: hsl(var(--muted-foreground));
+	background: linear-gradient(
+		110deg,
+		hsl(var(--muted) / 0.35) 20%,
+		hsl(var(--muted) / 0.7) 40%,
+		hsl(var(--muted) / 0.35) 60%
+	);
+	background-size: 200% 100%;
+	animation: pin-tpl-shimmer 1.15s ease-in-out infinite;
+}
+
+.pin-tpl-library-card__skeleton.is-error {
+	animation: none;
+	background: hsl(var(--muted) / 0.45);
+	color: hsl(var(--destructive));
+}
+
 .pin-tpl-library-card__badge {
 	position: absolute;
 	top: 0.55rem;
@@ -260,6 +286,24 @@
 	text-transform: uppercase;
 	background: hsl(var(--background) / 0.92);
 	color: var(--chooser-ink);
+}
+
+.pin-tpl-library-card__demo {
+	position: absolute;
+	top: 0.55rem;
+	right: 0.55rem;
+	padding: 0.2rem 0.45rem;
+	border-radius: 0.4rem;
+	font-size: 0.62rem;
+	font-weight: 700;
+	letter-spacing: 0.03em;
+	background: hsl(var(--foreground) / 0.78);
+	color: hsl(var(--background));
+}
+
+.pin-tpl-library-card__demo.is-article {
+	background: hsl(var(--primary));
+	color: hsl(var(--primary-foreground));
 }
 
 .pin-tpl-library-card__meta {
@@ -339,8 +383,10 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.pin-tpl-library-card,
-	.pin-tpl-chooser__categories button {
+	.pin-tpl-chooser__categories button,
+	.pin-tpl-library-card__skeleton {
 		transition: none;
+		animation: none;
 	}
 
 	.pin-tpl-library-card:hover:not(:disabled) {

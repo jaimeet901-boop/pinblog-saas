@@ -2887,6 +2887,7 @@ export default function AIPinsPage() {
 				selectedId={selectedTemplateId}
 				selecting={templateHydrating}
 				selectingId={selectedTemplateId}
+				previewArticle={activeArticle || selectedArticles[0] || null}
 				onSelect={(template) => {
 					void selectGalleryTemplate(template);
 				}}

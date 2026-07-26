@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Library, X } from 'lucide-react';
 import TemplateGalleryEmpty, { TemplateGalleryLoading } from '@/components/templates/gallery/TemplateGalleryEmpty';
 import TemplatePreviewModal from '@/components/templates/gallery/TemplatePreviewModal';
+import PinTemplateChooserLiveCard from '@/components/ai-pins/PinTemplateChooserLiveCard';
 import {
 	loadGalleryFirstPage,
 	loadGalleryNextPage,
@@ -10,7 +11,7 @@ import {
 	setPreviewTemplateId,
 } from '@/services/templates/galleryStore';
 import { useGalleryStore } from '@/services/templates/useGalleryStore';
-import { resolveGalleryThumbnail } from '@/services/templates/previewCache';
+import { revokeGalleryLivePreviewUrls } from '@/services/ai-pins/galleryLivePreview';
 import { TEMPLATE_CATEGORIES } from '@/lib/pinEngineConstants';
 import '@/pages/app/TemplatesPage.css';
 import './PinTemplateChooser.css';
@@ -22,9 +23,8 @@ const SELECT_FILTERS = {
 };
 
 /**
- * Read-only Chef IA pin template library for workspace users.
- * Built-in official templates + published workspace templates.
- * One click selects — no template building.
+ * Read-only Chef IA pin template library.
+ * Cards render real Template Engine previews (demo recipe or selected article).
  */
 export default function PinTemplateChooser({
 	open,
@@ -33,6 +33,7 @@ export default function PinTemplateChooser({
 	onSelect,
 	selecting = false,
 	selectingId = '',
+	previewArticle = null,
 }) {
 	const items = useGalleryStore((s) => s.items);
 	const loading = useGalleryStore((s) => s.loading);
@@ -51,12 +52,22 @@ export default function PinTemplateChooser({
 		filters.q || filters.category || filters.scope,
 	), [filters]);
 
+	const articleFingerprint = useMemo(() => {
+		if (!previewArticle) return 'demo';
+		return [
+			previewArticle.id || '',
+			previewArticle.title || '',
+			previewArticle.featuredImage || '',
+		].join('|');
+	}, [previewArticle]);
+
 	useEffect(() => {
 		if (!open) return undefined;
 		setQuery('');
 		loadGalleryFirstPage({ ...SELECT_FILTERS, q: '', category: '', scope: '' });
 		return () => {
 			resetGalleryStore();
+			revokeGalleryLivePreviewUrls();
 		};
 	}, [open]);
 
@@ -101,7 +112,11 @@ export default function PinTemplateChooser({
 							<Library size={14} aria-hidden="true" /> Chef IA Library
 						</span>
 						<h2>Choose Template</h2>
-						<p>Select a design for your Pinterest pins. Ready-made layouts — no building required.</p>
+						<p>
+							{previewArticle?.title
+								? `Live previews use “${previewArticle.title}”. Pick a design — one click selects.`
+								: 'Live pin previews with a demo recipe. Select an article to preview your content on every design.'}
+						</p>
 					</div>
 					<button type="button" className="pin-tpl-chooser__close" onClick={onClose} aria-label="Close">
 						<X size={18} />
@@ -163,42 +178,19 @@ export default function PinTemplateChooser({
 				) : null}
 
 				{!loading && items.length > 0 ? (
-					<div className="pin-tpl-chooser__grid">
-						{items.map((template) => {
-							const thumb = resolveGalleryThumbnail(template);
-							const name = template.name || 'Untitled template';
-							const selected = selectedId === template.id;
-							const busy = selecting && selectingId === template.id;
-							const isOfficial = template.visibility === 'official';
-							return (
-								<button
-									key={template.id}
-									type="button"
-									className={`pin-tpl-library-card ${selected ? 'is-selected' : ''} ${busy ? 'is-busy' : ''}`}
-									onClick={() => onSelect?.(template)}
-									disabled={selecting}
-									aria-pressed={selected}
-									aria-label={selected ? `Selected ${name}` : `Select ${name}`}
-								>
-									<span className="pin-tpl-library-card__media" aria-hidden="true">
-										{thumb.url ? (
-											<img src={thumb.url} alt="" loading="lazy" />
-										) : (
-											<span className="pin-tpl-library-card__placeholder">Preview</span>
-										)}
-										{isOfficial ? <span className="pin-tpl-library-card__badge">Chef IA</span> : null}
-									</span>
-									<span className="pin-tpl-library-card__meta">
-										<span className="pin-tpl-library-card__name">{name}</span>
-										<span className="pin-tpl-library-card__category">
-											{template.category || 'general'}
-											{selected ? ' · Selected' : ''}
-											{busy ? ' · Loading…' : ''}
-										</span>
-									</span>
-								</button>
-							);
-						})}
+					<div className="pin-tpl-chooser__grid" key={articleFingerprint}>
+						{items.map((template, index) => (
+							<PinTemplateChooserLiveCard
+								key={`${template.id}:${articleFingerprint}`}
+								template={template}
+								index={index}
+								article={previewArticle}
+								selected={selectedId === template.id}
+								busy={selecting && selectingId === template.id}
+								disabled={selecting}
+								onSelect={onSelect}
+							/>
+						))}
 					</div>
 				) : null}
 

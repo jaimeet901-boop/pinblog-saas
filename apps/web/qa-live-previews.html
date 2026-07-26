@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Live Gallery Preview QA</title>
+	<style>
+		body { margin: 0; font-family: Georgia, serif; background: #f3efe8; color: #1c1917; }
+		header { padding: 1rem 1.25rem; background: #1c1917; color: #fafaf9; }
+		header h1 { margin: 0; font-size: 1.25rem; }
+		.meta { padding: 0.75rem 1.25rem; background: #fff; border-bottom: 1px solid #ddd; font-size: 0.82rem; white-space: pre-wrap; }
+		h2 { margin: 1rem 1.25rem 0.6rem; font-size: 1rem; }
+		.grid {
+			display: grid;
+			grid-template-columns: repeat(5, minmax(0, 1fr));
+			gap: 0.75rem;
+			padding: 0 1.25rem 1.5rem;
+		}
+		.card {
+			background: #fff;
+			border: 1px solid #ddd;
+			border-radius: 12px;
+			overflow: hidden;
+		}
+		.card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: #e7e5e4; }
+		.card .label { padding: 0.45rem 0.55rem; font-size: 0.7rem; background: #1c1917; color: #fff; }
+		.card .sub { opacity: 0.75; }
+		.status { color: #166534; }
+		.error { color: #b91c1c; }
+		@media (max-width: 560px) {
+			.grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+		}
+	</style>
+</head>
+<body>
+	<header>
+		<h1>Live Template Engine preview QA</h1>
+		<p style="margin:0.35rem 0 0;opacity:.8;font-size:.9rem">Same article · 10 templates · real renderer</p>
+	</header>
+	<div class="meta" id="meta">Running…</div>
+	<h2>1. Same article · 10 templates</h2>
+	<div class="grid" id="same-article"></div>
+	<h2>2. Demo mode · different food images (10 cards)</h2>
+	<div class="grid" id="demo-images"></div>
+	<h2>3. Fallback after failed image</h2>
+	<div class="grid" id="fallback"></div>
+
+	<script type="module">
+		import { listOfficialPinTemplateCatalog } from '/src/lib/officialPinTemplateCatalog.generated.js';
+		import { renderFeaturedPinToBlob } from '/src/lib/pinCanvasRenderer.js';
+		import {
+			DEMO_FOOD_IMAGES,
+			resolveGalleryPreviewContent,
+			buildFallbackFoodImageDataUrl,
+		} from '/src/lib/pinGalleryDemoContent.js';
+		import { getCachedPreview, setCachedPreview, clearPreviewCache } from '/src/services/templates/previewCache.js';
+
+		const ARTICLE = {
+			id: 'qa-article-1',
+			title: 'Greek Lemon Herb Chicken Bowl',
+			metaDescription: 'Weeknight dinner with bright lemon and herbs',
+			category: 'Dinner',
+			url: 'https://chefia.demo/greek-lemon-herb-chicken-bowl',
+			// Local canvas food plate — same source for all 10 templates (article mode).
+			featuredImage: buildFallbackFoodImageDataUrl(0),
+		};
+
+		const catalog = listOfficialPinTemplateCatalog().slice(0, 10);
+		const timings = { firstLoadMs: [], cachedLoadMs: [], fallbackMs: 0, brokenImages: 0, pinTitleHits: 0 };
+
+		function makeCard(parent, label, sub) {
+			const card = document.createElement('div');
+			card.className = 'card';
+			card.innerHTML = `<div class="label">${label}<div class="sub">${sub || 'Rendering…'}</div></div>`;
+			parent.appendChild(card);
+			return card;
+		}
+
+		async function renderOne({ configuration, featuredImageUrl, context, website, label, parent, cacheKey }) {
+			const card = makeCard(parent, label, 'Rendering…');
+			const t0 = performance.now();
+			try {
+				const blob = await renderFeaturedPinToBlob({
+					featuredImageUrl,
+					templateConfig: configuration,
+					context,
+					websiteDomain: website,
+				});
+				const ms = Math.round(performance.now() - t0);
+				const url = URL.createObjectURL(blob);
+				if (cacheKey) {
+					setCachedPreview({
+						templateId: cacheKey.templateId,
+						configChecksum: cacheKey.checksum,
+						imageUrl: url,
+						source: 'qa',
+					});
+				}
+				const img = new Image();
+				img.src = url;
+				img.alt = label;
+				await img.decode().catch(() => null);
+				card.innerHTML = '';
+				card.appendChild(img);
+				const meta = document.createElement('div');
+				meta.className = 'label';
+				meta.innerHTML = `${label}<div class="sub">${ms}ms</div>`;
+				card.appendChild(meta);
+
+				// Sample a few pixels — reject pure black / pure white frames
+				const c = document.createElement('canvas');
+				c.width = 40; c.height = 60;
+				const ctx = c.getContext('2d');
+				ctx.drawImage(img, 0, 0, 40, 60);
+				const data = ctx.getImageData(0, 0, 40, 60).data;
+				let black = 0; let white = 0; let n = 0;
+				for (let i = 0; i < data.length; i += 16) {
+					const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+					n += 1;
+					if (r < 18 && g < 18 && b < 18) black += 1;
+					if (r > 245 && g > 245 && b > 245) white += 1;
+				}
+				const blackRatio = black / n;
+				const whiteRatio = white / n;
+				if (blackRatio > 0.92 || whiteRatio > 0.92) timings.brokenImages += 1;
+				return { ok: true, ms, url, blackRatio, whiteRatio };
+			} catch (error) {
+				card.innerHTML = `<div class="label error">${label}<div class="sub">${error.message}</div></div>`;
+				timings.brokenImages += 1;
+				return { ok: false, ms: Math.round(performance.now() - t0), error: error.message };
+			}
+		}
+
+		const sameParent = document.getElementById('same-article');
+		const demoParent = document.getElementById('demo-images');
+		const fallbackParent = document.getElementById('fallback');
+		const meta = document.getElementById('meta');
+
+		const articleContent = resolveGalleryPreviewContent({
+			article: ARTICLE,
+			templateIndex: 0,
+			templateId: 'shared',
+		});
+
+		// 1) Same article, 10 templates — first load
+		const firstResults = [];
+		for (let i = 0; i < catalog.length; i += 1) {
+			const entry = catalog[i];
+			const result = await renderOne({
+				configuration: entry.configuration,
+				featuredImageUrl: articleContent.featuredImageUrl,
+				context: {
+					title: articleContent.title,
+					subtitle: articleContent.subtitle,
+					overlayText: articleContent.category,
+					cta: articleContent.cta,
+					category: articleContent.category,
+				},
+				website: articleContent.website,
+				label: entry.name,
+				parent: sameParent,
+				cacheKey: { templateId: entry.templateUuid, checksum: `qa-article:${i}` },
+			});
+			firstResults.push(result);
+			timings.firstLoadMs.push(result.ms);
+		}
+
+		// Cached load (same keys)
+		for (let i = 0; i < catalog.length; i += 1) {
+			const t0 = performance.now();
+			const hit = getCachedPreview({
+				templateId: catalog[i].templateUuid,
+				configChecksum: `qa-article:${i}`,
+				format: 'png',
+			});
+			timings.cachedLoadMs.push(Math.round(performance.now() - t0));
+			if (!hit?.imageUrl) timings.brokenImages += 1;
+		}
+
+		// 2) Demo mode — different food images per index
+		const demoImageUrls = [];
+		for (let i = 0; i < 10; i += 1) {
+			const entry = catalog[i];
+			const content = resolveGalleryPreviewContent({
+				article: null,
+				templateIndex: i,
+				templateId: `demo-${i}`,
+			});
+			// Distinct local food plates per card (avoids Unsplash/proxy dependency in QA harness).
+			const featuredImageUrl = buildFallbackFoodImageDataUrl(content.imageSeed);
+			demoImageUrls.push(`seed:${content.imageSeed}`);
+			await renderOne({
+				configuration: entry.configuration,
+				featuredImageUrl,
+				context: {
+					title: content.title,
+					subtitle: content.subtitle,
+					overlayText: content.category,
+					cta: content.cta,
+					category: content.category,
+				},
+				website: content.website,
+				label: `${entry.name}`,
+				parent: demoParent,
+			});
+		}
+
+		// 3) Fallback path
+		const tFallback = performance.now();
+		const fallbackUrl = buildFallbackFoodImageDataUrl(3);
+		await renderOne({
+			configuration: catalog[0].configuration,
+			featuredImageUrl: fallbackUrl,
+			context: {
+				title: ARTICLE.title,
+				subtitle: ARTICLE.metaDescription,
+				overlayText: 'Dinner',
+				cta: 'Save Recipe',
+			},
+			website: 'chefia.demo',
+			label: 'Fallback food plate',
+			parent: fallbackParent,
+		});
+		// Simulate failed remote then fallback (explicit)
+		try {
+			await renderFeaturedPinToBlob({
+				featuredImageUrl: 'https://invalid.example.invalid/missing.jpg',
+				templateConfig: catalog[1].configuration,
+				context: { title: ARTICLE.title, subtitle: 'x', overlayText: 'Dinner' },
+				websiteDomain: 'chefia.demo',
+			});
+			makeCard(fallbackParent, 'Invalid remote', 'unexpected success');
+		} catch {
+			await renderOne({
+				configuration: catalog[1].configuration,
+				featuredImageUrl: buildFallbackFoodImageDataUrl(7),
+				context: { title: ARTICLE.title, subtitle: 'Recovered', overlayText: 'Dinner', cta: 'Save Recipe' },
+				website: 'chefia.demo',
+				label: 'Recovered via fallback',
+				parent: fallbackParent,
+			});
+		}
+		timings.fallbackMs = Math.round(performance.now() - tFallback);
+
+		const uniqueDemoImages = new Set(demoImageUrls).size;
+		const report = {
+			templateCount: catalog.length,
+			uniqueDemoImages,
+			demoImageUrls,
+			firstLoadMs: timings.firstLoadMs,
+			cachedLoadMs: timings.cachedLoadMs,
+			firstLoadAvg: Math.round(timings.firstLoadMs.reduce((a, b) => a + b, 0) / timings.firstLoadMs.length),
+			cachedLoadAvg: Math.round(timings.cachedLoadMs.reduce((a, b) => a + b, 0) / timings.cachedLoadMs.length),
+			fallbackMs: timings.fallbackMs,
+			brokenImages: timings.brokenImages,
+			allFirstOk: firstResults.every((r) => r.ok),
+			noNearBlackWhite: firstResults.every((r) => r.ok && r.blackRatio < 0.92 && r.whiteRatio < 0.92),
+			pinTitleLiteralInPage: document.body.innerText.includes('Pin%20Title') || document.body.innerText.includes('Pin Title'),
+		};
+
+		meta.innerHTML = `<span class="status">QA ready</span>\n${JSON.stringify(report, null, 2)}`;
+		window.__LIVE_PREVIEW_QA__ = report;
+	</script>
+</body>
+</html>
