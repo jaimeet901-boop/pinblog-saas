@@ -64,6 +64,8 @@ import {
 	clearPersistedGalleryTemplateSelection,
 	resolveGenerateTemplate,
 } from '@/services/ai-pins';
+import { isPremiumGalleryTemplate } from '@/services/ai-pins/templateHydration';
+import { resolveGalleryThumbnail } from '@/services/templates/previewCache';
 import './AIPinsPage.css';
 
 const CREATE_MODES = [
@@ -396,6 +398,23 @@ export default function AIPinsPage() {
 		}
 		return templates.find((template) => template.id === selectedTemplateId) || null;
 	}, [gallerySelectionActive, hydratedTemplate, templates, selectedTemplateId]);
+
+	const templateStepPreview = useMemo(() => {
+		if (!selectedTemplate) {
+			return { url: '', fromCache: false };
+		}
+		const resolved = resolveGalleryThumbnail(selectedTemplate);
+		if (resolved.url) return resolved;
+		return {
+			url: selectedTemplate.thumbnailUrl || selectedTemplate.thumbnail || selectedTemplate.previewUrl || '',
+			fromCache: false,
+		};
+	}, [selectedTemplate]);
+
+	const templateStepPremium = useMemo(
+		() => (selectedTemplate ? isPremiumGalleryTemplate(selectedTemplate) : false),
+		[selectedTemplate],
+	);
 
 	const selectedBrandKit = useMemo(
 		() => brandKits.find((kit) => kit.id === selectedBrandKitId) || null,
@@ -1936,6 +1955,7 @@ export default function AIPinsPage() {
 					</div>
 
 					<div className="space-y-4">
+						<p className="ai-pins-step-label">Step 1 — Select Article</p>
 						<Select label="Website" value={websiteId} onChange={(e) => setWebsiteId(e.target.value)} disabled={loadingWebsites}>
 							<option value="">Select website</option>
 							{websites.map((website) => (
@@ -2060,6 +2080,59 @@ export default function AIPinsPage() {
 							</div>
 						) : null}
 
+						<div className="ai-pins-template-step-wrap">
+							<p className="ai-pins-step-label">Step 2 — Choose Template</p>
+							<button
+								type="button"
+								className={`ai-pins-template-step ${(selectedTemplate || (gallerySelectionActive && selectedTemplateId)) ? 'has-selection' : 'is-empty'} ${templateHydrating ? 'is-loading' : ''}`}
+								onClick={handleChooseDesignLibraryTemplate}
+								disabled={templateHydrating}
+								aria-label={selectedTemplate
+									? `Change template: ${selectedTemplate.name || 'Selected template'}`
+									: 'Choose a Template'}
+							>
+								{(selectedTemplate || (gallerySelectionActive && selectedTemplateId)) ? (
+									<>
+										<div className="ai-pins-template-step__media" aria-hidden="true">
+											{templateStepPreview.url ? (
+												<img src={templateStepPreview.url} alt="" />
+											) : (
+												<div className="ai-pins-template-step__placeholder">
+													<LayoutTemplate size={28} />
+												</div>
+											)}
+											{templateStepPremium ? (
+												<span className="ai-pins-template-step__badge">Premium</span>
+											) : null}
+										</div>
+										<div className="ai-pins-template-step__body">
+											<p className="ai-pins-template-step__name">
+												{selectedTemplate?.name || (templateHydrating ? 'Loading template…' : 'Selected template')}
+											</p>
+											<p className="ai-pins-template-step__meta">
+												{selectedTemplate?.category || 'general'}
+												{templateHydrating ? ' · Loading…' : ''}
+											</p>
+											<span className="ai-pins-template-step__cta">Change Template</span>
+										</div>
+									</>
+								) : (
+									<div className="ai-pins-template-step__empty">
+										<span className="ai-pins-template-step__empty-icon" aria-hidden="true">
+											<Library size={22} />
+										</span>
+										<p className="ai-pins-template-step__empty-title">Choose a Template</p>
+										<p className="ai-pins-template-step__empty-copy">
+											Select a design before generating your pins.
+										</p>
+									</div>
+								)}
+							</button>
+							{templateHydrationError ? (
+								<p className="ai-pins-template-step__error" role="alert">{templateHydrationError}</p>
+							) : null}
+						</div>
+
 						<label className="flex items-center gap-2 text-sm">
 							<input type="checkbox" checked={includeWebsiteUrl} onChange={(e) => setIncludeWebsiteUrl(e.target.checked)} />
 							Include website URL on pin
@@ -2157,28 +2230,12 @@ export default function AIPinsPage() {
 
 						{advancedOpen ? (
 							<div className="space-y-3 rounded-2xl border border-border bg-background/60 p-3">
-								<div className="space-y-2">
-									<Select label="Template" value={gallerySelectionActive ? '' : selectedTemplateId} onChange={(e) => handleStudioTemplateChange(e.target.value)} disabled={!showTemplates || templateHydrating}>
-										<option value="">{gallerySelectionActive ? 'Clear gallery (system default)' : 'System default'}</option>
-										{templates.map((template) => (
-											<option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' (Default)' : ''}</option>
-										))}
-									</Select>
-									<Button type="button" size="sm" variant="outline" className="w-full" onClick={handleChooseDesignLibraryTemplate} disabled={templateHydrating}>
-										<Library size={13} /> Choose Template
-									</Button>
-									{templateHydrating ? (
-										<p className="text-[10px] text-muted-foreground">Loading template configuration…</p>
-									) : null}
-									{templateHydrationError ? (
-										<p className="text-[10px] text-destructive" role="alert">{templateHydrationError}</p>
-									) : null}
-									{gallerySelectionActive && hydratedTemplate && !templateHydrationError ? (
-										<p className="text-[10px] text-muted-foreground">Using gallery template: {hydratedTemplate.name}</p>
-									) : (
-										<p className="text-[10px] text-muted-foreground">Gallery is optional. Pick a studio template or open Choose Template.</p>
-									)}
-								</div>
+								<Select label="Studio template override" value={gallerySelectionActive ? '' : selectedTemplateId} onChange={(e) => handleStudioTemplateChange(e.target.value)} disabled={!showTemplates || templateHydrating}>
+									<option value="">{gallerySelectionActive ? 'Clear gallery (system default)' : 'System default'}</option>
+									{templates.map((template) => (
+										<option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' (Default)' : ''}</option>
+									))}
+								</Select>
 								<Select label="Brand Kit" value={selectedBrandKitId} onChange={(e) => setSelectedBrandKitId(e.target.value)} disabled={!showBrandKit}>
 									<option value="">No brand kit</option>
 									{brandKits.map((kit) => (
@@ -2227,6 +2284,7 @@ export default function AIPinsPage() {
 					</div>
 
 					<div className="sticky bottom-0 mt-5 space-y-2 border-t border-border/80 bg-gradient-to-t from-card via-card to-transparent pt-4">
+						<p className="ai-pins-step-label">Step 3 — Generate Pins</p>
 						<p className="text-[10px] text-muted-foreground">
 							Config v{configVersion} · {cacheStatus}{configRefreshing ? ' · refreshing' : ''}
 							{lastRefreshDurationMs ? ` · ${lastRefreshDurationMs}ms` : ''}
@@ -2638,15 +2696,12 @@ export default function AIPinsPage() {
 
 							{editingPinId ? (
 								<>
-									<Select label="Template" value={gallerySelectionActive ? '' : selectedTemplateId} onChange={(e) => handleStudioTemplateChange(e.target.value)}>
+									<Select label="Studio template override" value={gallerySelectionActive ? '' : selectedTemplateId} onChange={(e) => handleStudioTemplateChange(e.target.value)}>
 										<option value="">{gallerySelectionActive ? 'Clear gallery (system default)' : 'System default'}</option>
 										{templates.map((template) => (
 											<option key={template.id} value={template.id}>{template.name}</option>
 										))}
 									</Select>
-									<Button type="button" size="sm" variant="outline" className="w-full" onClick={handleChooseDesignLibraryTemplate} disabled={templateHydrating}>
-										<Library size={13} /> Choose Template
-									</Button>
 									{templateHydrationError ? (
 										<p className="text-[10px] text-destructive" role="alert">{templateHydrationError}</p>
 									) : null}
