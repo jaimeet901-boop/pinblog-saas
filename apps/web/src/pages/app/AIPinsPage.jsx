@@ -57,6 +57,7 @@ import { traceSourceUrl } from '@/services/ai-pins/sourceUrlTrace';
 import {
 	mapSavedPin,
 	saveDrafts,
+	ensurePinsSourceUrl,
 	duplicatePin,
 	updateDraftPin,
 	deleteDraftPin,
@@ -948,6 +949,22 @@ export default function AIPinsPage() {
 		}
 	};
 
+	const preparePinsForPublish = async (pins) => {
+		const list = Array.isArray(pins) ? pins : [];
+		if (list.length === 0) return [];
+		const repaired = await ensurePinsSourceUrl(list.map((pin) => pin.id));
+		const byId = new Map(repaired.map((pin) => [pin.id, pin]));
+		const merged = list.map((pin) => {
+			const next = byId.get(pin.id);
+			return next ? { ...pin, ...next } : pin;
+		});
+		setSavedPins((prev) => prev.map((pin) => {
+			const next = byId.get(pin.id);
+			return next ? { ...pin, ...next } : pin;
+		}));
+		return merged;
+	};
+
 	const handleStudioTemplateChange = (nextId) => {
 		setSelectedTemplateId(nextId);
 		setGallerySelectionActive(false);
@@ -1837,9 +1854,10 @@ export default function AIPinsPage() {
 	};
 
 	const runPublishNow = async (explicitPins) => {
-		const pins = resolveActionPins(explicitPins);
+		let pins = resolveActionPins(explicitPins);
 		const { accountId, boardId } = resolvePublishTargets(pins);
 		try {
+			pins = await preparePinsForPublish(pins);
 			assertPublishTargets(pins, accountId, boardId);
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Cannot publish', description: error.message });
@@ -1911,13 +1929,14 @@ export default function AIPinsPage() {
 	};
 
 	const handleScheduleSubmit = async (form) => {
-		const pins = resolveActionPins();
+		let pins = resolveActionPins();
 		if (pins.length === 0) {
 			throw new Error('Select draft pins first');
 		}
 
 		const accountId = form.accountId || resolvePublishTargets(pins).accountId;
 		const boardId = form.boardId || resolvePublishTargets(pins).boardId;
+		pins = await preparePinsForPublish(pins);
 		assertPublishTargets(pins, accountId, boardId);
 
 		setScheduling(true);
@@ -1990,9 +2009,10 @@ export default function AIPinsPage() {
 	};
 
 	const handleAddToQueue = async (explicitPins) => {
-		const pins = resolveActionPins(explicitPins);
+		let pins = resolveActionPins(explicitPins);
 		const { accountId, boardId } = resolvePublishTargets(pins);
 		try {
+			pins = await preparePinsForPublish(pins);
 			assertPublishTargets(pins, accountId, boardId);
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Cannot queue', description: error.message });

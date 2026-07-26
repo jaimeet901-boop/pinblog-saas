@@ -246,6 +246,7 @@ function buildDraftPayload(pin, panel) {
 /**
  * Persist generated preview pins as drafts.
  * Never writes empty image_url — uploads blob previews first when needed.
+ * Creates via API so production can self-heal ai_pins.source_url schema.
  */
 export async function saveDrafts({ previewPins, panel }) {
 	const pins = Array.isArray(previewPins) ? previewPins : [];
@@ -260,76 +261,91 @@ export async function saveDrafts({ previewPins, panel }) {
 		throw new Error(error?.message || 'Save Draft blocked until a hosted image URL is ready');
 	}
 
-	const records = [];
+	const payloads = [];
 	for (const pin of readyPins) {
 		const pinLabel = String(pin?.title || pin?.tempId || 'pin').slice(0, 80);
-		try {
-			const payload = buildDraftPayload(pin, panel);
-			if (!isPersistableImageUrl(payload.image_url)) {
-				throw new Error('Refusing to save draft with empty image_url');
-			}
-			let created;
-			try {
-				created = await pb.collection('ai_pins').create(payload);
-			} catch (firstError) {
-				const detail = formatPocketBaseError(firstError);
-				if (/source_url/i.test(detail)) {
-					throw new Error(
-						`Save failed for "${pinLabel}": source_url was rejected by PocketBase (${detail}). `
-						+ 'Apply migration 1783986000_ai_pins_source_url and retry — destination URL must persist.',
-					);
-				}
-				if (/image_origin/i.test(detail)) {
-					throw new Error(
-						`Save failed for "${pinLabel}": image_origin was rejected by PocketBase (${detail}). `
-						+ 'Apply migration 1783986000_ai_pins_source_url and retry.',
-					);
-				}
-				const imageSourceRejected = /image_source/i.test(detail)
-					&& payload.image_source === 'featured_composed';
-				const statusRejected = /image_generation_status/i.test(detail)
-					&& payload.image_generation_status === 'rendering';
-				if (!imageSourceRejected && !statusRejected) {
-					throw firstError;
-				}
-				// Remap legacy select values only — never drop source_url.
-				const retryPayload = { ...payload };
-				if (imageSourceRejected) retryPayload.image_source = 'featured';
-				if (statusRejected) retryPayload.image_generation_status = 'processing';
-				created = await pb.collection('ai_pins').create(retryPayload);
-			}
-			traceSourceUrl('3_database_save_record', {
-				sourceUrl: created?.source_url,
-				pinId: created?.id,
-				articleId: created?.articleId,
-				file: 'apps/web/src/services/ai-pins/draftService.js',
-				functionName: 'saveDrafts',
-				lineNumber: 268,
-			});
-			const mapped = mapSavedPin(created);
-			if (!isPersistableImageUrl(mapped.imageUrl)) {
-				throw new Error('Draft was created without a persisted image_url — contact support');
-			}
-			if (!mapped.sourceUrl) {
-				throw new Error(
-					`Draft "${pinLabel}" was created without source_url. Refusing to keep a pin that cannot be published.`,
-				);
-			}
-			traceSourceUrl('5_react_state_after_save', {
-				sourceUrl: mapped.sourceUrl,
-				pinId: mapped.id,
-				articleId: mapped.articleId,
-				file: 'apps/web/src/services/ai-pins/draftService.js',
-				functionName: 'saveDrafts',
-				lineNumber: 280,
-			});
-			records.push(mapped);
-		} catch (error) {
-			const detail = formatPocketBaseError(error, error?.message || 'Failed to create record');
-			throw new Error(`Save failed for "${pinLabel}": ${detail}`);
+		const payload = buildDraftPayload(pin, panel);
+		if (!isPersistableImageUrl(payload.image_url)) {
+			throw new Error(`Refusing to save draft with empty image_url ("${pinLabel}")`);
 		}
+		if (!payload.source_url) {
+			throw new Error(`Cannot save pin "${pinLabel}": source_url (original article URL) is required`);
+		}
+		traceSourceUrl('3_database_save_payload', {
+			sourceUrl: payload.source_url,
+			tempId: pin.tempId,
+			articleId: payload.articleId,
+			file: 'apps/web/src/services/ai-pins/draftService.js',
+			functionName: 'saveDrafts',
+			lineNumber: 268,
+		});
+		payloads.push(payload);
+	}
+
+	const response = await apiServerClient.fetch('/ai-pins/drafts', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ items: payloads }),
+	});
+	const body = await response.json().catch(() => ({}));
+	if (!response.ok) {
+		throw new Error(body?.message || `Failed to save drafts (${response.status})`);
+	}
+
+	const createdItems = Array.isArray(body.items) ? body.items : [];
+	if (createdItems.length !== payloads.length) {
+		throw new Error('Draft save returned an unexpected number of records');
+	}
+
+	const records = [];
+	for (const created of createdItems) {
+		traceSourceUrl('3_database_save_record', {
+			sourceUrl: created?.source_url,
+			pinId: created?.id,
+			articleId: created?.articleId,
+			file: 'apps/web/src/services/ai-pins/draftService.js',
+			functionName: 'saveDrafts',
+			lineNumber: 300,
+		});
+		const mapped = mapSavedPin(created);
+		if (!isPersistableImageUrl(mapped.imageUrl)) {
+			throw new Error('Draft was created without a persisted image_url — contact support');
+		}
+		if (!mapped.sourceUrl) {
+			throw new Error(
+				`Draft "${mapped.title || mapped.id}" was created without source_url. Refusing to keep a pin that cannot be published.`,
+			);
+		}
+		traceSourceUrl('5_react_state_after_save', {
+			sourceUrl: mapped.sourceUrl,
+			pinId: mapped.id,
+			articleId: mapped.articleId,
+			file: 'apps/web/src/services/ai-pins/draftService.js',
+			functionName: 'saveDrafts',
+			lineNumber: 315,
+		});
+		records.push(mapped);
 	}
 	return records;
+}
+
+/**
+ * Ensure selected pins have source_url persisted (backfill from article when missing).
+ */
+export async function ensurePinsSourceUrl(pinIds = []) {
+	const ids = (Array.isArray(pinIds) ? pinIds : []).map((id) => String(id || '').trim()).filter(Boolean);
+	if (ids.length === 0) return [];
+
+	const response = await apiServerClient.fetch('/ai-pins/pins/ensure-source-url', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ pinIds: ids }),
+	});
+	const body = await response.json().catch(() => ({}));
+	if (!response.ok) {
+		throw new Error(body?.message || `Failed to ensure destination URLs (${response.status})`);
+	}
+	return (Array.isArray(body.items) ? body.items : []).map(mapSavedPin);
 }
 
 /**

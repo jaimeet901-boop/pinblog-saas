@@ -3,12 +3,14 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { getPublicFileUrl } from '../utils/public-file-url.js';
 import logger from '../utils/logger.js';
 import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
+import { ensureAiPinsPublishFields } from '../utils/ensure-ai-pins-publish-fields.js';
 import { listWebsiteArticles } from '../services/website-article-discovery.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
 import { analyzeArticleForPin, generateImagePromptForPin, PIN_STYLES } from '../services/ai-pin-analysis.js';
 import { consumeCredits, getUserCreditUsage, recordGenerationHistory } from '../services/ai-pin-credits.js';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { uploadFiles } from '../middleware/file-upload.js';
+import { normalizeDestinationUrl } from '../utils/pin-publish-destination.js';
 
 const router = Router();
 const MAX_REFERENCE_IMAGES = 6;
@@ -647,10 +649,150 @@ router.delete('/reference-images/:id', async (req, res) => {
 	res.status(204).end();
 });
 
+/**
+ * POST /ai-pins/drafts
+ * Persist Studio preview pins. Ensures source_url schema exists, then creates via superuser.
+ */
+router.post('/drafts', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+
+	await ensureAiPinsPublishFields(pocketbaseClient);
+
+	const items = Array.isArray(req.body?.items) ? req.body.items : [];
+	if (items.length === 0) {
+		throw httpError(422, 'items must be a non-empty array');
+	}
+
+	const created = [];
+	for (const item of items) {
+		const label = String(item?.title || item?.tempId || 'pin').slice(0, 80);
+		const sourceUrl = normalizeDestinationUrl(item?.source_url || item?.sourceUrl || '');
+		if (!sourceUrl) {
+			throw httpError(422, `Cannot save "${label}": source_url (original article URL) is required`);
+		}
+
+		const payload = await sanitizeCollectionPayload({
+			collection: 'ai_pins',
+			context: 'ai-pins:create-draft',
+			requiredKeys: ['owner', 'articleId', 'websiteId', 'title', 'image_url', 'source_url'],
+			payload: {
+				...item,
+				owner: req.pocketbaseUserId,
+				source_url: sourceUrl.slice(0, 2000),
+				image_origin: String(item?.image_origin || item?.imageOrigin || '').trim().slice(0, 32),
+				status: 'draft',
+			},
+		});
+
+		if (!payload.source_url) {
+			throw httpError(500, `source_url was dropped from draft payload for "${label}" — schema ensure failed`);
+		}
+
+		let record;
+		try {
+			record = await pocketbaseClient.collection('ai_pins').create(payload);
+		} catch (error) {
+			const detail = error?.response?.message || error?.message || 'Failed to create draft';
+			const fieldData = error?.response?.data || error?.data || {};
+			if (fieldData.image_source && payload.image_source === 'featured_composed') {
+				record = await pocketbaseClient.collection('ai_pins').create({
+					...payload,
+					image_source: 'featured',
+				});
+			} else if (fieldData.image_generation_status && payload.image_generation_status === 'rendering') {
+				record = await pocketbaseClient.collection('ai_pins').create({
+					...payload,
+					image_generation_status: 'processing',
+				});
+			} else {
+				logger.error('ai-pins draft create failed', { label, detail, fieldData });
+				throw httpError(422, `Save failed for "${label}": ${detail}`);
+			}
+		}
+
+		if (!normalizeDestinationUrl(record.source_url || '')) {
+			await pocketbaseClient.collection('ai_pins').delete(record.id).catch(() => null);
+			throw httpError(
+				500,
+				`Draft "${label}" was created without source_url. Check ai_pins schema / migration 1783986000.`,
+			);
+		}
+
+		logger.info('[source-url] 3_database_save_record', {
+			pinId: record.id,
+			source_url: record.source_url,
+			articleId: record.articleId || null,
+		});
+
+		created.push(record);
+	}
+
+	res.status(201).json({ items: created });
+});
+
+/**
+ * POST /ai-pins/pins/ensure-source-url
+ * Backfill source_url on existing drafts from their linked website_articles.url.
+ */
+router.post('/pins/ensure-source-url', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+
+	await ensureAiPinsPublishFields(pocketbaseClient);
+
+	const pinIds = Array.isArray(req.body?.pinIds)
+		? req.body.pinIds.map((id) => String(id || '').trim()).filter(Boolean)
+		: [];
+	if (pinIds.length === 0) {
+		throw httpError(422, 'pinIds must be a non-empty array');
+	}
+
+	const items = [];
+	for (const pinId of pinIds) {
+		const pin = await pocketbaseClient.collection('ai_pins').getOne(pinId).catch(() => null);
+		if (!pin || getOwnerId(pin) !== req.pocketbaseUserId) {
+			throw httpError(404, `Pin ${pinId} not found`);
+		}
+
+		const existing = normalizeDestinationUrl(pin.source_url || '');
+		if (existing) {
+			items.push(pin);
+			continue;
+		}
+
+		const article = pin.articleId
+			? await pocketbaseClient.collection('website_articles').getOne(pin.articleId).catch(() => null)
+			: null;
+		const articleUrl = normalizeDestinationUrl(article?.url || '');
+		if (!articleUrl) {
+			throw httpError(
+				422,
+				`Pin "${pin.title || pin.id}" has no source_url and its article has no valid URL`,
+			);
+		}
+
+		const updated = await pocketbaseClient.collection('ai_pins').update(pin.id, {
+			source_url: articleUrl.slice(0, 2000),
+		});
+		logger.info('[source-url] repaired_from_article', {
+			pinId: pin.id,
+			source_url: updated.source_url,
+			articleId: pin.articleId,
+		});
+		items.push(updated);
+	}
+
+	res.json({ items });
+});
+
 router.patch('/pins/:pinId/editor', async (req, res) => {
 	if (!req.pocketbaseUserId) {
 		throw httpError(401, 'You must be signed in');
 	}
+	await ensureAiPinsPublishFields(pocketbaseClient);
 	const pin = await pocketbaseClient.collection('ai_pins').getOne(req.params.pinId).catch(() => null);
 	if (!pin || getOwnerId(pin) !== req.pocketbaseUserId) {
 		throw httpError(404, 'Pin not found');

@@ -38,7 +38,8 @@ import {
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
 import { resolveScheduledAtUtc } from '../utils/timezone.js';
-import { validatePinForPinterestPublish } from '../utils/pin-publish-destination.js';
+import { normalizeDestinationUrl, validatePinForPinterestPublish } from '../utils/pin-publish-destination.js';
+import { ensureAiPinsPublishFields } from '../utils/ensure-ai-pins-publish-fields.js';
 import { listPublishProviders, setPublishProvider, getPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
 import { mirrorPinterestJob } from '../services/queue/mirrors.js';
 
@@ -218,6 +219,8 @@ async function resolveTargetForPin({ owner, pin, defaultTarget, perPinTargets })
 }
 
 async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, scheduledAt, timezone }) {
+	await ensureAiPinsPublishFields(pocketbaseClient);
+
 	const pins = await getOwnedAIPins({ owner, pinIds });
 	const prepared = [];
 
@@ -250,6 +253,15 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 		const article = pin.articleId
 			? await pocketbaseClient.collection('website_articles').getOne(pin.articleId).catch(() => null)
 			: null;
+
+		if (!normalizeDestinationUrl(pin.source_url || '') && article?.url) {
+			const repairedUrl = normalizeDestinationUrl(article.url);
+			if (repairedUrl) {
+				await pocketbaseClient.collection('ai_pins').update(pin.id, { source_url: repairedUrl }).catch(() => null);
+				pin.source_url = repairedUrl;
+			}
+		}
+
 		const publishCheck = validatePinForPinterestPublish(pin, article);
 		if (!publishCheck.ok) {
 			throw httpError(422, publishCheck.errors[0] || 'Pin is not ready to publish');

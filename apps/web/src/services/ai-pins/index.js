@@ -27,6 +27,7 @@ export {
 	mapSavedPin,
 	formatPocketBaseError,
 	saveDrafts,
+	ensurePinsSourceUrl,
 	duplicatePin,
 	duplicatePinMany,
 	updateDraftPin,

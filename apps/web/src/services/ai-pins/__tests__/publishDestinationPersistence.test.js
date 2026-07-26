@@ -19,6 +19,7 @@ vi.mock('@/lib/pocketbaseClient', () => {
 	};
 });
 
+import apiServerClient from '@/lib/apiServerClient';
 import pb from '@/lib/pocketbaseClient';
 import {
 	duplicatePin,
@@ -63,6 +64,25 @@ function previewPin(overrides = {}) {
 	};
 }
 
+function savedRecord(overrides = {}) {
+	return {
+		id: 'pin_1',
+		articleId: 'art_1',
+		websiteId: 'web_1',
+		title: 'Chocolate Cake Pin',
+		description: 'Bake tonight',
+		image_url: 'https://cdn.example/pins/rendered.png',
+		image_source: 'featured_composed',
+		image_origin: 'featured',
+		source_url: 'https://blog.example/recipes/chocolate-cake',
+		status: 'draft',
+		template_id: 'tpl_1',
+		template_name: 'Gallery Hero',
+		template_configuration: SAMPLE_CONFIG,
+		...overrides,
+	};
+}
+
 describe('destination URL draft + publish persistence', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -70,23 +90,14 @@ describe('destination URL draft + publish persistence', () => {
 		pb.__mocks.create.mockReset();
 		pb.__mocks.getOne.mockReset();
 		pb.__mocks.update.mockReset();
+		apiServerClient.fetch.mockReset();
 	});
 
-	it('Save Draft stores source_url, image_origin, template, image', async () => {
-		pb.__mocks.create.mockResolvedValue({
-			id: 'pin_1',
-			articleId: 'art_1',
-			websiteId: 'web_1',
-			title: 'Chocolate Cake Pin',
-			description: 'Bake tonight',
-			image_url: 'https://cdn.example/pins/rendered.png',
-			image_source: 'featured_composed',
-			image_origin: 'featured',
-			source_url: 'https://blog.example/recipes/chocolate-cake',
-			status: 'draft',
-			template_id: 'tpl_1',
-			template_name: 'Gallery Hero',
-			template_configuration: SAMPLE_CONFIG,
+	it('Save Draft stores source_url, image_origin, template, image via API', async () => {
+		apiServerClient.fetch.mockResolvedValue({
+			ok: true,
+			status: 201,
+			json: async () => ({ items: [savedRecord()] }),
 		});
 
 		const [saved] = await saveDrafts({
@@ -94,32 +105,25 @@ describe('destination URL draft + publish persistence', () => {
 			panel: { targetAudience: '', toneOfVoice: '', language: 'en' },
 		});
 
-		const createArg = pb.__mocks.create.mock.calls[0][0];
-		expect(createArg.source_url).toContain('chocolate-cake');
-		expect(createArg.image_origin).toBe('featured');
-		expect(createArg.image_url).toContain('rendered.png');
-		expect(createArg.template_name).toBe('Gallery Hero');
+		expect(apiServerClient.fetch).toHaveBeenCalledWith(
+			'/ai-pins/drafts',
+			expect.objectContaining({ method: 'POST' }),
+		);
+		const body = JSON.parse(apiServerClient.fetch.mock.calls[0][1].body);
+		expect(body.items[0].source_url).toContain('chocolate-cake');
+		expect(body.items[0].image_origin).toBe('featured');
+		expect(body.items[0].image_url).toContain('rendered.png');
+		expect(body.items[0].template_name).toBe('Gallery Hero');
 		expect(saved.sourceUrl).toContain('chocolate-cake');
 		expect(saved.imageOrigin).toBe('featured');
 		expect(saved.templateName).toBe('Gallery Hero');
 	});
 
 	it('Reload Draft restores article URL, template, image source, image, title, description', () => {
-		const reloaded = mapSavedPin({
-			id: 'pin_1',
-			articleId: 'art_1',
-			websiteId: 'web_1',
-			title: 'Chocolate Cake Pin',
-			description: 'Bake tonight',
-			image_url: 'https://cdn.example/pins/rendered.png',
+		const reloaded = mapSavedPin(savedRecord({
 			image_source: 'ai_generated',
 			image_origin: 'ai',
-			source_url: 'https://blog.example/recipes/chocolate-cake',
-			status: 'draft',
-			template_id: 'tpl_1',
-			template_name: 'Gallery Hero',
-			template_configuration: SAMPLE_CONFIG,
-		});
+		}));
 
 		expect(reloaded.sourceUrl).toContain('chocolate-cake');
 		expect(reloaded.destinationUrl).toContain('chocolate-cake');
@@ -172,59 +176,30 @@ describe('destination URL draft + publish persistence', () => {
 			previewPins: [previewPin({ sourceUrl: '', articleUrl: '', destinationUrl: '' })],
 			panel: {},
 		})).rejects.toThrow(/source_url/i);
-		expect(pb.__mocks.create).not.toHaveBeenCalled();
+		expect(apiServerClient.fetch).not.toHaveBeenCalled();
 	});
 
-	it('Save Draft fails hard when PocketBase rejects source_url (no strip retry)', async () => {
-		pb.__mocks.create.mockRejectedValue({
-			status: 400,
-			response: {
-				message: 'Failed to create record.',
-				data: {
-					source_url: { code: 'validation_unknown_field', message: 'Unknown field.' },
-				},
-			},
+	it('Save Draft fails hard when API returns pin without source_url', async () => {
+		apiServerClient.fetch.mockResolvedValue({
+			ok: true,
+			status: 201,
+			json: async () => ({
+				items: [savedRecord({ source_url: '' })],
+			}),
 		});
 
 		await expect(saveDrafts({
 			previewPins: [previewPin()],
 			panel: {},
-		})).rejects.toThrow(/source_url was rejected/i);
-		expect(pb.__mocks.create).toHaveBeenCalledTimes(1);
-		expect(pb.__mocks.create.mock.calls[0][0].source_url).toContain('chocolate-cake');
+		})).rejects.toThrow(/without source_url/i);
 	});
 
 	it('Duplicate Draft preserves destination URL + template', async () => {
-		pb.__mocks.getOne.mockResolvedValue({
-			id: 'pin_1',
-			articleId: 'art_1',
-			websiteId: 'web_1',
-			title: 'Chocolate Cake Pin',
-			description: 'Bake tonight',
-			image_url: 'https://cdn.example/pins/rendered.png',
-			image_source: 'featured_composed',
-			image_origin: 'featured',
-			source_url: 'https://blog.example/recipes/chocolate-cake',
-			status: 'draft',
-			template_id: 'tpl_1',
-			template_name: 'Gallery Hero',
-			template_configuration: SAMPLE_CONFIG,
-		});
-		pb.__mocks.create.mockResolvedValue({
+		pb.__mocks.getOne.mockResolvedValue(savedRecord());
+		pb.__mocks.create.mockResolvedValue(savedRecord({
 			id: 'pin_2',
-			articleId: 'art_1',
-			websiteId: 'web_1',
 			title: 'Chocolate Cake Pin (Copy)',
-			description: 'Bake tonight',
-			image_url: 'https://cdn.example/pins/rendered.png',
-			image_source: 'featured_composed',
-			image_origin: 'featured',
-			source_url: 'https://blog.example/recipes/chocolate-cake',
-			status: 'draft',
-			template_id: 'tpl_1',
-			template_name: 'Gallery Hero',
-			template_configuration: SAMPLE_CONFIG,
-		});
+		}));
 
 		const copy = await duplicatePin({ id: 'pin_1' });
 		const createArg = pb.__mocks.create.mock.calls[0][0];
