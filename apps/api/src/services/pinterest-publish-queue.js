@@ -6,6 +6,7 @@ import {
 	ensureValidPinterestAccessToken,
 	getOwnedPinterestAccountById,
 	getPinterestPinPublicUrl,
+	isPinterestTrialAccessError,
 	markPinterestAccountStatus,
 	normalizePinterestError,
 } from './pinterest-api.js';
@@ -223,8 +224,12 @@ async function processJob(job) {
 			description: pin.description || '',
 			imageUrl,
 			link: targetLink,
+			account: tokenState.account || account,
 		});
 	} catch (error) {
+		if (isPinterestTrialAccessError(error)) {
+			throw normalizePinterestError(error);
+		}
 		if (error?.status === 401 || error?.pinterestStatus === 401) {
 			logger.warn('[pinterest-publish] createPin returned 401 — forcing refresh then retry', {
 				jobId: job.id,
@@ -232,6 +237,7 @@ async function processJob(job) {
 				tokenUsed: describePinterestTokenState(tokenState.account, {
 					accessToken: tokenState.accessToken,
 				}),
+				pinterestDiagnostics: error?.pinterestDiagnostics || null,
 			});
 
 			// Re-load secrets from DB so we never retry with the rejected access token.
@@ -255,6 +261,7 @@ async function processJob(job) {
 					description: pin.description || '',
 					imageUrl,
 					link: targetLink,
+					account: refreshed || freshAccount,
 				});
 			} catch (refreshError) {
 				await markPinterestAccountStatus({
@@ -470,12 +477,18 @@ async function processDueJobs() {
 			} catch (error) {
 				const normalized = normalizePinterestError(error);
 				failedTotal += 1;
-				lastErrorMessage = normalized.message;
-				logger.warn(`Pinterest publish failed for job ${locked.id}: ${normalized.message}`);
+				const storedError = normalized.message;
+				lastErrorMessage = storedError;
+				logger.warn(`Pinterest publish failed for job ${locked.id}`, {
+					errorCode: normalized.errorCode || null,
+					retryable: normalized.retryable !== false,
+					pinterestDiagnostics: normalized.pinterestDiagnostics || null,
+					message: storedError,
+				});
 				const nextAttempts = (locked.attempt_count || 0) + 1;
 				const maxAttempts = locked.max_attempts || 3;
 				const exhausted = nextAttempts >= maxAttempts;
-				const shouldRetry = !exhausted;
+				const shouldRetry = !exhausted && normalized.retryable !== false;
 				const nextRetryAt = shouldRetry
 					? nextRetryDate({ retryAfter: normalized.retryAfter || 0, attemptCount: nextAttempts })
 					: null;
@@ -486,7 +499,7 @@ async function processDueJobs() {
 					payload: {
 						status: shouldRetry ? 'scheduled' : 'failed',
 						attempt_count: nextAttempts,
-						last_error: normalized.message,
+						last_error: storedError,
 						next_retry_at: nextRetryAt,
 					},
 				});
@@ -497,24 +510,28 @@ async function processDueJobs() {
 					...locked,
 					status: shouldRetry ? 'scheduled' : 'failed',
 					attempt_count: nextAttempts,
-					last_error: normalized.message,
+					last_error: storedError,
 					next_retry_at: nextRetryAt,
 				}, null, shouldRetry ? 'Pinterest publish retry scheduled' : 'Pinterest publish failed').catch(() => null);
 
 				await markPinStatus(locked.ai_pin, {
 					status: shouldRetry ? 'scheduled' : 'failed',
-					publish_error: normalized.message,
+					publish_error: storedError,
 				});
 
 				await appendPublishEvent({
 					owner: locked.owner,
 					jobId: locked.id,
 					eventType: shouldRetry ? 'retry_scheduled' : 'failed',
-					message: normalized.message,
+					message: storedError,
 					payload: {
 						attempt: nextAttempts,
 						maxAttempts,
 						nextRetryAt,
+						errorCode: normalized.errorCode || null,
+						retryable: normalized.retryable !== false,
+						pinterestDiagnostics: normalized.pinterestDiagnostics || null,
+						rawResponseBody: normalized.rawResponseBody || null,
 					},
 				});
 
@@ -542,7 +559,11 @@ async function processDueJobs() {
 						error: normalized.message,
 						attemptCount: nextAttempts,
 						publishedAt: new Date().toISOString(),
-						meta: { maxAttempts },
+						meta: {
+							maxAttempts,
+							pinterestDiagnostics: normalized.pinterestDiagnostics || null,
+							rawResponseBody: normalized.rawResponseBody || null,
+						},
 					});
 					await enqueueAnalyticsRefresh(locked.owner).catch(() => null);
 				}

@@ -4,6 +4,7 @@
  */
 
 import apiServerClient from '@/lib/apiServerClient';
+import { formatPinterestPublishError } from './pinterestErrors.js';
 
 const TERMINAL = new Set(['published', 'failed', 'cancelled']);
 
@@ -139,7 +140,7 @@ export function summarizePublishResult(jobs = []) {
 			status: job.status,
 			pinId: job.pinterestPinId || '',
 			pinUrl: job.pinterestPinUrl || '',
-			error: job.lastError || '',
+			error: formatPinterestPublishError(job.lastError || ''),
 			attemptCount: job.attemptCount || 0,
 			boardName: job.boardName || '',
 			accountLabel: job.accountLabel || '',

@@ -28,6 +28,25 @@ function httpError(status, message, extras = {}) {
 	return error;
 }
 
+export function isPinterestTrialAccessError(errorOrMessage) {
+	const text = String(
+		errorOrMessage?.rawResponseBody
+		|| errorOrMessage?.originalMessage
+		|| errorOrMessage?.message
+		|| (typeof errorOrMessage?.responseBody === 'object'
+			? JSON.stringify(errorOrMessage.responseBody)
+			: errorOrMessage?.responseBody)
+		|| errorOrMessage
+		|| '',
+	).toLowerCase();
+	if (!text.includes('trial access')) {
+		return false;
+	}
+	return text.includes('create pin')
+		|| text.includes('may not create')
+		|| text.includes('production');
+}
+
 function normalizeDate(value) {
 	if (!value) {
 		return '';
@@ -193,6 +212,7 @@ export function mapAccount(record) {
 		connectedAt: normalizeDate(record.connected_at || record.created),
 		expiresAt: normalizeDate(record.token_expires_at),
 		tokenExpiresAt: normalizeDate(record.token_expires_at),
+		oauthAppId: record.oauth_app_id || '',
 		lastSyncAt: normalizeDate(record.last_sync_at),
 		createdAt: normalizeDate(record.created),
 		updatedAt: normalizeDate(record.updated),
@@ -323,7 +343,73 @@ export async function getOwnedPinterestBoard({ owner, boardId, accountId = '' })
 	return board;
 }
 
-async function pinterestRequest({ path, method = 'GET', accessToken, body, isForm = false }) {
+function readPinterestRequestId(response, payload) {
+	return String(
+		response.headers.get('x-pinterest-rid')
+		|| response.headers.get('x-request-id')
+		|| response.headers.get('pinterest-rid')
+		|| payload?.request_id
+		|| payload?.requestId
+		|| '',
+	).trim();
+}
+
+/**
+ * Exact failure dump for logs + UI. Does not rewrite Pinterest's response body.
+ */
+export function formatPinterestApiFailureReport(diagnostics = {}) {
+	const match = diagnostics.tokenBelongsToSameAppId;
+	const matchLabel = match === true ? 'yes' : match === false ? 'no' : 'unknown';
+	const body = diagnostics.responseBodyRaw != null && String(diagnostics.responseBodyRaw).length > 0
+		? String(diagnostics.responseBodyRaw)
+		: (diagnostics.responseBody != null
+			? JSON.stringify(diagnostics.responseBody, null, 2)
+			: '(empty)');
+
+	return [
+		`endpoint: ${diagnostics.endpoint || '(unknown)'}`,
+		`http_status: ${diagnostics.httpStatus ?? '(unknown)'}`,
+		`request_id: ${diagnostics.requestId || '(none)'}`,
+		`client_id: ${diagnostics.clientId || '(none)'}`,
+		`oauth_app_id: ${diagnostics.oauthAppId || '(none)'}`,
+		`token_oauth_app_id: ${diagnostics.tokenAppId || '(none)'}`,
+		`token_belongs_to_same_app_id: ${matchLabel}`,
+		'response_body:',
+		body,
+	].join('\n');
+}
+
+async function resolvePinterestRequestDiagnosticsContext(context = {}) {
+	const credentials = context.credentials || await getPinterestAppCredentials().catch(() => null);
+	const oauthAppId = String(credentials?.appId || context.oauthAppId || '').trim();
+	const clientId = String(context.clientId || oauthAppId || '').trim();
+	const tokenAppId = String(
+		context.tokenAppId
+		|| context.account?.oauth_app_id
+		|| context.account?.oauthAppId
+		|| '',
+	).trim();
+	const tokenBelongsToSameAppId = tokenAppId && oauthAppId
+		? tokenAppId === oauthAppId
+		: null;
+
+	return {
+		credentials,
+		clientId,
+		oauthAppId,
+		tokenAppId: tokenAppId || null,
+		tokenBelongsToSameAppId,
+	};
+}
+
+async function pinterestRequest({
+	path,
+	method = 'GET',
+	accessToken,
+	body,
+	isForm = false,
+	diagnosticsContext = {},
+}) {
 	const headers = {
 		Authorization: `Bearer ${accessToken}`,
 		Accept: 'application/json',
@@ -333,7 +419,8 @@ async function pinterestRequest({ path, method = 'GET', accessToken, body, isFor
 		headers['Content-Type'] = isForm ? 'application/x-www-form-urlencoded' : 'application/json';
 	}
 
-	const response = await fetch(`${PINTEREST_API_BASE}${path}`, {
+	const endpoint = `${PINTEREST_API_BASE}${path}`;
+	const response = await fetch(endpoint, {
 		method,
 		headers,
 		body: method === 'GET' ? undefined : (isForm ? body : JSON.stringify(body || {})),
@@ -345,13 +432,34 @@ async function pinterestRequest({ path, method = 'GET', accessToken, body, isFor
 		try {
 			payload = JSON.parse(text);
 		} catch {
-			payload = { message: text || response.statusText };
+			payload = text || response.statusText;
 		}
 
-		const message = payload?.message || payload?.error || response.statusText || 'Pinterest API request failed';
-		throw httpError(response.status, message, {
+		const ctx = await resolvePinterestRequestDiagnosticsContext(diagnosticsContext);
+		const requestId = readPinterestRequestId(response, typeof payload === 'object' ? payload : null);
+		const diagnostics = {
+			endpoint: `${method} ${endpoint}`,
+			httpStatus: response.status,
+			responseBody: payload,
+			responseBodyRaw: text,
+			requestId,
+			clientId: ctx.clientId,
+			oauthAppId: ctx.oauthAppId,
+			tokenAppId: ctx.tokenAppId,
+			tokenBelongsToSameAppId: ctx.tokenBelongsToSameAppId,
+		};
+
+		logger.error('[pinterest-api] request failed — raw response', diagnostics);
+
+		const report = formatPinterestApiFailureReport(diagnostics);
+		const trial = isPinterestTrialAccessError(text) || isPinterestTrialAccessError(payload);
+		throw httpError(response.status, report, {
 			pinterestStatus: response.status,
 			retryAfter: Number.parseInt(response.headers.get('retry-after') || '0', 10) || 0,
+			retryable: trial ? false : true,
+			errorCode: trial ? 'PINTEREST_TRIAL_ACCESS' : 'PINTEREST_API_ERROR',
+			pinterestDiagnostics: diagnostics,
+			rawResponseBody: text,
 		});
 	}
 
@@ -518,7 +626,16 @@ export async function refreshPinterestAccessToken({ account }) {
 		scope: scope || account.scope || '',
 		access_token: '',
 		refresh_token: '',
-	});
+		oauth_app_id: String((await getPinterestAppCredentials().catch(() => null))?.appId || account.oauth_app_id || '').trim(),
+	}).catch(async () => pocketbaseClient.collection('pinterest_accounts').update(account.id, {
+		token_expires_at: expiresAt,
+		connected: true,
+		status: 'connected',
+		status_error: '',
+		scope: scope || account.scope || '',
+		access_token: '',
+		refresh_token: '',
+	}));
 
 	// Always replace access ciphertext. Keep prior refresh only when Pinterest
 	// does not rotate it in this response.
@@ -765,7 +882,16 @@ export async function syncPinterestBoardsForOwner({ owner, account }) {
 	return refreshedBoards.map(mapBoard);
 }
 
-export async function createPinterestPin({ accessToken, boardId, title, description, imageUrl, link }) {
+export async function createPinterestPin({
+	accessToken,
+	boardId,
+	title,
+	description,
+	imageUrl,
+	link,
+	account = null,
+	credentials = null,
+}) {
 	const destination = String(link || '').trim();
 	if (!destination) {
 		const error = new Error('Pinterest pin destination URL (link) is required');
@@ -789,6 +915,7 @@ export async function createPinterestPin({ accessToken, boardId, title, descript
 		method: 'POST',
 		accessToken,
 		body,
+		diagnosticsContext: { account, credentials },
 	});
 }
 
@@ -799,19 +926,60 @@ export function getPinterestPinPublicUrl(pinterestPinId) {
 	return `https://www.pinterest.com/pin/${encodeURIComponent(pinterestPinId)}/`;
 }
 
+export const PINTEREST_TRIAL_ACCESS_UI_MESSAGE = 'Your Pinterest developer app is still in Trial Access. Production publishing is not yet allowed.';
+
+/** Pass-through — never rewrite Pinterest API error text. */
+export function formatPinterestPublishError(message) {
+	return message == null ? '' : String(message);
+}
+
+/**
+ * Preserve the exact Pinterest failure report. Only annotate retryability.
+ * Does not rewrite message / response body.
+ */
 export function normalizePinterestError(error) {
-	if (error?.status === 401 || error?.pinterestStatus === 401) {
-		return httpError(401, 'Pinterest token expired. Please reconnect your account.');
+	if (!error) {
+		return httpError(500, 'Pinterest request failed', { retryable: true });
 	}
-	if (error?.status === 429 || error?.pinterestStatus === 429) {
-		return httpError(429, 'Pinterest API rate limit reached. The job will retry automatically.', {
-			retryAfter: error?.retryAfter || 0,
-		});
-	}
-	if (error?.status) {
+
+	if (error.pinterestDiagnostics) {
+		if (error.retryable == null) {
+			error.retryable = !isPinterestTrialAccessError(error);
+		}
+		if (!error.errorCode && isPinterestTrialAccessError(error)) {
+			error.errorCode = 'PINTEREST_TRIAL_ACCESS';
+		}
 		return error;
 	}
-	return httpError(500, error?.message || 'Pinterest request failed');
+
+	if (isPinterestTrialAccessError(error)) {
+		if (error.retryable == null) {
+			error.retryable = false;
+		}
+		if (!error.errorCode) {
+			error.errorCode = 'PINTEREST_TRIAL_ACCESS';
+		}
+		return error.status ? error : httpError(403, error.message, {
+			retryable: false,
+			errorCode: 'PINTEREST_TRIAL_ACCESS',
+			rawResponseBody: error.message,
+		});
+	}
+
+	if (error?.status === 429 || error?.pinterestStatus === 429) {
+		if (error.retryable == null) {
+			error.retryable = true;
+		}
+		return error;
+	}
+
+	if (error?.status) {
+		if (error.retryable == null) {
+			error.retryable = true;
+		}
+		return error;
+	}
+	return httpError(500, error?.message || 'Pinterest request failed', { retryable: true });
 }
 
 export async function markPinterestAccountStatus({ accountId, status, statusError = '' }) {

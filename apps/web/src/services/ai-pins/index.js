@@ -34,6 +34,11 @@ export {
 	deleteDraftPin,
 } from './draftService.js';
 export {
+	formatPinterestPublishError,
+	isPinterestTrialAccessError,
+	PINTEREST_TRIAL_ACCESS_UI_MESSAGE,
+} from './pinterestErrors.js';
+export {
 	isPersistableImageUrl,
 	isBlobImageUrl,
 	canSavePinDraft,

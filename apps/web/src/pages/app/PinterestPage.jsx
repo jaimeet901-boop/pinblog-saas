@@ -971,7 +971,7 @@ export default function PinterestPage() {
 										<div className="flex items-start justify-between gap-3">
 											<div className="min-w-0">
 												<p className="truncate text-sm font-medium">{job.pin?.title || 'Failed pin'}</p>
-												<p className="mt-1 text-xs text-destructive">{job.lastError || 'Publish failed'}</p>
+												<pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-destructive">{job.lastError || 'Publish failed'}</pre>
 											</div>
 											<Button size="sm" variant="outline" onClick={() => runJobAction('retry', job.id)}>
 												{jobActionId === `retry-${job.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw size={14} />} Retry

@@ -3040,7 +3040,11 @@ export default function AIPinsPage() {
 													<Badge tone={pin.status === 'failed' ? 'red' : 'amber'}>{pin.status}</Badge>
 													<p className="truncate text-sm font-medium">{pin.title}</p>
 												</div>
-												{pin.publishError ? <p className="text-xs text-destructive">{pin.publishError}</p> : null}
+												{pin.publishError ? (
+													<pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-destructive">
+														{pin.publishError}
+													</pre>
+												) : null}
 												{pin.scheduledAt ? <p className="text-xs text-muted-foreground">Scheduled {new Date(pin.scheduledAt).toLocaleString()}</p> : null}
 											</div>
 											<div className="flex gap-2">

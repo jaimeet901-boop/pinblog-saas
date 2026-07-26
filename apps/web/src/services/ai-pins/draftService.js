@@ -21,6 +21,7 @@ import {
 	resolvePinDestinationUrl,
 } from '@/lib/pinPublishDestination.js';
 import { traceSourceUrl } from './sourceUrlTrace.js';
+import { formatPinterestPublishError } from './pinterestErrors.js';
 
 const IMAGE_SOURCE_VALUES = new Set([
 	'featured',
@@ -156,7 +157,7 @@ export function mapSavedPin(pin) {
 		boardId: pin.pinterest_board_id || '',
 		boardName: pin.pinterest_board_name || '',
 		pinterestPinUrl: pin.pinterest_pin_url || '',
-		publishError: pin.publish_error || '',
+		publishError: formatPinterestPublishError(pin.publish_error || ''),
 		publishJobId: pin.publish_job_id || '',
 		targetAudience: pin.target_audience,
 		toneOfVoice: pin.tone_of_voice,

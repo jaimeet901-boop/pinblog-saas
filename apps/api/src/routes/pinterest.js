@@ -550,6 +550,7 @@ router.get('/oauth/callback', async (req, res) => {
 			last_sync_at: '',
 			workspace_id: workspaceId,
 			workspace_key: workspaceKey,
+			oauth_app_id: String((await getPinterestAppCredentials().catch(() => null))?.appId || '').trim(),
 		};
 		if (workspaceId) {
 			payload.workspace = workspaceId;
@@ -563,6 +564,7 @@ router.get('/oauth/callback', async (req, res) => {
 				delete legacyPayload.workspace;
 				delete legacyPayload.workspace_id;
 				delete legacyPayload.workspace_key;
+				delete legacyPayload.oauth_app_id;
 				return pocketbaseClient.collection('pinterest_accounts').update(targetAccount.id, legacyPayload);
 			});
 		} else {
@@ -571,6 +573,7 @@ router.get('/oauth/callback', async (req, res) => {
 				delete legacyPayload.workspace;
 				delete legacyPayload.workspace_id;
 				delete legacyPayload.workspace_key;
+				delete legacyPayload.oauth_app_id;
 				return pocketbaseClient.collection('pinterest_accounts').create(legacyPayload);
 			});
 		}

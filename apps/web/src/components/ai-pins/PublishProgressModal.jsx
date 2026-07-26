@@ -74,7 +74,11 @@ export default function PublishProgressModal({
 									</a>
 								) : null}
 								{item.pinId ? <p className="mt-1 text-[11px] text-muted-foreground">Pin ID: {item.pinId}</p> : null}
-								{item.error ? <p className="mt-1 text-xs text-destructive">{item.error}</p> : null}
+								{item.error ? (
+									<pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-destructive/5 p-2 text-[11px] leading-relaxed text-destructive">
+										{item.error}
+									</pre>
+								) : null}
 							</div>
 						))}
 					</div>

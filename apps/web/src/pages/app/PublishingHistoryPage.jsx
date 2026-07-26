@@ -742,7 +742,7 @@ export default function PublishingHistoryPage() {
 							{selected.lastError ? (
 								<div>
 									<p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Error message</p>
-									<div className="pub-box is-error">{selected.lastError}</div>
+									<div className="pub-box is-error whitespace-pre-wrap break-words text-[11px] leading-relaxed">{selected.lastError}</div>
 								</div>
 							) : null}
 
