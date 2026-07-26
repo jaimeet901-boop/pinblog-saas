@@ -30,7 +30,14 @@ export const LAYER_TYPES = Object.freeze([
 
 export const TEMPLATE_CATEGORIES = Object.freeze([
 	'recipes',
+	'dinner',
+	'breakfast',
 	'desserts',
+	'snacks',
+	'drinks',
+	'healthy',
+	'lifestyle',
+	'home',
 	'fitness',
 	'travel',
 	'finance',

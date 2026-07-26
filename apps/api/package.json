@@ -7,7 +7,7 @@
 		"dev": "node --trace-deprecation --env-file=.env src/main.js",
 		"start": "node --env-file=.env src/main.js",
 		"lint": "eslint . --quiet",
-		"test": "node --test src/services/workspace-config.test.js"
+		"test": "node --test src/services/workspace-config.test.js src/services/official-pin-template-catalog.test.js"
 	},
 	"dependencies": {
 		"cors": "^2.8.5",

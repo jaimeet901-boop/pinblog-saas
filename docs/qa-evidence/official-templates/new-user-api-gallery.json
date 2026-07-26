@@ -1,0 +1,27 @@
+{
+  "userA": "hdxck20ki2su2d6",
+  "userB": "yn7aqxrxzkvanud",
+  "statusA": 200,
+  "statusB": 200,
+  "countA": 24,
+  "countB": 24,
+  "totalA": 24,
+  "totalB": 24,
+  "uuidUniqueA": 24,
+  "uuidUniqueB": 24,
+  "sameSet": true,
+  "allPublished": true,
+  "categories": [
+    "breakfast",
+    "desserts",
+    "dinner",
+    "drinks",
+    "fitness",
+    "general",
+    "healthy",
+    "lifestyle",
+    "recipes",
+    "snacks",
+    "travel"
+  ]
+}

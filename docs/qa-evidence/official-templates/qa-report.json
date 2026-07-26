@@ -1,0 +1,32 @@
+{
+  "ready": {
+    "count": 24,
+    "uuidUnique": 24,
+    "categories": [
+      "breakfast",
+      "desserts",
+      "dinner",
+      "drinks",
+      "fitness",
+      "general",
+      "healthy",
+      "lifestyle",
+      "recipes",
+      "snacks",
+      "travel"
+    ],
+    "rendered": 5
+  },
+  "consoleErrors": [],
+  "outDir": "C:\\Users\\user\\Documents\\trae_projects\\pinblog-saas\\pinblog-saas\\docs\\qa-evidence\\official-templates",
+  "files": [
+    "gallery-full.png",
+    "generated-pins-5.png",
+    "page-overview.png",
+    "pin-1.png",
+    "pin-2.png",
+    "pin-3.png",
+    "pin-4.png",
+    "pin-5.png"
+  ]
+}

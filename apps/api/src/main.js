@@ -19,6 +19,7 @@ import { startAuditRetentionWorker, stopAuditRetentionWorker } from './services/
 import { startHealthMonitorWorker, stopHealthMonitorWorker } from './services/health/worker.js';
 import { ensurePinterestAppCredentialsSeeded } from './services/pinterest-app-credentials.js';
 import { ensurePlatformSettingsSeeded } from './services/platform-settings.js';
+import { ensureOfficialPinTemplatesSeeded } from './services/official-pin-templates-seed.js';
 
 const app = express();
 
@@ -136,6 +137,9 @@ app.listen(port, () => {
 	});
 	ensurePlatformSettingsSeeded().catch((error) => {
 		logger.warn('Platform settings seed skipped:', error?.message || error);
+	});
+	ensureOfficialPinTemplatesSeeded().catch((error) => {
+		logger.warn('Official pin templates seed skipped:', error?.message || error);
 	});
 	startPinterestPublishQueue();
 	startPinterestAnalyticsSync();

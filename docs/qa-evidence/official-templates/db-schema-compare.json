@@ -1,0 +1,99 @@
+[
+  {
+    "label": "apps/pocketbase/pb_data/data.db",
+    "cols": [
+      "configuration",
+      "created",
+      "id",
+      "is_default",
+      "name",
+      "owner",
+      "thumbnail",
+      "updated"
+    ],
+    "hasVisibility": false,
+    "hasUuid": false,
+    "count": 0,
+    "users": 0
+  },
+  {
+    "label": "apps/pocketbase/pb_data_release_fresh/data.db",
+    "cols": [
+      "configuration",
+      "created",
+      "id",
+      "is_default",
+      "name",
+      "owner",
+      "thumbnail",
+      "updated",
+      "workspace_id",
+      "created_by",
+      "deleted_at",
+      "category",
+      "editor_version",
+      "schema_version",
+      "status",
+      "visibility",
+      "last_used_at",
+      "use_count",
+      "variant_group_id",
+      "brand_kit",
+      "marketplace_meta",
+      "template_uuid",
+      "config_checksum",
+      "revision"
+    ],
+    "hasVisibility": true,
+    "hasUuid": true,
+    "count": 0,
+    "users": 0
+  },
+  {
+    "label": "apps/pocketbase/pb_data_release_upgrade/data.db",
+    "cols": [
+      "configuration",
+      "created",
+      "id",
+      "is_default",
+      "name",
+      "owner",
+      "thumbnail",
+      "updated"
+    ],
+    "hasVisibility": false,
+    "hasUuid": false,
+    "count": 0,
+    "users": 0
+  },
+  {
+    "label": "apps/pocketbase/pb_data_m1_test/data.db",
+    "cols": [
+      "configuration",
+      "created",
+      "id",
+      "is_default",
+      "name",
+      "owner",
+      "thumbnail",
+      "updated",
+      "workspace_id",
+      "created_by",
+      "deleted_at",
+      "category",
+      "editor_version",
+      "schema_version",
+      "status",
+      "visibility",
+      "last_used_at",
+      "use_count",
+      "variant_group_id",
+      "brand_kit",
+      "marketplace_meta"
+    ],
+    "hasVisibility": true,
+    "hasUuid": false,
+    "count": 0,
+    "users": 0
+  }
+]

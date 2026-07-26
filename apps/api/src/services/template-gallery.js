@@ -147,6 +147,8 @@ function buildOwnerFilter(req) {
 	if (workspaceId) {
 		parts.push(`workspace_id = "${escapeFilterValue(workspaceId)}"`);
 	}
+	// Platform built-in library — visible to every authenticated workspace user.
+	parts.push(`visibility = "official"`);
 	return `(${parts.join(' || ')})`;
 }
 
@@ -321,7 +323,8 @@ export async function getPinTemplate(req, id) {
 	const isOwner = record.owner === req.pocketbaseUserId;
 	const sameWorkspace = record.workspace_id && record.workspace_id === req.workspace?.id;
 	const sharedVisibility = ['workspace', 'public', 'official', 'community'].includes(record.visibility);
-	if (!isOwner && !(sameWorkspace && sharedVisibility)) {
+	const isOfficialLibrary = record.visibility === 'official';
+	if (!isOwner && !isOfficialLibrary && !(sameWorkspace && sharedVisibility)) {
 		throw httpError(404, 'Template not found', 'NOT_FOUND');
 	}
 

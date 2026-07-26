@@ -2191,7 +2191,7 @@ export default function AIPinsPage() {
 										</span>
 										<p className="ai-pins-template-step__empty-title">Choose a Template</p>
 										<p className="ai-pins-template-step__empty-copy">
-											Select a design before generating your pins.
+											Browse the Chef IA library and pick a ready-made pin design.
 										</p>
 									</div>
 								)}

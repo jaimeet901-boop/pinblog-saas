@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<title>Chef IA Official Template Visual QA</title>
+	<style>
+		body { margin: 0; font-family: Georgia, serif; background: #f4f0ea; color: #1c1917; }
+		header { padding: 1.25rem 1.5rem; background: #1c1917; color: #fafaf9; }
+		header h1 { margin: 0; font-size: 1.4rem; }
+		header p { margin: 0.35rem 0 0; opacity: 0.8; font-size: 0.9rem; }
+		.meta { padding: 0.75rem 1.5rem; background: #fff; border-bottom: 1px solid #ddd; font-size: 0.85rem; }
+		h2 { margin: 1.25rem 1.5rem 0.75rem; font-size: 1.1rem; }
+		.gallery {
+			display: grid;
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+			gap: 1rem;
+			padding: 0 1.5rem 1.5rem;
+		}
+		.card {
+			background: #fff;
+			border: 1px solid #ddd;
+			border-radius: 12px;
+			overflow: hidden;
+		}
+		.card.is-selected { outline: 3px solid #b45309; }
+		.card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: #ddd; }
+		.card .label { padding: 0.55rem 0.7rem; background: #1c1917; color: #fff; font-size: 0.78rem; }
+		.card .sub { opacity: 0.7; font-size: 0.68rem; }
+		.pins {
+			display: grid;
+			grid-template-columns: repeat(5, minmax(0, 1fr));
+			gap: 1rem;
+			padding: 0 1.5rem 2rem;
+		}
+		.pin { background: #fff; border: 1px solid #ddd; border-radius: 12px; overflow: hidden; }
+		.pin img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
+		.pin .label { padding: 0.55rem 0.7rem; font-size: 0.75rem; }
+		.status { color: #166534; }
+		.error { color: #b91c1c; }
+	</style>
+</head>
+<body>
+	<header>
+		<h1>Chef IA — Official Template Visual QA</h1>
+		<p>Gallery thumbs + 5 generated pins from the same article (Template Engine renderer).</p>
+	</header>
+	<div class="meta" id="meta">Loading catalog…</div>
+	<h2>1. Choose Template gallery (24 official)</h2>
+	<div class="gallery" id="gallery"></div>
+	<h2>2. Same article · five templates</h2>
+	<div class="pins" id="pins"></div>
+
+	<script type="module">
+		import { listOfficialPinTemplateCatalog } from '/src/lib/officialPinTemplateCatalog.generated.js';
+		import { renderFeaturedPinToBlob } from '/src/lib/pinCanvasRenderer.js';
+
+		const ARTICLE = {
+			title: 'Greek Lemon Herb Chicken Bowl',
+			subtitle: 'Weeknight dinner',
+			category: 'Dinner',
+			website: 'chefia.demo',
+		};
+
+		// Neutral food-like gradient as featured image (no copyrighted stock).
+		function makeFeaturedDataUrl() {
+			const c = document.createElement('canvas');
+			c.width = 1000;
+			c.height = 1500;
+			const ctx = c.getContext('2d');
+			const g = ctx.createLinearGradient(0, 0, 1000, 1500);
+			g.addColorStop(0, '#7c2d12');
+			g.addColorStop(0.45, '#b45309');
+			g.addColorStop(1, '#1c1917');
+			ctx.fillStyle = g;
+			ctx.fillRect(0, 0, 1000, 1500);
+			ctx.fillStyle = 'rgba(254,243,199,0.25)';
+			ctx.beginPath();
+			ctx.arc(720, 420, 260, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.fillStyle = 'rgba(255,255,255,0.12)';
+			ctx.beginPath();
+			ctx.ellipse(420, 900, 340, 180, -0.3, 0, Math.PI * 2);
+			ctx.fill();
+			return c.toDataURL('image/jpeg', 0.92);
+		}
+
+		const catalog = listOfficialPinTemplateCatalog();
+		const uuids = catalog.map((e) => e.templateUuid);
+		const categories = [...new Set(catalog.map((e) => e.category))].sort();
+		const sampleIds = [
+			'chefia-official-centered-hero',
+			'chefia-official-top-title-bottom-cta',
+			'chefia-official-white-rounded-card',
+			'chefia-official-glass-panel',
+			'chefia-official-healthy-clean-card',
+		];
+
+		const meta = document.getElementById('meta');
+		meta.innerHTML = `<span class="status">count=${catalog.length}</span> · uuidUnique=${new Set(uuids).size} · categories=${categories.length} (${categories.join(', ')})`;
+
+		const gallery = document.getElementById('gallery');
+		for (const entry of catalog) {
+			const card = document.createElement('div');
+			card.className = 'card' + (sampleIds.includes(entry.templateUuid) ? ' is-selected' : '');
+			card.dataset.uuid = entry.templateUuid;
+			card.innerHTML = `
+				<img src="${entry.thumbnail}" alt="" />
+				<div class="label">
+					<div>${entry.name}</div>
+					<div class="sub">${entry.category} · ${entry.configuration?.layout?.textPosition}/${entry.configuration?.layout?.ctaPosition}/${entry.configuration?.layout?.frameStyle}</div>
+				</div>`;
+			gallery.appendChild(card);
+		}
+
+		const featuredImageUrl = makeFeaturedDataUrl();
+		const pins = document.getElementById('pins');
+		const samples = sampleIds.map((id) => catalog.find((e) => e.templateUuid === id)).filter(Boolean);
+
+		for (const entry of samples) {
+			const wrap = document.createElement('div');
+			wrap.className = 'pin';
+			wrap.innerHTML = `<div class="label">Rendering ${entry.name}…</div>`;
+			pins.appendChild(wrap);
+			try {
+				const blob = await renderFeaturedPinToBlob({
+					featuredImageUrl,
+					templateConfig: entry.configuration,
+					context: {
+						title: ARTICLE.title,
+						subtitle: ARTICLE.subtitle,
+						overlayText: ARTICLE.category,
+					},
+					websiteDomain: ARTICLE.website,
+				});
+				const url = URL.createObjectURL(blob);
+				wrap.innerHTML = `
+					<img src="${url}" alt="${entry.name}" />
+					<div class="label"><strong>${entry.name}</strong><br/><span class="sub">${entry.category}</span></div>`;
+			} catch (error) {
+				wrap.innerHTML = `<div class="label error">${entry.name}: ${error.message}</div>`;
+			}
+		}
+
+		window.__QA_READY__ = {
+			count: catalog.length,
+			uuidUnique: new Set(uuids).size,
+			categories,
+			rendered: samples.length,
+		};
+	</script>
+</body>
+</html>

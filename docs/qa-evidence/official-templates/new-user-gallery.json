@@ -1,0 +1,62 @@
+{
+  "pb": "http://127.0.0.1:18111",
+  "seed": {
+    "seeded": 24,
+    "updated": 0,
+    "skipped": false
+  },
+  "userA": {
+    "id": "8tf8fzp3e20wrz1"
+  },
+  "userB": {
+    "id": "2pelberg1wcpslu"
+  },
+  "countA": 24,
+  "countB": 0,
+  "totalItemsA": 24,
+  "totalItemsB": 0,
+  "uuidUniqueA": 24,
+  "uuidUniqueB": 0,
+  "allPublishedA": true,
+  "allOfficialA": true,
+  "sameSet": false,
+  "categories": [
+    "breakfast",
+    "desserts",
+    "dinner",
+    "drinks",
+    "fitness",
+    "general",
+    "healthy",
+    "lifestyle",
+    "recipes",
+    "snacks",
+    "travel"
+  ],
+  "names": [
+    "Centered hero",
+    "Title top · CTA bottom",
+    "Dark title box",
+    "White rounded card",
+    "Brush stroke headline",
+    "Ribbon banner",
+    "Magazine editorial",
+    "Minimal modern",
+    "Bold typography",
+    "Handwritten accent",
+    "Soft floating card",
+    "Glass panel",
+    "Banner strip",
+    "Polaroid memory",
+    "Inset luxury frame",
+    "Left-rail editorial",
+    "Top badge + title",
+    "Bottom luxury stack",
+    "Center script hero",
+    "Healthy clean card",
+    "Dinner dark panel",
+    "Breakfast sunburst",
+    "Cool drink center",
+    "Snack impact block"
+  ]
+}

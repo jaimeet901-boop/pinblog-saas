@@ -1,0 +1,89 @@
+{
+  "title": "Chef IA Official Template Library — Visual QA",
+  "date": "2026-07-26",
+  "verdict": "PASS (with engine-enum notes on CTA/title axes)",
+  "finalTemplateCount": 24,
+  "finalCategoryCount": 11,
+  "categories": [
+    "breakfast",
+    "desserts",
+    "dinner",
+    "drinks",
+    "fitness",
+    "general",
+    "healthy",
+    "lifestyle",
+    "recipes",
+    "snacks",
+    "travel"
+  ],
+  "checks": {
+    "1_exactly_24_visible": {
+      "result": "PASS",
+      "evidence": [
+        "docs/qa-evidence/official-templates/gallery-full.png",
+        "docs/qa-evidence/official-templates/new-user-api-gallery.json"
+      ],
+      "notes": "Catalog + seeded DB + API gallery for two new users all return 24."
+    },
+    "2_visually_different": {
+      "result": "PASS",
+      "evidence": [
+        "docs/qa-evidence/official-templates/gallery-full.png",
+        "docs/qa-evidence/official-templates/generated-pins-5.png"
+      ],
+      "notes": "Layouts differ by frame (polaroid, glass, ribbon, white card, magazine, etc.), title band position, and CTA placement — not color-only variants."
+    },
+    "3_unique_axes": {
+      "layout": "PASS 24/24 unique layout fingerprints",
+      "typography": "PASS 24/24 unique typography fingerprints",
+      "ctaPosition": "PASS with note — Template Engine exposes 4 CTA positions (below-title, bottom, inside-frame, none); unique CTA treatment (position+button+label style) = 15/24; every template still unique overall",
+      "titlePlacement": "PASS with note — Engine title placements are top/center/bottom × left/center (5 combos used); combined with frame/typography each template remains unique",
+      "imageTreatment": "PASS 24/24 unique image treatments (frame/focus/overlay/accents)",
+      "fullStructuralSignature": "PASS 24/24"
+    },
+    "4_meaningful_categories": {
+      "result": "PASS",
+      "categories": 11,
+      "includes": ["recipes", "dinner", "desserts", "drinks", "healthy", "breakfast", "snacks"]
+    },
+    "5_five_pins_same_article": {
+      "result": "PASS",
+      "article": "Greek Lemon Herb Chicken Bowl",
+      "templates": [
+        "Centered hero",
+        "Title top · CTA bottom",
+        "White rounded card",
+        "Glass panel",
+        "Healthy clean card"
+      ],
+      "evidence": [
+        "docs/qa-evidence/official-templates/generated-pins-5.png",
+        "docs/qa-evidence/official-templates/pin-1.png",
+        "docs/qa-evidence/official-templates/pin-2.png",
+        "docs/qa-evidence/official-templates/pin-3.png",
+        "docs/qa-evidence/official-templates/pin-4.png",
+        "docs/qa-evidence/official-templates/pin-5.png"
+      ]
+    },
+    "6_brand_new_user": {
+      "result": "PASS",
+      "evidence": "docs/qa-evidence/official-templates/new-user-api-gallery.json",
+      "notes": "Two freshly registered accounts both received HTTP 200 with 24 official published templates via /workspace/v1/templates?view=gallery."
+    },
+    "7_no_duplicate_ids": {
+      "result": "PASS",
+      "uuidUnique": 24
+    },
+    "8_published_and_visible": {
+      "result": "PASS",
+      "allPublished": true,
+      "allOfficial": true
+    }
+  },
+  "screenshots": {
+    "gallery": "docs/qa-evidence/official-templates/gallery-full.png",
+    "overview": "docs/qa-evidence/official-templates/page-overview.png",
+    "generatedPins": "docs/qa-evidence/official-templates/generated-pins-5.png"
+  }
+}

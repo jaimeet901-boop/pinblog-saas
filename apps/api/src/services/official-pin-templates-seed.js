@@ -1,0 +1,112 @@
+/**
+ * Idempotent seed of Chef IA official pin templates into ai_pin_templates.
+ */
+
+import crypto from 'node:crypto';
+import pocketbaseClient from '../utils/pocketbaseClient.js';
+import { listOfficialPinTemplateCatalog } from './official-pin-template-catalog.js';
+import { validateTemplateConfiguration } from '../utils/template-config-validation.js';
+import logger from '../utils/logger.js';
+
+function checksumOf(configuration) {
+	return crypto
+		.createHash('sha256')
+		.update(JSON.stringify(configuration || {}))
+		.digest('hex')
+		.slice(0, 32);
+}
+
+async function resolveSeedOwnerId() {
+	try {
+		const users = await pocketbaseClient.collection('users').getList(1, 1, {
+			sort: 'created',
+			fields: 'id',
+			requestKey: null,
+		});
+		return users.items?.[0]?.id || null;
+	} catch {
+		return null;
+	}
+}
+
+async function findByTemplateUuid(templateUuid) {
+	try {
+		const result = await pocketbaseClient.collection('ai_pin_templates').getList(1, 1, {
+			filter: pocketbaseClient.filter('template_uuid = {:uuid}', { uuid: templateUuid }),
+			requestKey: null,
+		});
+		return result.items?.[0] || null;
+	} catch {
+		return null;
+	}
+}
+
+export async function ensureOfficialPinTemplatesSeeded() {
+	const ownerId = await resolveSeedOwnerId();
+	if (!ownerId) {
+		logger.warn('[official-templates] seed skipped — no users yet');
+		return { seeded: 0, updated: 0, skipped: true };
+	}
+
+	const catalog = listOfficialPinTemplateCatalog();
+	let seeded = 0;
+	let updated = 0;
+
+	for (const entry of catalog) {
+		const validated = validateTemplateConfiguration(entry.configuration);
+		if (!validated.ok) {
+			logger.warn('[official-templates] invalid config skipped', {
+				templateUuid: entry.templateUuid,
+				issues: validated.issues,
+			});
+			continue;
+		}
+		const configuration = validated.configuration;
+		const checksum = checksumOf(configuration);
+		const payload = {
+			owner: ownerId,
+			created_by: ownerId,
+			workspace_id: '',
+			name: entry.name,
+			thumbnail: entry.thumbnail || '',
+			configuration,
+			is_default: false,
+			category: entry.category || 'general',
+			status: 'published',
+			visibility: 'official',
+			template_uuid: entry.templateUuid,
+			config_checksum: checksum,
+			revision: 1,
+			editor_version: 1,
+			schema_version: 1,
+			marketplace_meta: {
+				tags: entry.tags || [],
+				official: true,
+				library: 'chefia-pin-library-v1',
+			},
+			deleted_at: '',
+		};
+
+		const existing = await findByTemplateUuid(entry.templateUuid);
+		if (existing) {
+			await pocketbaseClient.collection('ai_pin_templates').update(existing.id, {
+				name: payload.name,
+				thumbnail: payload.thumbnail,
+				configuration: payload.configuration,
+				category: payload.category,
+				status: 'published',
+				visibility: 'official',
+				config_checksum: payload.config_checksum,
+				marketplace_meta: payload.marketplace_meta,
+				deleted_at: '',
+			});
+			updated += 1;
+		} else {
+			await pocketbaseClient.collection('ai_pin_templates').create(payload);
+			seeded += 1;
+		}
+	}
+
+	logger.info('[official-templates] seed complete', { seeded, updated, total: catalog.length });
+	return { seeded, updated, skipped: false };
+}

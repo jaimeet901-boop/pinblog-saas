@@ -7,7 +7,7 @@ export default function TemplateGalleryEmpty({ hasFilters, onCreate, onClear }) 
 					? 'Try clearing filters or searching a different term.'
 					: onCreate
 						? 'Create a layer template to start your gallery.'
-						: 'Published templates will appear here when available from Admin.'}
+						: 'The Chef IA template library will appear here once available.'}
 			</p>
 			<div className="tpl-gallery-empty__actions">
 				{hasFilters ? (
