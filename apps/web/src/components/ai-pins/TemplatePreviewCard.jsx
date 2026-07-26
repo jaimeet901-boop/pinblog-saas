@@ -1,27 +1,30 @@
 import {
 	applyTemplateVariables,
 	formatPinDomain,
+	isV2TemplateConfig,
 	normalizeTemplateConfig,
 	resolveTitleBand,
 } from '@/lib/pinTemplates';
 
 function resolveOverlayCss(config) {
-	const intensity = config.textOverlay.intensity;
-	const position = config.layout.textPosition;
-	if (config.textOverlay.style === 'none') return 'none';
-	if (config.textOverlay.style === 'dark') {
-		return `linear-gradient(rgba(0,0,0,${intensity * 0.55}), rgba(0,0,0,${intensity * 0.55}))`;
+	const intensity = Number(config?.textOverlay?.intensity);
+	const safeIntensity = Number.isFinite(intensity) ? intensity : 0.55;
+	const position = config?.layout?.textPosition || 'bottom';
+	const style = config?.textOverlay?.style || 'gradient';
+	if (style === 'none') return 'none';
+	if (style === 'dark') {
+		return `linear-gradient(rgba(0,0,0,${safeIntensity * 0.55}), rgba(0,0,0,${safeIntensity * 0.55}))`;
 	}
-	if (config.textOverlay.style === 'vignette') {
-		return `radial-gradient(circle at center, transparent 20%, rgba(0,0,0,${intensity}) 100%)`;
+	if (style === 'vignette') {
+		return `radial-gradient(circle at center, transparent 20%, rgba(0,0,0,${safeIntensity}) 100%)`;
 	}
 	if (position === 'top') {
-		return `linear-gradient(180deg, rgba(0,0,0,${Math.min(0.9, intensity + 0.1)}) 0%, rgba(0,0,0,${intensity * 0.35}) 55%, transparent 100%)`;
+		return `linear-gradient(180deg, rgba(0,0,0,${Math.min(0.9, safeIntensity + 0.1)}) 0%, rgba(0,0,0,${safeIntensity * 0.35}) 55%, transparent 100%)`;
 	}
 	if (position === 'center') {
-		return `linear-gradient(180deg, transparent 0%, rgba(0,0,0,${intensity * 0.7}) 35%, rgba(0,0,0,${intensity * 0.7}) 65%, transparent 100%)`;
+		return `linear-gradient(180deg, transparent 0%, rgba(0,0,0,${safeIntensity * 0.7}) 35%, rgba(0,0,0,${safeIntensity * 0.7}) 65%, transparent 100%)`;
 	}
-	return `linear-gradient(180deg, transparent 0%, rgba(0,0,0,${intensity * 0.25}) 35%, rgba(0,0,0,${Math.min(0.92, intensity + 0.15)}) 100%)`;
+	return `linear-gradient(180deg, transparent 0%, rgba(0,0,0,${safeIntensity * 0.25}) 35%, rgba(0,0,0,${Math.min(0.92, safeIntensity + 0.15)}) 100%)`;
 }
 
 function titleBandStyle(config) {
@@ -39,7 +42,10 @@ export default function TemplatePreviewCard({
 	featuredImageUrl = '',
 	logoUrl = '',
 }) {
-	const safeConfig = normalizeTemplateConfig(config);
+	// Studio card preview is procedural CSS. V2 layer docs must not crash the page.
+	const safeConfig = normalizeTemplateConfig(
+		isV2TemplateConfig(config) ? null : config,
+	);
 	const ratio = safeConfig.canvas.width / safeConfig.canvas.height;
 	const backgroundImageUrl = featuredImageUrl || safeConfig.background.imageUrl || '';
 	const title = applyTemplateVariables('{{title}}', {

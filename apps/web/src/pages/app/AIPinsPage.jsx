@@ -279,28 +279,33 @@ export default function AIPinsPage() {
 	}, [hasValidConfig, config, imageQualities, pinCounts, templates, brandKits]);
 
 	useEffect(() => {
-		// Live config: always follow Admin default image provider; keep other selections valid.
-		if (hasValidConfig && imageQualities.length > 0) {
-			const next = resolveDefaultImageQualityId(config, imageQualities);
-			const quality = imageQualities.find((item) => item.id === next) || imageQualities[0];
-			if (quality) {
-				const nextProvider = quality.imageMode === 'use_featured'
-					? ''
-					: (quality.imageProvider || resolveDefaultImageProvider(config));
-				if (
-					imageQuality !== quality.id
-					|| panel.imageMode !== quality.imageMode
-					|| panel.imageProvider !== nextProvider
-				) {
-					setImageQuality(quality.id);
-					setPanel((prev) => ({
-						...prev,
-						imageMode: quality.imageMode,
-						imageProvider: nextProvider,
-					}));
-				}
-			}
+		// Sync Admin default provider only when workspace config version changes.
+		// Do not depend on panel.* or this effect will loop (Maximum update depth → blank page).
+		if (!hasValidConfig || imageQualities.length === 0) {
+			return;
 		}
+		const next = resolveDefaultImageQualityId(config, imageQualities);
+		const quality = imageQualities.find((item) => item.id === next) || imageQualities[0];
+		if (!quality) {
+			return;
+		}
+		const nextProvider = quality.imageMode === 'use_featured'
+			? ''
+			: (quality.imageProvider || resolveDefaultImageProvider(config) || '');
+		setImageQuality((prev) => (prev === quality.id ? prev : quality.id));
+		setPanel((prev) => {
+			if (prev.imageMode === quality.imageMode && prev.imageProvider === nextProvider) {
+				return prev;
+			}
+			return {
+				...prev,
+				imageMode: quality.imageMode || 'generate_ai',
+				imageProvider: nextProvider,
+			};
+		});
+	}, [configVersion, hasValidConfig, imageQualities, config]);
+
+	useEffect(() => {
 		if (selectedTemplateId && templates.length > 0 && !templates.some((item) => item.id === selectedTemplateId)) {
 			const fallback = templates.find((item) => item.isDefault) || templates[0];
 			setSelectedTemplateId(fallback?.id || '');
@@ -310,9 +315,11 @@ export default function AIPinsPage() {
 			setSelectedBrandKitId(fallback?.id || '');
 		}
 		if (panel.style && pinStyles.length > 0 && !pinStyles.includes(panel.style)) {
-			setPanel((prev) => ({ ...prev, style: pinStyles[0] || '' }));
+			setPanel((prev) => (
+				prev.style === pinStyles[0] ? prev : { ...prev, style: pinStyles[0] || '' }
+			));
 		}
-	}, [configVersion, hasValidConfig, imageQualities, imageQuality, templates, selectedTemplateId, brandKits, selectedBrandKitId, pinStyles, panel.style, panel.imageMode, panel.imageProvider, config]);
+	}, [templates, selectedTemplateId, brandKits, selectedBrandKitId, pinStyles, panel.style]);
 
 	const activeArticle = useMemo(
 		() => articles.find((article) => article.id === activeArticleId) || null,
@@ -2176,7 +2183,13 @@ export default function AIPinsPage() {
 											<div className="ai-pins-card__media">
 												{pin.imageUrl ? (
 													<img src={pin.imageUrl} alt={pin.title} loading="lazy" decoding="async" />
-												) : (
+												) : pin.imageGenerationStatus === 'failed' ? (
+													<div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground">
+														<ImageIcon size={22} />
+														<p className="text-xs font-medium text-destructive">Image failed</p>
+														<p className="text-[11px]">{pin.imageGenerationError || 'Retry generation'}</p>
+													</div>
+												) : pin.templateConfig ? (
 													<div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
 														<TemplatePreviewCard
 															config={pin.templateConfig}
@@ -2192,6 +2205,11 @@ export default function AIPinsPage() {
 																overlayText: pin.overlayText,
 															}}
 														/>
+													</div>
+												) : (
+													<div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground">
+														<Spinner className="h-5 w-5" />
+														<p className="text-xs">Waiting for image…</p>
 													</div>
 												)}
 											</div>
