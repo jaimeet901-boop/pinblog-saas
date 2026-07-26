@@ -1,10 +1,9 @@
-import apiServerClient from '@/lib/apiServerClient';
 import { renderFeaturedPinToBlob } from '@/lib/pinCanvasRenderer';
+import { uploadImageBlob } from './imageLifecycle.js';
 
 /**
  * Compose featured pins with the BlogToPin-style canvas engine and upload PNGs.
- * Never falls back to the raw article featured image after a successful render —
- * that legacy path is what made pins look like plain photos with no overlay.
+ * Preview may temporarily use a blob URL; Save Draft always uploads to a hosted URL first.
  */
 export async function composeAndUploadFeaturedPins(pins, {
 	brandKit = null,
@@ -18,6 +17,7 @@ export async function composeAndUploadFeaturedPins(pins, {
 				ok: false,
 				error: 'Article featured image is missing',
 				imageUrl: '',
+				hosted: false,
 			});
 			continue;
 		}
@@ -43,46 +43,35 @@ export async function composeAndUploadFeaturedPins(pins, {
 
 			objectUrl = URL.createObjectURL(blob);
 
-			const formData = new FormData();
-			formData.append('image', blob, `featured-pin-${pin.tempId || Date.now()}.png`);
-			formData.append('articleId', String(pin.articleId || ''));
-			formData.append('title', String(pin.title || '').slice(0, 220));
-
-			const response = await apiServerClient.fetch('/ai-pin-images/composed', {
-				method: 'POST',
-				body: formData,
-			});
-			const payload = await response.json().catch(() => ({}));
-			if (!response.ok) {
-				// Keep the composed blob URL so the UI still shows the designed pin.
-				console.warn('[featured-compose] upload failed, using local composed blob', {
-					status: response.status,
-					message: payload?.message,
+			try {
+				const uploaded = await uploadImageBlob(blob, {
+					articleId: pin.articleId || '',
+					title: pin.title || '',
+					fileName: `featured-pin-${pin.tempId || Date.now()}.png`,
+				});
+				URL.revokeObjectURL(objectUrl);
+				objectUrl = '';
+				results.push({
+					tempId: pin.tempId,
+					ok: true,
+					error: '',
+					imageUrl: uploaded.imageUrl,
+					hosted: true,
+				});
+			} catch (uploadError) {
+				// Keep local blob for Studio preview only — Save Draft will re-upload via imageLifecycle.
+				console.warn('[featured-compose] upload failed, keeping local blob for preview', {
+					status: uploadError?.message,
 					tempId: pin.tempId,
 				});
 				results.push({
 					tempId: pin.tempId,
 					ok: true,
-					error: payload?.message || `Upload deferred (${response.status})`,
+					error: uploadError?.message || 'Hosted upload deferred — will retry on Save Draft',
 					imageUrl: objectUrl,
 					hosted: false,
 				});
-				continue;
 			}
-
-			const hostedUrl = String(payload.imageUrl || '').trim();
-			if (hostedUrl) {
-				URL.revokeObjectURL(objectUrl);
-				objectUrl = '';
-			}
-
-			results.push({
-				tempId: pin.tempId,
-				ok: true,
-				error: '',
-				imageUrl: hostedUrl || objectUrl,
-				hosted: Boolean(hostedUrl),
-			});
 		} catch (error) {
 			if (objectUrl) {
 				URL.revokeObjectURL(objectUrl);
@@ -95,9 +84,8 @@ export async function composeAndUploadFeaturedPins(pins, {
 				tempId: pin.tempId,
 				ok: false,
 				error: error?.message || 'Local featured canvas render failed',
-				// Intentionally empty: UI falls back to TemplatePreviewCard (designed overlay),
-				// never the raw article photo.
 				imageUrl: '',
+				hosted: false,
 			});
 		}
 	}

@@ -4,6 +4,12 @@
 
 import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
+import {
+	assertPersistableImageUrl,
+	ensureHostedImageForPin,
+	ensurePinsReadyForSave,
+	isPersistableImageUrl,
+} from './imageLifecycle.js';
 
 const IMAGE_SOURCE_VALUES = new Set([
 	'featured',
@@ -101,8 +107,9 @@ function normalizeImageGenerationStatus(value) {
 function normalizeImageUrl(value) {
 	const url = String(value || '').trim();
 	if (!url) return '';
-	// Blob URLs are browser-local and cannot be persisted meaningfully.
+	// Blob URLs are browser-local — callers must upload via imageLifecycle first.
 	if (url.startsWith('blob:')) return '';
+	if (!/^https?:\/\//i.test(url)) return '';
 	return truncateText(url, 4000);
 }
 
@@ -153,6 +160,8 @@ function buildDraftPayload(pin, panel) {
 		throw new Error('Cannot save pin: websiteId is missing (required relation)');
 	}
 
+	const imageUrl = assertPersistableImageUrl(pin.imageUrl, pin.title || pin.tempId || 'Pin');
+
 	return {
 		owner: ownerId,
 		articleId,
@@ -161,7 +170,7 @@ function buildDraftPayload(pin, panel) {
 		overlay_text: truncateText(pin.overlayText || '', 600),
 		title: truncateText(pin.title || 'Draft AI Pin', 300) || 'Draft AI Pin',
 		description: truncateText(pin.description || '', 2000),
-		image_url: normalizeImageUrl(pin.imageUrl),
+		image_url: normalizeImageUrl(imageUrl),
 		pinterest_account_id: truncateText(pin.accountId || '', 80),
 		pinterest_account_label: truncateText(pin.accountLabel || '', 255),
 		pinterest_board_id: truncateText(pin.boardId || '', 120),
@@ -173,7 +182,9 @@ function buildDraftPayload(pin, panel) {
 		language: truncateText(panel?.language || '', 60),
 		status: 'draft',
 		image_source: normalizeImageSource(pin.imageSource),
-		image_generation_status: normalizeImageGenerationStatus(pin.imageGenerationStatus),
+		image_generation_status: normalizeImageGenerationStatus(
+			pin.imageGenerationStatus || 'completed',
+		),
 		image_generation_error: truncateText(pin.imageGenerationError || '', 3000),
 		cta: truncateText(pin.cta || '', 300),
 		style: truncateText(pin.style || '', 64),
@@ -184,18 +195,29 @@ function buildDraftPayload(pin, panel) {
 
 /**
  * Persist generated preview pins as drafts.
+ * Never writes empty image_url — uploads blob previews first when needed.
  */
 export async function saveDrafts({ previewPins, panel }) {
-	const records = [];
 	const pins = Array.isArray(previewPins) ? previewPins : [];
 	if (pins.length === 0) {
 		throw new Error('No pins to save');
 	}
 
-	for (const pin of pins) {
+	let readyPins;
+	try {
+		readyPins = await ensurePinsReadyForSave(pins);
+	} catch (error) {
+		throw new Error(error?.message || 'Save Draft blocked until a hosted image URL is ready');
+	}
+
+	const records = [];
+	for (const pin of readyPins) {
 		const pinLabel = String(pin?.title || pin?.tempId || 'pin').slice(0, 80);
 		try {
 			const payload = buildDraftPayload(pin, panel);
+			if (!isPersistableImageUrl(payload.image_url)) {
+				throw new Error('Refusing to save draft with empty image_url');
+			}
 			let created;
 			try {
 				created = await pb.collection('ai_pins').create(payload);
@@ -215,9 +237,13 @@ export async function saveDrafts({ previewPins, panel }) {
 					image_generation_status: statusRejected ? 'processing' : payload.image_generation_status,
 				});
 			}
-			records.push(mapSavedPin(created));
+			const mapped = mapSavedPin(created);
+			if (!isPersistableImageUrl(mapped.imageUrl)) {
+				throw new Error('Draft was created without a persisted image_url — contact support');
+			}
+			records.push(mapped);
 		} catch (error) {
-			const detail = formatPocketBaseError(error, 'Failed to create record');
+			const detail = formatPocketBaseError(error, error?.message || 'Failed to create record');
 			throw new Error(`Save failed for "${pinLabel}": ${detail}`);
 		}
 	}
@@ -297,28 +323,29 @@ export async function updateDraftPin({
 	analysis = null,
 	panel = {},
 }) {
-	const selectedAccount = accounts.find((account) => account.id === pin.accountId);
-	const selectedBoard = boards.find((board) => board.boardId === pin.boardId);
+	const readyPin = await ensureHostedImageForPin(pin);
+	const selectedAccount = accounts.find((account) => account.id === readyPin.accountId);
+	const selectedBoard = boards.find((board) => board.boardId === readyPin.boardId);
 
-	const editorResponse = await apiServerClient.fetch(`/ai-pins/pins/${pin.id}/editor`, {
+	const editorResponse = await apiServerClient.fetch(`/ai-pins/pins/${readyPin.id}/editor`, {
 		method: 'PATCH',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
-			title: pin.title,
-			description: pin.description,
-			overlayText: pin.overlayText,
-			imagePrompt: pin.imagePrompt,
-			imageUrl: pin.imageUrl,
-			cta: pin.cta || analysis?.cta || '',
-			style: pin.style || panel.style,
-			analysis: pin.analysis || analysis,
+			title: readyPin.title,
+			description: readyPin.description,
+			overlayText: readyPin.overlayText,
+			imagePrompt: readyPin.imagePrompt,
+			imageUrl: readyPin.imageUrl,
+			cta: readyPin.cta || analysis?.cta || '',
+			style: readyPin.style || panel.style,
+			analysis: readyPin.analysis || analysis,
 			editorState: {
-				crop: pin.editorCrop || null,
-				resize: pin.editorResize || { width: 1000, height: 1500 },
-				overlays: pin.editorOverlays || [],
+				crop: readyPin.editorCrop || null,
+				resize: readyPin.editorResize || { width: 1000, height: 1500 },
+				overlays: readyPin.editorOverlays || [],
 			},
-			suggestedKeywords: safeArray(pin.suggestedKeywords),
-			suggestedHashtags: safeArray(pin.suggestedHashtags),
+			suggestedKeywords: safeArray(readyPin.suggestedKeywords),
+			suggestedHashtags: safeArray(readyPin.suggestedHashtags),
 		}),
 	});
 	const editorPayload = await editorResponse.json().catch(() => ({}));
@@ -326,25 +353,25 @@ export async function updateDraftPin({
 		throw new Error(editorPayload?.message || 'Failed to save pin editor changes');
 	}
 
-	const updated = await pb.collection('ai_pins').update(pin.id, {
-		pinterest_account_id: pin.accountId || '',
-		pinterest_account_label: pin.accountId
+	const updated = await pb.collection('ai_pins').update(readyPin.id, {
+		pinterest_account_id: readyPin.accountId || '',
+		pinterest_account_label: readyPin.accountId
 			? (selectedAccount?.label || selectedAccount?.accountName || selectedAccount?.username || '')
 			: '',
-		pinterest_board_id: pin.boardId || '',
-		pinterest_board_name: selectedBoard?.name || pin.boardName || '',
-		scheduled_at: pin.scheduledAt || '',
-		scheduled_timezone: pin.scheduledTimezone || '',
+		pinterest_board_id: readyPin.boardId || '',
+		pinterest_board_name: selectedBoard?.name || readyPin.boardName || '',
+		scheduled_at: readyPin.scheduledAt || '',
+		scheduled_timezone: readyPin.scheduledTimezone || '',
 	}).catch(() => null);
 
 	// Keep Calendar in sync: scheduled jobs are the calendar source of truth.
-	const jobId = pin.publishJobId || updated?.publish_job_id || '';
-	if (jobId && (pin.status === 'scheduled' || updated?.status === 'scheduled')) {
+	const jobId = readyPin.publishJobId || updated?.publish_job_id || '';
+	if (jobId && (readyPin.status === 'scheduled' || updated?.status === 'scheduled')) {
 		const jobPayload = {};
-		if (pin.scheduledAt) jobPayload.scheduledAt = pin.scheduledAt;
-		if (pin.scheduledTimezone) jobPayload.timezone = pin.scheduledTimezone;
-		if (pin.accountId) jobPayload.accountId = pin.accountId;
-		if (pin.boardId) jobPayload.boardId = pin.boardId;
+		if (readyPin.scheduledAt) jobPayload.scheduledAt = readyPin.scheduledAt;
+		if (readyPin.scheduledTimezone) jobPayload.timezone = readyPin.scheduledTimezone;
+		if (readyPin.accountId) jobPayload.accountId = readyPin.accountId;
+		if (readyPin.boardId) jobPayload.boardId = readyPin.boardId;
 		if (Object.keys(jobPayload).length > 0) {
 			const jobResponse = await apiServerClient.fetch(`/pinterest/jobs/${jobId}`, {
 				method: 'PATCH',
@@ -359,13 +386,13 @@ export async function updateDraftPin({
 	}
 
 	return {
-		...pin,
+		...readyPin,
 		...(updated ? mapSavedPin(updated) : {}),
-		title: editorPayload.title || pin.title,
-		description: editorPayload.description || pin.description,
-		overlayText: editorPayload.overlayText || pin.overlayText,
-		imagePrompt: editorPayload.imagePrompt || pin.imagePrompt,
-		imageUrl: editorPayload.imageUrl || pin.imageUrl,
+		title: editorPayload.title || readyPin.title,
+		description: editorPayload.description || readyPin.description,
+		overlayText: editorPayload.overlayText || readyPin.overlayText,
+		imagePrompt: editorPayload.imagePrompt || readyPin.imagePrompt,
+		imageUrl: editorPayload.imageUrl || readyPin.imageUrl,
 		cta: editorPayload.cta || '',
 		style: editorPayload.style || panel.style,
 		analysis: editorPayload.analysis || analysis,

@@ -33,6 +33,16 @@ export {
 	deleteDraftPin,
 } from './draftService.js';
 export {
+	isPersistableImageUrl,
+	isBlobImageUrl,
+	canSavePinDraft,
+	canSaveAllPinDrafts,
+	ensureHostedImageForPin,
+	ensurePinsReadyForSave,
+	uploadImageBlob,
+	uploadBlobImageUrl,
+} from './imageLifecycle.js';
+export {
 	buildPinPreview,
 	validatePreviewReady,
 	openDesignLibraryChooser,
