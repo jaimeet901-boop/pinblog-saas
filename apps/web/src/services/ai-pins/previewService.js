@@ -1,16 +1,16 @@
 /**
  * PreviewService — build a publish preview model (no React).
- * Design Library hook point: resolveTemplatePreview can be swapped later.
+ * Design Library hook point: openDesignLibraryChooser opens the read-only gallery chooser.
  */
 
 /**
- * Future Design Library integration seam.
- * For now returns null — UI shows a placeholder "Choose Template" button.
+ * Design Library / Template Gallery integration seam.
+ * Callers open PinTemplateChooser when available === true.
  */
 export function openDesignLibraryChooser({ onSelect } = {}) {
 	return {
-		available: false,
-		message: 'Design Library is coming soon. Template selection will plug in here without refactoring.',
+		available: true,
+		message: '',
 		onSelect: typeof onSelect === 'function' ? onSelect : null,
 	};
 }

@@ -1,0 +1,124 @@
+.pin-tpl-chooser {
+	position: fixed;
+	inset: 0;
+	z-index: 80;
+	display: flex;
+	align-items: stretch;
+	justify-content: center;
+	padding: 1rem;
+}
+
+.pin-tpl-chooser__backdrop {
+	position: absolute;
+	inset: 0;
+	border: 0;
+	background: rgba(15, 23, 42, 0.45);
+	cursor: pointer;
+}
+
+.pin-tpl-chooser__panel {
+	position: relative;
+	z-index: 1;
+	display: flex;
+	flex-direction: column;
+	width: min(1120px, 100%);
+	max-height: min(92vh, 920px);
+	overflow: auto;
+	background: #f8fafc;
+	border-radius: 1rem;
+	box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+	padding: 1rem 1.15rem 1.25rem;
+}
+
+.pin-tpl-chooser__header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-bottom: 0.85rem;
+}
+
+.pin-tpl-chooser__header h2 {
+	margin: 0;
+	font-size: 1.35rem;
+}
+
+.pin-tpl-chooser__header p {
+	margin: 0.25rem 0 0;
+	color: #64748b;
+	font-size: 0.85rem;
+}
+
+.pin-tpl-chooser__close {
+	border: 1px solid rgba(15, 23, 42, 0.12);
+	background: #fff;
+	border-radius: 0.55rem;
+	padding: 0.4rem;
+	cursor: pointer;
+	line-height: 0;
+}
+
+.pin-tpl-chooser__grid {
+	margin-top: 0.5rem;
+}
+
+.tpl-gallery-card__actions--select {
+	display: flex;
+	gap: 0.4rem;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.tpl-gallery-card__use {
+	flex: 1;
+	border: 1px solid #1d4ed8;
+	background: #1d4ed8;
+	color: #fff;
+	border-radius: 0.55rem;
+	padding: 0.4rem 0.65rem;
+	cursor: pointer;
+	font-size: 0.8rem;
+}
+
+.tpl-gallery-card__use:disabled {
+	opacity: 0.7;
+	cursor: wait;
+}
+
+.tpl-gallery-card__premium,
+.tpl-gallery-card__free {
+	position: absolute;
+	left: 0.5rem;
+	bottom: 0.5rem;
+	font-size: 0.65rem;
+	font-weight: 600;
+	padding: 0.15rem 0.4rem;
+	border-radius: 0.35rem;
+	background: rgba(255, 255, 255, 0.92);
+	color: #0f172a;
+}
+
+.tpl-gallery-card__premium {
+	color: #92400e;
+	background: rgba(253, 230, 138, 0.95);
+}
+
+.tpl-gallery-filter-row.is-select-mode {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+	.pin-tpl-chooser {
+		padding: 0;
+	}
+
+	.pin-tpl-chooser__panel {
+		width: 100%;
+		max-height: 100%;
+		border-radius: 0;
+	}
+
+	.tpl-gallery-filter-row.is-select-mode {
+		grid-template-columns: 1fr;
+	}
+}

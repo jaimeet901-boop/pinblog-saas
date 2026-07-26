@@ -49,6 +49,15 @@ export {
 	openDesignLibraryChooser,
 } from './previewService.js';
 export {
+	fetchTemplateCached,
+	getCachedHydratedTemplate,
+	clearTemplateHydrationCache,
+	persistGalleryTemplateSelection,
+	readPersistedGalleryTemplateSelection,
+	clearPersistedGalleryTemplateSelection,
+	resolveGenerateTemplate,
+} from './templateHydration.js';
+export {
 	findNextAvailableSlot,
 	allocateSmartSlots,
 } from './smartSlot.js';

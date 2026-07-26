@@ -17,7 +17,7 @@ import ManualArticleForm from '@/components/ai-pins/ManualArticleForm';
 import SchedulePinModal from '@/components/ai-pins/SchedulePinModal';
 import PreviewPinModal from '@/components/ai-pins/PreviewPinModal';
 import PublishProgressModal from '@/components/ai-pins/PublishProgressModal';
-import { createDefaultTemplateConfig, normalizeTemplateConfig } from '@/lib/pinTemplates';
+import PinTemplateChooser from '@/components/ai-pins/PinTemplateChooser';
 import { buildLocalPinsFromArticle } from '@/lib/featuredPinLocal';
 import {
 	assignIntelligentPinDesigns,
@@ -58,6 +58,11 @@ import {
 	uploadReferenceImages,
 	deleteReferenceImage,
 	composeAndUploadFeaturedPins,
+	fetchTemplateCached,
+	persistGalleryTemplateSelection,
+	readPersistedGalleryTemplateSelection,
+	clearPersistedGalleryTemplateSelection,
+	resolveGenerateTemplate,
 } from '@/services/ai-pins';
 import './AIPinsPage.css';
 
@@ -171,7 +176,16 @@ export default function AIPinsPage() {
 	const [loadingBoards, setLoadingBoards] = useState(false);
 	const [editingPinId, setEditingPinId] = useState('');
 	const [savedPins, setSavedPins] = useState([]);
-	const [selectedTemplateId, setSelectedTemplateId] = useState('');
+	const [selectedTemplateId, setSelectedTemplateId] = useState(
+		() => readPersistedGalleryTemplateSelection()?.id || '',
+	);
+	const [gallerySelectionActive, setGallerySelectionActive] = useState(
+		() => Boolean(readPersistedGalleryTemplateSelection()?.id),
+	);
+	const [hydratedTemplate, setHydratedTemplate] = useState(null);
+	const [templateHydrationError, setTemplateHydrationError] = useState('');
+	const [templateHydrating, setTemplateHydrating] = useState(false);
+	const [templateChooserOpen, setTemplateChooserOpen] = useState(false);
 	const [generatedPreviewPins, setGeneratedPreviewPins] = useState([]);
 	const [savingGenerated, setSavingGenerated] = useState(false);
 	const [generatingImages, setGeneratingImages] = useState(false);
@@ -306,7 +320,13 @@ export default function AIPinsPage() {
 	}, [configVersion, hasValidConfig, imageQualities, config]);
 
 	useEffect(() => {
-		if (selectedTemplateId && templates.length > 0 && !templates.some((item) => item.id === selectedTemplateId)) {
+		// Gallery-selected templates may not appear in workspace studio list — never wipe them.
+		if (
+			!gallerySelectionActive
+			&& selectedTemplateId
+			&& templates.length > 0
+			&& !templates.some((item) => item.id === selectedTemplateId)
+		) {
 			const fallback = templates.find((item) => item.isDefault) || templates[0];
 			setSelectedTemplateId(fallback?.id || '');
 		}
@@ -319,7 +339,36 @@ export default function AIPinsPage() {
 				prev.style === pinStyles[0] ? prev : { ...prev, style: pinStyles[0] || '' }
 			));
 		}
-	}, [templates, selectedTemplateId, brandKits, selectedBrandKitId, pinStyles, panel.style]);
+	}, [templates, selectedTemplateId, gallerySelectionActive, brandKits, selectedBrandKitId, pinStyles, panel.style]);
+
+	useEffect(() => {
+		const persisted = readPersistedGalleryTemplateSelection();
+		if (!persisted?.id) return undefined;
+		let cancelled = false;
+		setGallerySelectionActive(true);
+		setSelectedTemplateId(persisted.id);
+		setTemplateHydrating(true);
+		setTemplateHydrationError('');
+		(async () => {
+			try {
+				const full = await fetchTemplateCached(persisted.id);
+				if (cancelled) return;
+				if (!full?.configuration) {
+					throw new Error('Selected template configuration is missing.');
+				}
+				setHydratedTemplate(full);
+			} catch (error) {
+				if (cancelled) return;
+				setTemplateHydrationError(error?.message || 'Failed to load selected template');
+				// Keep selection id — do not clear articles/pins or fall back silently.
+			} finally {
+				if (!cancelled) setTemplateHydrating(false);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	const activeArticle = useMemo(
 		() => articles.find((article) => article.id === activeArticleId) || null,
@@ -341,10 +390,12 @@ export default function AIPinsPage() {
 		[draftPins, selectedDraftPinIds],
 	);
 
-	const selectedTemplate = useMemo(
-		() => templates.find((template) => template.id === selectedTemplateId) || null,
-		[templates, selectedTemplateId],
-	);
+	const selectedTemplate = useMemo(() => {
+		if (gallerySelectionActive && hydratedTemplate?.id === selectedTemplateId) {
+			return hydratedTemplate;
+		}
+		return templates.find((template) => template.id === selectedTemplateId) || null;
+	}, [gallerySelectionActive, hydratedTemplate, templates, selectedTemplateId]);
 
 	const selectedBrandKit = useMemo(
 		() => brandKits.find((kit) => kit.id === selectedBrandKitId) || null,
@@ -799,15 +850,61 @@ export default function AIPinsPage() {
 		if (notDraft) throw new Error(`Pin "${notDraft.title || notDraft.id}" must be a draft (or failed) to publish.`);
 	};
 
+	const handleStudioTemplateChange = (nextId) => {
+		setSelectedTemplateId(nextId);
+		setGallerySelectionActive(false);
+		setHydratedTemplate(null);
+		setTemplateHydrationError('');
+		clearPersistedGalleryTemplateSelection();
+	};
+
+	const selectGalleryTemplate = async (summary) => {
+		const id = String(summary?.id || '').trim();
+		if (!id) return;
+
+		// Keep prior selection until success/failure settles — never wipe articles/pins.
+		setTemplateChooserOpen(false);
+		setGallerySelectionActive(true);
+		setSelectedTemplateId(id);
+		persistGalleryTemplateSelection({ id, source: 'gallery' });
+		setTemplateHydrating(true);
+		setTemplateHydrationError('');
+
+		try {
+			const full = await fetchTemplateCached(id);
+			if (!full?.configuration) {
+				throw new Error('Template configuration is missing.');
+			}
+			setHydratedTemplate(full);
+			toast({
+				title: 'Template selected',
+				description: full.name || summary?.name || 'Gallery template ready for generation.',
+			});
+		} catch (error) {
+			setTemplateHydrationError(error?.message || 'Failed to load template');
+			toast({
+				variant: 'destructive',
+				title: 'Template load failed',
+				description: error?.message || 'Could not load the selected template. Generation will not fall back to the default.',
+			});
+		} finally {
+			setTemplateHydrating(false);
+		}
+	};
+
 	const handleChooseDesignLibraryTemplate = () => {
 		const bridge = openDesignLibraryChooser({
 			onSelect: (template) => {
-				if (template?.id) setSelectedTemplateId(template.id);
+				if (template?.id) void selectGalleryTemplate(template);
 			},
 		});
+		if (bridge.available) {
+			setTemplateChooserOpen(true);
+			return;
+		}
 		toast({
 			title: 'Design Library',
-			description: bridge.message,
+			description: bridge.message || 'Template gallery is unavailable.',
 		});
 	};
 
@@ -1133,7 +1230,13 @@ export default function AIPinsPage() {
 			const generatedRecords = [];
 			const activeAccount = accounts.find((account) => account.id === selectedAccountId);
 			const activeBoard = boards.find((board) => board.boardId === selectedBoardId);
-			const templateConfig = normalizeTemplateConfig(selectedTemplate?.configuration || createDefaultTemplateConfig());
+			const resolvedTemplate = resolveGenerateTemplate({
+				gallerySelectionActive,
+				hydratedTemplate,
+				hydrationError: templateHydrationError,
+				studioTemplate: gallerySelectionActive ? null : selectedTemplate,
+			});
+			const templateConfig = resolvedTemplate.configuration;
 			const selectedBrand = brandKits.find((item) => item.id === selectedBrandKitId) || null;
 			for (let articleIndex = 0; articleIndex < targets.length; articleIndex += 1) {
 				const article = targets[articleIndex];
@@ -1174,8 +1277,8 @@ export default function AIPinsPage() {
 						accountLabel: activeAccount?.label || activeAccount?.accountName || activeAccount?.username || '',
 						boardId: selectedBoardId,
 						boardName: activeBoard?.name || '',
-						templateId: selectedTemplate?.id || '',
-						templateName: pin.layoutLabel || pin.recipeFamilyLabel || selectedTemplate?.name || 'Pin Layout',
+						templateId: resolvedTemplate.id || '',
+						templateName: pin.layoutLabel || pin.recipeFamilyLabel || resolvedTemplate.name || 'Pin Layout',
 						layoutId: pin.layoutId || '',
 						layoutLabel: pin.layoutLabel || '',
 						recipeFamily: pin.recipeFamily || '',
@@ -2055,16 +2158,26 @@ export default function AIPinsPage() {
 						{advancedOpen ? (
 							<div className="space-y-3 rounded-2xl border border-border bg-background/60 p-3">
 								<div className="space-y-2">
-									<Select label="Template" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} disabled={!showTemplates}>
-										<option value="">System default</option>
+									<Select label="Template" value={gallerySelectionActive ? '' : selectedTemplateId} onChange={(e) => handleStudioTemplateChange(e.target.value)} disabled={!showTemplates || templateHydrating}>
+										<option value="">{gallerySelectionActive ? 'Clear gallery (system default)' : 'System default'}</option>
 										{templates.map((template) => (
 											<option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' (Default)' : ''}</option>
 										))}
 									</Select>
-									<Button type="button" size="sm" variant="outline" className="w-full" onClick={handleChooseDesignLibraryTemplate}>
+									<Button type="button" size="sm" variant="outline" className="w-full" onClick={handleChooseDesignLibraryTemplate} disabled={templateHydrating}>
 										<Library size={13} /> Choose Template
 									</Button>
-									<p className="text-[10px] text-muted-foreground">Design Library integration ready — chooser plugs in here later.</p>
+									{templateHydrating ? (
+										<p className="text-[10px] text-muted-foreground">Loading template configuration…</p>
+									) : null}
+									{templateHydrationError ? (
+										<p className="text-[10px] text-destructive" role="alert">{templateHydrationError}</p>
+									) : null}
+									{gallerySelectionActive && hydratedTemplate && !templateHydrationError ? (
+										<p className="text-[10px] text-muted-foreground">Using gallery template: {hydratedTemplate.name}</p>
+									) : (
+										<p className="text-[10px] text-muted-foreground">Gallery is optional. Pick a studio template or open Choose Template.</p>
+									)}
 								</div>
 								<Select label="Brand Kit" value={selectedBrandKitId} onChange={(e) => setSelectedBrandKitId(e.target.value)} disabled={!showBrandKit}>
 									<option value="">No brand kit</option>
@@ -2525,15 +2638,18 @@ export default function AIPinsPage() {
 
 							{editingPinId ? (
 								<>
-									<Select label="Template" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)}>
-										<option value="">System default</option>
+									<Select label="Template" value={gallerySelectionActive ? '' : selectedTemplateId} onChange={(e) => handleStudioTemplateChange(e.target.value)}>
+										<option value="">{gallerySelectionActive ? 'Clear gallery (system default)' : 'System default'}</option>
 										{templates.map((template) => (
 											<option key={template.id} value={template.id}>{template.name}</option>
 										))}
 									</Select>
-									<Button type="button" size="sm" variant="outline" className="w-full" onClick={handleChooseDesignLibraryTemplate}>
+									<Button type="button" size="sm" variant="outline" className="w-full" onClick={handleChooseDesignLibraryTemplate} disabled={templateHydrating}>
 										<Library size={13} /> Choose Template
 									</Button>
+									{templateHydrationError ? (
+										<p className="text-[10px] text-destructive" role="alert">{templateHydrationError}</p>
+									) : null}
 									<Select label="Target account" value={inspectorPin.accountId || ''} onChange={(e) => setPinTargetAccount(inspectorPin.id, e.target.value)}>
 										<option value="">Use global account</option>
 										{accounts.map((account) => (
@@ -2636,6 +2752,16 @@ export default function AIPinsPage() {
 				result={publishResult}
 				onClose={() => setPublishProgressOpen(false)}
 				onOpenHistory={() => navigate('/app/pinterest-history')}
+			/>
+			<PinTemplateChooser
+				open={templateChooserOpen}
+				onClose={() => setTemplateChooserOpen(false)}
+				selectedId={selectedTemplateId}
+				selecting={templateHydrating}
+				selectingId={selectedTemplateId}
+				onSelect={(template) => {
+					void selectGalleryTemplate(template);
+				}}
 			/>
 		</div>
 	);

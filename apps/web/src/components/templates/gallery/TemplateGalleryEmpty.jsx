@@ -5,13 +5,17 @@ export default function TemplateGalleryEmpty({ hasFilters, onCreate, onClear }) 
 			<p>
 				{hasFilters
 					? 'Try clearing filters or searching a different term.'
-					: 'Create a layer template to start your gallery.'}
+					: onCreate
+						? 'Create a layer template to start your gallery.'
+						: 'Published templates will appear here when available from Admin.'}
 			</p>
 			<div className="tpl-gallery-empty__actions">
 				{hasFilters ? (
 					<button type="button" onClick={onClear}>Clear filters</button>
 				) : null}
-				<button type="button" className="is-primary" onClick={onCreate}>Create template</button>
+				{onCreate ? (
+					<button type="button" className="is-primary" onClick={onCreate}>Create template</button>
+				) : null}
 			</div>
 		</div>
 	);

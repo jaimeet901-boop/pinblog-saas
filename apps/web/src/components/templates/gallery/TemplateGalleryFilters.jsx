@@ -21,7 +21,9 @@ const SCOPES = [
 	{ id: 'community', label: 'Community' },
 ];
 
-export default function TemplateGalleryFilters({ filters, onChange }) {
+export default function TemplateGalleryFilters({ filters, onChange, mode = 'manage' }) {
+	const selectMode = mode === 'select';
+
 	return (
 		<div className="tpl-gallery-filters" role="search" aria-label="Template filters">
 			<div className="tpl-gallery-search">
@@ -34,22 +36,26 @@ export default function TemplateGalleryFilters({ filters, onChange }) {
 				/>
 			</div>
 
-			<div className="tpl-gallery-filter-row">
+			<div className={`tpl-gallery-filter-row ${selectMode ? 'is-select-mode' : ''}`}>
 				<label className="tpl-gallery-sr-only" htmlFor="tpl-filter-category">Category</label>
 				<select id="tpl-filter-category" value={filters.category} onChange={(e) => onChange({ category: e.target.value })} aria-label="Category">
 					<option value="">All categories</option>
 					{TEMPLATE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
 				</select>
-				<label className="tpl-gallery-sr-only" htmlFor="tpl-filter-status">Status</label>
-				<select id="tpl-filter-status" value={filters.status} onChange={(e) => onChange({ status: e.target.value })} aria-label="Status">
-					<option value="">All statuses</option>
-					{TEMPLATE_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
-				</select>
-				<label className="tpl-gallery-sr-only" htmlFor="tpl-filter-visibility">Visibility</label>
-				<select id="tpl-filter-visibility" value={filters.visibility} onChange={(e) => onChange({ visibility: e.target.value })} aria-label="Visibility">
-					<option value="">All visibility</option>
-					{TEMPLATE_VISIBILITY.map((v) => <option key={v} value={v}>{v}</option>)}
-				</select>
+				{selectMode ? null : (
+					<>
+						<label className="tpl-gallery-sr-only" htmlFor="tpl-filter-status">Status</label>
+						<select id="tpl-filter-status" value={filters.status} onChange={(e) => onChange({ status: e.target.value })} aria-label="Status">
+							<option value="">All statuses</option>
+							{TEMPLATE_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
+						</select>
+						<label className="tpl-gallery-sr-only" htmlFor="tpl-filter-visibility">Visibility</label>
+						<select id="tpl-filter-visibility" value={filters.visibility} onChange={(e) => onChange({ visibility: e.target.value })} aria-label="Visibility">
+							<option value="">All visibility</option>
+							{TEMPLATE_VISIBILITY.map((v) => <option key={v} value={v}>{v}</option>)}
+						</select>
+					</>
+				)}
 				<label className="tpl-gallery-sr-only" htmlFor="tpl-filter-scope">Scope</label>
 				<select id="tpl-filter-scope" value={filters.scope} onChange={(e) => onChange({ scope: e.target.value })} aria-label="Scope">
 					{SCOPES.map((s) => <option key={s.id || 'all'} value={s.id}>{s.label}</option>)}
@@ -77,14 +83,16 @@ export default function TemplateGalleryFilters({ filters, onChange }) {
 					/>
 					Recently Used
 				</label>
-				<label>
-					<input
-						type="checkbox"
-						checked={filters.includeArchived}
-						onChange={(e) => onChange({ includeArchived: e.target.checked })}
-					/>
-					Include archived
-				</label>
+				{selectMode ? null : (
+					<label>
+						<input
+							type="checkbox"
+							checked={filters.includeArchived}
+							onChange={(e) => onChange({ includeArchived: e.target.checked })}
+						/>
+						Include archived
+					</label>
+				)}
 				<input
 					className="tpl-gallery-tag"
 					value={filters.tag}
