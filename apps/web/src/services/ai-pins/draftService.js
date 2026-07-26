@@ -20,6 +20,7 @@ import {
 	normalizeImageOrigin,
 	resolvePinDestinationUrl,
 } from '@/lib/pinPublishDestination.js';
+import { traceSourceUrl } from './sourceUrlTrace.js';
 
 const IMAGE_SOURCE_VALUES = new Set([
 	'featured',
@@ -126,6 +127,16 @@ function normalizeImageUrl(value) {
 export function mapSavedPin(pin) {
 	const templateSnapshot = mapTemplateSnapshotFromRecord(pin);
 	const sourceUrl = resolvePinDestinationUrl(pin);
+	traceSourceUrl('4_api_response_mapSavedPin', {
+		sourceUrl,
+		source_url: pin.source_url,
+		pinId: pin.id,
+		articleId: pin.articleId,
+		file: 'apps/web/src/services/ai-pins/draftService.js',
+		functionName: 'mapSavedPin',
+		lineNumber: 128,
+		meta: { rawSourceUrl: pin.source_url || null },
+	});
 	return {
 		id: pin.id,
 		articleId: pin.articleId,
@@ -181,7 +192,22 @@ function buildDraftPayload(pin, panel) {
 	const sourceUrl = normalizeDestinationUrl(
 		pin.sourceUrl || pin.articleUrl || pin.destinationUrl || '',
 	);
+	if (!sourceUrl) {
+		throw new Error(
+			`Cannot save pin "${pin.title || pin.tempId || pin.id}": source_url (original article URL) is required`,
+		);
+	}
 	const imageOrigin = normalizeImageOrigin(pin.imageOrigin, { imageSource: pin.imageSource });
+
+	traceSourceUrl('3_database_save_payload', {
+		sourceUrl,
+		tempId: pin.tempId,
+		pinId: pin.id,
+		articleId,
+		file: 'apps/web/src/services/ai-pins/draftService.js',
+		functionName: 'buildDraftPayload',
+		lineNumber: 195,
+	});
 
 	return {
 		owner: ownerId,
@@ -247,28 +273,56 @@ export async function saveDrafts({ previewPins, panel }) {
 				created = await pb.collection('ai_pins').create(payload);
 			} catch (firstError) {
 				const detail = formatPocketBaseError(firstError);
+				if (/source_url/i.test(detail)) {
+					throw new Error(
+						`Save failed for "${pinLabel}": source_url was rejected by PocketBase (${detail}). `
+						+ 'Apply migration 1783986000_ai_pins_source_url and retry — destination URL must persist.',
+					);
+				}
+				if (/image_origin/i.test(detail)) {
+					throw new Error(
+						`Save failed for "${pinLabel}": image_origin was rejected by PocketBase (${detail}). `
+						+ 'Apply migration 1783986000_ai_pins_source_url and retry.',
+					);
+				}
 				const imageSourceRejected = /image_source/i.test(detail)
 					&& payload.image_source === 'featured_composed';
 				const statusRejected = /image_generation_status/i.test(detail)
 					&& payload.image_generation_status === 'rendering';
-				const sourceUrlRejected = /source_url|image_origin/i.test(detail);
-				if (!imageSourceRejected && !statusRejected && !sourceUrlRejected) {
+				if (!imageSourceRejected && !statusRejected) {
 					throw firstError;
 				}
-				// Backward-compatible retry before PocketBase migration is applied.
+				// Remap legacy select values only — never drop source_url.
 				const retryPayload = { ...payload };
 				if (imageSourceRejected) retryPayload.image_source = 'featured';
 				if (statusRejected) retryPayload.image_generation_status = 'processing';
-				if (sourceUrlRejected) {
-					delete retryPayload.source_url;
-					delete retryPayload.image_origin;
-				}
 				created = await pb.collection('ai_pins').create(retryPayload);
 			}
+			traceSourceUrl('3_database_save_record', {
+				sourceUrl: created?.source_url,
+				pinId: created?.id,
+				articleId: created?.articleId,
+				file: 'apps/web/src/services/ai-pins/draftService.js',
+				functionName: 'saveDrafts',
+				lineNumber: 268,
+			});
 			const mapped = mapSavedPin(created);
 			if (!isPersistableImageUrl(mapped.imageUrl)) {
 				throw new Error('Draft was created without a persisted image_url — contact support');
 			}
+			if (!mapped.sourceUrl) {
+				throw new Error(
+					`Draft "${pinLabel}" was created without source_url. Refusing to keep a pin that cannot be published.`,
+				);
+			}
+			traceSourceUrl('5_react_state_after_save', {
+				sourceUrl: mapped.sourceUrl,
+				pinId: mapped.id,
+				articleId: mapped.articleId,
+				file: 'apps/web/src/services/ai-pins/draftService.js',
+				functionName: 'saveDrafts',
+				lineNumber: 280,
+			});
 			records.push(mapped);
 		} catch (error) {
 			const detail = formatPocketBaseError(error, error?.message || 'Failed to create record');
@@ -383,6 +437,8 @@ export async function updateDraftPin({
 			overlayText: readyPin.overlayText,
 			imagePrompt: readyPin.imagePrompt,
 			imageUrl: readyPin.imageUrl,
+			sourceUrl: readyPin.sourceUrl || readyPin.articleUrl || readyPin.destinationUrl || '',
+			imageOrigin: readyPin.imageOrigin || '',
 			cta: readyPin.cta || analysis?.cta || '',
 			style: readyPin.style || panel.style,
 			analysis: readyPin.analysis || analysis,
@@ -450,6 +506,20 @@ export async function updateDraftPin({
 		overlayText: editorPayload.overlayText || readyPin.overlayText,
 		imagePrompt: editorPayload.imagePrompt || readyPin.imagePrompt,
 		imageUrl: editorPayload.imageUrl || readyPin.imageUrl,
+		sourceUrl: editorPayload.sourceUrl
+			|| readyPin.sourceUrl
+			|| readyPin.articleUrl
+			|| readyPin.destinationUrl
+			|| '',
+		articleUrl: editorPayload.sourceUrl
+			|| readyPin.articleUrl
+			|| readyPin.sourceUrl
+			|| '',
+		destinationUrl: editorPayload.sourceUrl
+			|| readyPin.destinationUrl
+			|| readyPin.sourceUrl
+			|| '',
+		imageOrigin: editorPayload.imageOrigin || readyPin.imageOrigin || '',
 		cta: editorPayload.cta || '',
 		style: editorPayload.style || panel.style,
 		analysis: editorPayload.analysis || analysis,

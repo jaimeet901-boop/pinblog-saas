@@ -167,6 +167,33 @@ describe('destination URL draft + publish persistence', () => {
 		}).ok).toBe(true);
 	});
 
+	it('Save Draft refuses to persist a pin without source_url', async () => {
+		await expect(saveDrafts({
+			previewPins: [previewPin({ sourceUrl: '', articleUrl: '', destinationUrl: '' })],
+			panel: {},
+		})).rejects.toThrow(/source_url/i);
+		expect(pb.__mocks.create).not.toHaveBeenCalled();
+	});
+
+	it('Save Draft fails hard when PocketBase rejects source_url (no strip retry)', async () => {
+		pb.__mocks.create.mockRejectedValue({
+			status: 400,
+			response: {
+				message: 'Failed to create record.',
+				data: {
+					source_url: { code: 'validation_unknown_field', message: 'Unknown field.' },
+				},
+			},
+		});
+
+		await expect(saveDrafts({
+			previewPins: [previewPin()],
+			panel: {},
+		})).rejects.toThrow(/source_url was rejected/i);
+		expect(pb.__mocks.create).toHaveBeenCalledTimes(1);
+		expect(pb.__mocks.create.mock.calls[0][0].source_url).toContain('chocolate-cake');
+	});
+
 	it('Duplicate Draft preserves destination URL + template', async () => {
 		pb.__mocks.getOne.mockResolvedValue({
 			id: 'pin_1',

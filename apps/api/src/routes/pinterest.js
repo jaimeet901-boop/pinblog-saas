@@ -255,6 +255,14 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 			throw httpError(422, publishCheck.errors[0] || 'Pin is not ready to publish');
 		}
 
+		logger.info('[source-url] 8_publish_job', {
+			pinId: pin.id,
+			source_url: pin.source_url || null,
+			destinationUrl: publishCheck.destinationUrl,
+			articleUrl: article?.url || null,
+			empty: !publishCheck.destinationUrl,
+		});
+
 		const { account, board } = await resolveTargetForPin({
 			owner,
 			pin,

@@ -53,6 +53,7 @@ import {
 	validatePinForPinterestPublish,
 } from '@/lib/pinPublishDestination';
 import { traceImageLifecycle } from '@/services/ai-pins/imageLifecycleTrace';
+import { traceSourceUrl } from '@/services/ai-pins/sourceUrlTrace';
 import {
 	mapSavedPin,
 	saveDrafts,
@@ -924,10 +925,26 @@ export default function AIPinsPage() {
 		if (notDraft) throw new Error(`Pin "${notDraft.title || notDraft.id}" must be a draft (or failed) to publish.`);
 
 		for (const pin of pins) {
+			traceSourceUrl('6_publish_dialog_validate', {
+				sourceUrl: pin.sourceUrl || pin.source_url || pin.articleUrl || pin.destinationUrl || '',
+				pinId: pin.id,
+				articleId: pin.articleId,
+				file: 'apps/web/src/pages/app/AIPinsPage.jsx',
+				functionName: 'assertPublishTargets',
+				lineNumber: 927,
+			});
 			const check = validatePinForPinterestPublish(pin);
 			if (!check.ok) {
 				throw new Error(`Pin "${pin.title || pin.id}": ${check.errors.join('. ')}`);
 			}
+			traceSourceUrl('7_publish_request_ready', {
+				sourceUrl: check.destinationUrl,
+				pinId: pin.id,
+				articleId: pin.articleId,
+				file: 'apps/web/src/pages/app/AIPinsPage.jsx',
+				functionName: 'assertPublishTargets',
+				lineNumber: 937,
+			});
 		}
 	};
 
@@ -1532,9 +1549,23 @@ export default function AIPinsPage() {
 			const selectedBrand = brandKits.find((item) => item.id === selectedBrandKitId) || null;
 			for (let articleIndex = 0; articleIndex < targets.length; articleIndex += 1) {
 				const article = targets[articleIndex];
+				traceSourceUrl('1_selected_article', {
+					sourceUrl: article.url || '',
+					articleId: article.id,
+					file: 'apps/web/src/pages/app/AIPinsPage.jsx',
+					functionName: 'handleGenerate',
+					lineNumber: 1534,
+					meta: { title: article.title || article.slug || '' },
+				});
 				const resolved = resolvedImages.get(article.id);
 				const sourceImageUrl = pickArticleImageUrl(article);
 				const articleUrl = normalizeDestinationUrl(article.url || '');
+				if (!articleUrl) {
+					throw new Error(
+						`Article "${article.title || article.slug || article.id}" is missing a valid http(s) URL. `
+						+ 'Cannot generate pins without a destination link for Pinterest.',
+					);
+				}
 				const imagePlan = planImageSource({
 					strategy: imageSourceStrategy,
 					articleImageUrl: sourceImageUrl,
@@ -1577,7 +1608,8 @@ export default function AIPinsPage() {
 					},
 				);
 				generatedRecords.push(
-					...styledPins.map((pin, index) => ({
+					...styledPins.map((pin, index) => {
+						const record = {
 						tempId: `${article.id}-${Date.now()}-${index}`,
 						articleId: article.id,
 						websiteId: article.websiteId,
@@ -1633,7 +1665,17 @@ export default function AIPinsPage() {
 						cta: analysis?.cta || '',
 						analysis: analysis || null,
 						brandKitId: selectedBrandKitId || '',
-					}))
+						};
+						traceSourceUrl('2_generated_pin_object', {
+							sourceUrl: record.sourceUrl,
+							tempId: record.tempId,
+							articleId: record.articleId,
+							file: 'apps/web/src/pages/app/AIPinsPage.jsx',
+							functionName: 'handleGenerate',
+							lineNumber: 1620,
+						});
+						return record;
+					})
 				);
 			}
 
