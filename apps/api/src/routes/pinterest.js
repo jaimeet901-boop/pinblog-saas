@@ -24,7 +24,10 @@ import {
 } from '../services/pinterest-api.js';
 import {
 	decryptAccountAccessToken,
+	decryptAccountRefreshToken,
 	deletePinterestAccountSecrets,
+	describePinterestTokenState,
+	hydratePinterestAccountSecrets,
 	replacePinterestAccountSecrets,
 } from '../services/pinterest-secrets.js';
 import logger from '../utils/logger.js';
@@ -560,8 +563,12 @@ router.get('/oauth/callback', async (req, res) => {
 			expiresAt,
 		});
 
+		const verified = await hydratePinterestAccountSecrets(account);
 		logger.info('[pinterest-oauth] tokens stored after reconnect/connect', {
-			accountId: account.id,
+			...describePinterestTokenState(verified, {
+				accessToken: decryptAccountAccessToken(verified),
+				refreshToken: decryptAccountRefreshToken(verified),
+			}),
 			tokenExpiresAt: expiresAt || null,
 			replacedPreviousSecrets: true,
 		});

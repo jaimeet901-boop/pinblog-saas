@@ -164,7 +164,10 @@ async function processJob(job) {
 		return;
 	}
 
-	const account = await getOwnedPinterestAccountById({ owner, accountId: job.account });
+	const accountId = typeof job.account === 'object'
+		? String(job.account?.id || '').trim()
+		: String(job.account || '').trim();
+	const account = await getOwnedPinterestAccountById({ owner, accountId });
 	if (!account?.connected) {
 		throw httpError(422, 'Pinterest account is not connected');
 	}
@@ -226,10 +229,13 @@ async function processJob(job) {
 			logger.warn('[pinterest-publish] createPin returned 401 — forcing refresh then retry', {
 				jobId: job.id,
 				accountId: account.id,
+				tokenUsed: describePinterestTokenState(tokenState.account, {
+					accessToken: tokenState.accessToken,
+				}),
 			});
-			await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: 'Access token expired' });
 
 			// Re-load secrets from DB so we never retry with the rejected access token.
+			// Do not mark expired until refresh+retry both fail — reconnect may have just landed.
 			const freshAccount = await getOwnedPinterestAccountById({ owner, accountId: account.id });
 			let refreshed;
 			try {
@@ -251,6 +257,11 @@ async function processJob(job) {
 					link: targetLink,
 				});
 			} catch (refreshError) {
+				await markPinterestAccountStatus({
+					accountId: account.id,
+					status: 'expired',
+					statusError: refreshError?.message || 'Access token expired',
+				});
 				logger.error('[pinterest-publish] refresh/retry after 401 failed', {
 					jobId: job.id,
 					accountId: account.id,

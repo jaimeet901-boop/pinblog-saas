@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { decryptPinterestSecret, encryptPinterestSecret } from '../utils/secretCrypto.js';
 import logger from '../utils/logger.js';
@@ -8,6 +9,24 @@ function httpError(status, message) {
 	return error;
 }
 
+function relationId(value) {
+	if (!value) return '';
+	if (typeof value === 'string') return value.trim();
+	if (typeof value === 'object') {
+		return String(value.id || value.accountId || value.value || '').trim();
+	}
+	return String(value).trim();
+}
+
+function tokenFingerprint(plainToken) {
+	if (!plainToken) return null;
+	try {
+		return createHash('sha256').update(String(plainToken)).digest('hex').slice(0, 12);
+	} catch {
+		return 'hash_error';
+	}
+}
+
 export async function getPinterestAccountSecretRecord(accountId) {
 	if (!accountId) {
 		return null;
@@ -16,10 +35,23 @@ export async function getPinterestAccountSecretRecord(accountId) {
 	try {
 		return await pocketbaseClient.collection('pinterest_account_secrets').getFirstListItem(
 			pocketbaseClient.filter('account = {:accountId}', { accountId }),
+			{ sort: '-updated' },
 		);
 	} catch (error) {
 		// Missing collection / missing row / locked rules must never break account listing.
 		return null;
+	}
+}
+
+async function listPinterestAccountSecretRecords(accountId) {
+	if (!accountId) return [];
+	try {
+		return await pocketbaseClient.collection('pinterest_account_secrets').getFullList({
+			filter: pocketbaseClient.filter('account = {:accountId}', { accountId }),
+			sort: '-updated',
+		});
+	} catch {
+		return [];
 	}
 }
 
@@ -28,9 +60,22 @@ async function getPinterestTokenRecord(accountId) {
 	try {
 		return await pocketbaseClient.collection('pinterest_tokens').getFirstListItem(
 			pocketbaseClient.filter('account = {:accountId}', { accountId }),
+			{ sort: '-updated' },
 		);
 	} catch {
 		return null;
+	}
+}
+
+async function listPinterestTokenRecords(accountId) {
+	if (!accountId) return [];
+	try {
+		return await pocketbaseClient.collection('pinterest_tokens').getFullList({
+			filter: pocketbaseClient.filter('account = {:accountId}', { accountId }),
+			sort: '-updated',
+		});
+	} catch {
+		return [];
 	}
 }
 
@@ -38,10 +83,14 @@ function hasCiphertext(value) {
 	return typeof value === 'string' && value.trim().length > 0;
 }
 
+function updatedAtMs(value) {
+	const ms = value ? new Date(value).getTime() : 0;
+	return Number.isFinite(ms) ? ms : 0;
+}
+
 /**
  * Load encrypted tokens for an account.
- * Prefer pinterest_account_secrets when it actually has ciphertext; otherwise
- * fall back to pinterest_tokens, then legacy columns on the account row.
+ * Prefer the newest ciphertext source (secrets vs pinterest_tokens vs legacy).
  */
 export async function hydratePinterestAccountSecrets(account) {
 	if (!account?.id) {
@@ -49,20 +98,22 @@ export async function hydratePinterestAccountSecrets(account) {
 	}
 
 	const secret = await getPinterestAccountSecretRecord(account.id);
-	if (secret && (hasCiphertext(secret.access_token) || hasCiphertext(secret.refresh_token))) {
-		return {
+	const token = await getPinterestTokenRecord(account.id);
+
+	const secretCandidate = secret && (hasCiphertext(secret.access_token) || hasCiphertext(secret.refresh_token))
+		? {
 			...account,
 			access_token: secret.access_token || '',
 			refresh_token: secret.refresh_token || '',
 			_secretRecordId: secret.id,
 			_tokenSource: 'pinterest_account_secrets',
 			_tokensUpdatedAt: secret.updated || secret.created || '',
-		};
-	}
+			token_expires_at: account.token_expires_at || '',
+		}
+		: null;
 
-	const token = await getPinterestTokenRecord(account.id);
-	if (token && (hasCiphertext(token.access_ciphertext) || hasCiphertext(token.refresh_ciphertext))) {
-		return {
+	const tokenCandidate = token && (hasCiphertext(token.access_ciphertext) || hasCiphertext(token.refresh_ciphertext))
+		? {
 			...account,
 			access_token: token.access_ciphertext || '',
 			refresh_token: token.refresh_ciphertext || '',
@@ -70,8 +121,17 @@ export async function hydratePinterestAccountSecrets(account) {
 			_tokenSource: 'pinterest_tokens',
 			_tokensUpdatedAt: token.rotated_at || token.updated || token.created || '',
 			token_expires_at: account.token_expires_at || token.expires_at || '',
-		};
+		}
+		: null;
+
+	if (secretCandidate && tokenCandidate) {
+		const secretMs = updatedAtMs(secretCandidate._tokensUpdatedAt);
+		const tokenMs = updatedAtMs(tokenCandidate._tokensUpdatedAt);
+		// Prefer secrets when timestamps tie — that is the reconnect write target.
+		return tokenMs > secretMs ? tokenCandidate : secretCandidate;
 	}
+	if (secretCandidate) return secretCandidate;
+	if (tokenCandidate) return tokenCandidate;
 
 	// Legacy fallback while migration is rolling out.
 	return {
@@ -208,6 +268,8 @@ export async function replacePinterestAccountSecrets({
 		tokenExpiresAt: expiresAt || null,
 		hasAccessToken: true,
 		hasRefreshToken: true,
+		accessFingerprint: tokenFingerprint(access),
+		refreshFingerprint: tokenFingerprint(refresh),
 	});
 
 	return verified;
@@ -224,14 +286,18 @@ export function decryptAccountRefreshToken(account) {
 export async function deletePinterestAccountSecrets(accountId) {
 	if (!accountId) return;
 
-	const secret = await getPinterestAccountSecretRecord(accountId);
-	if (secret?.id) {
-		await pocketbaseClient.collection('pinterest_account_secrets').delete(secret.id).catch(() => null);
+	const secrets = await listPinterestAccountSecretRecords(accountId);
+	for (const secret of secrets) {
+		if (secret?.id) {
+			await pocketbaseClient.collection('pinterest_account_secrets').delete(secret.id).catch(() => null);
+		}
 	}
 
-	const token = await getPinterestTokenRecord(accountId);
-	if (token?.id) {
-		await pocketbaseClient.collection('pinterest_tokens').delete(token.id).catch(() => null);
+	const tokens = await listPinterestTokenRecords(accountId);
+	for (const token of tokens) {
+		if (token?.id) {
+			await pocketbaseClient.collection('pinterest_tokens').delete(token.id).catch(() => null);
+		}
 	}
 }
 
@@ -259,7 +325,11 @@ export function describePinterestTokenState(account, {
 		tokenExpiresInSec: expiresMs ? Math.round((expiresMs - Date.now()) / 1000) : null,
 		hasAccessToken: hasAccess,
 		hasRefreshToken: hasRefresh,
+		accessFingerprint: accessToken != null ? tokenFingerprint(accessToken) : null,
+		refreshFingerprint: refreshToken != null ? tokenFingerprint(refreshToken) : null,
 		secretRecordId: account?._secretRecordId || null,
 		tokenRecordId: account?._tokenRecordId || null,
 	};
 }
+
+export { relationId, tokenFingerprint };

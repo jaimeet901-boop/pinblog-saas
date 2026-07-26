@@ -7,6 +7,7 @@ import {
 	hydratePinterestAccountSecrets,
 	replacePinterestAccountSecrets,
 	upsertPinterestAccountSecrets,
+	relationId,
 } from './pinterest-secrets.js';
 import {
 	assertPinterestOAuthReady,
@@ -281,11 +282,12 @@ export async function setDefaultPinterestBoard({ owner, accountId, boardRecordId
 }
 
 export async function getOwnedPinterestAccountById({ owner, accountId }) {
-	if (!accountId) {
+	const id = relationId(accountId);
+	if (!id) {
 		return null;
 	}
 
-	const record = await pocketbaseClient.collection('pinterest_accounts').getOne(accountId).catch(() => null);
+	const record = await pocketbaseClient.collection('pinterest_accounts').getOne(id).catch(() => null);
 	if (!record) {
 		return null;
 	}
@@ -456,6 +458,7 @@ export async function refreshPinterestAccessToken({ account }) {
 		? account
 		: await hydratePinterestAccountSecrets(account);
 
+	const refreshStartedAt = hydrated._tokensUpdatedAt || '';
 	const before = describePinterestTokenState(hydrated, {
 		accessToken: decryptAccountAccessToken(hydrated),
 		refreshToken: decryptAccountRefreshToken(hydrated),
@@ -471,12 +474,27 @@ export async function refreshPinterestAccessToken({ account }) {
 	const payload = await pinterestTokenRequest({
 		grant_type: 'refresh_token',
 		refresh_token: refreshToken,
+		continuous_refresh: 'true',
 	});
 
 	const nextAccessToken = String(payload.access_token || '').trim();
 	if (!nextAccessToken) {
 		await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: 'Refresh returned empty access token' });
 		throw httpError(401, 'Pinterest access token refresh failed. Please reconnect your account.');
+	}
+
+	// If reconnect replaced secrets while this refresh was in flight, keep the newer tokens.
+	const latest = await hydratePinterestAccountSecrets({ id: account.id, owner: account.owner });
+	const latestUpdatedMs = latest._tokensUpdatedAt ? new Date(latest._tokensUpdatedAt).getTime() : 0;
+	const startedMs = refreshStartedAt ? new Date(refreshStartedAt).getTime() : 0;
+	if (latestUpdatedMs && startedMs && latestUpdatedMs > startedMs) {
+		logger.warn('[pinterest-token] refresh aborted — secrets replaced during refresh (reconnect won)', {
+			accountId: account.id,
+			refreshStartedAt,
+			tokensUpdatedAt: latest._tokensUpdatedAt,
+			tokenSource: latest._tokenSource || null,
+		});
+		return latest;
 	}
 
 	const expiresAt = payload.expires_in
@@ -517,8 +535,8 @@ export async function refreshPinterestAccessToken({ account }) {
 /**
  * Ensure a usable access token for publishing.
  * - Reloads secrets from DB (never trusts a stale in-memory account)
- * - Refreshes automatically when expired / missing expiry / status expired / missing access
- * - Returns whether the token came from refresh
+ * - Refreshes only when missing, status expired, forced, or expiry is imminent
+ * - Does NOT refresh solely because expiry is unknown (that burned reconnect tokens)
  */
 export async function ensureValidPinterestAccessToken({ account, forceRefresh = false }) {
 	if (!account?.id) {
@@ -547,11 +565,13 @@ export async function ensureValidPinterestAccessToken({ account, forceRefresh = 
 	const expiresSoon = Boolean(expiresAtMs) && expiresAtMs <= Date.now() + (5 * 60 * 1000);
 	const expiryUnknown = !expiresAtMs;
 	const statusExpired = String(hydrated.status || '').toLowerCase() === 'expired';
+	// Never refresh only because expiry is unknown — that overwrote freshly reconnected
+	// access tokens and left publish using a failed/stale refresh result.
 	const shouldRefresh = Boolean(
 		forceRefresh
 		|| !accessToken
 		|| statusExpired
-		|| (refreshToken && (expiresSoon || expiryUnknown)),
+		|| (Boolean(refreshToken) && expiresSoon),
 	);
 
 	logger.info('[pinterest-token] ensureValidPinterestAccessToken before', {
