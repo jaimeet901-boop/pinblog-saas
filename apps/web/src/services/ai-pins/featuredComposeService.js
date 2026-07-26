@@ -1,5 +1,6 @@
 import { renderFeaturedPinToBlob } from '@/lib/pinCanvasRenderer';
 import { uploadImageBlob } from './imageLifecycle.js';
+import { traceImageLifecycle } from './imageLifecycleTrace.js';
 
 /**
  * Compose featured pins with the BlogToPin-style canvas engine and upload PNGs.
@@ -11,10 +12,15 @@ export async function composeAndUploadFeaturedPins(pins, {
 	const results = [];
 	for (const pin of pins) {
 		const featuredImageUrl = String(pin.featuredImage || pin.sourceImageUrl || '').trim();
-		console.info('[featured-compose] background assignment', {
+		await traceImageLifecycle('2_image_url_resolution', {
+			traceId: pin.tempId,
 			tempId: pin.tempId,
-			featuredImageUrl: featuredImageUrl.slice(0, 160),
-			hasTemplateConfig: Boolean(pin.templateConfig),
+			articleId: pin.articleId,
+			imageUrl: featuredImageUrl,
+			functionName: 'composeAndUploadFeaturedPins',
+			fileName: 'apps/web/src/services/ai-pins/featuredComposeService.js',
+			lineNumber: 14,
+			meta: { hasTemplateConfig: Boolean(pin.templateConfig) },
 		});
 		if (!featuredImageUrl) {
 			results.push({
@@ -44,30 +50,43 @@ export async function composeAndUploadFeaturedPins(pins, {
 				logoUrl: brandKit?.logoUrl || '',
 				watermarkText: brandKit?.watermarkText || '',
 				websiteDomain: brandKit?.websiteUrl || pin.website || '',
+				traceId: pin.tempId,
 			});
 
 			if (!blob || blob.size <= 0) {
 				throw new Error('Composer returned an empty image blob');
 			}
 
-			objectUrl = URL.createObjectURL(blob);
-			console.info('[featured-compose] canvas blob ready', {
+			await traceImageLifecycle('6_png_export', {
+				traceId: pin.tempId,
 				tempId: pin.tempId,
-				bytes: blob.size,
-				type: blob.type,
+				blob,
+				sampleBlob: true,
+				imageUrl: featuredImageUrl,
+				functionName: 'composeAndUploadFeaturedPins',
+				fileName: 'apps/web/src/services/ai-pins/featuredComposeService.js',
+				lineNumber: 48,
+				meta: { bytes: blob.size, type: blob.type },
 			});
+
+			objectUrl = URL.createObjectURL(blob);
 
 			try {
 				const uploaded = await uploadImageBlob(blob, {
 					articleId: pin.articleId || '',
 					title: pin.title || '',
 					fileName: `featured-pin-${pin.tempId || Date.now()}.png`,
+					tempId: pin.tempId || '',
 				});
 				URL.revokeObjectURL(objectUrl);
 				objectUrl = '';
-				console.info('[featured-compose] hosted imageUrl assigned', {
+				await traceImageLifecycle('9_api_response_hosted_url', {
+					traceId: pin.tempId,
 					tempId: pin.tempId,
-					imageUrl: String(uploaded.imageUrl || '').slice(0, 160),
+					imageUrl: uploaded.imageUrl,
+					functionName: 'composeAndUploadFeaturedPins',
+					fileName: 'apps/web/src/services/ai-pins/featuredComposeService.js',
+					lineNumber: 78,
 				});
 				results.push({
 					tempId: pin.tempId,
@@ -77,11 +96,15 @@ export async function composeAndUploadFeaturedPins(pins, {
 					hosted: true,
 				});
 			} catch (uploadError) {
-				// Keep local blob for Studio preview only — Save Draft will re-upload via imageLifecycle.
-				console.warn('[featured-compose] upload failed, keeping local blob for preview', {
-					status: uploadError?.message,
+				await traceImageLifecycle('8_upload', {
+					traceId: pin.tempId,
 					tempId: pin.tempId,
-					imageUrl: objectUrl.slice(0, 80),
+					success: false,
+					error: uploadError?.message || 'upload failed',
+					imageUrl: objectUrl,
+					functionName: 'composeAndUploadFeaturedPins',
+					fileName: 'apps/web/src/services/ai-pins/featuredComposeService.js',
+					lineNumber: 88,
 				});
 				results.push({
 					tempId: pin.tempId,
@@ -95,10 +118,15 @@ export async function composeAndUploadFeaturedPins(pins, {
 			if (objectUrl) {
 				URL.revokeObjectURL(objectUrl);
 			}
-			console.error('[featured-compose] canvas render failed', {
+			await traceImageLifecycle('5_canvas_rendering', {
+				traceId: pin.tempId,
 				tempId: pin.tempId,
-				featuredImageUrl: featuredImageUrl.slice(0, 160),
-				error: error?.message || error,
+				success: false,
+				error: error?.message || 'compose failed',
+				imageUrl: featuredImageUrl,
+				functionName: 'composeAndUploadFeaturedPins',
+				fileName: 'apps/web/src/services/ai-pins/featuredComposeService.js',
+				lineNumber: 104,
 			});
 			results.push({
 				tempId: pin.tempId,

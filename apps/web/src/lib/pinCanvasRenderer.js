@@ -14,6 +14,7 @@ import {
 import { API_SERVER_URL } from '@/lib/apiServerClient';
 import { getPocketbaseAuthHeader } from '@/lib/pocketbaseClient';
 import { renderDocument } from '@/lib/pinLayerCompositor';
+import { traceImageLifecycle } from '@/services/ai-pins/imageLifecycleTrace.js';
 
 function loadImageFromUrl(url) {
 	return new Promise((resolve, reject) => {
@@ -761,7 +762,16 @@ export async function renderFeaturedPinToBlob({
 	logoUrl = '',
 	watermarkText = '',
 	websiteDomain = '',
+	traceId = '',
 }) {
+	await traceImageLifecycle('3_image_download_start', {
+		traceId,
+		imageUrl: featuredImageUrl,
+		functionName: 'renderFeaturedPinToBlob',
+		fileName: 'apps/web/src/lib/pinCanvasRenderer.js',
+		lineNumber: 757,
+	});
+
 	if (isV2TemplateConfig(templateConfig)) {
 		const { bytes, mimeType } = await renderDocument(templateConfig, {
 			format: 'png',
@@ -778,7 +788,17 @@ export async function renderFeaturedPinToBlob({
 			},
 			loadImageFn: fetchImageForCanvas,
 		});
-		return new Blob([bytes], { type: mimeType || 'image/png' });
+		const blob = new Blob([bytes], { type: mimeType || 'image/png' });
+		await traceImageLifecycle('5_canvas_rendering_v2', {
+			traceId,
+			blob,
+			sampleBlob: true,
+			imageUrl: featuredImageUrl,
+			functionName: 'renderFeaturedPinToBlob',
+			fileName: 'apps/web/src/lib/pinCanvasRenderer.js',
+			lineNumber: 780,
+		});
+		return blob;
 	}
 
 	let config = resolveFeaturedTemplateConfig(templateConfig);
@@ -798,12 +818,44 @@ export async function renderFeaturedPinToBlob({
 	const bandPreview = resolveTitleBand(config);
 	if (featuredImageUrl) {
 		const featured = await fetchImageForCanvas(featuredImageUrl);
+		await traceImageLifecycle('4_image_decoding', {
+			traceId,
+			imageUrl: featuredImageUrl,
+			dimensions: {
+				width: featured.naturalWidth || featured.width || 0,
+				height: featured.naturalHeight || featured.height || 0,
+			},
+			functionName: 'fetchImageForCanvas',
+			fileName: 'apps/web/src/lib/pinCanvasRenderer.js',
+			lineNumber: 47,
+		});
 		drawCoverImage(ctx, featured, width, height, {
 			focusY: config.layout.foodFocusY ?? 0.38,
 			focusX: 0.5,
 		});
 		if (typeof featured.close === 'function') {
 			try { featured.close(); } catch { /* ImageBitmap cleanup */ }
+		}
+		try {
+			const sample = ctx.getImageData(0, 0, Math.min(64, width), Math.min(64, height)).data;
+			let nonDark = 0;
+			for (let i = 0; i < sample.length; i += 4) {
+				const y = (sample[i] * 0.299) + (sample[i + 1] * 0.587) + (sample[i + 2] * 0.114);
+				if (y > 18) nonDark += 1;
+			}
+			await traceImageLifecycle('5_canvas_rendering_after_drawCover', {
+				traceId,
+				imageUrl: featuredImageUrl,
+				dimensions: { width, height },
+				functionName: 'drawCoverImage',
+				fileName: 'apps/web/src/lib/pinCanvasRenderer.js',
+				lineNumber: 99,
+				meta: {
+					nonDarkRatio: Number((nonDark / (sample.length / 4)).toFixed(4)),
+				},
+			});
+		} catch {
+			/* ignore sample failures */
 		}
 		const brightness = sampleBandBrightness(ctx, width, height, bandPreview);
 		const contrast = applyAutoContrast(config, brightness);

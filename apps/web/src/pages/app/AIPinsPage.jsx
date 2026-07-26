@@ -52,6 +52,7 @@ import {
 	normalizeDestinationUrl,
 	validatePinForPinterestPublish,
 } from '@/lib/pinPublishDestination';
+import { traceImageLifecycle } from '@/services/ai-pins/imageLifecycleTrace';
 import {
 	mapSavedPin,
 	saveDrafts,
@@ -1112,10 +1113,20 @@ export default function AIPinsPage() {
 				return pin;
 			}
 			if (!result.ok || !result.imageUrl) {
-				console.warn('[AI Pins] compose failed — clearing imageUrl', {
+				traceImageLifecycle('10_react_state_update', {
+					traceId: pin.tempId,
 					tempId: pin.tempId,
-					featuredImage: String(pin.featuredImage || '').slice(0, 120),
+					success: false,
 					error: result.error || 'Template compose failed',
+					imageUrl: '',
+					functionName: 'applyTemplateComposeResults',
+					fileName: 'apps/web/src/pages/app/AIPinsPage.jsx',
+					lineNumber: 1114,
+					meta: {
+						previousImageUrl: pin.imageUrl || '',
+						previousFeaturedImage: pin.featuredImage || '',
+						replacement: 'cleared imageUrl; UI leaves TemplatePreviewCard only if status not failed',
+					},
 				});
 				return {
 					...pin,
@@ -1124,11 +1135,20 @@ export default function AIPinsPage() {
 					imageGenerationError: result.error || 'Template compose failed',
 				};
 			}
-			console.info('[AI Pins] pin.imageUrl assigned from compose', {
+			traceImageLifecycle('10_react_state_update', {
+				traceId: pin.tempId,
 				tempId: pin.tempId,
-				imageUrl: String(result.imageUrl || '').slice(0, 160),
-				imageSource: result.imageSource || imageSource,
-				featuredImageKept: String(pin.featuredImage || '').slice(0, 120),
+				imageUrl: result.imageUrl,
+				functionName: 'applyTemplateComposeResults',
+				fileName: 'apps/web/src/pages/app/AIPinsPage.jsx',
+				lineNumber: 1135,
+				meta: {
+					previousImageUrl: pin.imageUrl || '',
+					previousFeaturedImage: pin.featuredImage || '',
+					newImageUrl: result.imageUrl,
+					note: 'THIS assignment swaps TemplatePreviewCard(article image) for <img src=imageUrl>. If imageUrl is a blank JPEG, the article photo disappears here.',
+					uiLine: 'AIPinsPage.jsx ~2682 {pin.imageUrl ? <img src={pin.imageUrl} /> : <TemplatePreviewCard featuredImageUrl={pin.featuredImage} />}',
+				},
 			});
 			return {
 				...pin,
@@ -1325,6 +1345,17 @@ export default function AIPinsPage() {
 			const map = new Map();
 			for (const item of Array.isArray(payload.items) ? payload.items : []) {
 				map.set(item.articleId, item);
+				traceImageLifecycle('1_article_discovery_resolve', {
+					traceId: item.articleId,
+					articleId: item.articleId,
+					imageUrl: item.resolvedImage || item.featuredImage || '',
+					functionName: 'resolveArticleImagesForTargets',
+					fileName: 'apps/web/src/pages/app/AIPinsPage.jsx',
+					meta: {
+						source: item.source,
+						contentImageCount: Array.isArray(item.contentImages) ? item.contentImages.length : 0,
+					},
+				});
 			}
 			return map;
 		} catch (error) {

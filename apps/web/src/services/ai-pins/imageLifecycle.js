@@ -4,6 +4,7 @@
  */
 
 import apiServerClient from '@/lib/apiServerClient';
+import { traceImageLifecycle } from './imageLifecycleTrace.js';
 
 const PENDING_STATUSES = new Set(['queued', 'processing', 'rendering', 'pending', 'running']);
 
@@ -30,49 +31,105 @@ export function assertPersistableImageUrl(value, label = 'Pin') {
 	);
 }
 
-function blobToJpeg(blob, quality) {
-	return new Promise((resolve, reject) => {
-		const url = URL.createObjectURL(blob);
-		const img = new Image();
-		img.onload = () => {
-			try {
-				const canvas = document.createElement('canvas');
-				canvas.width = img.naturalWidth || img.width;
-				canvas.height = img.naturalHeight || img.height;
-				const ctx = canvas.getContext('2d');
-				if (!ctx) {
-					reject(new Error('Canvas unavailable'));
-					return;
-				}
-				ctx.drawImage(img, 0, 0);
-				canvas.toBlob((out) => {
-					URL.revokeObjectURL(url);
-					if (!out) {
-						reject(new Error('JPEG encode failed'));
+/**
+ * Re-encode a blob to JPEG only after pixels are fully available.
+ * Root cause of blank hosted pins: drawImage ran on an undecoded Image.
+ */
+async function blobToJpeg(blob, quality) {
+	if (!blob) {
+		throw new Error('Nothing to encode');
+	}
+
+	if (typeof createImageBitmap === 'function') {
+		const bitmap = await createImageBitmap(blob);
+		try {
+			const width = bitmap.width || 0;
+			const height = bitmap.height || 0;
+			if (!width || !height) {
+				throw new Error('JPEG encode source has empty dimensions');
+			}
+			const canvas = document.createElement('canvas');
+			canvas.width = width;
+			canvas.height = height;
+			const ctx = canvas.getContext('2d');
+			if (!ctx) {
+				throw new Error('Canvas unavailable');
+			}
+			ctx.drawImage(bitmap, 0, 0);
+			const out = await new Promise((resolve, reject) => {
+				canvas.toBlob(
+					(encoded) => (encoded ? resolve(encoded) : reject(new Error('JPEG encode failed'))),
+					'image/jpeg',
+					quality,
+				);
+			});
+			return out;
+		} finally {
+			bitmap.close?.();
+		}
+	}
+
+	const url = URL.createObjectURL(blob);
+	try {
+		const img = await new Promise((resolve, reject) => {
+			const image = new Image();
+			image.decoding = 'sync';
+			image.onload = () => {
+				const finish = () => {
+					if (!image.naturalWidth || !image.naturalHeight) {
+						reject(new Error('JPEG encode source decoded with empty dimensions'));
 						return;
 					}
-					resolve(out);
-				}, 'image/jpeg', quality);
-			} catch (error) {
-				URL.revokeObjectURL(url);
-				reject(error);
-			}
-		};
-		img.onerror = () => {
-			URL.revokeObjectURL(url);
-			reject(new Error('Could not decode image for compression'));
-		};
-		img.src = url;
-	});
+					resolve(image);
+				};
+				if (typeof image.decode === 'function') {
+					image.decode().then(finish).catch(() => finish());
+				} else {
+					finish();
+				}
+			};
+			image.onerror = () => reject(new Error('Could not decode image for compression'));
+			image.src = url;
+		});
+		const canvas = document.createElement('canvas');
+		canvas.width = img.naturalWidth;
+		canvas.height = img.naturalHeight;
+		const ctx = canvas.getContext('2d');
+		if (!ctx) {
+			throw new Error('Canvas unavailable');
+		}
+		ctx.drawImage(img, 0, 0);
+		return await new Promise((resolve, reject) => {
+			canvas.toBlob(
+				(encoded) => (encoded ? resolve(encoded) : reject(new Error('JPEG encode failed'))),
+				'image/jpeg',
+				quality,
+			);
+		});
+	} finally {
+		URL.revokeObjectURL(url);
+	}
 }
 
 /**
  * Re-encode large PNG/canvas exports to JPEG so uploads survive 1MB edge proxies.
  * No-op in non-browser/test environments or when already small enough.
  */
-export async function prepareImageBlobForUpload(blob, fileName = '') {
+export async function prepareImageBlobForUpload(blob, fileName = '', meta = {}) {
 	const source = blob;
 	const originalName = String(fileName || `pin-image-${Date.now()}.png`);
+	const traceId = meta.tempId || meta.articleId || '';
+	await traceImageLifecycle('6_png_export_input', {
+		traceId,
+		tempId: meta.tempId,
+		blob: source,
+		sampleBlob: true,
+		functionName: 'prepareImageBlobForUpload',
+		fileName: 'apps/web/src/services/ai-pins/imageLifecycle.js',
+		lineNumber: 118,
+		meta: { fileName: originalName, bytes: source?.size, type: source?.type },
+	});
+
 	if (!source || typeof source !== 'object' || typeof source.size !== 'number') {
 		return { blob: source, fileName: originalName };
 	}
@@ -95,6 +152,22 @@ export async function prepareImageBlobForUpload(blob, fileName = '') {
 	for (const quality of [0.9, 0.82, 0.72, 0.62]) {
 		try {
 			const encoded = await blobToJpeg(source, quality);
+			await traceImageLifecycle('7_jpeg_reencode', {
+				traceId,
+				tempId: meta.tempId,
+				blob: encoded,
+				sampleBlob: true,
+				functionName: 'blobToJpeg',
+				fileName: 'apps/web/src/services/ai-pins/imageLifecycle.js',
+				lineNumber: 36,
+				meta: {
+					quality,
+					inputBytes: source.size,
+					outputBytes: encoded.size,
+					inputType: source.type,
+					outputType: encoded.type,
+				},
+			});
 			if (!best || encoded.size < best.size) {
 				best = encoded;
 			}
@@ -102,7 +175,16 @@ export async function prepareImageBlobForUpload(blob, fileName = '') {
 				best = encoded;
 				break;
 			}
-		} catch {
+		} catch (error) {
+			await traceImageLifecycle('7_jpeg_reencode', {
+				traceId,
+				tempId: meta.tempId,
+				success: false,
+				error: error?.message || 'jpeg encode failed',
+				functionName: 'blobToJpeg',
+				fileName: 'apps/web/src/services/ai-pins/imageLifecycle.js',
+				lineNumber: 36,
+			});
 			break;
 		}
 	}
@@ -119,12 +201,17 @@ export async function uploadImageBlob(blob, {
 	articleId = '',
 	title = '',
 	fileName = '',
+	tempId = '',
 } = {}) {
 	if (!blob || typeof blob !== 'object') {
 		throw new Error('Nothing to upload — image blob is missing');
 	}
 
-	const prepared = await prepareImageBlobForUpload(blob, fileName || `pin-image-${Date.now()}.png`);
+	const prepared = await prepareImageBlobForUpload(blob, fileName || `pin-image-${Date.now()}.png`, {
+		articleId,
+		tempId,
+		title,
+	});
 	const formData = new FormData();
 	formData.append('image', prepared.blob, prepared.fileName);
 	if (articleId) formData.append('articleId', String(articleId));
@@ -149,6 +236,16 @@ export async function uploadImageBlob(blob, {
 	if (!isPersistableImageUrl(hostedUrl)) {
 		throw new Error('Image upload succeeded but no hosted URL was returned');
 	}
+	await traceImageLifecycle('8_upload_hosted_url', {
+		traceId: tempId || articleId,
+		tempId,
+		articleId,
+		imageUrl: hostedUrl,
+		functionName: 'uploadImageBlob',
+		fileName: 'apps/web/src/services/ai-pins/imageLifecycle.js',
+		lineNumber: 190,
+		meta: { imageSource: payload.imageSource || 'featured_composed' },
+	});
 	return {
 		imageUrl: hostedUrl,
 		imageSource: payload.imageSource || 'featured_composed',
