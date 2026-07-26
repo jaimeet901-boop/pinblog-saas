@@ -3,6 +3,12 @@
  * Design Library hook point: openDesignLibraryChooser opens the read-only gallery chooser.
  */
 
+import {
+	formatImageSourceLabel,
+	resolvePinDestinationUrl,
+	validatePinForPinterestPublish,
+} from '@/lib/pinPublishDestination.js';
+
 /**
  * Design Library / Template Gallery integration seam.
  * Callers open PinTemplateChooser when available === true.
@@ -25,10 +31,7 @@ export function buildPinPreview({
 	websiteUrl = '',
 	article,
 }) {
-	const url = websiteUrl
-		|| article?.url
-		|| pin?.websiteUrl
-		|| '';
+	const destinationUrl = resolvePinDestinationUrl(pin, article, websiteUrl);
 
 	return {
 		id: pin?.id || pin?.tempId || '',
@@ -40,21 +43,31 @@ export function buildPinPreview({
 		boardName: board?.name || pin?.boardName || 'No board selected',
 		accountId: account?.id || pin?.accountId || '',
 		accountLabel: account?.label || account?.accountName || account?.username || pin?.accountLabel || 'No account',
-		websiteUrl: url,
+		websiteUrl: destinationUrl,
+		destinationUrl,
+		articleUrl: destinationUrl,
+		sourceUrl: destinationUrl,
+		imageSource: pin?.imageSource || '',
+		imageOrigin: pin?.imageOrigin || '',
+		imageSourceLabel: formatImageSourceLabel(pin),
+		templateName: pin?.templateName || '',
 		status: pin?.status || 'draft',
 		scheduledAt: pin?.scheduledAt || '',
-		templateName: pin?.templateName || '',
 	};
 }
 
 export function validatePreviewReady(preview) {
-	const errors = [];
-	if (!preview?.imageUrl) errors.push('Image is required');
-	if (!String(preview?.title || '').trim()) errors.push('Title is required');
-	if (!preview?.boardId) errors.push('Pinterest board is required');
-	if (!preview?.accountId) errors.push('Pinterest account is required');
+	const base = validatePinForPinterestPublish({
+		title: preview?.title,
+		imageUrl: preview?.imageUrl,
+		sourceUrl: preview?.destinationUrl || preview?.websiteUrl || preview?.sourceUrl,
+		boardId: preview?.boardId,
+		accountId: preview?.accountId,
+	}, { requireBoard: true, requireAccount: true });
+
 	return {
-		ok: errors.length === 0,
-		errors,
+		ok: base.ok,
+		errors: base.errors,
+		destinationUrl: base.destinationUrl,
 	};
 }

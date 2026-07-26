@@ -15,6 +15,11 @@ import {
 	toTemplateEditorPatch,
 	toTemplateSnapshotPayload,
 } from './templateSnapshot.js';
+import {
+	normalizeDestinationUrl,
+	normalizeImageOrigin,
+	resolvePinDestinationUrl,
+} from '@/lib/pinPublishDestination.js';
 
 const IMAGE_SOURCE_VALUES = new Set([
 	'featured',
@@ -120,6 +125,7 @@ function normalizeImageUrl(value) {
 
 export function mapSavedPin(pin) {
 	const templateSnapshot = mapTemplateSnapshotFromRecord(pin);
+	const sourceUrl = resolvePinDestinationUrl(pin);
 	return {
 		id: pin.id,
 		articleId: pin.articleId,
@@ -145,6 +151,10 @@ export function mapSavedPin(pin) {
 		toneOfVoice: pin.tone_of_voice,
 		language: pin.language,
 		imageSource: pin.image_source || '',
+		imageOrigin: normalizeImageOrigin(pin.image_origin, { imageSource: pin.image_source }),
+		sourceUrl,
+		articleUrl: sourceUrl,
+		destinationUrl: sourceUrl,
 		imageGenerationStatus: pin.image_generation_status || '',
 		created: pin.created,
 		updated: pin.updated,
@@ -168,6 +178,10 @@ function buildDraftPayload(pin, panel) {
 	}
 
 	const imageUrl = assertPersistableImageUrl(pin.imageUrl, pin.title || pin.tempId || 'Pin');
+	const sourceUrl = normalizeDestinationUrl(
+		pin.sourceUrl || pin.articleUrl || pin.destinationUrl || '',
+	);
+	const imageOrigin = normalizeImageOrigin(pin.imageOrigin, { imageSource: pin.imageSource });
 
 	return {
 		owner: ownerId,
@@ -178,6 +192,8 @@ function buildDraftPayload(pin, panel) {
 		title: truncateText(pin.title || 'Draft AI Pin', 300) || 'Draft AI Pin',
 		description: truncateText(pin.description || '', 2000),
 		image_url: normalizeImageUrl(imageUrl),
+		source_url: truncateText(sourceUrl, 2000),
+		image_origin: truncateText(imageOrigin, 32),
 		pinterest_account_id: truncateText(pin.accountId || '', 80),
 		pinterest_account_label: truncateText(pin.accountLabel || '', 255),
 		pinterest_board_id: truncateText(pin.boardId || '', 120),
@@ -235,15 +251,19 @@ export async function saveDrafts({ previewPins, panel }) {
 					&& payload.image_source === 'featured_composed';
 				const statusRejected = /image_generation_status/i.test(detail)
 					&& payload.image_generation_status === 'rendering';
-				if (!imageSourceRejected && !statusRejected) {
+				const sourceUrlRejected = /source_url|image_origin/i.test(detail);
+				if (!imageSourceRejected && !statusRejected && !sourceUrlRejected) {
 					throw firstError;
 				}
 				// Backward-compatible retry before PocketBase migration is applied.
-				created = await pb.collection('ai_pins').create({
-					...payload,
-					image_source: imageSourceRejected ? 'featured' : payload.image_source,
-					image_generation_status: statusRejected ? 'processing' : payload.image_generation_status,
-				});
+				const retryPayload = { ...payload };
+				if (imageSourceRejected) retryPayload.image_source = 'featured';
+				if (statusRejected) retryPayload.image_generation_status = 'processing';
+				if (sourceUrlRejected) {
+					delete retryPayload.source_url;
+					delete retryPayload.image_origin;
+				}
+				created = await pb.collection('ai_pins').create(retryPayload);
 			}
 			const mapped = mapSavedPin(created);
 			if (!isPersistableImageUrl(mapped.imageUrl)) {
@@ -291,6 +311,8 @@ export async function duplicatePin(pin, { titleSuffix = ' (Copy)' } = {}) {
 			title: `${(base.title || pin.title || 'AI Pin').trim()}${titleSuffix}`.slice(0, 200),
 			description: base.description || pin.description || '',
 			imageUrl: base.image_url || pin.imageUrl || '',
+			sourceUrl: base.source_url || pin.sourceUrl || pin.articleUrl || '',
+			imageOrigin: base.image_origin || pin.imageOrigin || '',
 			accountId: base.pinterest_account_id || pin.accountId || '',
 			accountLabel: base.pinterest_account_label || pin.accountLabel || '',
 			boardId: base.pinterest_board_id || pin.boardId || '',

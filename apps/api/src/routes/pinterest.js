@@ -38,6 +38,7 @@ import {
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
 import { resolveScheduledAtUtc } from '../utils/timezone.js';
+import { validatePinForPinterestPublish } from '../utils/pin-publish-destination.js';
 import { listPublishProviders, setPublishProvider, getPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
 import { mirrorPinterestJob } from '../services/queue/mirrors.js';
 
@@ -245,8 +246,13 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 		if (!['draft', 'failed'].includes(pin.status)) {
 			throw httpError(422, 'Only Draft or Failed pins can be scheduled/published');
 		}
-		if (!String(pin.image_url || '').trim()) {
-			throw httpError(422, `Pin "${pin.title || pin.id}" must have an image URL before publishing`);
+
+		const article = pin.articleId
+			? await pocketbaseClient.collection('website_articles').getOne(pin.articleId).catch(() => null)
+			: null;
+		const publishCheck = validatePinForPinterestPublish(pin, article);
+		if (!publishCheck.ok) {
+			throw httpError(422, publishCheck.errors[0] || 'Pin is not ready to publish');
 		}
 
 		const { account, board } = await resolveTargetForPin({
@@ -256,12 +262,12 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 			perPinTargets,
 		});
 
-		prepared.push({ pin, account, board });
+		prepared.push({ pin, account, board, destinationUrl: publishCheck.destinationUrl });
 	}
 
 	const jobs = [];
 
-	for (const { pin, account, board } of prepared) {
+	for (const { pin, account, board, destinationUrl } of prepared) {
 		const createPayload = await sanitizeCollectionPayload({
 			collection: 'pinterest_publish_jobs',
 			context: 'pinterest:create-publish-job',
@@ -275,6 +281,7 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 				articleId: pin.articleId || '',
 				board_id: board.board_id,
 				board_name: board.name,
+				destination_url: destinationUrl,
 				scheduled_at: scheduledAt,
 				timezone,
 				status: 'scheduled',

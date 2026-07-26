@@ -48,6 +48,11 @@ import {
 	IMAGE_SOURCE_STRATEGY,
 } from '@/lib/imageSourceStrategy';
 import {
+	formatImageSourceLabel,
+	normalizeDestinationUrl,
+	validatePinForPinterestPublish,
+} from '@/lib/pinPublishDestination';
+import {
 	mapSavedPin,
 	saveDrafts,
 	duplicatePin,
@@ -914,10 +919,15 @@ export default function AIPinsPage() {
 		if (disconnected) {
 			throw new Error('Pinterest account is not connected. Reconnect it in Pinterest settings.');
 		}
-		const missingImage = pins.find((pin) => !String(pin.imageUrl || '').trim());
-		if (missingImage) throw new Error(`Pin "${missingImage.title || missingImage.id}" needs an image before publishing.`);
 		const notDraft = pins.find((pin) => pin.status && !['draft', 'failed'].includes(pin.status));
 		if (notDraft) throw new Error(`Pin "${notDraft.title || notDraft.id}" must be a draft (or failed) to publish.`);
+
+		for (const pin of pins) {
+			const check = validatePinForPinterestPublish(pin);
+			if (!check.ok) {
+				throw new Error(`Pin "${pin.title || pin.id}": ${check.errors.join('. ')}`);
+			}
+		}
 	};
 
 	const handleStudioTemplateChange = (nextId) => {
@@ -1235,6 +1245,9 @@ export default function AIPinsPage() {
 						imageSource: input._usedArticleFallback || input._aiStatus === 'fallback'
 							? 'featured_fallback'
 							: 'ai_generated',
+						imageOrigin: input._usedArticleFallback || input._aiStatus === 'fallback'
+							? (input.fallbackImageOrigin || 'featured')
+							: 'ai',
 						imageGenerationStatus: 'completed',
 						imageGenerationError: input._usedArticleFallback
 							? (input._aiError || 'AI unavailable — used article image with selected template.')
@@ -1477,11 +1490,17 @@ export default function AIPinsPage() {
 			const selectedBrand = brandKits.find((item) => item.id === selectedBrandKitId) || null;
 			for (let articleIndex = 0; articleIndex < targets.length; articleIndex += 1) {
 				const article = targets[articleIndex];
+				const resolved = resolvedImages.get(article.id);
 				const sourceImageUrl = pickArticleImageUrl(article);
+				const articleUrl = normalizeDestinationUrl(article.url || '');
 				const imagePlan = planImageSource({
 					strategy: imageSourceStrategy,
 					articleImageUrl: sourceImageUrl,
 				});
+				const imageOrigin = imagePlan.useAi
+					? 'ai'
+					: (String(resolved?.source || '') === 'body' ? 'body' : 'featured');
+				const fallbackImageOrigin = String(resolved?.source || '') === 'body' ? 'body' : 'featured';
 				const articlePanel = {
 					...workingPanel,
 					imageMode: imagePlan.imageMode,
@@ -1556,6 +1575,11 @@ export default function AIPinsPage() {
 						author: article.author,
 						featuredImage: sourceImageUrl || article.featuredImage || '',
 						sourceImageUrl: sourceImageUrl || '',
+						sourceUrl: articleUrl,
+						articleUrl,
+						destinationUrl: articleUrl,
+						imageOrigin,
+						fallbackImageOrigin,
 						imageSource: imagePlan.useAi ? 'ai_generated' : 'featured',
 						imageGenerationStatus: 'processing',
 						imageGenerationError: '',
@@ -1923,17 +1947,17 @@ export default function AIPinsPage() {
 		const boardList = boardsByAccount[pin.accountId || selectedAccountId] || boards;
 		const board = boardList.find((item) => item.boardId === (pin.boardId || selectedBoardId));
 		const article = articles.find((item) => item.id === pin.articleId);
-		const website = websites.find((item) => item.id === (pin.websiteId || websiteId));
 		const preview = buildPinPreview({
 			pin: {
 				...pin,
 				accountId: pin.accountId || selectedAccountId,
 				boardId: pin.boardId || selectedBoardId,
+				sourceUrl: pin.sourceUrl || pin.articleUrl || pin.destinationUrl || article?.url || '',
 			},
 			account,
 			board,
 			article,
-			websiteUrl: article?.url || website?.domain || website?.url || '',
+			websiteUrl: pin.sourceUrl || pin.articleUrl || article?.url || '',
 		});
 		setPreviewModal(preview);
 	};
@@ -2986,6 +3010,31 @@ export default function AIPinsPage() {
 								onChange={(e) => updateInspectorField('suggestedHashtags', safeArray(e.target.value))}
 							/>
 							<Input label="Image URL" value={inspectorPin.imageUrl || ''} onChange={(e) => updateInspectorField('imageUrl', e.target.value)} />
+							<div className="grid grid-cols-1 gap-2 rounded-xl border border-border/70 bg-secondary/30 p-3 text-xs">
+								<div>
+									<p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Image Source</p>
+									<p>{formatImageSourceLabel(inspectorPin)}</p>
+								</div>
+								<div>
+									<p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Template Name</p>
+									<p className="truncate" title={inspectorPin.templateName || ''}>{inspectorPin.templateName || '—'}</p>
+								</div>
+								<div>
+									<p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Destination URL</p>
+									{inspectorPin.sourceUrl || inspectorPin.articleUrl || inspectorPin.destinationUrl ? (
+										<a
+											href={inspectorPin.sourceUrl || inspectorPin.articleUrl || inspectorPin.destinationUrl}
+											target="_blank"
+											rel="noreferrer"
+											className="break-all text-primary hover:underline"
+										>
+											{inspectorPin.sourceUrl || inspectorPin.articleUrl || inspectorPin.destinationUrl}
+										</a>
+									) : (
+										<p className="text-destructive">Missing article URL</p>
+									)}
+								</div>
+							</div>
 
 							<Select label="Brand Kit" value={inspectorPin.brandKitId || selectedBrandKitId} onChange={(e) => {
 								updateInspectorField('brandKitId', e.target.value);

@@ -675,6 +675,8 @@ router.patch('/pins/:pinId/editor', async (req, res) => {
 	if (typeof req.body?.imagePrompt === 'string') updates.image_prompt = req.body.imagePrompt.trim().slice(0, 4000);
 	if (typeof req.body?.cta === 'string') updates.cta = req.body.cta.trim().slice(0, 300);
 	if (typeof req.body?.style === 'string') updates.style = req.body.style.trim().slice(0, 64);
+	if (typeof req.body?.sourceUrl === 'string') updates.source_url = req.body.sourceUrl.trim().slice(0, 2000);
+	if (typeof req.body?.imageOrigin === 'string') updates.image_origin = req.body.imageOrigin.trim().slice(0, 32);
 	if (req.body?.editorState && typeof req.body.editorState === 'object') updates.editor_state = req.body.editorState;
 	if (req.body?.analysis && typeof req.body.analysis === 'object') updates.analysis = req.body.analysis;
 	if (Array.isArray(req.body?.suggestedKeywords)) updates.suggested_keywords = req.body.suggestedKeywords;
@@ -743,6 +745,9 @@ router.patch('/pins/:pinId/editor', async (req, res) => {
 		templateConfiguration: updated.template_configuration || null,
 		templateThumbnail: updated.template_thumbnail || '',
 		templateSnapshotAt: updated.template_snapshot_at || '',
+		sourceUrl: updated.source_url || '',
+		imageOrigin: updated.image_origin || '',
+		imageSource: updated.image_source || '',
 	});
 });
 

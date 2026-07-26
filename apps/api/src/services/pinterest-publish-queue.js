@@ -24,6 +24,7 @@ import { mirrorPinterestJob } from './queue/mirrors.js';
 import { promoteWaitingProviderPinterestJobs } from './publish-pipeline.js';
 import { notifyWorkspaceUser, logWorkflowStep } from './workspace-notify.js';
 import { enqueueAnalyticsRefresh } from './analytics/refresh.js';
+import { resolvePinDestinationUrl, validatePinForPinterestPublish } from '../utils/pin-publish-destination.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.PINTEREST_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.PINTEREST_QUEUE_BATCH || '10', 10);
@@ -176,7 +177,12 @@ async function processJob(job) {
 	const article = pin.articleId
 		? await pocketbaseClient.collection('website_articles').getOne(pin.articleId).catch(() => null)
 		: null;
-	const targetLink = String(job.destination_url || article?.url || '').trim();
+	const publishCheck = validatePinForPinterestPublish(pin, article);
+	const targetLink = publishCheck.destinationUrl
+		|| resolvePinDestinationUrl(pin, article, job.destination_url);
+	if (!targetLink) {
+		throw httpError(422, 'Destination URL is required before publishing to Pinterest');
+	}
 
 	logger.info('[pinterest-publish] token state before ensureValid', {
 		jobId: job.id,

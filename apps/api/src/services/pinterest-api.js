@@ -738,19 +738,23 @@ export async function syncPinterestBoardsForOwner({ owner, account }) {
 }
 
 export async function createPinterestPin({ accessToken, boardId, title, description, imageUrl, link }) {
+	const destination = String(link || '').trim();
+	if (!destination) {
+		const error = new Error('Pinterest pin destination URL (link) is required');
+		error.status = 422;
+		throw error;
+	}
+
 	const body = {
 		board_id: boardId,
 		title,
 		description,
+		link: destination,
 		media_source: {
 			source_type: 'image_url',
 			url: imageUrl,
 		},
 	};
-
-	if (link) {
-		body.link = link;
-	}
 
 	return pinterestRequest({
 		path: '/pins',

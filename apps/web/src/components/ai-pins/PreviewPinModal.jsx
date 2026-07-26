@@ -11,6 +11,8 @@ export default function PreviewPinModal({
 }) {
 	if (!open || !preview) return null;
 
+	const destinationUrl = preview.destinationUrl || preview.websiteUrl || preview.sourceUrl || '';
+
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
 			<Card className="w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -43,6 +45,16 @@ export default function PreviewPinModal({
 					</div>
 					<div className="grid grid-cols-2 gap-3 text-sm">
 						<div>
+							<p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Image Source</p>
+							<p>{preview.imageSourceLabel || '—'}</p>
+						</div>
+						<div>
+							<p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Template Name</p>
+							<p className="truncate" title={preview.templateName || ''}>{preview.templateName || '—'}</p>
+						</div>
+					</div>
+					<div className="grid grid-cols-2 gap-3 text-sm">
+						<div>
 							<p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Board</p>
 							<p>{preview.boardName || '—'}</p>
 						</div>
@@ -52,18 +64,18 @@ export default function PreviewPinModal({
 						</div>
 					</div>
 					<div>
-						<p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Website URL</p>
-						{preview.websiteUrl ? (
+						<p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Destination URL</p>
+						{destinationUrl ? (
 							<a
-								href={preview.websiteUrl}
+								href={destinationUrl}
 								target="_blank"
 								rel="noreferrer"
 								className="inline-flex items-center gap-1 text-sm text-primary hover:underline break-all"
 							>
-								{preview.websiteUrl} <ExternalLink size={12} />
+								{destinationUrl} <ExternalLink size={12} />
 							</a>
 						) : (
-							<p className="text-sm text-muted-foreground">—</p>
+							<p className="text-sm text-destructive">Missing article URL</p>
 						)}
 					</div>
 				</div>
