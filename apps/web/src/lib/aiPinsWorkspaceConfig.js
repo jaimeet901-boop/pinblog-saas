@@ -107,6 +107,17 @@ export function buildImageQualityOptions(config) {
 
 export function resolveDefaultImageQualityId(config, qualities) {
 	const list = Array.isArray(qualities) ? qualities : buildImageQualityOptions(config);
+	const strategy = String(config?.images?.imageSourceStrategy || '').trim().toLowerCase();
+	if (strategy === 'always_featured' || strategy === 'featured_first' || strategy === 'featured_image_first') {
+		const featured = list.find((item) => item.imageMode === 'use_featured');
+		if (featured) return featured.id;
+	}
+	if (strategy === 'always_ai' || strategy === 'ai_first' || strategy === 'ai_image_first') {
+		const preferred = resolveDefaultImageProvider(config);
+		const match = list.find((item) => item.imageMode === 'generate_ai' && item.imageProvider === preferred);
+		return match?.id || list.find((item) => item.imageMode === 'generate_ai')?.id || list[0]?.id || 'featured';
+	}
+
 	const preferredLabel = String(config?.images?.defaultImageProvider || '').trim().toLowerCase();
 	const qualitySetting = String(config?.images?.quality || '').toLowerCase();
 	if (

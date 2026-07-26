@@ -364,10 +364,91 @@ function extractInternalLinks(html, baseUrl) {
 	return [...urls];
 }
 
+const LOW_QUALITY_IMAGE_RE = /(?:sprite|icon|logo|avatar|emoji|badge|pixel|spacer|blank|1x1|tracking|favicon|gravatar|wordpress\.com\/.*(?:emoji|smilies)|data:image\/gif;base64)/i;
+
+function scoreArticleImageCandidate(src, attrs = {}) {
+	const url = String(src || '').trim();
+	if (!url || LOW_QUALITY_IMAGE_RE.test(url)) {
+		return -1;
+	}
+	if (url.startsWith('data:') && url.length < 800) {
+		return -1;
+	}
+
+	const width = Number(attrs.width) || 0;
+	const height = Number(attrs.height) || 0;
+	const className = String(attrs.className || attrs.class || '');
+	let score = 10;
+
+	if (width && height) {
+		if (width < 120 || height < 120) return -1;
+		score += Math.min(80, Math.round((width * height) / 20000));
+	} else if (width && width < 120) {
+		return -1;
+	} else if (height && height < 120) {
+		return -1;
+	} else {
+		score += 5;
+	}
+
+	if (/featured|hero|wp-post-image|attachment|cover|main/i.test(className) || /featured|hero|cover/i.test(url)) {
+		score += 40;
+	}
+	if (/thumb|small|mini|widget|sidebar/i.test(className) || /thumb|small|mini/i.test(url)) {
+		score -= 25;
+	}
+
+	return score;
+}
+
+/**
+ * Extract high-quality content images from article HTML (skip icons/logos/sprites).
+ * @returns {string[]} absolute image URLs, best first
+ */
+export function extractHighQualityArticleImages(url, html, { limit = 8 } = {}) {
+	const matches = [...String(html || '').matchAll(/<img\b([^>]*)>/gi)];
+	const scored = [];
+
+	for (const match of matches) {
+		const attrsHtml = match[1] || '';
+		const src = (
+			attrsHtml.match(/\bsrc=["']([^"']+)["']/i)?.[1]
+			|| attrsHtml.match(/\bdata-src=["']([^"']+)["']/i)?.[1]
+			|| attrsHtml.match(/\bdata-lazy-src=["']([^"']+)["']/i)?.[1]
+			|| attrsHtml.match(/\bdata-original=["']([^"']+)["']/i)?.[1]
+			|| ''
+		).trim();
+		const absolute = absoluteUrl(url, src);
+		if (!absolute) continue;
+
+		const attrs = {
+			width: attrsHtml.match(/\bwidth=["']?(\d+)/i)?.[1],
+			height: attrsHtml.match(/\bheight=["']?(\d+)/i)?.[1],
+			className: attrsHtml.match(/\bclass=["']([^"']+)["']/i)?.[1] || '',
+		};
+		const score = scoreArticleImageCandidate(absolute, attrs);
+		if (score < 0) continue;
+		scored.push({ url: absolute, score });
+	}
+
+	scored.sort((a, b) => b.score - a.score);
+	const seen = new Set();
+	const urls = [];
+	for (const item of scored) {
+		if (seen.has(item.url)) continue;
+		seen.add(item.url);
+		urls.push(item.url);
+		if (urls.length >= limit) break;
+	}
+	return urls;
+}
+
 function parseArticleHtml(url, html) {
 	const title = stripHtml(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || getMetaContent(html, ["property=[\"']og:title[\"']", "name=[\"']title[\"']"]));
 	const metaDescription = getMetaContent(html, ["name=[\"']description[\"']", "property=[\"']og:description[\"']"]).slice(0, 2000);
-	const featuredImage = absoluteUrl(url, getMetaContent(html, ["property=[\"']og:image[\"']", "name=[\"']twitter:image[\"']"]));
+	const metaFeatured = absoluteUrl(url, getMetaContent(html, ["property=[\"']og:image[\"']", "name=[\"']twitter:image[\"']"]));
+	const contentImages = extractHighQualityArticleImages(url, html);
+	const featuredImage = metaFeatured || contentImages[0] || '';
 	const publishDate = normalizeDate(getMetaContent(html, ["property=[\"']article:published_time[\"']", "name=[\"']pubdate[\"']", "name=[\"']publish-date[\"']"]));
 	const lastModifiedDate = normalizeDate(getMetaContent(html, ["property=[\"']article:modified_time[\"']", "name=[\"']lastmod[\"']", "name=[\"']last-modified[\"']"]));
 	const category = getMetaContent(html, ["property=[\"']article:section[\"']", "name=[\"']category[\"']"]);
@@ -380,12 +461,55 @@ function parseArticleHtml(url, html) {
 		title: title || deriveSlug(url),
 		metaDescription,
 		featuredImage,
+		contentImages,
 		publishDate,
 		lastModifiedDate,
 		category,
 		author,
 		language,
 		source: 'crawl',
+	};
+}
+
+/**
+ * Fetch article HTML and resolve featured + content images for pin generation.
+ */
+export async function resolveArticleImageSources({ url, existingFeaturedImage = '' } = {}) {
+	const featuredExisting = String(existingFeaturedImage || '').trim();
+	const pageUrl = String(url || '').trim();
+	if (!pageUrl && featuredExisting) {
+		return {
+			featuredImage: featuredExisting,
+			contentImages: [],
+			resolvedImage: featuredExisting,
+			source: 'stored',
+		};
+	}
+	if (!pageUrl) {
+		return { featuredImage: '', contentImages: [], resolvedImage: '', source: 'none' };
+	}
+
+	const result = await fetchText(pageUrl);
+	if (!result.ok || !result.body) {
+		return {
+			featuredImage: featuredExisting,
+			contentImages: [],
+			resolvedImage: featuredExisting,
+			source: featuredExisting ? 'stored' : 'none',
+		};
+	}
+
+	const parsed = parseArticleHtml(pageUrl, result.body);
+	const contentImages = Array.isArray(parsed.contentImages) ? parsed.contentImages : [];
+	const featuredImage = featuredExisting || parsed.featuredImage || '';
+	const resolvedImage = featuredImage || contentImages[0] || '';
+	return {
+		featuredImage,
+		contentImages,
+		resolvedImage,
+		source: featuredExisting
+			? 'stored'
+			: (parsed.featuredImage ? 'meta_or_body' : (contentImages[0] ? 'body' : 'none')),
 	};
 }
 
@@ -640,14 +764,21 @@ async function enrichCandidates(candidates, onProgress) {
 			continue;
 		}
 
+		const parsed = parseArticleHtml(candidate.url, result.body);
 		enriched.push({
-			...parseArticleHtml(candidate.url, result.body),
 			...candidate,
+			...parsed,
 			url: candidate.url,
-			source: candidate.source,
-			slug: candidate.slug || deriveSlug(candidate.url),
-			publishDate: candidate.publishDate || parseArticleHtml(candidate.url, result.body).publishDate,
-			lastModifiedDate: candidate.lastModifiedDate || parseArticleHtml(candidate.url, result.body).lastModifiedDate,
+			source: candidate.source || parsed.source,
+			slug: candidate.slug || parsed.slug || deriveSlug(candidate.url),
+			title: candidate.title || parsed.title,
+			metaDescription: candidate.metaDescription || parsed.metaDescription,
+			featuredImage: candidate.featuredImage || parsed.featuredImage || '',
+			publishDate: candidate.publishDate || parsed.publishDate,
+			lastModifiedDate: candidate.lastModifiedDate || parsed.lastModifiedDate,
+			category: candidate.category || parsed.category,
+			author: candidate.author || parsed.author,
+			language: candidate.language || parsed.language,
 		});
 
 		await sleep(5);

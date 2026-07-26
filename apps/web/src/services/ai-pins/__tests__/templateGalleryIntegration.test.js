@@ -17,6 +17,10 @@ import {
 	readPersistedGalleryTemplateSelection,
 	resolveGenerateTemplate,
 } from '../templateHydration.js';
+import {
+	applyIntelligentTemplateConfig,
+	assignIntelligentPinDesigns,
+} from '@/lib/pinTemplateIntelligence.js';
 
 function createSessionStorageMock() {
 	const store = new Map();
@@ -157,5 +161,75 @@ describe('AI Pins Template Gallery integration', () => {
 		expect(resolvedStudio.id).toBe('studio_1');
 		expect(resolvedStudio.name).toBe('Studio Layout');
 		expect(resolvedStudio.source).toBe('studio');
+	});
+
+	it('gallery selected: generate preserves hydrated structure (preview == generate config)', () => {
+		const hydrated = {
+			id: 'tpl_structure',
+			name: 'Template A',
+			configuration: {
+				schemaVersion: 2,
+				canvas: { width: 1000, height: 1500 },
+				layout: { variantId: 'hero_split', textPosition: 'top', frameStyle: 'rounded_soft' },
+				typography: { fontFamily: 'Playfair Display', fontSize: 92, fontWeight: 700 },
+				buttonStyle: { enabled: true, shape: 'pill', position: 'bottom' },
+				layers: [
+					{ id: 'bg', type: 'image' },
+					{ id: 'title', type: 'text', text: '{{title}}' },
+					{ id: 'cta', type: 'button' },
+				],
+			},
+		};
+
+		const resolved = resolveGenerateTemplate({
+			gallerySelectionActive: true,
+			hydratedTemplate: hydrated,
+			hydrationError: '',
+			studioTemplate: null,
+		});
+
+		const recommendation = {
+			template: 'brush_stroke',
+			templateLabel: 'Brush Stroke',
+			spacing: { titleScaleBoost: 1.4 },
+		};
+
+		const generatedConfig = applyIntelligentTemplateConfig(
+			resolved.configuration,
+			recommendation,
+			{ brandKit: null, respectExplicitTemplate: true },
+		);
+
+		// Structural source of truth must match resolved gallery config (same as preview input).
+		expect(generatedConfig.layout?.variantId).toBe(resolved.configuration.layout?.variantId);
+		expect(generatedConfig.layout?.textPosition).toBe(resolved.configuration.layout?.textPosition);
+		expect(generatedConfig.layout?.frameStyle).toBe(resolved.configuration.layout?.frameStyle);
+		expect(generatedConfig.typography?.fontFamily).toBe(resolved.configuration.typography?.fontFamily);
+		expect(generatedConfig.typography?.fontSize).toBe(resolved.configuration.typography?.fontSize);
+		expect(generatedConfig.buttonStyle?.shape).toBe(resolved.configuration.buttonStyle?.shape);
+		expect(generatedConfig.buttonStyle?.position).toBe(resolved.configuration.buttonStyle?.position);
+		expect(generatedConfig.layers?.map((l) => l.id)).toEqual(
+			resolved.configuration.layers?.map((l) => l.id),
+		);
+		// Intelligence recommendation must not win.
+		expect(generatedConfig.layout?.variantId).not.toBe('brush_stroke');
+
+		const overridden = applyIntelligentTemplateConfig(
+			resolved.configuration,
+			recommendation,
+			{ brandKit: null, respectExplicitTemplate: false },
+		);
+		expect(overridden.layout?.variantId).toBe('brush_stroke');
+
+		const styled = assignIntelligentPinDesigns(
+			[{ title: 'Long Article Headline That Should Clamp', subtitle: 'a b c d e f g' }],
+			{
+				respectExplicitTemplate: true,
+				explicitTemplate: resolved,
+			},
+		);
+		expect(styled[0].layoutId).toBe(resolved.configuration.layout?.variantId || resolved.id);
+		expect(styled[0].layoutLabel).toBe('Template A');
+		expect(styled[0].designRecommendation).toBeNull();
 	});
 });

@@ -42,6 +42,12 @@ import {
 	resolvePublishingConfig,
 } from '@/lib/aiPinsWorkspaceConfig';
 import {
+	normalizeImageSourceStrategy,
+	pickArticleImageUrl,
+	planImageSource,
+	IMAGE_SOURCE_STRATEGY,
+} from '@/lib/imageSourceStrategy';
+import {
 	mapSavedPin,
 	saveDrafts,
 	duplicatePin,
@@ -1018,15 +1024,16 @@ export default function AIPinsPage() {
 		return Array.isArray(payload.items) ? payload.items : [];
 	};
 
-	const pollPreviewImageJobs = async (jobIds) => {
+	const pollPreviewImageJobs = async (jobIds, { manageSpinner = true } = {}) => {
 		if (!Array.isArray(jobIds) || jobIds.length === 0) {
-			return;
+			return [];
 		}
 
-		setGeneratingImages(true);
+		if (manageSpinner) setGeneratingImages(true);
 		const doneStatuses = new Set(['completed', 'fallback', 'failed']);
 		const pendingStatuses = new Set(['queued', 'processing', 'rendering', 'pending', 'running']);
 		let finishedCleanly = false;
+		let jobs = [];
 
 		for (let attempt = 0; attempt < 48; attempt += 1) {
 			const response = await apiServerClient.fetch(`/ai-pin-images/jobs?ids=${encodeURIComponent(jobIds.join(','))}`, { method: 'GET' });
@@ -1035,7 +1042,7 @@ export default function AIPinsPage() {
 				throw new Error(payload?.message || `Failed to poll image jobs (${response.status})`);
 			}
 
-			const jobs = Array.isArray(payload.items) ? payload.items : [];
+			jobs = Array.isArray(payload.items) ? payload.items : [];
 			setGeneratedPreviewPins((prev) => prev.map((pin) => {
 				const job = jobs.find((item) => item.clientToken === pin.tempId || item.id === pin.imageJobId);
 				if (!job) {
@@ -1045,10 +1052,15 @@ export default function AIPinsPage() {
 				return {
 					...pin,
 					imageJobId: job.id,
-					imageUrl: job.imageUrl || pin.imageUrl || '',
+					// Keep provisional AI/fallback URL; template compose finalizes imageUrl next.
+					backgroundImageUrl: job.imageUrl || pin.backgroundImageUrl || '',
 					imageGenerationStatus: job.status,
 					imageGenerationError: job.lastError || '',
-					imageSource: job.status === 'completed' ? 'ai_generated' : job.status === 'fallback' ? 'featured_fallback' : pin.imageSource,
+					imageSource: job.status === 'completed'
+						? 'ai_generated'
+						: job.status === 'fallback'
+							? 'featured_fallback'
+							: pin.imageSource,
 				};
 			}));
 
@@ -1075,11 +1087,36 @@ export default function AIPinsPage() {
 			toast({
 				variant: 'destructive',
 				title: 'Image generation timed out',
-				description: 'Studio stopped waiting. Use Retry on each pin, or check Admin → Providers / API logs.',
+				description: 'Studio stopped waiting. Use Retry on each pin, or check Admin → Providers / API logs. Article images will still be used when available.',
 			});
 		}
 
-		setGeneratingImages(false);
+		if (manageSpinner) setGeneratingImages(false);
+		return jobs;
+	};
+
+	const applyTemplateComposeResults = (composed, { imageSource = 'featured_composed' } = {}) => {
+		setGeneratedPreviewPins((prev) => prev.map((pin) => {
+			const result = composed.find((item) => item.tempId === pin.tempId);
+			if (!result) {
+				return pin;
+			}
+			if (!result.ok || !result.imageUrl) {
+				return {
+					...pin,
+					imageUrl: '',
+					imageGenerationStatus: 'failed',
+					imageGenerationError: result.error || 'Template compose failed',
+				};
+			}
+			return {
+				...pin,
+				imageUrl: result.imageUrl,
+				imageSource: result.imageSource || imageSource,
+				imageGenerationStatus: 'completed',
+				imageGenerationError: result.hosted === false ? (result.error || '') : '',
+			};
+		}));
 	};
 
 	const startPreviewImageGeneration = async (
@@ -1088,74 +1125,188 @@ export default function AIPinsPage() {
 		imageProviderOverride = '',
 		brandKit = null,
 	) => {
-		const mode = String(imageModeOverride || '').trim();
+		const defaultMode = String(imageModeOverride || '').trim();
+		const articlePins = pins.filter((pin) => String(pin.imageMode || defaultMode) !== 'generate_ai');
+		const aiPins = pins.filter((pin) => String(pin.imageMode || defaultMode) === 'generate_ai');
 
-		// Featured Image mode: local BlogToPin canvas only — never Gemini/Fal/queue/raw photo.
-		if (mode !== 'generate_ai') {
-			setGeneratingImages(true);
-			try {
-				console.info('[AI Pins] featured canvas compose start', {
-					count: pins.length,
-					mode,
+		setGeneratingImages(true);
+		try {
+			if (articlePins.length > 0) {
+				console.info('[AI Pins] article-image template compose start', {
+					count: articlePins.length,
 					hasBrandKit: Boolean(brandKit?.id || brandKit?.logoUrl),
 				});
-				const composed = await composeAndUploadFeaturedPins(pins, { brandKit });
+				const composed = await composeAndUploadFeaturedPins(
+					articlePins.map((pin) => ({
+						...pin,
+						featuredImage: pin.sourceImageUrl || pin.featuredImage || '',
+					})),
+					{ brandKit },
+				);
+				applyTemplateComposeResults(composed, { imageSource: 'featured_composed' });
+			}
+
+			if (aiPins.length === 0) {
+				return;
+			}
+
+			const jobs = await queuePreviewImageJobs(
+				aiPins.map((pin) => ({
+					...pin,
+					featuredImage: pin.sourceImageUrl || pin.featuredImage || '',
+					imageMode: 'generate_ai',
+				})),
+				imageProviderOverride,
+			);
+			const jobIds = jobs.map((job) => job.id);
+			setGeneratedPreviewPins((prev) => prev.map((pin) => {
+				const job = jobs.find((item) => item.clientToken === pin.tempId);
+				return job ? {
+					...pin,
+					imageJobId: job.id,
+					imageGenerationStatus: job.status,
+					imageGenerationError: job.lastError || '',
+				} : pin;
+			}));
+
+			const finishedJobs = await pollPreviewImageJobs(jobIds, { manageSpinner: false });
+
+			const composeInputs = aiPins.map((pin) => {
+				const job = finishedJobs.find((item) => item.clientToken === pin.tempId || item.id === pin.imageJobId)
+					|| jobs.find((item) => item.clientToken === pin.tempId);
+				const background = String(
+					job?.imageUrl
+					|| pin.sourceImageUrl
+					|| pin.featuredImage
+					|| '',
+				).trim();
+				const usedArticleFallback = Boolean(
+					background
+					&& (
+						job?.status === 'fallback'
+						|| job?.status === 'failed'
+						|| !job?.imageUrl
+					)
+					&& (pin.sourceImageUrl || pin.featuredImage),
+				);
+				return {
+					...pin,
+					featuredImage: background,
+					_usedArticleFallback: usedArticleFallback,
+					_aiStatus: job?.status || 'failed',
+					_aiError: job?.lastError || '',
+				};
+			});
+
+			const withBackground = composeInputs.filter((pin) => pin.featuredImage);
+			const withoutBackground = composeInputs.filter((pin) => !pin.featuredImage);
+
+			if (withoutBackground.length > 0) {
 				setGeneratedPreviewPins((prev) => prev.map((pin) => {
+					const missed = withoutBackground.find((item) => item.tempId === pin.tempId);
+					if (!missed) return pin;
+					return {
+						...pin,
+						imageUrl: '',
+						imageGenerationStatus: 'failed',
+						imageGenerationError: missed._aiError
+							|| 'AI image generation failed and no article image was available.',
+					};
+				}));
+			}
+
+			if (withBackground.length > 0) {
+				const composed = await composeAndUploadFeaturedPins(withBackground, { brandKit });
+				setGeneratedPreviewPins((prev) => prev.map((pin) => {
+					const input = withBackground.find((item) => item.tempId === pin.tempId);
 					const result = composed.find((item) => item.tempId === pin.tempId);
-					if (!result) {
+					if (!input) return pin;
+					if (!result?.ok || !result.imageUrl) {
 						return {
 							...pin,
 							imageUrl: '',
-							imageSource: 'featured',
 							imageGenerationStatus: 'failed',
-							imageGenerationError: 'Featured canvas compose did not return a result',
-						};
-					}
-					if (!result.ok || !result.imageUrl) {
-						return {
-							...pin,
-							imageUrl: '',
-							imageSource: 'featured',
-							imageGenerationStatus: 'failed',
-							imageGenerationError: result.error || 'Featured canvas compose failed',
+							imageGenerationError: result?.error || input._aiError || 'Template compose failed',
 						};
 					}
 					return {
 						...pin,
 						imageUrl: result.imageUrl,
-						imageSource: 'featured_composed',
+						imageSource: input._usedArticleFallback || input._aiStatus === 'fallback'
+							? 'featured_fallback'
+							: 'ai_generated',
 						imageGenerationStatus: 'completed',
-						imageGenerationError: result.hosted === false ? (result.error || '') : '',
+						imageGenerationError: input._usedArticleFallback
+							? (input._aiError || 'AI unavailable — used article image with selected template.')
+							: (result.hosted === false ? (result.error || '') : ''),
 					};
 				}));
-			} catch (error) {
-				console.error('[AI Pins] featured canvas compose crashed', error);
-				setGeneratedPreviewPins((prev) => prev.map((pin) => ({
-					...pin,
-					imageUrl: '',
-					imageSource: 'featured',
-					imageGenerationStatus: 'failed',
-					imageGenerationError: error?.message || 'Featured canvas compose crashed',
-				})));
-			} finally {
-				setGeneratingImages(false);
 			}
-			return;
+		} catch (error) {
+			console.error('[AI Pins] image workflow failed', error);
+			// Last resort: still try to compose any pin that has an article image.
+			const fallbackPins = pins.filter((pin) => String(pin.sourceImageUrl || pin.featuredImage || '').trim());
+			if (fallbackPins.length > 0) {
+				try {
+					const composed = await composeAndUploadFeaturedPins(
+						fallbackPins.map((pin) => ({
+							...pin,
+							featuredImage: pin.sourceImageUrl || pin.featuredImage,
+						})),
+						{ brandKit },
+					);
+					applyTemplateComposeResults(composed, { imageSource: 'featured_fallback' });
+					toast({
+						title: 'Used article images',
+						description: 'AI image generation was unavailable. Pins were composed with article images and your selected template.',
+					});
+					return;
+				} catch (composeError) {
+					console.error('[AI Pins] article fallback compose failed', composeError);
+				}
+			}
+			setGeneratedPreviewPins((prev) => prev.map((pin) => ({
+				...pin,
+				imageUrl: pin.imageUrl || '',
+				imageGenerationStatus: pin.imageUrl ? pin.imageGenerationStatus : 'failed',
+				imageGenerationError: pin.imageUrl
+					? pin.imageGenerationError
+					: (error?.message || 'Image workflow failed'),
+			})));
+		} finally {
+			setGeneratingImages(false);
+		}
+	};
+
+	const resolveArticleImagesForTargets = async (targets) => {
+		const websiteKey = String(websiteId || targets[0]?.websiteId || '').trim();
+		const ids = targets.map((item) => item.id).filter(Boolean);
+		if (!websiteKey || ids.length === 0) {
+			return new Map();
 		}
 
-		const jobs = await queuePreviewImageJobs(pins, imageProviderOverride);
-		const jobIds = jobs.map((job) => job.id);
-		setGeneratedPreviewPins((prev) => prev.map((pin) => {
-			const job = jobs.find((item) => item.clientToken === pin.tempId);
-			return job ? {
-				...pin,
-				imageJobId: job.id,
-				imageGenerationStatus: job.status,
-				imageGenerationError: job.lastError || '',
-			} : pin;
-		}));
-
-		await pollPreviewImageJobs(jobIds);
+		try {
+			const response = await apiServerClient.fetch(
+				`/websites/${encodeURIComponent(websiteKey)}/articles/resolve-images`,
+				{
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ articleIds: ids, persist: true }),
+				},
+			);
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload?.message || 'Failed to resolve article images');
+			}
+			const map = new Map();
+			for (const item of Array.isArray(payload.items) ? payload.items : []) {
+				map.set(item.articleId, item);
+			}
+			return map;
+		} catch (error) {
+			console.warn('[AI Pins] resolve-images failed; using stored featured images', error);
+			return new Map();
+		}
 	};
 
 	const generatePinsForArticle = async (article, count, panelOverride = panel) => {
@@ -1196,7 +1347,7 @@ export default function AIPinsPage() {
 		const quality = imageQualities.find((item) => item.id === imageQuality) || imageQualities[0];
 		const ratio = PIN_ASPECT_RATIOS.find((item) => item.id === aspectRatio);
 		const websiteLabel = activeWebsite?.domain || activeWebsite?.url || activeWebsite?.name || '';
-		const featuredMode = imageQuality === 'featured' || quality?.imageMode === 'use_featured';
+		const imageSourceStrategy = normalizeImageSourceStrategy(config?.images?.imageSourceStrategy);
 
 		// Explicit UI selection wins. Workspace default is last-resort only.
 		const textProviderCode = resolveDefaultTextProvider(config);
@@ -1206,10 +1357,7 @@ export default function AIPinsPage() {
 
 		let workingPanel = {
 			...panel,
-			imageMode: featuredMode ? 'use_featured' : 'generate_ai',
-			imageProvider: featuredMode
-				? ''
-				: (imageProviderCode || quality?.imageProvider || ''),
+			imageProvider: imageProviderCode || quality?.imageProvider || '',
 			textProvider: textProviderCode || '',
 		};
 
@@ -1245,7 +1393,6 @@ export default function AIPinsPage() {
 
 		setPanel((prev) => ({
 			...prev,
-			imageMode: workingPanel.imageMode,
 			imageProvider: workingPanel.imageProvider,
 			pinTitle: workingPanel.pinTitle,
 			pinDescription: workingPanel.pinDescription,
@@ -1277,22 +1424,33 @@ export default function AIPinsPage() {
 			}
 		}
 
-		if (workingPanel.imageMode === 'use_featured') {
-			const missingFeatured = targets.filter((article) => !String(article.featuredImage || '').trim());
-			if (missingFeatured.length > 0) {
-				toast({
-					variant: 'destructive',
-					title: 'Featured image required',
-					description: `${missingFeatured.length} article(s) have no featured image. Featured mode does not use AI image providers.`,
-				});
-				return;
-			}
-		}
-
 		setGenerating(true);
 		setWorkspaceTab('studio');
-		setBulkProgress({ active: true, current: 0, total: targets.length, message: 'Starting generation...' });
+		setBulkProgress({ active: true, current: 0, total: targets.length, message: 'Resolving article images...' });
 		try {
+			const resolvedImages = await resolveArticleImagesForTargets(targets);
+			targets = targets.map((article) => {
+				const resolved = resolvedImages.get(article.id);
+				const nextFeatured = String(resolved?.resolvedImage || article.featuredImage || '').trim();
+				return {
+					...article,
+					featuredImage: nextFeatured,
+					contentImages: Array.isArray(resolved?.contentImages) ? resolved.contentImages : [],
+				};
+			});
+
+			if (imageSourceStrategy === IMAGE_SOURCE_STRATEGY.ALWAYS_FEATURED) {
+				const missing = targets.filter((article) => !pickArticleImageUrl(article));
+				if (missing.length > 0) {
+					toast({
+						variant: 'destructive',
+						title: 'Article image required',
+						description: `${missing.length} article(s) have no featured or content image. Always Featured Image cannot use AI.`,
+					});
+					return;
+				}
+			}
+
 			const generatedRecords = [];
 			const activeAccount = accounts.find((account) => account.id === selectedAccountId);
 			const activeBoard = boards.find((board) => board.boardId === selectedBoardId);
@@ -1319,25 +1477,43 @@ export default function AIPinsPage() {
 			const selectedBrand = brandKits.find((item) => item.id === selectedBrandKitId) || null;
 			for (let articleIndex = 0; articleIndex < targets.length; articleIndex += 1) {
 				const article = targets[articleIndex];
+				const sourceImageUrl = pickArticleImageUrl(article);
+				const imagePlan = planImageSource({
+					strategy: imageSourceStrategy,
+					articleImageUrl: sourceImageUrl,
+				});
+				const articlePanel = {
+					...workingPanel,
+					imageMode: imagePlan.imageMode,
+					imageProvider: imagePlan.useAi ? (workingPanel.imageProvider || imageProviderCode) : '',
+				};
+
 				setBulkProgress({
 					active: true,
 					current: articleIndex + 1,
 					total: targets.length,
 					message: `Generating pins for ${article.title || article.slug || 'article'}...`,
 				});
-				const generatedPins = await generatePinsForArticle(article, workingPanel.count, workingPanel);
+				const generatedPins = await generatePinsForArticle(article, workingPanel.count, articlePanel);
 				const siteMeta = websites.find((site) => site.id === article.websiteId);
-				const websiteLabel = selectedBrand?.websiteUrl
+				const websiteLabelForPin = selectedBrand?.websiteUrl
 					|| siteMeta?.domain
 					|| siteMeta?.url
 					|| siteMeta?.name
 					|| '';
+				const useExplicitGalleryTemplate = resolvedTemplate.source === 'gallery';
 				const styledPins = assignIntelligentPinDesigns(
 					generatedPins.map((pin) => ({
 						...pin,
 						category: article.category || analysis?.pinterestCategory || '',
 					})),
-					{ article, analysis, panel: workingPanel },
+					{
+						article,
+						analysis,
+						panel: articlePanel,
+						respectExplicitTemplate: useExplicitGalleryTemplate,
+						explicitTemplate: useExplicitGalleryTemplate ? resolvedTemplate : null,
+					},
 				);
 				generatedRecords.push(
 					...styledPins.map((pin, index) => ({
@@ -1357,7 +1533,9 @@ export default function AIPinsPage() {
 						boardId: selectedBoardId,
 						boardName: activeBoard?.name || '',
 						templateId: resolvedTemplate.id || '',
-						templateName: pin.layoutLabel || pin.recipeFamilyLabel || resolvedTemplate.name || 'Pin Layout',
+						templateName: useExplicitGalleryTemplate
+							? (resolvedTemplate.name || 'Selected template')
+							: (pin.layoutLabel || pin.recipeFamilyLabel || resolvedTemplate.name || 'Pin Layout'),
 						templateVersion,
 						templateThumbnail: templateThumb,
 						templateSnapshotAt,
@@ -1367,18 +1545,24 @@ export default function AIPinsPage() {
 						designRecommendation: pin.designRecommendation || null,
 						templateConfig: applyIntelligentTemplateConfig(
 							templateConfig,
-							pin.designRecommendation,
-							{ brandKit: selectedBrand },
+							useExplicitGalleryTemplate ? null : pin.designRecommendation,
+							{
+								brandKit: selectedBrand,
+								respectExplicitTemplate: useExplicitGalleryTemplate,
+							},
 						),
 						category: article.category || analysis?.pinterestCategory || '',
-						website: websiteLabel,
+						website: websiteLabelForPin,
 						author: article.author,
-						featuredImage: article.featuredImage || '',
-						imageSource: workingPanel.imageMode === 'use_featured' ? 'featured' : 'ai_generated',
-						imageGenerationStatus: workingPanel.imageMode === 'use_featured' ? 'processing' : 'queued',
+						featuredImage: sourceImageUrl || article.featuredImage || '',
+						sourceImageUrl: sourceImageUrl || '',
+						imageSource: imagePlan.useAi ? 'ai_generated' : 'featured',
+						imageGenerationStatus: 'processing',
 						imageGenerationError: '',
 						imageJobId: '',
-						imageMode: workingPanel.imageMode,
+						imageMode: imagePlan.imageMode,
+						imagePlan,
+						imageSourceStrategy,
 						style: workingPanel.style,
 						cta: analysis?.cta || '',
 						analysis: analysis || null,
@@ -1390,17 +1574,21 @@ export default function AIPinsPage() {
 			setGeneratedPreviewPins(generatedRecords);
 			setSelectedPreviewTempId(generatedRecords[0]?.tempId || '');
 			setEditingPinId('');
+			setPanel((prev) => ({
+				...prev,
+				imageMode: generatedRecords.some((pin) => pin.imageMode === 'generate_ai')
+					? 'generate_ai'
+					: 'use_featured',
+			}));
 			await startPreviewImageGeneration(
 				generatedRecords,
-				workingPanel.imageMode,
-				workingPanel.imageProvider,
+				generatedRecords.some((pin) => pin.imageMode === 'generate_ai') ? 'generate_ai' : 'use_featured',
+				imageProviderCode,
 				selectedBrand,
 			);
 			toast({
 				title: 'Preview ready',
-				description: workingPanel.imageMode === 'use_featured'
-					? `${generatedRecords.length} pins composed from featured images (no AI).`
-					: `${generatedRecords.length} pins generated. Review and save when ready.`,
+				description: 'Selected template is applied on the chosen image. Article images are preferred when the Admin strategy allows; AI is used when needed.',
 			});
 		} catch (error) {
 			const detail = error?.message || (error?.status ? `HTTP ${error.status}` : 'Unknown error');
@@ -1415,6 +1603,7 @@ export default function AIPinsPage() {
 	const regeneratePreviewImage = async (pin) => {
 		try {
 			setGeneratingImages(true);
+			const brandKit = brandKits.find((item) => item.id === selectedBrandKitId) || null;
 			const response = await apiServerClient.fetch(`/ai-pin-images/jobs/${encodeURIComponent(pin.imageJobId || '')}/regenerate`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -1426,10 +1615,51 @@ export default function AIPinsPage() {
 			}
 
 			setGeneratedPreviewPins((prev) => prev.map((item) => item.tempId === pin.tempId
-				? { ...item, imageJobId: job.id, imageGenerationStatus: 'queued', imageGenerationError: '' }
+				? { ...item, imageJobId: job.id, imageGenerationStatus: 'queued', imageGenerationError: '', imageUrl: '' }
 				: item));
-			await pollPreviewImageJobs([job.id]);
+			const finishedJobs = await pollPreviewImageJobs([job.id], { manageSpinner: false });
+			const finished = finishedJobs.find((item) => item.id === job.id) || job;
+			const background = String(
+				finished.imageUrl
+				|| pin.sourceImageUrl
+				|| pin.featuredImage
+				|| '',
+			).trim();
+			if (!background) {
+				throw new Error(finished.lastError || 'AI image generation failed and no article image was available.');
+			}
+			const composed = await composeAndUploadFeaturedPins([{
+				...pin,
+				featuredImage: background,
+			}], { brandKit });
+			applyTemplateComposeResults(
+				composed.map((item) => ({
+					...item,
+					imageSource: finished.status === 'fallback' ? 'featured_fallback' : 'ai_generated',
+				})),
+				{
+					imageSource: finished.status === 'fallback' ? 'featured_fallback' : 'ai_generated',
+				},
+			);
 		} catch (error) {
+			const fallback = String(pin.sourceImageUrl || pin.featuredImage || '').trim();
+			if (fallback) {
+				try {
+					const brandKit = brandKits.find((item) => item.id === selectedBrandKitId) || null;
+					const composed = await composeAndUploadFeaturedPins([{
+						...pin,
+						featuredImage: fallback,
+					}], { brandKit });
+					applyTemplateComposeResults(composed, { imageSource: 'featured_fallback' });
+					toast({
+						title: 'Used article image',
+						description: 'AI regenerate failed; composed the selected template on the article image instead.',
+					});
+					return;
+				} catch {
+					// fall through
+				}
+			}
 			toast({ variant: 'destructive', title: 'Image regenerate failed', description: error.message });
 		} finally {
 			setGeneratingImages(false);

@@ -58,6 +58,8 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		defaultImageModel: 'flux-pro',
 		imageSize: '1080x1440',
 		quality: 'high',
+		/** featured_first | ai_first | always_featured | always_ai */
+		imageSourceStrategy: 'featured_first',
 		storageProvider: 'Object Storage',
 		compression: 'lossy-80',
 		watermark: false,

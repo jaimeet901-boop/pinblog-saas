@@ -10,6 +10,7 @@ import {
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
 import { mirrorImageJob } from './queue/mirrors.js';
+import { isImmediateImageFallbackError } from '../constants/image-source-strategy.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_POLL_MS || '12000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.AI_IMAGE_QUEUE_BATCH || '5', 10);
@@ -499,8 +500,10 @@ async function processDueJobs() {
 				const maxAttempts = fullJob.max_attempts || 3;
 				const fallbackImage = normalizeText(fullJob.featured_image_url, 1000);
 				const exhausted = nextAttempts >= maxAttempts;
+				const immediateFallback = Boolean(fallbackImage) && isImmediateImageFallbackError(error);
 
-				if (exhausted && fallbackImage) {
+				// Never fail the workflow for quota/timeout/provider issues when an article image exists.
+				if ((exhausted || immediateFallback) && fallbackImage) {
 					await setJobTerminalState({
 						job: fullJob,
 						status: 'fallback',

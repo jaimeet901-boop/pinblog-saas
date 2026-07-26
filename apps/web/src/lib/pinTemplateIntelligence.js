@@ -547,8 +547,33 @@ export function assignIntelligentPinDesigns(pins, {
 	article = null,
 	analysis = null,
 	panel = null,
+	/** When true, keep pin copy polish only — never assign a new layout. */
+	respectExplicitTemplate = false,
+	explicitTemplate = null,
 } = {}) {
 	const list = Array.isArray(pins) ? pins : [];
+
+	if (respectExplicitTemplate) {
+		const layoutId = String(
+			explicitTemplate?.configuration?.layout?.variantId
+			|| explicitTemplate?.id
+			|| '',
+		).trim();
+		const layoutLabel = String(explicitTemplate?.name || 'Selected template').trim();
+		return list.map((pin) => ({
+			...pin,
+			title: clampPinHeadline(pin?.title),
+			subtitle: String(pin?.subtitle || '').trim().split(/\s+/).filter(Boolean).slice(0, 6).join(' '),
+			layoutId,
+			layoutLabel,
+			layoutStyle: layoutId,
+			designRecommendation: null,
+			recipeFamily: '',
+			recipeFamilyLabel: '',
+			designSignature: `explicit:${layoutId || 'gallery'}`,
+		}));
+	}
+
 	const usedLayoutIds = [];
 	const usedSignatures = [];
 
@@ -613,7 +638,50 @@ export function assignIntelligentPinDesigns(pins, {
 	});
 }
 
-export function applyIntelligentTemplateConfig(baseConfig, recommendation, { brandKit = null } = {}) {
+/**
+ * Apply optional brand-kit color tokens without changing structure/typography/CTA placement.
+ */
+export function applyCompatibleBrandColors(baseConfig, brandKit = null) {
+	const config = normalizeTemplateConfig(baseConfig || {});
+	if (!brandKit || typeof brandKit !== 'object') {
+		return normalizeTemplateConfig({
+			...config,
+			canvas: { width: 1000, height: 1500 },
+		});
+	}
+
+	return normalizeTemplateConfig({
+		...config,
+		canvas: { width: 1000, height: 1500 },
+		decorations: {
+			...config.decorations,
+			accentColor: brandKit.secondaryColor || config.decorations.accentColor,
+			brushColor: brandKit.accentColor || config.decorations.brushColor,
+		},
+		buttonStyle: {
+			...config.buttonStyle,
+			background: brandKit.primaryColor || config.buttonStyle.background,
+			textColor: brandKit.primaryColor
+				? (config.buttonStyle.textColor || '#FFFFFF')
+				: config.buttonStyle.textColor,
+		},
+	});
+}
+
+/**
+ * @param {object} baseConfig
+ * @param {object|null} recommendation
+ * @param {{ brandKit?: object|null, respectExplicitTemplate?: boolean }} options
+ * When respectExplicitTemplate is true, structural layout from baseConfig is preserved.
+ */
+export function applyIntelligentTemplateConfig(baseConfig, recommendation, {
+	brandKit = null,
+	respectExplicitTemplate = false,
+} = {}) {
+	if (respectExplicitTemplate) {
+		return applyCompatibleBrandColors(baseConfig, brandKit);
+	}
+
 	const layoutId = recommendation?.template || recommendation?.layoutId || 'brush_stroke';
 	let config = applyBaseLayout(baseConfig, layoutId, { brandKit: null });
 	const patch = recommendationToTemplatePatch(recommendation || recommendPinDesign({}));

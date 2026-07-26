@@ -15,7 +15,7 @@ export async function composeAndUploadFeaturedPins(pins, {
 			results.push({
 				tempId: pin.tempId,
 				ok: false,
-				error: 'Article featured image is missing',
+				error: 'Article image is missing',
 				imageUrl: '',
 				hosted: false,
 			});

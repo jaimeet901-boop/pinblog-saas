@@ -3,7 +3,7 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { encryptSecret, isEncryptedSecret } from '../utils/secretCrypto.js';
 import { ensureWordpressSiteFromWebsite } from '../services/wordpress-sites.js';
 import logger from '../utils/logger.js';
-import { scanWebsiteArticles, countWebsiteArticles, listWebsiteArticles, repairOrphanWebsiteArticles } from '../services/website-article-discovery.js';
+import { scanWebsiteArticles, countWebsiteArticles, listWebsiteArticles, repairOrphanWebsiteArticles, resolveArticleImageSources } from '../services/website-article-discovery.js';
 import { getCache, setCache } from '../utils/cache.js';
 import { safeGetFullList, extractCollectionFieldNames } from '../utils/pocketbase-safe-query.js';
 import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
@@ -779,6 +779,74 @@ router.get('/:websiteId/articles', async (req, res) => {
 		categories,
 		totalArticles: result.totalItems || 0,
 	});
+});
+
+/**
+ * Resolve usable pin background images for articles (featured → body → empty).
+ * Optionally persists a missing featured_image when a body image is found.
+ */
+router.post('/:websiteId/articles/resolve-images', async (req, res) => {
+	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const ids = Array.isArray(req.body?.articleIds)
+		? req.body.articleIds.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 40)
+		: [];
+	const persist = req.body?.persist !== false;
+
+	if (ids.length === 0) {
+		throw httpError(422, 'articleIds is required');
+	}
+
+	const items = [];
+	for (const articleId of ids) {
+		const record = await pocketbaseClient.collection('website_articles').getOne(articleId).catch(() => null);
+		const websiteId = getFieldValue(record || {}, WEBSITE_ARTICLES_WEBSITE_FIELD_CANDIDATES);
+		if (!record || String(websiteId) !== String(site.id)) {
+			items.push({
+				articleId,
+				ok: false,
+				error: 'Article not found',
+				featuredImage: '',
+				contentImages: [],
+				resolvedImage: '',
+			});
+			continue;
+		}
+
+		const existingFeatured = String(record.featured_image || '').trim();
+		let resolved;
+		try {
+			resolved = await resolveArticleImageSources({
+				url: record.url,
+				existingFeaturedImage: existingFeatured,
+			});
+		} catch (error) {
+			resolved = {
+				featuredImage: existingFeatured,
+				contentImages: [],
+				resolvedImage: existingFeatured,
+				source: existingFeatured ? 'stored' : 'none',
+				error: error?.message || 'Resolve failed',
+			};
+		}
+
+		if (persist && !existingFeatured && resolved.resolvedImage) {
+			await pocketbaseClient.collection('website_articles').update(articleId, {
+				featured_image: String(resolved.resolvedImage).slice(0, 1000),
+			}).catch(() => null);
+		}
+
+		items.push({
+			articleId,
+			ok: true,
+			featuredImage: resolved.featuredImage || '',
+			contentImages: resolved.contentImages || [],
+			resolvedImage: resolved.resolvedImage || '',
+			source: resolved.source || 'none',
+			error: resolved.error || '',
+		});
+	}
+
+	res.json({ items });
 });
 
 router.post('/', async (req, res) => {
