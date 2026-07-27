@@ -2,6 +2,13 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { httpError } from '../middleware/require-admin.js';
 import { isProduction } from '../utils/env.js';
 import { DEFAULT_FEATURES, DEFAULT_LIMITS, PLAN_SEED_CATALOG } from './plan-catalog.js';
+import {
+	DEFAULT_CREDIT_COSTS,
+	DEFAULT_DOWNGRADE_RULES,
+	DEFAULT_TRIAL_CONFIG,
+	DEFAULT_UPGRADE_RULES,
+	writeBillingEvent,
+} from './credits-engine.js';
 
 function slugify(value) {
 	return String(value || '')
@@ -43,6 +50,57 @@ function normalizeFeatures(input) {
 	return features;
 }
 
+function normalizeCreditCosts(input) {
+	const source = input && typeof input === 'object' ? input : {};
+	const costs = { ...DEFAULT_CREDIT_COSTS };
+	for (const [key, value] of Object.entries(source)) {
+		const num = Number(value);
+		if (Number.isFinite(num) && num >= 0) costs[key] = num;
+	}
+	return costs;
+}
+
+function normalizeTrialConfig(input) {
+	const source = input && typeof input === 'object' ? input : {};
+	return {
+		...DEFAULT_TRIAL_CONFIG,
+		enabled: source.enabled != null ? Boolean(source.enabled) : DEFAULT_TRIAL_CONFIG.enabled,
+		days: source.days != null ? requireNumber(source.days, 'trialConfig.days', { min: 0 }) : DEFAULT_TRIAL_CONFIG.days,
+		credits: source.credits != null ? requireNumber(source.credits, 'trialConfig.credits', { min: 0 }) : DEFAULT_TRIAL_CONFIG.credits,
+	};
+}
+
+function normalizeUpgradeRules(input) {
+	const source = input && typeof input === 'object' ? input : {};
+	return {
+		...DEFAULT_UPGRADE_RULES,
+		prorate: source.prorate != null ? Boolean(source.prorate) : DEFAULT_UPGRADE_RULES.prorate,
+		keepUnusedCredits: source.keepUnusedCredits != null ? Boolean(source.keepUnusedCredits) : DEFAULT_UPGRADE_RULES.keepUnusedCredits,
+		immediate: source.immediate != null ? Boolean(source.immediate) : DEFAULT_UPGRADE_RULES.immediate,
+	};
+}
+
+function normalizeDowngradeRules(input) {
+	const source = input && typeof input === 'object' ? input : {};
+	return {
+		...DEFAULT_DOWNGRADE_RULES,
+		atPeriodEnd: source.atPeriodEnd != null ? Boolean(source.atPeriodEnd) : DEFAULT_DOWNGRADE_RULES.atPeriodEnd,
+		forfeitUnusedCredits: source.forfeitUnusedCredits != null ? Boolean(source.forfeitUnusedCredits) : DEFAULT_DOWNGRADE_RULES.forfeitUnusedCredits,
+		clampToNewQuota: source.clampToNewQuota != null ? Boolean(source.clampToNewQuota) : DEFAULT_DOWNGRADE_RULES.clampToNewQuota,
+	};
+}
+
+function normalizeTopupPacks(input) {
+	if (!Array.isArray(input)) return [];
+	return input.map((pack, index) => ({
+		id: String(pack?.id || `pack-${index + 1}`).slice(0, 64),
+		name: String(pack?.name || `Pack ${index + 1}`).slice(0, 120),
+		credits: Math.max(0, Number(pack?.credits) || 0),
+		price: Math.max(0, Number(pack?.price) || 0),
+		currency: String(pack?.currency || 'USD').slice(0, 8),
+	})).filter((pack) => pack.credits > 0);
+}
+
 function formatLimit(value) {
 	if (value == null) return '—';
 	if (Number(value) >= 999999) return 'Custom';
@@ -53,6 +111,19 @@ export function mapPlanDto(record, stats = {}) {
 	const limits = record.limits && typeof record.limits === 'object' ? record.limits : DEFAULT_LIMITS;
 	const features = record.features && typeof record.features === 'object' ? record.features : DEFAULT_FEATURES;
 	const active = record.active !== false && record.status !== 'hidden' && record.status !== 'deprecated';
+	const creditCosts = record.credit_costs && typeof record.credit_costs === 'object'
+		? { ...DEFAULT_CREDIT_COSTS, ...record.credit_costs }
+		: { ...DEFAULT_CREDIT_COSTS };
+	const trialConfig = record.trial_config && typeof record.trial_config === 'object'
+		? { ...DEFAULT_TRIAL_CONFIG, ...record.trial_config }
+		: { ...DEFAULT_TRIAL_CONFIG };
+	const upgradeRules = record.upgrade_rules && typeof record.upgrade_rules === 'object'
+		? { ...DEFAULT_UPGRADE_RULES, ...record.upgrade_rules }
+		: { ...DEFAULT_UPGRADE_RULES };
+	const downgradeRules = record.downgrade_rules && typeof record.downgrade_rules === 'object'
+		? { ...DEFAULT_DOWNGRADE_RULES, ...record.downgrade_rules }
+		: { ...DEFAULT_DOWNGRADE_RULES };
+	const topupPacks = Array.isArray(record.topup_packs) ? record.topup_packs : [];
 
 	return {
 		id: record.id,
@@ -89,6 +160,11 @@ export function mapPlanDto(record, stats = {}) {
 		highlight: Boolean(record.highlight),
 		limits,
 		features,
+		creditCosts,
+		trialConfig,
+		upgradeRules,
+		downgradeRules,
+		topupPacks,
 		created: record.created,
 		updated: record.updated,
 	};
@@ -309,6 +385,21 @@ function buildPlanPayload(payload, { partial = false, existing = null } = {}) {
 		topup_allowed: payload.topupAllowed != null ? Boolean(payload.topupAllowed) : Boolean(existing?.topup_allowed),
 		limits,
 		features,
+		credit_costs: payload.creditCosts != null
+			? normalizeCreditCosts(payload.creditCosts)
+			: (existing?.credit_costs || DEFAULT_CREDIT_COSTS),
+		trial_config: payload.trialConfig != null
+			? normalizeTrialConfig(payload.trialConfig)
+			: (existing?.trial_config || DEFAULT_TRIAL_CONFIG),
+		upgrade_rules: payload.upgradeRules != null
+			? normalizeUpgradeRules(payload.upgradeRules)
+			: (existing?.upgrade_rules || DEFAULT_UPGRADE_RULES),
+		downgrade_rules: payload.downgradeRules != null
+			? normalizeDowngradeRules(payload.downgradeRules)
+			: (existing?.downgrade_rules || DEFAULT_DOWNGRADE_RULES),
+		topup_packs: payload.topupPacks != null
+			? normalizeTopupPacks(payload.topupPacks)
+			: (Array.isArray(existing?.topup_packs) ? existing.topup_packs : []),
 		support: payload.support != null ? String(payload.support) : (existing?.support || ''),
 		refill_policy: payload.refillPolicy != null ? String(payload.refillPolicy) : (existing?.refill_policy || ''),
 		publishing_limits: payload.publishingLimits != null ? String(payload.publishingLimits) : (existing?.publishing_limits || ''),
@@ -371,6 +462,11 @@ export async function duplicatePlan(id) {
 		topupAllowed: existing.topupAllowed,
 		limits: existing.limits,
 		features: existing.features,
+		creditCosts: existing.creditCosts,
+		trialConfig: existing.trialConfig,
+		upgradeRules: existing.upgradeRules,
+		downgradeRules: existing.downgradeRules,
+		topupPacks: existing.topupPacks,
 		support: existing.support,
 		refillPolicy: existing.refillPolicy,
 		publishingLimits: existing.publishingLimits,
@@ -418,17 +514,20 @@ export async function assignWorkspacePlan(payload = {}) {
 	try {
 		existing = await pocketbaseClient.collection('workspace_subscriptions').getFirstListItem(
 			pocketbaseClient.filter('workspace_key = {:key}', { key: workspaceKey }),
+			{ expand: 'plan' },
 		);
 	} catch {
 		existing = null;
 	}
 
+	const fromPlan = existing?.expand?.plan?.slug || existing?.plan || '';
 	const body = {
 		workspace_key: workspaceKey,
 		workspace_name: workspaceName,
 		owner_email: payload.ownerEmail || existing?.owner_email || '',
 		plan: plan.id,
 		status: payload.status || 'active',
+		billing_status: payload.billingStatus || payload.status || 'active',
 		seats: Number(payload.seats) || existing?.seats || 1,
 		current_period_start: now.toISOString(),
 		current_period_end: end.toISOString(),
@@ -438,6 +537,19 @@ export async function assignWorkspacePlan(payload = {}) {
 	const record = existing
 		? await pocketbaseClient.collection('workspace_subscriptions').update(existing.id, body)
 		: await pocketbaseClient.collection('workspace_subscriptions').create(body);
+
+	const eventType = !existing
+		? 'plan_assign'
+		: ((Number(plan.monthly_price) || 0) > (Number(existing.expand?.plan?.monthly_price) || 0) ? 'upgrade' : 'downgrade');
+	await writeBillingEvent({
+		workspaceKey,
+		workspaceName,
+		eventType: existing ? eventType : 'plan_assign',
+		fromPlan: String(fromPlan || ''),
+		toPlan: plan.slug || plan.name,
+		actor: payload.actor || 'admin',
+		message: `Assigned plan ${plan.name}`,
+	});
 
 	return {
 		id: record.id,
@@ -467,8 +579,13 @@ export async function listSubscriptions() {
 			planName: record.expand?.plan?.name || '',
 			planSlug: record.expand?.plan?.slug || '',
 			status: record.status,
+			billingStatus: record.billing_status || record.status,
 			seats: record.seats,
 			creditsBalance: record.credits_balance,
+			purchasedCredits: Number(record.purchased_credits) || 0,
+			bonusCredits: Number(record.bonus_credits_balance) || 0,
+			usedTotal: Number(record.credits_used_total) || 0,
+			creditsSuspended: Boolean(record.credits_suspended),
 			currentPeriodEnd: record.current_period_end,
 		})),
 		totalItems: records.length,

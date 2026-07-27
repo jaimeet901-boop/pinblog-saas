@@ -373,6 +373,17 @@ async function processJob(job) {
 		attemptCount: (job.attempt_count || 0) + 1,
 	});
 
+	const { consumeFeatureCredits } = await import('./ai-pin-credits.js');
+	await consumeFeatureCredits(null, {
+		userId: owner,
+		feature: 'pin_publish',
+		units: 1,
+		reason: 'Pinterest pin published',
+		referenceId: job.id,
+		idempotencyKey: `pin-publish:${job.id}`,
+		metadata: { pinterestPinId },
+	}).catch(() => null);
+
 	await mirrorPinterestJob({
 		...job,
 		status: 'published',

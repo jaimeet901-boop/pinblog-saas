@@ -30,11 +30,14 @@ const EMPTY = {
 		articlesPerDay: [],
 		imagesPerDay: [],
 		creditsUsage: [],
+		creditsConsumption: [],
 		revenueTrend: [],
 		aiRequests: [],
 	},
 	providers: [],
 	topModels: [],
+	topCreditConsumers: [],
+	planDistribution: [],
 	publishing: { wordpress: 0, pinterest: 0, facebook: 0, scheduled: 0, failed: 0 },
 	queue: { running: 0, queued: 0, completed: 0, failed: 0, avgQueueTime: '—' },
 	subscriptions: {
@@ -110,8 +113,12 @@ export default function AdminAnalyticsPage() {
 		{ label: 'Pinterest Publications', value: Number(kpis.pinterestPublications || 0).toLocaleString() },
 		{ label: 'WordPress Publications', value: Number(kpis.wordpressPublications || 0).toLocaleString() },
 		{ label: 'Credits Consumed', value: Number(kpis.creditsConsumed || 0).toLocaleString() },
+		{ label: 'Revenue', value: money(kpis.revenue ?? kpis.mrr) },
 		{ label: 'MRR', value: money(kpis.mrr) },
 		{ label: 'ARR', value: money(kpis.arr) },
+		{ label: 'Active Plans', value: Number(kpis.activePlans || 0).toLocaleString() },
+		{ label: 'AI Cost', value: money(kpis.aiCost) },
+		{ label: 'AI Profit', value: money(kpis.aiProfit) },
 	]), [kpis]);
 
 	const exportReport = async () => {
@@ -197,10 +204,49 @@ export default function AdminAnalyticsPage() {
 				<AdminChartCard title="Workspace Growth" series={data.charts.workspaceGrowth} />
 				<AdminChartCard title="Articles Generated Per Day" series={data.charts.articlesPerDay} />
 				<AdminChartCard title="Images Generated Per Day" series={data.charts.imagesPerDay} />
-				<AdminChartCard title="Credits Usage" series={data.charts.creditsUsage} />
+				<AdminChartCard title="Credits Consumption" series={data.charts.creditsConsumption || data.charts.creditsUsage} />
 				<AdminChartCard title="Revenue Trend" series={data.charts.revenueTrend} />
 				<AdminChartCard title="AI Requests" series={data.charts.aiRequests} />
 			</div>
+
+			<section className="admin-card mt-4">
+				<h3>Top Credit Consumers</h3>
+				<div className="admin-table-wrap">
+					<table className="admin-table">
+						<thead>
+							<tr>
+								<th>Workspace</th>
+								<th>Credits Consumed</th>
+							</tr>
+						</thead>
+						<tbody>
+							{(data.topCreditConsumers || []).length === 0 ? (
+								<tr><td colSpan={2} style={{ color: 'var(--admin-muted)' }}>{loading ? 'Loading…' : 'No credit burns in range.'}</td></tr>
+							) : (data.topCreditConsumers || []).map((row) => (
+								<tr key={row.workspaceKey}>
+									<td className="font-medium">{row.workspaceName}</td>
+									<td>{Number(row.credits || 0).toLocaleString()}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			</section>
+
+			<section className="admin-card mt-4">
+				<h3>Plan Distribution</h3>
+				<div className="admin-bars">
+					{(data.planDistribution || []).map((row) => (
+						<div key={row.plan} className="admin-bar-row">
+							<span>{row.plan}</span>
+							<div className="admin-bar-track">
+								<div className="admin-bar-fill" style={{ width: `${(Number(row.count || 0) / Math.max(...(data.planDistribution || []).map((item) => Number(item.count) || 0), 1)) * 100}%` }} />
+							</div>
+							<span>{Number(row.count || 0).toLocaleString()}</span>
+						</div>
+					))}
+				</div>
+			</section>
 
 			<section className="admin-card mt-4">
 				<h3>AI Providers</h3>

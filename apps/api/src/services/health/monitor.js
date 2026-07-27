@@ -489,13 +489,47 @@ function mapServiceCard(row) {
 	};
 }
 
+async function probeCreditsEngine() {
+	const started = Date.now();
+	try {
+		const [subs, txs, reservations] = await Promise.all([
+			countCollection('workspace_subscriptions'),
+			countCollection('credit_transactions'),
+			countCollection('credit_reservations'),
+		]);
+		return {
+			service_key: 'credits_engine',
+			name: 'Credits Engine',
+			group: 'billing',
+			status: 'healthy',
+			response_ms: Date.now() - started,
+			uptime_pct: '99.99%',
+			version: 'v1',
+			detail: `${subs} wallets · ${txs} txs · ${reservations} reservations`,
+			last_checked: new Date().toISOString(),
+		};
+	} catch (error) {
+		return {
+			service_key: 'credits_engine',
+			name: 'Credits Engine',
+			group: 'billing',
+			status: 'warning',
+			response_ms: Date.now() - started,
+			uptime_pct: '—',
+			version: 'v1',
+			detail: error?.message || 'Credits collections unavailable',
+			last_checked: new Date().toISOString(),
+		};
+	}
+}
+
 export async function runHealthCheck({ persist = true } = {}) {
 	const checkedAt = new Date();
 	const cpu = sampleCpuPct();
 	const memory = sampleMemoryPct();
 	const disk = sampleDiskPct();
 
-	const [pb, api, queueProbe, scheduler, aiProviders, wordpress, pinterest] = await Promise.all([
+	const [pb, api, queueProbe, scheduler, aiProviders, wordpress, pinterest, creditsEngine] = await Promise.all([
 		probePocketBase(),
 		probeApiSelf(),
 		probeQueueService(),
@@ -503,6 +537,7 @@ export async function runHealthCheck({ persist = true } = {}) {
 		probeAiProviders(),
 		probeWordpress(),
 		probePinterest(),
+		probeCreditsEngine(),
 	]);
 
 	const coreRows = [
@@ -514,6 +549,7 @@ export async function runHealthCheck({ persist = true } = {}) {
 		storageService(disk),
 		emailService(),
 		scheduler,
+		creditsEngine,
 	];
 
 	if (persist) {
@@ -551,6 +587,7 @@ export async function runHealthCheck({ persist = true } = {}) {
 		{ name: 'Webhook Service', status: 'healthy', detail: 'Internal event hooks active' },
 		{ name: 'Object Storage', status: mapHealthTone(storageService(disk).status), detail: `${formatPct(disk)} capacity` },
 		{ name: 'CDN', status: 'healthy', detail: 'Static assets served by app host' },
+		{ name: 'Credits Engine', status: mapHealthTone(creditsEngine.status), detail: creditsEngine.detail },
 	];
 
 	const coreServices = coreRows.map(mapServiceCard);

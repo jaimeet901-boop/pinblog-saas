@@ -75,16 +75,22 @@ export async function countFilter(collection, filter) {
 }
 
 export async function getOwnerSubscription(ownerId, workspaceKey = '') {
-	if (workspaceKey) {
+	const key = workspaceKey || ownerId;
+	if (key) {
 		const byKey = await pocketbaseClient.collection('workspace_subscriptions').getFirstListItem(
-			pocketbaseClient.filter('workspace_key = {:key}', { key: workspaceKey }),
+			pocketbaseClient.filter('workspace_key = {:key}', { key }),
 			{ expand: 'plan', requestKey: null },
 		).catch(() => null);
 		if (byKey) return byKey;
 	}
 	if (!ownerId) return null;
-	return pocketbaseClient.collection('workspace_subscriptions').getFirstListItem(
+	const workspace = await pocketbaseClient.collection('workspaces').getFirstListItem(
 		pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
+		{ requestKey: null },
+	).catch(() => null);
+	if (!workspace?.workspace_key) return null;
+	return pocketbaseClient.collection('workspace_subscriptions').getFirstListItem(
+		pocketbaseClient.filter('workspace_key = {:key}', { key: workspace.workspace_key }),
 		{ expand: 'plan', requestKey: null },
 	).catch(() => null);
 }

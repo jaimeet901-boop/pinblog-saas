@@ -77,6 +77,14 @@ const EMPTY = {
 	system: {},
 	featureFlags: [],
 	license: {},
+	credits: {
+		defaultFreeCredits: 50,
+		featureCosts: {},
+		defaultTrial: {},
+		resetDayOfMonth: 1,
+		keepPurchasedOnReset: true,
+		payAsYouGo: {},
+	},
 };
 
 export default function AdminSettingsPage() {
@@ -477,6 +485,107 @@ export default function AdminSettingsPage() {
 						<TextInput label="Cache TTL" value={settings.system?.cacheTtl} onChange={(value) => patch('system', 'cacheTtl', value)} />
 						<TextInput label="Storage Limit" value={settings.system?.storageLimit} onChange={(value) => patch('system', 'storageLimit', value)} />
 						<TextInput label="Default Region" value={settings.system?.defaultRegion} onChange={(value) => patch('system', 'defaultRegion', value)} />
+					</div>
+				</Section>
+
+				<Section title="Credits & Subscription" hint="Global defaults for free credits, feature costs, trials, monthly reset, and pay-as-you-go.">
+					<div className="admin-config-grid">
+						<TextInput
+							label="Default Free Credits"
+							value={settings.credits?.defaultFreeCredits}
+							onChange={(value) => patch('credits', 'defaultFreeCredits', Number(value) || 0)}
+						/>
+						<TextInput
+							label="Credit Reset Day (1-28)"
+							value={settings.credits?.resetDayOfMonth}
+							onChange={(value) => patch('credits', 'resetDayOfMonth', Number(value) || 1)}
+						/>
+						<TextInput
+							label="Default Trial Days"
+							value={settings.credits?.defaultTrial?.days}
+							onChange={(value) => patch('credits', 'defaultTrial', {
+								...(settings.credits?.defaultTrial || {}),
+								days: Number(value) || 0,
+							})}
+						/>
+						<TextInput
+							label="Default Trial Credits"
+							value={settings.credits?.defaultTrial?.credits}
+							onChange={(value) => patch('credits', 'defaultTrial', {
+								...(settings.credits?.defaultTrial || {}),
+								credits: Number(value) || 0,
+							})}
+						/>
+						<TextInput
+							label="PAYG Min Pack Credits"
+							value={settings.credits?.payAsYouGo?.minPackCredits}
+							onChange={(value) => patch('credits', 'payAsYouGo', {
+								...(settings.credits?.payAsYouGo || {}),
+								minPackCredits: Number(value) || 0,
+							})}
+						/>
+						<TextInput
+							label="PAYG Auto Top-up Threshold"
+							value={settings.credits?.payAsYouGo?.autoTopupThreshold}
+							onChange={(value) => patch('credits', 'payAsYouGo', {
+								...(settings.credits?.payAsYouGo || {}),
+								autoTopupThreshold: Number(value) || 0,
+							})}
+						/>
+						<TextInput
+							label="PAYG Auto Top-up Pack"
+							value={settings.credits?.payAsYouGo?.autoTopupPackCredits}
+							onChange={(value) => patch('credits', 'payAsYouGo', {
+								...(settings.credits?.payAsYouGo || {}),
+								autoTopupPackCredits: Number(value) || 0,
+							})}
+						/>
+					</div>
+					<div className="mt-2 space-y-2">
+						<ToggleRow
+							label="Default Trial Enabled"
+							checked={Boolean(settings.credits?.defaultTrial?.enabled)}
+							onChange={(value) => patch('credits', 'defaultTrial', {
+								...(settings.credits?.defaultTrial || {}),
+								enabled: value,
+							})}
+						/>
+						<ToggleRow
+							label="Keep Purchased Credits on Reset"
+							checked={settings.credits?.keepPurchasedOnReset !== false}
+							onChange={(value) => patch('credits', 'keepPurchasedOnReset', value)}
+						/>
+						<ToggleRow
+							label="Pay As You Go Enabled"
+							checked={Boolean(settings.credits?.payAsYouGo?.enabled)}
+							onChange={(value) => patch('credits', 'payAsYouGo', {
+								...(settings.credits?.payAsYouGo || {}),
+								enabled: value,
+							})}
+						/>
+					</div>
+					<p className="admin-note mt-3 mb-2">Feature credit costs</p>
+					<div className="admin-config-grid">
+						{Object.keys({
+							ai_analyze: 1,
+							ai_prompt: 1,
+							ai_writer: 2,
+							ai_image: 1,
+							pin_publish: 1,
+							wordpress_publish: 1,
+							template_export: 1,
+							...(settings.credits?.featureCosts || {}),
+						}).map((key) => (
+							<TextInput
+								key={key}
+								label={key}
+								value={settings.credits?.featureCosts?.[key] ?? ''}
+								onChange={(value) => patch('credits', 'featureCosts', {
+									...(settings.credits?.featureCosts || {}),
+									[key]: Number(value) || 0,
+								})}
+							/>
+						))}
 					</div>
 				</Section>
 

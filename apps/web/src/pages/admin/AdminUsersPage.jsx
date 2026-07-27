@@ -111,12 +111,18 @@ export default function AdminUsersPage() {
 		};
 	}, [selectedId, toast]);
 
-	const runAction = async (path, method = 'POST', userId = selectedId) => {
+	const runAction = async (path, method = 'POST', userId = selectedId, body = null) => {
 		const target = userId || selectedId;
 		if (!target) return;
 		setBusy(true);
 		try {
-			const response = await apiServerClient.fetch(`/admin/v1/users/${target}${path}`, { method });
+			const response = await apiServerClient.fetch(`/admin/v1/users/${target}${path}`, {
+				method,
+				...(body ? {
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(body),
+				} : {}),
+			});
 			if (!response.ok) throw new Error(await readApiError(response));
 			toast({ title: 'User updated' });
 			await load();
@@ -329,8 +335,12 @@ export default function AdminUsersPage() {
 
 						<section className="admin-user-drawer__section">
 							<h3>Credits</h3>
-							<div className="admin-meta-row"><span>Available</span><span>{Number(selected.credits || 0).toLocaleString()}</span></div>
-							<div className="admin-meta-row"><span>Ledger</span><span>See Credits page</span></div>
+							<div className="admin-meta-row"><span>Current plan</span><span>{selected.plan}</span></div>
+							<div className="admin-meta-row"><span>Remaining credits</span><span>{Number(selected.remainingCredits ?? selected.credits ?? 0).toLocaleString()}</span></div>
+							<div className="admin-meta-row"><span>Purchased credits</span><span>{Number(selected.purchasedCredits || 0).toLocaleString()}</span></div>
+							<div className="admin-meta-row"><span>Total credits used</span><span>{Number(selected.totalCreditsUsed || 0).toLocaleString()}</span></div>
+							<div className="admin-meta-row"><span>Bonus credits</span><span>{Number(selected.bonusCredits || 0).toLocaleString()}</span></div>
+							<div className="admin-meta-row"><span>Credits suspended</span><StatusPill status={selected.creditsSuspended ? 'suspended' : 'active'} /></div>
 						</section>
 
 						<section className="admin-user-drawer__section">
@@ -382,6 +392,32 @@ export default function AdminUsersPage() {
 							</button>
 							<button type="button" className="admin-btn" disabled={busy} onClick={() => toast({ title: 'Edit', description: 'Use profile fields via PATCH when needed.' })}>
 								<Pencil size={13} /> Edit
+							</button>
+							<button
+								type="button"
+								className="admin-btn"
+								disabled={busy}
+								onClick={async () => {
+									const amount = window.prompt('Grant credits amount', '100');
+									if (!amount) return;
+									await runAction('/credits/grant', 'POST', selected.id, {
+										amount: Number(amount),
+										reason: 'Admin grant',
+									});
+								}}
+							>
+								Grant Credits
+							</button>
+							<button type="button" className="admin-btn" disabled={busy} onClick={() => runAction('/credits/reset', 'POST', selected.id)}>
+								Reset Credits
+							</button>
+							<button
+								type="button"
+								className="admin-btn"
+								disabled={busy}
+								onClick={() => runAction(selected.creditsSuspended ? '/credits/unsuspend' : '/credits/suspend', 'POST', selected.id)}
+							>
+								{selected.creditsSuspended ? 'Unsuspend Credits' : 'Suspend Credits'}
 							</button>
 							<button type="button" className="admin-btn" disabled={busy} onClick={() => runAction('/suspend')}>
 								<Ban size={13} /> Suspend

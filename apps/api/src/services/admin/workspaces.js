@@ -18,7 +18,7 @@ async function loadWorkspaceDetail(workspace, owner) {
 	const ownerId = workspace.owner || owner?.id || '';
 	const workspaceKey = workspace.workspace_key || '';
 
-	const [websites, pinterestAccounts, wordpressSites, publishHistory, subscription, usage] = await Promise.all([
+	const [websites, pinterestAccounts, wordpressSites, publishHistory, subscription, usage, billingEvents] = await Promise.all([
 		safeFullList('websites', {
 			filter: ownerId
 				? pocketbaseClient.filter('owner = {:owner}', { owner: ownerId })
@@ -48,7 +48,23 @@ async function loadWorkspaceDetail(workspace, owner) {
 				requestKey: null,
 			}).catch(() => ({ items: [] }))
 			: Promise.resolve({ items: [] }),
+		workspaceKey
+			? pocketbaseClient.collection('billing_events').getList(1, 12, {
+				filter: pocketbaseClient.filter('workspace_key = {:key}', { key: workspaceKey }),
+				sort: '-occurred_at',
+				requestKey: null,
+			}).catch(() => ({ items: [] }))
+			: Promise.resolve({ items: [] }),
 	]);
+
+	const billingHistory = (billingEvents.items || []).map((row) => ({
+		id: row.id,
+		eventType: row.event_type,
+		fromPlan: row.from_plan || '',
+		toPlan: row.to_plan || '',
+		message: row.message || '',
+		occurredAt: formatRelative(row.occurred_at || row.created),
+	}));
 
 	const boardsByAccount = await Promise.all(
 		pinterestAccounts.map(async (account) => {
@@ -95,12 +111,33 @@ async function loadWorkspaceDetail(workspace, owner) {
 			time: formatRelative(row.published_at || row.created),
 		})),
 		credits: Number(subscription?.credits_balance) || 0,
-		creditsUsed: Number(usageRow?.credits_burned) || 0,
+		creditsUsed: Number(subscription?.credits_used_total) || Number(usageRow?.credits_burned) || 0,
+		purchasedCredits: Number(subscription?.purchased_credits) || 0,
+		bonusCredits: Number(subscription?.bonus_credits_balance) || 0,
+		aiUsage: {
+			tokens: Number(usageRow?.tokens) || 0,
+			images: Number(usageRow?.images) || 0,
+			articles: Number(usageRow?.articles) || 0,
+			creditsBurned: Number(usageRow?.credits_burned) || 0,
+		},
+		billingStatus: subscription?.billing_status || subscription?.status || 'active',
+		creditsSuspended: Boolean(subscription?.credits_suspended),
+		workspaceKey: subscription?.workspace_key || workspaceKey,
+		upgradeHistory: billingHistory,
 		plan,
+		planInfo: {
+			slug: plan,
+			name: subscription?.expand?.plan?.name || plan,
+			monthlyCredits: Number(subscription?.expand?.plan?.credits) || 0,
+			monthlyPrice: Number(subscription?.expand?.plan?.monthly_price) || 0,
+		},
 		subscription: {
 			plan,
-			renews: subscription?.renews_at ? formatDate(subscription.renews_at) : '—',
+			renews: subscription?.current_period_end
+				? formatDate(subscription.current_period_end)
+				: (subscription?.renews_at ? formatDate(subscription.renews_at) : '—'),
 			seats: Number(subscription?.seats) || 1,
+			billingStatus: subscription?.billing_status || subscription?.status || 'active',
 		},
 		storageUsedGb: Math.round(storageUsedGb * 10) / 10,
 		storageLimitGb,
@@ -147,7 +184,11 @@ export async function mapAdminWorkspace(workspace, { detail = false, ownerMap = 
 			getOwnerSubscription(owner?.id, workspace.workspace_key),
 		]);
 		base.credits = Number(subscription?.credits_balance) || 0;
+		base.creditsUsed = Number(subscription?.credits_used_total) || 0;
+		base.purchasedCredits = Number(subscription?.purchased_credits) || 0;
+		base.billingStatus = subscription?.billing_status || subscription?.status || 'active';
 		base.plan = subscription?.expand?.plan?.slug || workspace.plan_slug || owner?.plan || 'free';
+		base.workspaceKey = subscription?.workspace_key || workspace.workspace_key || '';
 		base.websites = Array.from({ length: websiteCount }, (_, i) => ({ domain: `site-${i + 1}`, status: 'connected' }));
 		base.websiteCount = websiteCount;
 		base.pinterestConnected = pinCount > 0;

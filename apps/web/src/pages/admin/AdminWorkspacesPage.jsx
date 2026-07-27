@@ -313,6 +313,14 @@ export default function AdminWorkspacesPage() {
 						</section>
 
 						<section className="admin-user-drawer__section">
+							<h3>Plan Information</h3>
+							<div className="admin-meta-row"><span>Plan</span><span>{selected.planInfo?.name || selected.plan}</span></div>
+							<div className="admin-meta-row"><span>Monthly credits</span><span>{Number(selected.planInfo?.monthlyCredits || 0).toLocaleString()}</span></div>
+							<div className="admin-meta-row"><span>Monthly price</span><span>${Number(selected.planInfo?.monthlyPrice || 0)}</span></div>
+							<div className="admin-meta-row"><span>Billing status</span><StatusPill status={selected.billingStatus || selected.subscription?.billingStatus || 'active'} /></div>
+						</section>
+
+						<section className="admin-user-drawer__section">
 							<h3>Subscription</h3>
 							<div className="admin-meta-row"><span>Plan</span><span>{selected.subscription?.plan || selected.plan}</span></div>
 							<div className="admin-meta-row"><span>Renews</span><span>{selected.subscription?.renews || '—'}</span></div>
@@ -320,10 +328,36 @@ export default function AdminWorkspacesPage() {
 						</section>
 
 						<section className="admin-user-drawer__section">
-							<h3>Credits Usage</h3>
+							<h3>Credit Usage</h3>
 							<div className="admin-meta-row"><span>Remaining</span><span>{Number(selected.credits || 0).toLocaleString()}</span></div>
 							<div className="admin-meta-row"><span>Used</span><span>{Number(selected.creditsUsed || 0).toLocaleString()}</span></div>
-							<div className="admin-meta-row"><span>Ledger</span><span>See Credits page</span></div>
+							<div className="admin-meta-row"><span>Purchased</span><span>{Number(selected.purchasedCredits || 0).toLocaleString()}</span></div>
+							<div className="admin-meta-row"><span>Bonus</span><span>{Number(selected.bonusCredits || 0).toLocaleString()}</span></div>
+							<div className="admin-meta-row"><span>Suspended</span><StatusPill status={selected.creditsSuspended ? 'suspended' : 'active'} /></div>
+						</section>
+
+						<section className="admin-user-drawer__section">
+							<h3>AI Usage</h3>
+							<div className="admin-meta-row"><span>Articles</span><span>{Number(selected.aiUsage?.articles || 0).toLocaleString()}</span></div>
+							<div className="admin-meta-row"><span>Images</span><span>{Number(selected.aiUsage?.images || 0).toLocaleString()}</span></div>
+							<div className="admin-meta-row"><span>Tokens</span><span>{Number(selected.aiUsage?.tokens || 0).toLocaleString()}</span></div>
+							<div className="admin-meta-row"><span>Credits burned</span><span>{Number(selected.aiUsage?.creditsBurned || 0).toLocaleString()}</span></div>
+						</section>
+
+						<section className="admin-user-drawer__section">
+							<h3>Upgrade History</h3>
+							{(selected.upgradeHistory || []).length ? (
+								<div className="admin-list">
+									{selected.upgradeHistory.map((row) => (
+										<div key={row.id} className="admin-list__item">
+											<span>{row.eventType} · {row.message || `${row.fromPlan || '—'} → ${row.toPlan || '—'}`}</span>
+											<span>{row.occurredAt}</span>
+										</div>
+									))}
+								</div>
+							) : (
+								<p className="text-sm" style={{ color: 'var(--admin-muted)' }}>No upgrade history yet.</p>
+							)}
 						</section>
 
 						<section className="admin-user-drawer__section">

@@ -135,6 +135,31 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		licenseStatus: 'Active',
 		releaseChannel: 'stable',
 	},
+	credits: {
+		defaultFreeCredits: 50,
+		featureCosts: {
+			ai_analyze: 1,
+			ai_prompt: 1,
+			ai_writer: 2,
+			ai_image: 1,
+			pin_publish: 1,
+			wordpress_publish: 1,
+			template_export: 1,
+		},
+		defaultTrial: {
+			enabled: false,
+			days: 14,
+			credits: 100,
+		},
+		resetDayOfMonth: 1,
+		keepPurchasedOnReset: true,
+		payAsYouGo: {
+			enabled: false,
+			minPackCredits: 100,
+			autoTopupThreshold: 0,
+			autoTopupPackCredits: 500,
+		},
+	},
 };
 
 function deepMerge(base, patch) {

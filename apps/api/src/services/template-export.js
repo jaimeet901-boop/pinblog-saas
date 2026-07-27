@@ -161,6 +161,16 @@ export async function enqueueTemplateExportJob(req, body = {}) {
 		},
 	});
 
+	const { consumeFeatureCredits } = await import('./ai-pin-credits.js');
+	await consumeFeatureCredits(null, {
+		userId: owner,
+		feature: 'template_export',
+		units: 1,
+		reason: 'Template export enqueued',
+		referenceId: job.id,
+		idempotencyKey: `template-export:${job.id}`,
+	}).catch(() => null);
+
 	return {
 		ok: true,
 		job: {

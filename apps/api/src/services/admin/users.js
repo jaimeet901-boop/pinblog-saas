@@ -68,11 +68,20 @@ async function loadUserExtras(user) {
 		pinterest: pinStatus,
 		wordpress: wpStatus,
 		credits: Number(subscription?.credits_balance ?? user.credits ?? 0) || 0,
+		remainingCredits: Number(subscription?.credits_balance ?? user.credits ?? 0) || 0,
+		purchasedCredits: Number(subscription?.purchased_credits) || 0,
+		totalCreditsUsed: Number(subscription?.credits_used_total) || 0,
+		bonusCredits: Number(subscription?.bonus_credits_balance) || 0,
+		creditsSuspended: Boolean(subscription?.credits_suspended),
+		workspaceKey: subscription?.workspace_key || ownerId,
 		plan,
 		subscription: {
 			plan,
-			renews: subscription?.renews_at ? formatDate(subscription.renews_at) : '—',
+			renews: subscription?.current_period_end
+				? formatDate(subscription.current_period_end)
+				: (subscription?.renews_at ? formatDate(subscription.renews_at) : '—'),
 			seats: Number(subscription?.seats) || 1,
+			billingStatus: subscription?.billing_status || subscription?.status || 'active',
 		},
 		activity: (activityRows || []).slice(0, 8).map((row) => ({
 			text: row.title || row.summary || row.type || 'Activity',
@@ -101,6 +110,11 @@ export async function mapAdminUser(user, { detail = false } = {}) {
 			getOwnerSubscription(user.id),
 		]);
 		base.credits = Number(subscription?.credits_balance ?? user.credits ?? 0) || 0;
+		base.remainingCredits = base.credits;
+		base.purchasedCredits = Number(subscription?.purchased_credits) || 0;
+		base.totalCreditsUsed = Number(subscription?.credits_used_total) || 0;
+		base.creditsSuspended = Boolean(subscription?.credits_suspended);
+		base.workspaceKey = subscription?.workspace_key || user.id;
 		base.plan = subscription?.expand?.plan?.slug || user.plan || 'free';
 		base.workspaces = Array.from({ length: workspaceCount }, (_, i) => `ws-${i + 1}`);
 		base.workspaceCount = workspaceCount;
@@ -269,4 +283,74 @@ export async function deleteAdminUser(id, actor = {}) {
 		result: 'ok',
 	});
 	return { ok: true, id };
+}
+
+async function resolveUserWorkspaceKey(userId) {
+	const subscription = await getOwnerSubscription(userId);
+	return subscription?.workspace_key || userId;
+}
+
+export async function grantAdminUserCredits(id, payload = {}, actor = {}) {
+	const { grantCredits } = await import('../credits.js');
+	const user = await pocketbaseClient.collection('users').getOne(id);
+	const workspaceKey = await resolveUserWorkspaceKey(id);
+	const result = await grantCredits({
+		workspaceKey,
+		workspaceName: user.name || user.email || workspaceKey,
+		ownerEmail: user.email || '',
+		amount: Number(payload.amount) || 0,
+		reason: payload.reason || 'Admin grant credits',
+		type: payload.type || 'grant',
+		feature: payload.bonus ? 'bonus' : (payload.feature || ''),
+		bonus: Boolean(payload.bonus),
+	}, actor.email || actor.id || 'admin');
+	await writeAuditLog({
+		category: 'admin',
+		uiCategory: 'Users',
+		action: `Granted ${result.amount} credits to ${user.email || id}`,
+		actorUserId: actor.id,
+		actorLabel: actor.email || 'admin',
+		resourceType: 'user',
+		resourceId: id,
+		result: 'ok',
+		metadata: { amount: result.amount, balance: result.balance },
+	});
+	return mapAdminUser(user, { detail: true });
+}
+
+export async function resetAdminUserCredits(id, actor = {}) {
+	const { adminResetCredits } = await import('../credits.js');
+	const user = await pocketbaseClient.collection('users').getOne(id);
+	const workspaceKey = await resolveUserWorkspaceKey(id);
+	await adminResetCredits(workspaceKey, actor.email || actor.id || 'admin');
+	await writeAuditLog({
+		category: 'admin',
+		uiCategory: 'Users',
+		action: `Reset credits for ${user.email || id}`,
+		actorUserId: actor.id,
+		actorLabel: actor.email || 'admin',
+		resourceType: 'user',
+		resourceId: id,
+		result: 'ok',
+	});
+	return mapAdminUser(user, { detail: true });
+}
+
+export async function suspendAdminUserCredits(id, suspended = true, actor = {}) {
+	const { adminSuspendCredits } = await import('../credits.js');
+	const user = await pocketbaseClient.collection('users').getOne(id);
+	const workspaceKey = await resolveUserWorkspaceKey(id);
+	await adminSuspendCredits(workspaceKey, suspended, actor.email || actor.id || 'admin');
+	await writeAuditLog({
+		category: 'admin',
+		uiCategory: 'Users',
+		severity: 'warn',
+		action: `${suspended ? 'Suspended' : 'Unsuspended'} credits for ${user.email || id}`,
+		actorUserId: actor.id,
+		actorLabel: actor.email || 'admin',
+		resourceType: 'user',
+		resourceId: id,
+		result: 'ok',
+	});
+	return mapAdminUser(user, { detail: true });
 }

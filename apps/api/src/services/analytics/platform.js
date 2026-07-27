@@ -36,8 +36,12 @@ function emptyKpi() {
 		pinterestPublications: 0,
 		wordpressPublications: 0,
 		creditsConsumed: 0,
+		revenue: 0,
 		mrr: 0,
 		arr: 0,
+		activePlans: 0,
+		aiCost: 0,
+		aiProfit: 0,
 	};
 }
 
@@ -122,6 +126,8 @@ export async function buildPlatformOverview({ range = '30d', from, to, bypassCac
 	}
 	kpis.mrr = Math.round(mrr);
 	kpis.arr = Math.round(mrr * 12);
+	kpis.revenue = kpis.mrr;
+	kpis.activePlans = plans.filter((plan) => plan.active !== false && plan.status !== 'hidden').length;
 
 	const articlesInRange = articles.filter((row) => inRange(row.created, start, end));
 	const imagesInRange = imageJobs.filter((row) => inRange(row.created || row.completed_at, start, end));
@@ -134,6 +140,32 @@ export async function buildPlatformOverview({ range = '30d', from, to, bypassCac
 	kpis.pinterestPublications = pinPubs.length;
 	kpis.wordpressPublications = wpPubs.filter((row) => row.result === 'published' || row.result === 'scheduled' || !row.result).length;
 	kpis.creditsConsumed = burns.reduce((sum, row) => sum + Math.abs(Number(row.amount) || 0), 0);
+
+	// Estimate AI cost/profit from burned credits using platform image credit estimate (~$0.01/credit).
+	const creditUnitUsd = 0.01;
+	kpis.aiCost = Math.round(kpis.creditsConsumed * creditUnitUsd * 100) / 100;
+	kpis.aiProfit = Math.round((kpis.mrr - kpis.aiCost) * 100) / 100;
+
+	const consumerMap = new Map();
+	for (const row of burns) {
+		const key = row.workspace_key || 'unknown';
+		if (!consumerMap.has(key)) {
+			consumerMap.set(key, {
+				workspaceKey: key,
+				workspaceName: row.workspace_name || key,
+				credits: 0,
+			});
+		}
+		consumerMap.get(key).credits += Math.abs(Number(row.amount) || 0);
+	}
+	const topCreditConsumers = [...consumerMap.values()]
+		.sort((a, b) => b.credits - a.credits)
+		.slice(0, 10);
+
+	const planDistribution = Object.entries(subBuckets).map(([slug, count]) => ({
+		plan: slug,
+		count,
+	}));
 
 	const userGrowth = new Map();
 	const workspaceGrowth = new Map();
@@ -334,11 +366,14 @@ export async function buildPlatformOverview({ range = '30d', from, to, bypassCac
 			articlesPerDay: seriesFromMap(articlesPerDay),
 			imagesPerDay: seriesFromMap(imagesPerDay),
 			creditsUsage: seriesFromMap(creditsUsage),
+			creditsConsumption: seriesFromMap(creditsUsage),
 			revenueTrend,
 			aiRequests: seriesFromMap(aiRequests),
 		},
 		providers: providersDto,
 		topModels,
+		topCreditConsumers,
+		planDistribution,
 		publishing,
 		queue,
 		subscriptions: subscriptionsDto,

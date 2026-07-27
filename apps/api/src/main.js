@@ -23,6 +23,7 @@ import { ensurePlatformSettingsSeeded } from './services/platform-settings.js';
 import { ensureOfficialPinTemplatesSeeded } from './services/official-pin-templates-seed.js';
 import { ensureWordpressIntegrationSchema } from './utils/ensure-wordpress-integration-schema.js';
 import { ensureArticleLifecycleSchema } from './utils/ensure-article-lifecycle-schema.js';
+import { ensureCreditsEngineSchema } from './utils/ensure-credits-engine-schema.js';
 import pocketbaseClient from './utils/pocketbaseClient.js';
 
 const app = express();
@@ -152,6 +153,9 @@ app.listen(port, () => {
 	});
 	ensureArticleLifecycleSchema(pocketbaseClient).catch((error) => {
 		logger.warn('Article lifecycle schema ensure skipped:', error?.message || error);
+	});
+	ensureCreditsEngineSchema(pocketbaseClient).catch((error) => {
+		logger.warn('Credits engine schema ensure skipped:', error?.message || error);
 	});
 	startPinterestPublishQueue();
 	startPinterestAnalyticsSync();

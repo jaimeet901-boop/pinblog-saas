@@ -72,6 +72,31 @@ const EMPTY_FORM = {
 		apiAccess: false,
 		priorityQueue: false,
 	},
+	creditCosts: {
+		ai_analyze: 1,
+		ai_prompt: 1,
+		ai_writer: 2,
+		ai_image: 1,
+		pin_publish: 1,
+		wordpress_publish: 1,
+		template_export: 1,
+	},
+	trialConfig: {
+		enabled: false,
+		days: 14,
+		credits: 100,
+	},
+	upgradeRules: {
+		prorate: true,
+		keepUnusedCredits: true,
+		immediate: true,
+	},
+	downgradeRules: {
+		atPeriodEnd: true,
+		forfeitUnusedCredits: false,
+		clampToNewQuota: true,
+	},
+	topupPacksText: '',
 };
 
 function planToForm(plan) {
@@ -98,6 +123,13 @@ function planToForm(plan) {
 		displayOrder: String(plan.displayOrder ?? 100),
 		limits: { ...EMPTY_FORM.limits, ...(plan.limits || {}) },
 		features: { ...EMPTY_FORM.features, ...(plan.features || {}) },
+		creditCosts: { ...EMPTY_FORM.creditCosts, ...(plan.creditCosts || {}) },
+		trialConfig: { ...EMPTY_FORM.trialConfig, ...(plan.trialConfig || {}) },
+		upgradeRules: { ...EMPTY_FORM.upgradeRules, ...(plan.upgradeRules || {}) },
+		downgradeRules: { ...EMPTY_FORM.downgradeRules, ...(plan.downgradeRules || {}) },
+		topupPacksText: Array.isArray(plan.topupPacks)
+			? plan.topupPacks.map((pack) => `${pack.name || pack.id}:${pack.credits}:${pack.price}`).join('\n')
+			: '',
 	};
 }
 
@@ -266,6 +298,30 @@ export default function AdminPlansPage() {
 					Object.entries(form.limits).map(([key, value]) => [key, Number(value) || 0]),
 				),
 				features: form.features,
+				creditCosts: Object.fromEntries(
+					Object.entries(form.creditCosts || {}).map(([key, value]) => [key, Number(value) || 0]),
+				),
+				trialConfig: {
+					enabled: Boolean(form.trialConfig?.enabled),
+					days: Number(form.trialConfig?.days) || 0,
+					credits: Number(form.trialConfig?.credits) || 0,
+				},
+				upgradeRules: { ...form.upgradeRules },
+				downgradeRules: { ...form.downgradeRules },
+				topupPacks: String(form.topupPacksText || '')
+					.split('\n')
+					.map((line) => line.trim())
+					.filter(Boolean)
+					.map((line, index) => {
+						const [name, credits, price] = line.split(':');
+						return {
+							id: `pack-${index + 1}`,
+							name: name || `Pack ${index + 1}`,
+							credits: Number(credits) || 0,
+							price: Number(price) || 0,
+							currency: form.currency || 'USD',
+						};
+					}),
 				status: form.active ? 'active' : 'hidden',
 			};
 			const isCreate = drawerMode === 'create';
@@ -506,13 +562,54 @@ export default function AdminPlansPage() {
 									<div className="admin-meta-row"><span>Top-up allowed</span><span>{yesNo(selected.topupAllowed)}</span></div>
 								</section>
 								<section className="admin-user-drawer__section">
-									<h3>Workspace Limits</h3>
+									<h3>Feature Limits</h3>
 									<div className="admin-meta-row"><span>Max workspaces</span><span>{formatLimit(selected.maxWorkspaces)}</span></div>
 									<div className="admin-meta-row"><span>Max WordPress sites</span><span>{formatLimit(selected.maxWordpress)}</span></div>
 									<div className="admin-meta-row"><span>Max Pinterest accounts</span><span>{formatLimit(selected.maxPinterest)}</span></div>
 									<div className="admin-meta-row"><span>Articles / mo</span><span>{formatLimit(selected.limits?.articlesPerMonth)}</span></div>
 									<div className="admin-meta-row"><span>Images / mo</span><span>{formatLimit(selected.limits?.imagesPerMonth)}</span></div>
 									<div className="admin-meta-row"><span>AI requests</span><span>{formatLimit(selected.limits?.aiRequests)}</span></div>
+								</section>
+								<section className="admin-user-drawer__section">
+									<h3>Credit Costs per Feature</h3>
+									{Object.entries(selected.creditCosts || {}).map(([key, value]) => (
+										<div key={key} className="admin-meta-row"><span>{key}</span><span>{Number(value).toLocaleString()}</span></div>
+									))}
+								</section>
+								<section className="admin-user-drawer__section">
+									<h3>Buy Extra Credits</h3>
+									{(selected.topupPacks || []).length ? (
+										<div className="admin-list">
+											{selected.topupPacks.map((pack) => (
+												<div key={pack.id || pack.name} className="admin-list__item">
+													<span>{pack.name} · {Number(pack.credits || 0).toLocaleString()} credits</span>
+													<span>${Number(pack.price || 0)}</span>
+												</div>
+											))}
+										</div>
+									) : (
+										<p className="text-sm" style={{ color: 'var(--admin-muted)' }}>
+											{selected.topupAllowed ? 'Top-up allowed · no packs configured' : 'Top-up disabled'}
+										</p>
+									)}
+								</section>
+								<section className="admin-user-drawer__section">
+									<h3>Trial Configuration</h3>
+									<div className="admin-meta-row"><span>Enabled</span><span>{yesNo(selected.trialConfig?.enabled)}</span></div>
+									<div className="admin-meta-row"><span>Days</span><span>{selected.trialConfig?.days ?? '—'}</span></div>
+									<div className="admin-meta-row"><span>Trial credits</span><span>{Number(selected.trialConfig?.credits || 0).toLocaleString()}</span></div>
+								</section>
+								<section className="admin-user-drawer__section">
+									<h3>Upgrade Rules</h3>
+									<div className="admin-meta-row"><span>Prorate</span><span>{yesNo(selected.upgradeRules?.prorate)}</span></div>
+									<div className="admin-meta-row"><span>Keep unused credits</span><span>{yesNo(selected.upgradeRules?.keepUnusedCredits)}</span></div>
+									<div className="admin-meta-row"><span>Immediate</span><span>{yesNo(selected.upgradeRules?.immediate)}</span></div>
+								</section>
+								<section className="admin-user-drawer__section">
+									<h3>Downgrade Rules</h3>
+									<div className="admin-meta-row"><span>At period end</span><span>{yesNo(selected.downgradeRules?.atPeriodEnd)}</span></div>
+									<div className="admin-meta-row"><span>Forfeit unused</span><span>{yesNo(selected.downgradeRules?.forfeitUnusedCredits)}</span></div>
+									<div className="admin-meta-row"><span>Clamp to new quota</span><span>{yesNo(selected.downgradeRules?.clampToNewQuota)}</span></div>
 								</section>
 								<section className="admin-user-drawer__section">
 									<h3>Feature Access</h3>
@@ -596,6 +693,93 @@ export default function AdminPlansPage() {
 											/>
 										</div>
 									))}
+								</div>
+								<p className="admin-note mt-3 mb-2">Credit costs per feature</p>
+								<div className="admin-config-grid">
+									{Object.keys(form.creditCosts || {}).map((key) => (
+										<div key={key} className="admin-field">
+											<label>{key}</label>
+											<input
+												value={form.creditCosts[key]}
+												onChange={(e) => setForm((prev) => ({
+													...prev,
+													creditCosts: { ...prev.creditCosts, [key]: e.target.value },
+												}))}
+											/>
+										</div>
+									))}
+								</div>
+								<p className="admin-note mt-3 mb-2">Trial configuration</p>
+								<div className="admin-config-grid">
+									<div className="admin-field">
+										<label>Trial days</label>
+										<input
+											value={form.trialConfig.days}
+											onChange={(e) => setForm((prev) => ({
+												...prev,
+												trialConfig: { ...prev.trialConfig, days: e.target.value },
+											}))}
+										/>
+									</div>
+									<div className="admin-field">
+										<label>Trial credits</label>
+										<input
+											value={form.trialConfig.credits}
+											onChange={(e) => setForm((prev) => ({
+												...prev,
+												trialConfig: { ...prev.trialConfig, credits: e.target.value },
+											}))}
+										/>
+									</div>
+								</div>
+								<label className="admin-check mt-2">
+									<input
+										type="checkbox"
+										checked={Boolean(form.trialConfig.enabled)}
+										onChange={(e) => setForm((prev) => ({
+											...prev,
+											trialConfig: { ...prev.trialConfig, enabled: e.target.checked },
+										}))}
+									/>
+									Trial enabled
+								</label>
+								<p className="admin-note mt-3 mb-2">Upgrade / downgrade rules</p>
+								<div className="flex flex-wrap gap-3">
+									{Object.keys(form.upgradeRules || {}).map((key) => (
+										<label key={`up-${key}`} className="admin-check">
+											<input
+												type="checkbox"
+												checked={Boolean(form.upgradeRules[key])}
+												onChange={(e) => setForm((prev) => ({
+													...prev,
+													upgradeRules: { ...prev.upgradeRules, [key]: e.target.checked },
+												}))}
+											/>
+											upgrade.{key}
+										</label>
+									))}
+									{Object.keys(form.downgradeRules || {}).map((key) => (
+										<label key={`down-${key}`} className="admin-check">
+											<input
+												type="checkbox"
+												checked={Boolean(form.downgradeRules[key])}
+												onChange={(e) => setForm((prev) => ({
+													...prev,
+													downgradeRules: { ...prev.downgradeRules, [key]: e.target.checked },
+												}))}
+											/>
+											downgrade.{key}
+										</label>
+									))}
+								</div>
+								<div className="admin-field mt-3">
+									<label>Buy extra credits packs (name:credits:price per line)</label>
+									<textarea
+										rows={3}
+										value={form.topupPacksText}
+										onChange={(e) => setForm((prev) => ({ ...prev, topupPacksText: e.target.value }))}
+										placeholder={'Starter Pack:500:9\nGrowth Pack:2000:29'}
+									/>
 								</div>
 								<p className="admin-note mt-3 mb-2">Features</p>
 								<div className="flex flex-wrap gap-3">

@@ -3,9 +3,12 @@ import {
 	activateAdminUser,
 	deleteAdminUser,
 	getAdminUser,
+	grantAdminUserCredits,
 	listAdminUsers,
+	resetAdminUserCredits,
 	resetAdminUserPassword,
 	suspendAdminUser,
+	suspendAdminUserCredits,
 	updateAdminUser,
 } from '../../services/admin/users.js';
 
@@ -43,6 +46,22 @@ router.post('/:id/activate', asyncHandler(async (req, res) => {
 
 router.post('/:id/reset-password', asyncHandler(async (req, res) => {
 	res.json(await resetAdminUserPassword(req.params.id, actor(req)));
+}));
+
+router.post('/:id/credits/grant', asyncHandler(async (req, res) => {
+	res.json(await grantAdminUserCredits(req.params.id, req.body || {}, actor(req)));
+}));
+
+router.post('/:id/credits/reset', asyncHandler(async (req, res) => {
+	res.json(await resetAdminUserCredits(req.params.id, actor(req)));
+}));
+
+router.post('/:id/credits/suspend', asyncHandler(async (req, res) => {
+	res.json(await suspendAdminUserCredits(req.params.id, true, actor(req)));
+}));
+
+router.post('/:id/credits/unsuspend', asyncHandler(async (req, res) => {
+	res.json(await suspendAdminUserCredits(req.params.id, false, actor(req)));
 }));
 
 router.delete('/:id', asyncHandler(async (req, res) => {
