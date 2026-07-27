@@ -6,10 +6,12 @@
  * - invitation fields + custom permissions
  * - workspace_roles catalog for custom roles
  *
- * Idempotent for production upgrades:
- * - Detect existing collection fields AND SQLite columns before adding
- * - Only create missing fields (never recreate)
- * - Preserve all production data
+ * Fully idempotent for EXISTING production databases:
+ * - Before adding a field, detect it in collection schema AND SQLite
+ * - If it already exists anywhere, skip (never recreate / never ALTER)
+ * - Same for indexes
+ * - Never delete/recreate collections
+ * - Never modify production row data
  */
 
 const coreNS = typeof core !== "undefined" ? core : {};
@@ -60,26 +62,25 @@ function relationField(name, collectionId, options = {}) {
 function fieldNameOf(field) {
 	if (!field) return "";
 	try {
-		if (typeof field.getName === "function") return String(field.getName() || "");
+		if (typeof field.getName === "function") {
+			const n = field.getName();
+			if (n != null && String(n) !== "") return String(n);
+		}
 	} catch (_) {
 		// ignore
 	}
 	try {
-		if (field.name != null) return String(field.name);
+		if (field.name != null && String(field.name) !== "") return String(field.name);
 	} catch (_) {
 		// ignore
 	}
 	return "";
 }
 
-/**
- * Detect whether a field already exists on the PocketBase collection schema.
- */
 function collectionHasField(collection, name) {
 	if (!collection || !name) return false;
 	try {
-		const found = collection.fields?.getByName?.(name);
-		if (found) return true;
+		if (collection.fields?.getByName?.(name)) return true;
 	} catch (_) {
 		// ignore
 	}
@@ -104,125 +105,106 @@ function collectionHasField(collection, name) {
 	return false;
 }
 
+function addColumnName(set, name) {
+	const key = String(name || "").trim();
+	if (key) set[key] = true;
+}
+
 /**
- * Detect whether a physical SQLite column already exists (partial migration / runtime ensure).
+ * Build a set of existing SQLite column names for a table.
+ * Uses several detection strategies so production upgrades never miss columns.
  */
-function sqliteHasColumn(app, tableName, columnName) {
-	if (!app || !tableName || !columnName) return false;
+function listSqliteColumns(app, tableName) {
+	const set = {};
+	if (!app || !tableName) return set;
+
 	try {
 		if (typeof app.tableColumns === "function") {
 			const cols = app.tableColumns(tableName) || [];
-			return cols.some((col) => String(col) === columnName);
+			for (let i = 0; i < cols.length; i += 1) addColumnName(set, cols[i]);
 		}
-	} catch (_) {
-		// fall through to PRAGMA
-	}
-
-	try {
-		const rows = arrayOf(new DynamicModel({ name: "" }));
-		app.db()
-			.newQuery("SELECT name FROM PRAGMA_TABLE_INFO({:table})")
-			.bind({ table: tableName })
-			.all(rows);
-		for (let i = 0; i < rows.length; i += 1) {
-			if (String(rows[i]?.name || "") === columnName) return true;
-		}
-		return false;
 	} catch (_) {
 		// ignore
 	}
 
 	try {
+		if (typeof app.tableInfo === "function") {
+			const info = app.tableInfo(tableName) || [];
+			for (let i = 0; i < info.length; i += 1) addColumnName(set, info[i]?.name);
+		}
+	} catch (_) {
+		// ignore
+	}
+
+	const pragmaQueries = [
+		"SELECT name FROM PRAGMA_TABLE_INFO({:table})",
+		"SELECT name FROM pragma_table_info({:table})",
+	];
+	for (let q = 0; q < pragmaQueries.length; q += 1) {
+		try {
+			const rows = arrayOf(new DynamicModel({ name: "" }));
+			app.db().newQuery(pragmaQueries[q]).bind({ table: tableName }).all(rows);
+			for (let i = 0; i < rows.length; i += 1) addColumnName(set, rows[i]?.name);
+		} catch (_) {
+			// ignore
+		}
+	}
+
+	try {
+		const safeTable = String(tableName).replace(/'/g, "''");
 		const rows = arrayOf(new DynamicModel({ name: "" }));
-		app.db().newQuery(`PRAGMA table_info('${String(tableName).replace(/'/g, "''")}')`).all(rows);
-		for (let i = 0; i < rows.length; i += 1) {
-			if (String(rows[i]?.name || "") === columnName) return true;
-		}
-		return false;
+		app.db().newQuery(`PRAGMA table_info('${safeTable}')`).all(rows);
+		for (let i = 0; i < rows.length; i += 1) addColumnName(set, rows[i]?.name);
 	} catch (_) {
-		return false;
+		// ignore
 	}
-}
 
-function execSql(app, sql) {
-	app.db().newQuery(sql).execute();
+	return set;
 }
 
 /**
- * When SQLite already has the column but collection meta does not, register the field
- * without hitting "duplicate column name" by rename → save → copy → drop.
- * Preserves all existing values.
+ * Probe a single column via SELECT. If the statement prepares/runs, the column exists.
  */
-function syncExistingSqliteColumnIntoSchema(app, collectionName, def) {
-	const column = def.name;
-	const tmp = `${column}__pb_mig_tmp`;
-
-	if (sqliteHasColumn(app, collectionName, tmp)) {
-		throw new Error(`1783993000: temporary column ${tmp} already exists on ${collectionName}`);
-	}
-
-	execSql(
-		app,
-		`ALTER TABLE "${collectionName}" RENAME COLUMN "${column}" TO "${tmp}"`,
-	);
-
-	const collection = findCollectionSafe(app, collectionName);
-	if (!collection) {
-		throw new Error(`1783993000: collection ${collectionName} missing during field sync`);
-	}
-	if (!collectionHasField(collection, column)) {
-		collection.fields.add(toField(def));
-	}
-	app.save(collection);
-
-	execSql(
-		app,
-		`UPDATE "${collectionName}" SET "${column}" = "${tmp}"`,
-	);
-
+function sqliteColumnSelectable(app, tableName, columnName) {
 	try {
-		execSql(app, `ALTER TABLE "${collectionName}" DROP COLUMN "${tmp}"`);
-	} catch (_) {
-		// Older SQLite without DROP COLUMN — leave tmp unused; data already copied.
-	}
-
-	return true;
-}
-
-/**
- * Idempotent field ensure:
- * 1) skip if collection schema already has the field
- * 2) skip/sync if SQLite column already exists
- * 3) otherwise add + save
- */
-function ensureFieldIdempotent(app, collectionName, def) {
-	const collection = findCollectionSafe(app, collectionName);
-	if (!collection) return false;
-
-	if (collectionHasField(collection, def.name)) {
-		return false;
-	}
-
-	if (sqliteHasColumn(app, collectionName, def.name)) {
-		return syncExistingSqliteColumnIntoSchema(app, collectionName, def);
-	}
-
-	const fresh = findCollectionSafe(app, collectionName);
-	if (!fresh) return false;
-	if (collectionHasField(fresh, def.name)) return false;
-
-	fresh.fields.add(toField(def));
-	try {
-		app.save(fresh);
+		const safeTable = String(tableName).replace(/"/g, '""');
+		const safeColumn = String(columnName).replace(/"/g, '""');
+		app.db().newQuery(`SELECT "${safeColumn}" FROM "${safeTable}" LIMIT 0`).all(arrayOf(new DynamicModel({})));
 		return true;
-	} catch (error) {
-		const message = String(error?.message || error || "");
-		if (/duplicate column name/i.test(message)) {
-			// Race / partial apply — sync safely without losing data.
-			return syncExistingSqliteColumnIntoSchema(app, collectionName, def);
+	} catch (_) {
+		try {
+			const safeTable = String(tableName).replace(/"/g, '""');
+			const safeColumn = String(columnName).replace(/"/g, '""');
+			app.db().newQuery(`SELECT "${safeColumn}" FROM "${safeTable}" LIMIT 0`).one();
+			return true;
+		} catch (__) {
+			return false;
 		}
-		throw error;
 	}
+}
+
+function columnAlreadyExists(app, collection, tableName, columnName, sqliteColumns) {
+	if (collectionHasField(collection, columnName)) return true;
+	if (sqliteColumns && sqliteColumns[columnName]) return true;
+	if (sqliteColumnSelectable(app, tableName, columnName)) return true;
+	return false;
+}
+
+function collectionHasIndexMarker(collection, marker) {
+	const indexes = Array.isArray(collection?.indexes) ? collection.indexes : [];
+	return indexes.some((sql) => String(sql).includes(marker));
+}
+
+function ensureIndexIdempotent(collection, sql) {
+	const indexes = Array.isArray(collection.indexes) ? collection.indexes.slice() : [];
+	if (indexes.includes(sql)) return false;
+	const marker = String(sql).match(/`(idx_[^`]+)`/);
+	if (marker && indexes.some((existing) => String(existing).includes(marker[1]))) {
+		return false;
+	}
+	indexes.push(sql);
+	collection.indexes = indexes;
+	return true;
 }
 
 function selectValuesEqual(current, next) {
@@ -236,14 +218,19 @@ function selectValuesEqual(current, next) {
 }
 
 function ensureSelectValues(collection, fieldName, nextValues) {
-	const field = collection.fields.getByName(fieldName);
+	let field = null;
+	try {
+		field = collection.fields.getByName(fieldName);
+	} catch (_) {
+		field = null;
+	}
 	if (!field || field.type !== "select") return false;
-	const current = field.values;
-	if (selectValuesEqual(current, nextValues)) return false;
+	if (selectValuesEqual(field.values, nextValues)) return false;
 	field.values = nextValues.slice();
 	return true;
 }
 
+const MEMBER_TABLE = "workspace_members";
 const MEMBER_FIELDS = [
 	{ name: "permissions", type: "json" },
 	{ name: "custom_role_name", type: "text", max: 80 },
@@ -255,31 +242,85 @@ const MEMBER_FIELDS = [
 	{ name: "suspended_reason", type: "text", max: 500 },
 ];
 
+const WORKSPACE_ROLES_INDEX_SQL =
+	"CREATE UNIQUE INDEX `idx_workspace_roles_slug` ON `workspace_roles` (`workspace`, `slug`)";
+
+/**
+ * Add only fields that are missing from BOTH schema and SQLite.
+ * Saves one field at a time. On duplicate-column errors, skips (idempotent).
+ * Never renames/drops columns and never mutates row data.
+ */
+function ensureMemberFieldsIdempotent(app) {
+	const sqliteColumns = listSqliteColumns(app, MEMBER_TABLE);
+
+	// Pre-probe known fields so detection is reliable even if PRAGMA fails.
+	for (let i = 0; i < MEMBER_FIELDS.length; i += 1) {
+		const name = MEMBER_FIELDS[i].name;
+		if (sqliteColumnSelectable(app, MEMBER_TABLE, name)) {
+			sqliteColumns[name] = true;
+		}
+	}
+
+	for (let i = 0; i < MEMBER_FIELDS.length; i += 1) {
+		const def = MEMBER_FIELDS[i];
+
+		// Always reload so in-memory adds from a failed save cannot accumulate.
+		const collection = findCollectionSafe(app, MEMBER_TABLE);
+		if (!collection) return;
+
+		if (columnAlreadyExists(app, collection, MEMBER_TABLE, def.name, sqliteColumns)) {
+			continue;
+		}
+
+		collection.fields.add(toField(def));
+		try {
+			app.save(collection);
+			sqliteColumns[def.name] = true;
+		} catch (error) {
+			const message = String(error?.message || error || "");
+			if (/duplicate column name/i.test(message)) {
+				// Column already present in SQLite — treat as applied, do not modify data.
+				sqliteColumns[def.name] = true;
+				continue;
+			}
+			throw error;
+		}
+	}
+}
+
 migrate((app) => {
-	const members = findCollectionSafe(app, "workspace_members");
+	const members = findCollectionSafe(app, MEMBER_TABLE);
 	if (members) {
-		let dirty = false;
-		dirty = ensureSelectValues(
-			members,
+		// Reload a clean collection instance for select-value updates only.
+		const forSelects = findCollectionSafe(app, MEMBER_TABLE);
+		let selectDirty = false;
+		selectDirty = ensureSelectValues(
+			forSelects,
 			"role",
 			["owner", "administrator", "editor", "author", "viewer", "custom"],
-		) || dirty;
-		dirty = ensureSelectValues(
-			members,
+		) || selectDirty;
+		selectDirty = ensureSelectValues(
+			forSelects,
 			"status",
 			["active", "invited", "suspended", "removed"],
-		) || dirty;
-		if (dirty) app.save(members);
-
-		// Add only fields that are missing from schema AND SQLite.
-		for (const def of MEMBER_FIELDS) {
-			ensureFieldIdempotent(app, "workspace_members", def);
+		) || selectDirty;
+		if (selectDirty) {
+			try {
+				app.save(forSelects);
+			} catch (error) {
+				const message = String(error?.message || error || "");
+				// Select-only updates must never fail the upgrade on duplicate columns.
+				if (!/duplicate column name/i.test(message)) throw error;
+			}
 		}
+
+		ensureMemberFieldsIdempotent(app);
 	}
 
 	const workspaces = findCollectionSafe(app, "workspaces");
 	const users = findCollectionSafe(app, "users");
 	let roles = findCollectionSafe(app, "workspace_roles");
+
 	if (!roles && workspaces) {
 		roles = new Collection({
 			type: "base",
@@ -297,15 +338,27 @@ migrate((app) => {
 				toField({ name: "permissions", type: "json" }),
 				toField({ name: "is_system", type: "bool" }),
 				toField({ name: "active", type: "bool" }),
-				users ? toField(relationField("created_by", users.id)) : toField({ name: "created_by", type: "text", max: 64 }),
+				users
+					? toField(relationField("created_by", users.id))
+					: toField({ name: "created_by", type: "text", max: 64 }),
 				toField({ name: "created", type: "autodate", onCreate: true, onUpdate: false }),
 				toField({ name: "updated", type: "autodate", onCreate: true, onUpdate: true }),
 			],
-			indexes: [
-				"CREATE UNIQUE INDEX `idx_workspace_roles_slug` ON `workspace_roles` (`workspace`, `slug`)",
-			],
+			indexes: [WORKSPACE_ROLES_INDEX_SQL],
 		});
 		app.save(roles);
+	} else if (roles) {
+		// Existing collection: only add missing index, never recreate collection.
+		if (!collectionHasIndexMarker(roles, "idx_workspace_roles_slug")) {
+			if (ensureIndexIdempotent(roles, WORKSPACE_ROLES_INDEX_SQL)) {
+				try {
+					app.save(roles);
+				} catch (error) {
+					const message = String(error?.message || error || "");
+					if (!/already exists|duplicate/i.test(message)) throw error;
+				}
+			}
+		}
 	}
 }, (app) => {
 	// Additive — no destructive down.
