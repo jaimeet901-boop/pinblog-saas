@@ -73,20 +73,22 @@ export default function PinTemplateChooser({
 	useEffect(() => {
 		if (!open) return undefined;
 		setQuery('');
-		loadGalleryFirstPage({ ...SELECT_FILTERS });
+		// Load first; only reset when the chooser actually closes (avoid dropping in-flight results).
+		void loadGalleryFirstPage({ ...SELECT_FILTERS });
 		return () => {
-			resetGalleryStore();
 			revokeGalleryLivePreviewUrls();
+			resetGalleryStore();
 		};
 	}, [open]);
 
 	useEffect(() => {
+		if (!open) return undefined;
 		const node = sentinelRef.current;
 		const root = panelRef.current;
-		if (!open || !node || loading) return undefined;
+		if (!node || loading || loadingMore) return undefined;
 		const observer = new IntersectionObserver((entries) => {
 			if (entries.some((entry) => entry.isIntersecting)) {
-				loadGalleryNextPage();
+				void loadGalleryNextPage();
 			}
 		}, { root: root || null, rootMargin: '320px' });
 		observer.observe(node);

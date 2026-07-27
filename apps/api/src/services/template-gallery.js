@@ -141,19 +141,25 @@ function resolvePreview(record, previewMap) {
 }
 
 function buildOwnerFilter(req) {
-	const ownerId = req.pocketbaseUserId;
-	const workspaceId = req.workspace?.id;
-	const parts = [`owner = "${escapeFilterValue(ownerId)}"`];
+	const ownerId = String(req.pocketbaseUserId || '').trim();
+	const workspaceId = String(req.workspace?.id || '').trim();
+	// Official library first — every authenticated user must see Chef IA designs.
+	const parts = ['visibility = "official"'];
+	if (ownerId) {
+		parts.push(`owner = "${escapeFilterValue(ownerId)}"`);
+	}
 	if (workspaceId) {
 		parts.push(`workspace_id = "${escapeFilterValue(workspaceId)}"`);
 	}
-	// Platform built-in library — visible to every authenticated workspace user.
-	parts.push(`visibility = "official"`);
 	return `(${parts.join(' || ')})`;
 }
 
 function buildGalleryFilter(req, query) {
-	const clauses = [buildOwnerFilter(req), 'deleted_at = ""'];
+	// Soft empty checks — PocketBase date/select empty matching varies by version.
+	const clauses = [
+		buildOwnerFilter(req),
+		'(deleted_at = "" || deleted_at = null)',
+	];
 
 	const status = String(query.status || '').trim();
 	if (status && TEMPLATE_STATUS.includes(status)) {
@@ -164,7 +170,8 @@ function buildGalleryFilter(req, query) {
 			clauses.push(`status = "${escapeFilterValue(status)}"`);
 		}
 	} else if (query.includeArchived !== '1' && query.includeArchived !== 'true') {
-		clauses.push(`(status = "" || status != "archived")`);
+		// Prefer != archived only — status = "" can break select-field filters on some PB builds.
+		clauses.push('status != "archived"');
 	}
 
 	const category = String(query.category || '').trim();
@@ -229,36 +236,22 @@ function matchesSearch(item, q) {
 	return false;
 }
 
-/** List fields only — never pull configuration JSON for gallery pages. */
-const GALLERY_LIST_FIELDS = [
-	'id',
-	'name',
-	'thumbnail',
-	'config_checksum',
-	'is_default',
-	'category',
-	'status',
-	'visibility',
-	'marketplace_meta',
-	'created_by',
-	'owner',
-	'editor_version',
-	'schema_version',
-	'revision',
-	'use_count',
-	'last_used_at',
-	'workspace_id',
-	'created',
-	'updated',
-	'deleted_at',
-].join(',');
+async function pocketbaseGalleryPage(page, perPage, filter, sort, { expand = false } = {}) {
+	const options = {
+		filter,
+		sort,
+		requestKey: null,
+	};
+	if (expand) {
+		options.expand = 'owner,created_by';
+	}
+	return pocketbaseClient.collection('ai_pin_templates').getList(page, perPage, options);
+}
 
 export async function listGalleryTemplates(req, query = {}) {
 	assertCapability(req, 'workspace.read');
 
 	const page = Math.max(1, Number(query.page) || 1);
-	// Keep page size bounded — large pages + expand previously tripped primary getList and
-	// fell through to a broken empty fallback (AI Pins chooser regression).
 	const perPage = Math.min(48, Math.max(1, Number(query.perPage) || 24));
 	const q = String(query.q || query.search || '').trim();
 	const favoriteOnly = query.favorite === '1' || query.favorite === 'true' || query.favorites === '1';
@@ -267,56 +260,100 @@ export async function listGalleryTemplates(req, query = {}) {
 	const filter = buildGalleryFilter(req, query);
 	const sort = sortForQuery(query.sort);
 	const ownerScope = buildOwnerFilter(req);
+	const includeArchived = query.includeArchived === '1' || query.includeArchived === 'true';
+	const status = String(query.status || '').trim();
 
-	let result;
-	try {
-		result = await pocketbaseClient.collection('ai_pin_templates').getList(page, perPage, {
-			filter,
-			sort,
-			expand: 'owner,created_by',
-			fields: GALLERY_LIST_FIELDS,
-			requestKey: null,
-		});
-	} catch (primaryError) {
-		// Retry without expand (relation expand can fail on partial schemas).
+	// Cascading fallbacks: never swallow to [] before trying the official library.
+	const attempts = [
+		{ label: 'primary+expand', filter, expand: true },
+		{ label: 'primary', filter, expand: false },
+		{
+			label: 'owner-scope',
+			filter: includeArchived
+				? `${ownerScope} && (deleted_at = "" || deleted_at = null)`
+				: `${ownerScope} && (deleted_at = "" || deleted_at = null) && status != "archived"`,
+			expand: false,
+		},
+		{
+			label: 'official-library',
+			filter: status === 'published'
+				? '(visibility = "official") && (deleted_at = "" || deleted_at = null) && (status = "published" || status = "")'
+				: '(visibility = "official") && (deleted_at = "" || deleted_at = null) && status != "archived"',
+			expand: false,
+		},
+	];
+
+	let result = null;
+	let lastError = null;
+	let usedAttempt = null;
+	for (const attempt of attempts) {
 		try {
-			result = await pocketbaseClient.collection('ai_pin_templates').getList(page, perPage, {
-				filter,
-				sort,
-				fields: GALLERY_LIST_FIELDS,
-				requestKey: null,
+			result = await pocketbaseGalleryPage(page, perPage, attempt.filter, sort, {
+				expand: attempt.expand,
+			});
+			usedAttempt = attempt.label;
+			if (attempt.label !== 'primary+expand') {
+				console.warn('[template-gallery] recovered with fallback query', {
+					attempt: attempt.label,
+					filter: attempt.filter,
+					totalItems: result?.totalItems,
+					previousError: lastError?.message || null,
+				});
+			}
+			break;
+		} catch (error) {
+			lastError = error;
+			console.warn('[template-gallery] gallery query failed', {
+				attempt: attempt.label,
+				filter: attempt.filter,
+				message: error?.message || String(error),
+			});
+		}
+	}
+
+	// Primary can succeed with 0 rows when owner/workspace scope mismatches.
+	// For the unscoped gallery (AI Pins chooser / Admin All), always surface the official library.
+	const restrictive = Boolean(
+		status
+		|| String(query.visibility || '').trim()
+		|| String(query.scope || '').trim()
+		|| String(query.category || '').trim()
+		|| favoriteOnly
+		|| q
+		|| String(query.tag || '').trim(),
+	);
+	if (
+		result
+		&& !restrictive
+		&& Number(result.totalItems || 0) === 0
+		&& usedAttempt !== 'official-library'
+	) {
+		try {
+			const officialFilter = '(visibility = "official") && (deleted_at = "" || deleted_at = null) && status != "archived"';
+			result = await pocketbaseGalleryPage(page, perPage, officialFilter, sort, { expand: false });
+			console.warn('[template-gallery] empty scoped gallery; using official library', {
+				previousAttempt: usedAttempt,
+				totalItems: result?.totalItems,
 			});
 		} catch (error) {
-			// Same visibility scope as primary (owner || workspace || official) — never owner-only.
-			console.warn('[template-gallery] primary filter failed; using owner-scope getList fallback', {
+			console.warn('[template-gallery] official library recovery failed', {
 				message: error?.message || String(error),
-				primaryMessage: primaryError?.message || String(primaryError),
-				filter,
-				ownerScope,
-				page,
-				perPage,
 			});
-			try {
-				result = await pocketbaseClient.collection('ai_pin_templates').getList(page, perPage, {
-					filter: `${ownerScope} && deleted_at = ""`,
-					sort: '-updated',
-					fields: GALLERY_LIST_FIELDS,
-					requestKey: null,
-				});
-			} catch (fallbackError) {
-				console.error('[template-gallery] fallback getList failed', {
-					message: fallbackError?.message || String(fallbackError),
-					ownerScope,
-				});
-				result = {
-					items: [],
-					page,
-					perPage,
-					totalItems: 0,
-					totalPages: 1,
-				};
-			}
 		}
+	}
+
+	if (!result) {
+		console.error('[template-gallery] all gallery queries failed', {
+			filter,
+			message: lastError?.message || String(lastError),
+		});
+		result = {
+			items: [],
+			page,
+			perPage,
+			totalItems: 0,
+			totalPages: 1,
+		};
 	}
 
 	let items = result.items || [];

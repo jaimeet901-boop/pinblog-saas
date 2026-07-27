@@ -195,12 +195,12 @@ router.get('/history', async (req, res) => {
 	res.json(await getWorkspaceHistory(req, req.query));
 });
 
-router.get('/templates', async (req, res) => {
+router.get('/templates', asyncHandler(async (req, res) => {
 	if (req.query.view === 'gallery' || req.query.gallery === '1') {
 		return res.json(await listGalleryTemplates(req, req.query));
 	}
 	res.json(await listWorkspaceTemplates(req, req.query));
-});
+}));
 
 router.post('/templates', async (req, res) => {
 	const category = req.body?.category;
