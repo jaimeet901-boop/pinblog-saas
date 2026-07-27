@@ -11,7 +11,7 @@ import { ThemeProvider } from '@/context/ThemeContext';
 import { WorkspaceConfigProvider } from '@/context/WorkspaceConfigContext';
 
 import LandingPage from '@/pages/LandingPage';
-import PrivacyPolicyPage from '@/pages/PrivacyPolicyPage';
+import LegalPage from '@/pages/LegalPage';
 import LoginPage from '@/pages/auth/LoginPage';
 import SignupPage from '@/pages/auth/SignupPage';
 import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage';
@@ -52,6 +52,7 @@ const AdminQueuePage = lazy(() => import('@/pages/admin/AdminQueuePage'));
 const AdminJobsPage = lazy(() => import('@/pages/admin/AdminJobsPage'));
 const AdminLogsPage = lazy(() => import('@/pages/admin/AdminLogsPage'));
 const AdminNotificationsPage = lazy(() => import('@/pages/admin/AdminNotificationsPage'));
+const AdminLegalPagesPage = lazy(() => import('@/pages/admin/AdminLegalPagesPage'));
 const AdminSettingsPage = lazy(() => import('@/pages/admin/AdminSettingsPage'));
 const AdminSystemPage = lazy(() => import('@/pages/admin/AdminSystemPage'));
 
@@ -97,7 +98,11 @@ function App() {
 					<ScrollToTop />
 					<Routes>
 						<Route path="/" element={<LandingPage />} />
-						<Route path="/privacy" element={<PrivacyPolicyPage />} />
+						<Route path="/privacy" element={<LegalPage slug="privacy" />} />
+						<Route path="/terms" element={<LegalPage slug="terms" />} />
+						<Route path="/cookies" element={<LegalPage slug="cookies" />} />
+						<Route path="/disclaimer" element={<LegalPage slug="disclaimer" />} />
+						<Route path="/refund" element={<LegalPage slug="refund" />} />
 						<Route path="/login" element={<LoginPage />} />
 						<Route path="/signup" element={<SignupPage />} />
 						<Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -142,6 +147,7 @@ function App() {
 							<Route path="jobs" element={<AdminLazy><AdminJobsPage /></AdminLazy>} />
 							<Route path="logs" element={<AdminLazy><AdminLogsPage /></AdminLazy>} />
 							<Route path="notifications" element={<AdminLazy><AdminNotificationsPage /></AdminLazy>} />
+							<Route path="legal-pages" element={<AdminLazy><AdminLegalPagesPage /></AdminLazy>} />
 							<Route path="settings" element={<AdminLazy><AdminSettingsPage /></AdminLazy>} />
 							<Route path="system" element={<AdminLazy><AdminSystemPage /></AdminLazy>} />
 						</Route>

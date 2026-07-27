@@ -11,6 +11,7 @@ import aiPinGenerationRouter from './ai-pin-generation.js';
 import aiPinsRouter from './ai-pins.js';
 import adminRouter from './admin/index.js';
 import workspaceRouter from './workspace/index.js';
+import legalRouter from './legal.js';
 
 const router = Router();
 
@@ -21,6 +22,7 @@ export default () => {
             status: 'ok',
         });
     });
+    router.use('/legal', legalRouter);
     router.use('/integrated-ai', integratedAiRouter);
     router.use('/websites', pocketbaseAuth, websitesRouter);
     router.use('/wordpress', wordpressRouter);

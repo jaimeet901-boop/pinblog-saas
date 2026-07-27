@@ -137,7 +137,7 @@ export default function SignupPage() {
 					<label className="auth-check">
 						<input type="checkbox" checked={form.acceptTerms} onChange={set('acceptTerms')} />
 						<span>
-							I agree to the <a href="#terms" className="text-primary hover:underline">Terms</a> and{' '}
+							I agree to the <Link to="/terms" className="text-primary hover:underline">Terms</Link> and{' '}
 							<Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link>.
 						</span>
 					</label>

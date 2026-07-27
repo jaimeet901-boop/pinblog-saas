@@ -1,0 +1,238 @@
+/* Chef IA Admin — Legal Pages CMS */
+.admin-legal__toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+	align-items: center;
+	margin-bottom: 1rem;
+}
+
+.admin-legal__search {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex: 1;
+	min-width: 14rem;
+	border: 1px solid var(--admin-border, #2a2f3a);
+	border-radius: 0.75rem;
+	padding: 0.55rem 0.75rem;
+	background: rgba(0, 0, 0, 0.18);
+}
+
+.admin-legal__search input {
+	width: 100%;
+	background: transparent;
+	border: 0;
+	outline: none;
+	color: inherit;
+	font-size: 0.875rem;
+}
+
+.admin-legal__grid {
+	display: grid;
+	gap: 1rem;
+}
+
+@media (min-width: 1100px) {
+	.admin-legal__grid {
+		grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr);
+		align-items: start;
+	}
+}
+
+.admin-legal__section-label {
+	font-size: 0.72rem;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--admin-muted, #9aa3b5);
+	margin-bottom: 0.75rem;
+}
+
+.admin-legal__item {
+	width: 100%;
+	text-align: left;
+	cursor: pointer;
+	background: transparent;
+	border: 1px solid transparent;
+}
+
+.admin-legal__item.is-active {
+	border-color: rgba(232, 168, 124, 0.45);
+	background: rgba(232, 168, 124, 0.08);
+}
+
+.admin-legal__editor-head {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+	gap: 0.75rem;
+	margin-bottom: 1rem;
+}
+
+.admin-legal__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.admin-btn--danger {
+	border-color: rgba(239, 68, 68, 0.45) !important;
+	color: #fca5a5 !important;
+}
+
+.admin-legal__fields {
+	display: grid;
+	gap: 0.75rem;
+	margin-bottom: 0.85rem;
+}
+
+@media (min-width: 800px) {
+	.admin-legal__fields {
+		grid-template-columns: 1fr 1fr;
+	}
+
+	.admin-legal__fields label:nth-child(4) {
+		grid-column: 1 / -1;
+	}
+}
+
+.admin-legal__fields label {
+	display: grid;
+	gap: 0.35rem;
+	font-size: 0.78rem;
+	color: var(--admin-muted, #9aa3b5);
+}
+
+.admin-legal__fields input,
+.admin-legal__fields select,
+.admin-legal__fields textarea,
+.admin-legal__textarea {
+	width: 100%;
+	border: 1px solid var(--admin-border, #2a2f3a);
+	border-radius: 0.7rem;
+	background: rgba(0, 0, 0, 0.22);
+	color: inherit;
+	padding: 0.65rem 0.75rem;
+	font: inherit;
+}
+
+.admin-legal__md-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.45rem;
+	margin-bottom: 0.65rem;
+	font-size: 0.75rem;
+	color: var(--admin-muted, #9aa3b5);
+}
+
+.admin-legal__md-toolbar button {
+	border: 1px solid var(--admin-border, #2a2f3a);
+	background: rgba(255, 255, 255, 0.03);
+	color: inherit;
+	border-radius: 0.5rem;
+	padding: 0.25rem 0.55rem;
+	cursor: pointer;
+}
+
+.admin-legal__compose {
+	display: grid;
+	gap: 0.75rem;
+	min-height: 22rem;
+}
+
+.admin-legal__compose.has-preview {
+	grid-template-columns: 1fr;
+}
+
+@media (min-width: 960px) {
+	.admin-legal__compose.has-preview {
+		grid-template-columns: 1fr 1fr;
+	}
+}
+
+.admin-legal__textarea {
+	min-height: 22rem;
+	resize: vertical;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.82rem;
+	line-height: 1.55;
+}
+
+.admin-legal__preview {
+	min-height: 22rem;
+	max-height: 36rem;
+	overflow: auto;
+	border: 1px solid var(--admin-border, #2a2f3a);
+	border-radius: 0.7rem;
+	padding: 1rem;
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.admin-legal__versions {
+	margin-top: 1.25rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--admin-border, #2a2f3a);
+}
+
+.privacy-content--solo {
+	max-width: 52rem;
+}
+
+.privacy-prose h1,
+.privacy-prose h2,
+.privacy-prose h3,
+.privacy-prose h4 {
+	color: hsl(var(--foreground));
+	font-family: var(--font-display, inherit);
+	font-weight: 600;
+	letter-spacing: -0.02em;
+	margin: 1.25rem 0 0.55rem;
+}
+
+.privacy-prose h1 { font-size: 1.7rem; }
+.privacy-prose h2 { font-size: 1.3rem; }
+.privacy-prose h3 { font-size: 1.05rem; }
+
+.privacy-prose p,
+.privacy-prose li {
+	color: hsl(var(--muted-foreground));
+	line-height: 1.7;
+	font-size: 0.95rem;
+}
+
+.privacy-prose p + p { margin-top: 0.75rem; }
+.privacy-prose ul {
+	margin: 0.65rem 0 0;
+	padding-left: 1.15rem;
+	display: grid;
+	gap: 0.4rem;
+}
+
+.privacy-prose a {
+	color: hsl(var(--primary));
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.privacy-prose hr {
+	border: 0;
+	border-top: 1px solid hsl(var(--border) / 0.8);
+	margin: 1.25rem 0;
+}
+
+.privacy-prose code {
+	font-size: 0.85em;
+	padding: 0.1rem 0.3rem;
+	border-radius: 0.3rem;
+	background: hsl(var(--secondary) / 0.7);
+}
+
+.admin-legal__preview.privacy-prose h1,
+.admin-legal__preview.privacy-prose h2,
+.admin-legal__preview.privacy-prose h3,
+.admin-legal__preview.privacy-prose p,
+.admin-legal__preview.privacy-prose li {
+	color: inherit;
+}

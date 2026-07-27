@@ -17,6 +17,7 @@ import dashboardRouter from './dashboard.js';
 import notificationsRouter from './notifications.js';
 import pinterestRouter from './pinterest.js';
 import settingsRouter from './settings.js';
+import legalPagesRouter from './legal-pages.js';
 
 const router = Router();
 
@@ -47,5 +48,6 @@ router.use('/dashboard', dashboardRouter);
 router.use('/notifications', notificationsRouter);
 router.use('/pinterest', pinterestRouter);
 router.use('/settings', settingsRouter);
+router.use('/legal-pages', legalPagesRouter);
 
 export default router;

@@ -42,8 +42,10 @@ const PLANS = [
 
 const FOOTER_LINKS = [
 	{ label: 'Privacy Policy', to: '/privacy' },
-	{ label: 'Terms', href: '#terms' },
-	{ label: 'Documentation', href: '#docs' },
+	{ label: 'Terms', to: '/terms' },
+	{ label: 'Cookies', to: '/cookies' },
+	{ label: 'Disclaimer', to: '/disclaimer' },
+	{ label: 'Refunds', to: '/refund' },
 	{ label: 'Support', href: 'mailto:support@tbuy.store' },
 	{ label: 'Contact', href: 'mailto:privacy@tbuy.store' },
 ];
