@@ -44,26 +44,7 @@ function unauthorizedError(message) {
 	return error;
 }
 
-function isPublicWebsiteMetadataRequest(req) {
-	if (req.method !== 'POST') {
-		return false;
-	}
-
-	const combinedPath = `${req.baseUrl || ''}${req.path || ''}`;
-	const originalUrl = String(req.originalUrl || '').split('?')[0];
-
-	return req.path === '/metadata'
-		|| combinedPath.endsWith('/websites/metadata')
-		|| originalUrl.endsWith('/websites/metadata');
-}
-
 export async function pocketbaseAuth(req, res, next) {
-	// Metadata enrichment is optional UX; keep it reachable even if the browser
-	// momentarily fails to attach auth (create/list/scan still require auth).
-	if (isPublicWebsiteMetadataRequest(req)) {
-		return next();
-	}
-
 	const bearerToken = parseBearerToken(req.headers.authorization);
 
 	// Auth is enforced by default. To allow public (anonymous) access, remove this

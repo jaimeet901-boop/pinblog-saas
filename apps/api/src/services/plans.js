@@ -1,5 +1,6 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { httpError } from '../middleware/require-admin.js';
+import { isProduction } from '../utils/env.js';
 import { DEFAULT_FEATURES, DEFAULT_LIMITS, PLAN_SEED_CATALOG } from './plan-catalog.js';
 
 function slugify(value) {
@@ -168,6 +169,9 @@ export async function ensurePlansSeeded() {
 		}
 
 		for (const sub of seed.seedSubscribers || []) {
+			if (isProduction()) {
+				continue;
+			}
 			try {
 				await pocketbaseClient.collection('workspace_subscriptions').getFirstListItem(
 					pocketbaseClient.filter('workspace_key = {:key}', { key: sub.workspace_key }),

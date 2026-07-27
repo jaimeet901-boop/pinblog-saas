@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { pocketbaseAuth } from '../../middleware/pocketbase-auth.js';
+import { requireAdmin } from '../../middleware/require-admin.js';
+import { attachWorkspace, requireWorkspaceRead } from '../../middleware/product-access.js';
 import {
 	listWordpressSites,
 	setDefaultWordpressSite,
@@ -75,6 +77,8 @@ async function waitForJobResult(ownerId, jobId, { timeoutMs = 25000, intervalMs 
 }
 
 router.use(pocketbaseAuth);
+router.use(attachWorkspace);
+router.use(requireWorkspaceRead);
 
 router.get('/auth-providers', async (_req, res) => {
 	res.json({ items: listWordpressAuthProviders() });
@@ -210,8 +214,7 @@ router.get('/sites/:id/sync/status', async (req, res) => {
 	});
 });
 
-router.post('/sync/process-due', async (req, res) => {
-	// Operator/admin-safe internal tick; still requires auth.
+router.post('/sync/process-due', requireAdmin, async (req, res) => {
 	const result = await processDueWordpressSyncs({
 		limit: Math.min(20, Math.max(1, Number(req.body?.limit) || 5)),
 	});

@@ -1,6 +1,7 @@
 import { sanitizeCollectionPayload, safeGetFullList, safeGetList, extractCollectionFieldNames } from '../utils/pocketbase-safe-query.js';
 import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
 import { markArticleSynced } from './article-lifecycle.js';
+import { assertSafePublicHttpUrl, safeFetch } from '../utils/ssrf-guard.js';
 
 const MAX_SOURCE_URLS = 250;
 const MAX_ARTICLE_FETCHES = 50;
@@ -267,33 +268,34 @@ function looksLikeArticleUrl(url) {
 }
 
 async function fetchText(url) {
+	const safeUrl = assertSafePublicHttpUrl(url, { fieldName: 'url' });
 	const controller = new AbortController();
 	const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
 	try {
-		const response = await fetch(url, {
+		const { response, finalUrl } = await safeFetch(safeUrl, {
 			method: 'GET',
 			headers: {
 				'Accept': 'text/html,application/xhtml+xml,application/xml,text/xml,application/rss+xml,application/atom+xml,text/plain',
 				'User-Agent': 'ChefIA Article Discovery/1.0',
 			},
-			redirect: 'follow',
 			signal: controller.signal,
+			fieldName: 'url',
 		});
 
 		if (!response.ok) {
-			return { ok: false, status: response.status, url: response.url || url, body: '' };
+			return { ok: false, status: response.status, url: finalUrl || safeUrl, body: '' };
 		}
 
 		return {
 			ok: true,
 			status: response.status,
-			url: response.url || url,
+			url: finalUrl || safeUrl,
 			body: await response.text(),
 			contentType: response.headers.get('content-type') || '',
 		};
 	} catch (error) {
-		return { ok: false, status: 0, url, body: '', error };
+		return { ok: false, status: 0, url: safeUrl, body: '', error };
 	} finally {
 		clearTimeout(timeoutId);
 	}

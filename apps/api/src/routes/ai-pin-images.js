@@ -12,6 +12,7 @@ import {
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
 import { mirrorImageJob } from '../services/queue/mirrors.js';
+import { assertSafePublicHttpUrl, safeFetch } from '../utils/ssrf-guard.js';
 
 const router = Router();
 
@@ -21,25 +22,6 @@ const uploadComposedImage = uploadFiles({
 	allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'],
 	fieldName: 'image',
 });
-
-function isPrivateHostname(hostname) {
-	const host = String(hostname || '').toLowerCase();
-	if (!host || host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
-		return true;
-	}
-	if (/^127\./.test(host) || host === '0.0.0.0' || host === '::1') {
-		return true;
-	}
-	if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) {
-		return true;
-	}
-	const match172 = host.match(/^172\.(\d+)\./);
-	if (match172) {
-		const second = Number(match172[1]);
-		if (second >= 16 && second <= 31) return true;
-	}
-	return false;
-}
 
 const IMAGE_PROVIDER_MARKER_RE = /\[pinblog_image_provider:([a-z0-9_-]+)\]/i;
 
@@ -154,22 +136,10 @@ router.get('/providers', async (req, res) => {
  */
 router.get('/proxy', async (req, res) => {
 	const rawUrl = normalizeString(req.query.url, 'url', { required: true, max: 2000 });
-	let parsed;
-	try {
-		parsed = new URL(rawUrl);
-	} catch {
-		throw httpError(422, 'url must be a valid absolute URL');
-	}
-	if (!['http:', 'https:'].includes(parsed.protocol)) {
-		throw httpError(422, 'url must use http or https');
-	}
-	if (isPrivateHostname(parsed.hostname)) {
-		throw httpError(422, 'url host is not allowed');
-	}
+	const safeUrl = assertSafePublicHttpUrl(rawUrl, { fieldName: 'url' });
 
-	const upstream = await fetch(parsed.toString(), {
+	const { response: upstream } = await safeFetch(safeUrl, {
 		method: 'GET',
-		redirect: 'follow',
 		headers: {
 			Accept: 'image/*,*/*;q=0.8',
 			'User-Agent': 'PinblogFeaturedCompose/1.0',
@@ -179,8 +149,9 @@ router.get('/proxy', async (req, res) => {
 			setTimeout(() => controller.abort(), 20000);
 			return controller.signal;
 		})(),
+		fieldName: 'url',
 	}).catch((error) => {
-		logger.warn('Featured image proxy fetch failed', { error: error?.message, url: parsed.toString() });
+		logger.warn('Featured image proxy fetch failed', { error: error?.message, url: safeUrl });
 		throw httpError(502, 'Failed to fetch featured image');
 	});
 

@@ -34,6 +34,10 @@ export function validateServerEnv() {
 		'PINTEREST_CLIENT_SECRET',
 	];
 
+	if (isProduction()) {
+		required.push('PB_ENCRYPTION_KEY', 'WORDPRESS_SECRETS_KEY');
+	}
+
 	const missing = required.filter((name) => !normalizeString(process.env[name]));
 	if (missing.length > 0) {
 		throw new Error(`Missing required environment variables: ${missing.join(', ')}`);

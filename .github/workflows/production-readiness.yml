@@ -52,7 +52,8 @@ jobs:
             "PB_SUPERUSER_PASSWORD"
             "PINTEREST_CLIENT_ID"
             "PINTEREST_CLIENT_SECRET"
-            "SECRET_ENCRYPTION_KEY"
+            "PB_ENCRYPTION_KEY"
+            "WORDPRESS_SECRETS_KEY"
           )
           for key in "${required[@]}"; do
             grep -q "^${key}=" apps/api/.env.example || (echo "Missing ${key} in apps/api/.env.example" && exit 1)

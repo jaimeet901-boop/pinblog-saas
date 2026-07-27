@@ -6,3 +6,12 @@ node_modules
 **/dist
 **/coverage
 app.tar.gz
+.env
+.env.*
+**/.env
+**/.env.*
+apps/api/.env
+apps/api/.env.*
+vault
+**/pb_data
+**/pb_data_*

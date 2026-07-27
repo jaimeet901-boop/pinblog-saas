@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
+import { attachWorkspace, requireWorkspaceCapability, requireWorkspaceRead } from '../middleware/product-access.js';
 import { mapSettingsResponse, getOwnedUserSettings, upsertOwnedUserSettings } from '../services/user-settings.js';
 
 const router = Router();
@@ -25,6 +26,8 @@ function normalizeOptionalString(value, fieldName, max = 0) {
 }
 
 router.use(pocketbaseAuth);
+router.use(attachWorkspace);
+router.use(requireWorkspaceRead);
 
 router.get('/', async (req, res) => {
 	const owner = req.pocketbaseUserId;
@@ -32,15 +35,24 @@ router.get('/', async (req, res) => {
 	res.json(mapSettingsResponse(record));
 });
 
-router.put('/', async (req, res) => {
+router.put('/', requireWorkspaceCapability('workspace.api_keys.manage'), async (req, res) => {
 	const owner = req.pocketbaseUserId;
+	const body = req.body || {};
 	const payload = {
-		openai_key: 'openai_key' in (req.body || {}) ? normalizeOptionalString(req.body.openai_key, 'openai_key', 500) : undefined,
-		gemini_key: normalizeOptionalString(req.body?.gemini_key, 'gemini_key', 300),
-		fal_key: normalizeOptionalString(req.body?.fal_key, 'fal_key', 300),
-		pinterest_token: normalizeOptionalString(req.body?.pinterest_token, 'pinterest_token', 500),
-		email_from: normalizeOptionalString(req.body?.email_from, 'email_from', 200),
+		email_from: normalizeOptionalString(body.email_from, 'email_from', 200),
 	};
+	if ('openai_key' in body) {
+		payload.openai_key = normalizeOptionalString(body.openai_key, 'openai_key', 500);
+	}
+	if ('gemini_key' in body) {
+		payload.gemini_key = normalizeOptionalString(body.gemini_key, 'gemini_key', 300);
+	}
+	if ('fal_key' in body) {
+		payload.fal_key = normalizeOptionalString(body.fal_key, 'fal_key', 300);
+	}
+	if ('pinterest_token' in body) {
+		payload.pinterest_token = normalizeOptionalString(body.pinterest_token, 'pinterest_token', 500);
+	}
 
 	const updated = await upsertOwnedUserSettings({ owner, payload });
 	res.json(mapSettingsResponse(updated));

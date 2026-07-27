@@ -165,6 +165,12 @@ export async function getWorkspaceSubscription(req) {
 		plans: (plans.items || []).filter((item) => item.active),
 		usage,
 		credits,
+		billing: {
+			provider: 'none',
+			checkoutEnabled: false,
+			planEnforcementEnabled: false,
+			message: 'Stripe billing is not connected. Plan changes update workspace metadata only.',
+		},
 	};
 }
 

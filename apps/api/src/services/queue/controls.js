@@ -3,6 +3,7 @@ import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import logger from '../../utils/logger.js';
 import { appendQueueEvent, httpError, updateQueueJob } from './jobs.js';
 import { NATIVE_JOB_TYPES, PRIORITY_WEIGHT, nextRetryAt } from './types.js';
+import { assertSafePublicHttpUrl, safeFetch } from '../../utils/ssrf-guard.js';
 import { isQueuePaused } from './metrics.js';
 import { writeQueueAudit } from '../audit/write.js';
 
@@ -318,15 +319,9 @@ export async function processNativeJob(job) {
 			return completeNativeJob(job, health);
 		}
 		case 'email_notification':
-		case 'notification': {
-			const payload = job.payload || job.inputs || {};
-			const result = {
-				delivered: true,
-				channel: job.type === 'email_notification' ? 'email' : 'in_app',
-				to: payload.to || payload.userId || null,
-				template: payload.template || null,
-			};
-			return completeNativeJob(job, result);
+		case 'notification':
+		case 'media_upload': {
+			throw new Error(`NOT_IMPLEMENTED: ${job.type} worker is not configured`);
 		}
 		case 'webhook_delivery': {
 			const payload = job.payload || job.inputs || {};
@@ -334,14 +329,16 @@ export async function processNativeJob(job) {
 			if (!url) {
 				throw new Error('Webhook URL missing');
 			}
+			const safeUrl = assertSafePublicHttpUrl(url, { fieldName: 'url' });
 			const controller = new AbortController();
 			const timeout = setTimeout(() => controller.abort(), Number(payload.timeoutMs) || 15000);
 			try {
-				const response = await fetch(url, {
+				const { response } = await safeFetch(safeUrl, {
 					method: payload.method || 'POST',
 					headers: { 'Content-Type': 'application/json', ...(payload.headers || {}) },
 					body: JSON.stringify(payload.body || payload.event || {}),
 					signal: controller.signal,
+					fieldName: 'url',
 				});
 				return completeNativeJob(job, {
 					statusCode: response.status,
@@ -352,14 +349,6 @@ export async function processNativeJob(job) {
 			} finally {
 				clearTimeout(timeout);
 			}
-		}
-		case 'media_upload': {
-			const payload = job.payload || job.inputs || {};
-			return completeNativeJob(job, {
-				uploaded: true,
-				url: payload.url || payload.imageUrl || null,
-				validated: true,
-			});
 		}
 		case 'analytics_refresh': {
 			const { refreshAnalyticsCaches } = await import('../analytics/refresh.js');

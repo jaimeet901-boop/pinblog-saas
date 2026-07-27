@@ -4,26 +4,12 @@
  */
 
 import { LAYER_TYPES } from '../constants/pin-engine.js';
+import { isPrivateHostname } from '../utils/ssrf-guard.js';
 
 const MAX_JSON_CHARS = 1_500_000;
 const MAX_LAYERS = 200;
 const MAX_STRING = 8_000;
 const MAX_URL = 2_000;
-
-function isPrivateHostname(hostname) {
-	const host = String(hostname || '').toLowerCase();
-	if (!host || host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
-		return true;
-	}
-	if (/^127\./.test(host) || host === '0.0.0.0' || host === '::1') return true;
-	if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) return true;
-	const match172 = host.match(/^172\.(\d+)\./);
-	if (match172) {
-		const second = Number(match172[1]);
-		if (second >= 16 && second <= 31) return true;
-	}
-	return false;
-}
 
 function assertSafeUrl(value, field, issues) {
 	const raw = String(value || '').trim();

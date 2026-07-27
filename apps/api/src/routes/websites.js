@@ -9,6 +9,7 @@ import { safeGetFullList, extractCollectionFieldNames } from '../utils/pocketbas
 import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
 import { getWebsitesControlCenter, getWebsiteDashboard } from '../services/website-control-center.js';
 import articleLifecycleRouter from './article-lifecycle.js';
+import { assertSafePublicHttpUrl, safeFetch } from '../utils/ssrf-guard.js';
 
 const router = Router();
 const WEBSITE_FETCH_TIMEOUT_MS = 10000;
@@ -272,7 +273,8 @@ function extractFaviconFromHtml({ html, baseUrl }) {
 }
 
 async function fetchWebsiteMetadata({ url }) {
-	const cacheKey = `website-metadata:${url}`;
+	const safeUrl = assertSafePublicHttpUrl(url, { fieldName: 'url' });
+	const cacheKey = `website-metadata:${safeUrl}`;
 	const cached = getCache(cacheKey);
 	if (cached) {
 		return cached;
@@ -282,21 +284,22 @@ async function fetchWebsiteMetadata({ url }) {
 	const timeout = setTimeout(() => controller.abort(), WEBSITE_FETCH_TIMEOUT_MS);
 
 	try {
-		const response = await fetch(url, {
+		const { response } = await safeFetch(safeUrl, {
 			method: 'GET',
 			headers: {
 				'Accept': 'text/html,application/xhtml+xml',
 				'User-Agent': 'ChefIA Website Scanner/1.0',
 			},
 			signal: controller.signal,
-			redirect: 'follow',
+			fieldName: 'url',
 		});
 
 		if (!response.ok) {
 			throw httpError(422, `Unable to access website (${response.status} ${response.statusText})`);
 		}
 
-		const finalUrl = normalizeUrl(response.url || url);
+		const finalUrl = normalizeUrl(response.url || safeUrl);
+		assertSafePublicHttpUrl(finalUrl, { fieldName: 'url' });
 		const html = await response.text();
 		const domain = deriveDomain(finalUrl);
 		const name = extractTitleFromHtml(html) || domain;
@@ -519,23 +522,6 @@ async function getOwnedWebsite({ websiteId, userId }) {
 		return siteById;
 	}
 
-	if (!storedOwnerId && userId) {
-		const repaired = await pocketbaseClient
-			.collection('websites')
-			.update(siteById.id, { [websitesSchema.ownerField]: userId })
-			.catch(() => null);
-
-		if (repaired) {
-			logger.warn('Website owner auto-assigned during access fallback', {
-				websiteId,
-				authenticatedUserId: userId,
-				storedOwnerId: getOwnerId(repaired, websitesSchema.ownerField),
-				finalQuery: ownershipFilter,
-			});
-			return repaired;
-		}
-	}
-
 	throw httpError(403, 'You do not have access to this website');
 }
 
@@ -608,40 +594,6 @@ async function listOwnedWebsites({ userId }) {
 	});
 
 	let owned = (records || []).filter((site) => getOwnerId(site, ownerField) === userId);
-
-	// Owner filter can succeed with 0 rows when owner is missing/mismatched even though
-	// direct getOne access works (see getOwnedWebsite repair path). Fall back to an
-	// unfiltered scan and keep matching + claimable (owner-empty) records.
-	if (owned.length === 0) {
-		records = await safeGetFullList({
-			collection: 'websites',
-			context: 'websites:list-unfiltered',
-			filter: '',
-			sort: '-created',
-		});
-
-		const claimable = [];
-		owned = [];
-
-		for (const site of records || []) {
-			const storedOwnerId = getOwnerId(site, ownerField);
-			if (storedOwnerId === userId) {
-				owned.push(site);
-				continue;
-			}
-			if (!storedOwnerId) {
-				claimable.push(site);
-			}
-		}
-
-		for (const site of claimable) {
-			const repaired = await pocketbaseClient
-				.collection('websites')
-				.update(site.id, { [ownerField]: userId })
-				.catch(() => null);
-			owned.push(repaired || { ...site, [ownerField]: userId });
-		}
-	}
 
 	return owned.map(mapWebsite);
 }
