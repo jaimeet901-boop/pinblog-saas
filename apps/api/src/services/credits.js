@@ -190,6 +190,17 @@ export async function grantCredits(payload = {}, actor = 'admin') {
 			referenceId: payload.referenceId || '',
 			metadata: payload.metadata || {},
 		});
+		const { logBillingAction } = await import('./billing/audit.js');
+		await logBillingAction({
+			action: 'Manual adjustment',
+			eventType: 'manual_adjustment',
+			workspaceKey,
+			workspaceName,
+			actor,
+			credits: result.amount,
+			message: reason,
+			metadata: { type: 'refund' },
+		});
 		return {
 			id: result.transactionId,
 			workspaceKey,
@@ -256,6 +267,18 @@ export async function grantCredits(payload = {}, actor = 'admin') {
 			metadata: { amount },
 		});
 	}
+
+	const { logBillingAction } = await import('./billing/audit.js');
+	await logBillingAction({
+		action: type === 'topup' ? 'Credits purchased' : 'Manual adjustment',
+		eventType: type === 'topup' ? 'credits_purchased' : (type === 'expire' ? 'credits_expired' : 'manual_adjustment'),
+		workspaceKey,
+		workspaceName: tx.workspace_name,
+		actor,
+		credits: amount,
+		message: reason,
+		metadata: { type, feature: payload.feature || '' },
+	}).catch(() => null);
 
 	return {
 		id: tx.id,

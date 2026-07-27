@@ -84,6 +84,15 @@ const EMPTY = {
 		resetDayOfMonth: 1,
 		keepPurchasedOnReset: true,
 		payAsYouGo: {},
+		creditPacksText: '',
+	},
+	billing: {
+		provider: 'none',
+		checkoutEnabled: false,
+		planEnforcementEnabled: false,
+		autoRenew: true,
+		autoResetCredits: true,
+		gracePeriodDays: 3,
 	},
 };
 
@@ -103,8 +112,16 @@ export default function AdminSettingsPage() {
 
 	const applyPayload = useCallback((payload) => {
 		const next = payload.settings || payload;
-		setSettings(next);
-		setSavedSnapshot(JSON.stringify(next));
+		const packs = Array.isArray(next.credits?.creditPacks) ? next.credits.creditPacks : [];
+		const normalized = {
+			...next,
+			credits: {
+				...(next.credits || {}),
+				creditPacksText: packs.map((pack) => `${pack.id || pack.name}:${pack.credits}:${pack.price}`).join('\n'),
+			},
+		};
+		setSettings(normalized);
+		setSavedSnapshot(JSON.stringify(normalized));
 		if (payload.meta) setMeta(payload.meta);
 	}, []);
 
@@ -147,10 +164,33 @@ export default function AdminSettingsPage() {
 	const save = async () => {
 		setSaving(true);
 		try {
+			const creditPacks = String(settings.credits?.creditPacksText || '')
+				.split('\n')
+				.map((line) => line.trim())
+				.filter(Boolean)
+				.map((line, index) => {
+					const [idOrName, credits, price] = line.split(':');
+					return {
+						id: String(idOrName || `pack-${index + 1}`).trim(),
+						name: String(idOrName || `Pack ${index + 1}`).trim(),
+						credits: Number(credits) || 0,
+						price: Number(price) || 0,
+						currency: 'USD',
+						active: true,
+					};
+				});
+			const { creditPacksText, ...creditsRest } = settings.credits || {};
+			const payload = {
+				...settings,
+				credits: {
+					...creditsRest,
+					creditPacks,
+				},
+			};
 			const response = await apiServerClient.fetch('/admin/v1/settings', {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ settings }),
+				body: JSON.stringify({ settings: payload }),
 			});
 			if (!response.ok) throw new Error(await readApiError(response));
 			applyPayload(await response.json());
@@ -488,8 +528,24 @@ export default function AdminSettingsPage() {
 					</div>
 				</Section>
 
-				<Section title="Credits & Subscription" hint="Global defaults for free credits, feature costs, trials, monthly reset, and pay-as-you-go.">
+				<Section title="Credits & Subscription" hint="Global defaults for free credits, feature costs, trials, monthly reset, pay-as-you-go, and payment provider.">
 					<div className="admin-config-grid">
+						<TextSelect
+							label="Billing Provider"
+							value={settings.billing?.provider || 'none'}
+							onChange={(value) => patch('billing', 'provider', value)}
+							options={[
+								{ value: 'none', label: 'None' },
+								{ value: 'stripe', label: 'Stripe' },
+								{ value: 'paddle', label: 'Paddle' },
+								{ value: 'lemonsqueezy', label: 'Lemon Squeezy' },
+							]}
+						/>
+						<TextInput
+							label="Grace Period Days"
+							value={settings.billing?.gracePeriodDays}
+							onChange={(value) => patch('billing', 'gracePeriodDays', Number(value) || 0)}
+						/>
 						<TextInput
 							label="Default Free Credits"
 							value={settings.credits?.defaultFreeCredits}
@@ -543,6 +599,26 @@ export default function AdminSettingsPage() {
 					</div>
 					<div className="mt-2 space-y-2">
 						<ToggleRow
+							label="Checkout Enabled"
+							checked={Boolean(settings.billing?.checkoutEnabled)}
+							onChange={(value) => patch('billing', 'checkoutEnabled', value)}
+						/>
+						<ToggleRow
+							label="Plan Enforcement Enabled"
+							checked={Boolean(settings.billing?.planEnforcementEnabled)}
+							onChange={(value) => patch('billing', 'planEnforcementEnabled', value)}
+						/>
+						<ToggleRow
+							label="Automatic Renewals"
+							checked={settings.billing?.autoRenew !== false}
+							onChange={(value) => patch('billing', 'autoRenew', value)}
+						/>
+						<ToggleRow
+							label="Automatic Monthly Credit Reset"
+							checked={settings.billing?.autoResetCredits !== false}
+							onChange={(value) => patch('billing', 'autoResetCredits', value)}
+						/>
+						<ToggleRow
 							label="Default Trial Enabled"
 							checked={Boolean(settings.credits?.defaultTrial?.enabled)}
 							onChange={(value) => patch('credits', 'defaultTrial', {
@@ -562,6 +638,15 @@ export default function AdminSettingsPage() {
 								...(settings.credits?.payAsYouGo || {}),
 								enabled: value,
 							})}
+						/>
+					</div>
+					<div className="admin-field mt-3">
+						<label>Credit packs (id:credits:price per line)</label>
+						<textarea
+							rows={3}
+							value={settings.credits?.creditPacksText || ''}
+							onChange={(e) => patch('credits', 'creditPacksText', e.target.value)}
+							placeholder={'pack-100:100:9\npack-500:500:29'}
 						/>
 					</div>
 					<p className="admin-note mt-3 mb-2">Feature credit costs</p>

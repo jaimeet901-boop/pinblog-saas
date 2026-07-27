@@ -146,6 +146,12 @@ export async function getWorkspaceSubscription(req) {
 	const usage = await getWorkspaceUsage(req);
 	const credits = await getWorkspaceCredits(req);
 	const plans = await listPlans();
+	const { resolveBillingConfig, listBillingProviders, listCreditPacks } = await import('./billing/index.js');
+	const [billingConfig, providers, packs] = await Promise.all([
+		resolveBillingConfig(),
+		listBillingProviders(),
+		listCreditPacks({ planId: plan?.id, planSlug: plan?.slug }),
+	]);
 
 	return {
 		subscription: {
@@ -153,10 +159,18 @@ export async function getWorkspaceSubscription(req) {
 			workspaceKey: req.workspaceKey,
 			workspaceName: req.workspace.name,
 			status: subscription?.status || 'active',
+			billingStatus: subscription?.billing_status || subscription?.status || 'active',
 			seats: Number(subscription?.seats) || 1,
 			creditsBalance: Number(subscription?.credits_balance) || 0,
+			purchasedCredits: Number(subscription?.purchased_credits) || 0,
+			bonusCredits: Number(subscription?.bonus_credits_balance) || 0,
 			currentPeriodStart: subscription?.current_period_start,
 			currentPeriodEnd: subscription?.current_period_end,
+			trialEndsAt: subscription?.trial_ends_at || null,
+			gracePeriodEndsAt: subscription?.grace_period_ends_at || null,
+			cancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end),
+			pendingPlan: subscription?.pending_plan || '',
+			provider: subscription?.provider || billingConfig.provider,
 			planId: plan?.id,
 			planSlug: plan?.slug || req.workspace.plan_slug || 'free',
 			planName: plan?.name || 'Free',
@@ -165,11 +179,17 @@ export async function getWorkspaceSubscription(req) {
 		plans: (plans.items || []).filter((item) => item.active),
 		usage,
 		credits,
+		creditPacks: packs,
 		billing: {
-			provider: 'none',
-			checkoutEnabled: false,
-			planEnforcementEnabled: false,
-			message: 'Stripe billing is not connected. Plan changes update workspace metadata only.',
+			provider: billingConfig.provider,
+			checkoutEnabled: billingConfig.checkoutEnabled,
+			planEnforcementEnabled: billingConfig.planEnforcementEnabled,
+			autoRenew: billingConfig.autoRenew,
+			gracePeriodDays: billingConfig.gracePeriodDays,
+			providers,
+			message: billingConfig.provider === 'none'
+				? 'No payment provider selected. Plan changes update workspace metadata; connect Stripe, Paddle, or Lemon Squeezy in Global Settings for checkout.'
+				: `${billingConfig.provider} interface active${billingConfig.checkoutEnabled ? '' : ' (checkout disabled)'}.`,
 		},
 	};
 }
@@ -194,6 +214,11 @@ export async function changeWorkspacePlan(req, payload = {}) {
 		throw httpError(404, 'Plan not found or unavailable', 'PLAN_NOT_FOUND');
 	}
 
+	const previousSlug = req.workspace.plan_slug
+		|| req.workspaceSubscription?.expand?.plan?.slug
+		|| '';
+	const isCreate = !req.workspaceSubscription?.id;
+
 	const now = new Date();
 	const end = new Date(now);
 	end.setMonth(end.getMonth() + 1);
@@ -204,10 +229,12 @@ export async function changeWorkspacePlan(req, payload = {}) {
 		owner_email: req.workspaceUser.email || '',
 		plan: plan.id,
 		status: 'active',
+		billing_status: 'active',
 		seats: Number(req.workspaceSubscription?.seats) || 1,
 		current_period_start: now.toISOString(),
 		current_period_end: end.toISOString(),
 		credits_balance: Number(plan.credits) || 0,
+		owner_user: req.pocketbaseUserId,
 	};
 
 	const updated = req.workspaceSubscription?.id
@@ -236,5 +263,45 @@ export async function changeWorkspacePlan(req, payload = {}) {
 	req.workspaceSubscription = updated;
 	req.workspace.plan_slug = plan.slug;
 
+	const { logBillingAction } = await import('./billing/index.js');
+	const oldPlan = previousSlug
+		? await pocketbaseClient.collection('plans').getFirstListItem(
+			pocketbaseClient.filter('slug = {:slug}', { slug: previousSlug }),
+		).catch(() => null)
+		: null;
+	const oldPrice = Number(oldPlan?.monthly_price) || 0;
+	const newPrice = Number(plan.monthly_price) || 0;
+	const eventType = isCreate
+		? 'plan_assign'
+		: (newPrice > oldPrice ? 'upgrade' : (newPrice < oldPrice ? 'downgrade' : 'plan_assign'));
+	await logBillingAction({
+		action: isCreate ? 'Subscription created' : (eventType === 'upgrade' ? 'Subscription upgraded' : eventType === 'downgrade' ? 'Subscription downgraded' : 'Subscription updated'),
+		eventType,
+		workspaceKey: req.workspaceKey,
+		workspaceName: req.workspace.name,
+		actor: req.workspaceUser.email || req.pocketbaseUserId,
+		actorUserId: req.pocketbaseUserId,
+		fromPlan: previousSlug,
+		toPlan: plan.slug,
+		credits: Number(plan.credits) || 0,
+	}).catch(() => null);
+
 	return getWorkspaceSubscription(req);
+}
+
+export async function purchaseWorkspaceCreditPack(req, payload = {}) {
+	assertCapability(req, 'workspace.billing.manage');
+	const { purchaseCreditPack } = await import('./billing/index.js');
+	return purchaseCreditPack({
+		workspaceKey: req.workspaceKey,
+		workspaceName: req.workspace?.name || '',
+		ownerEmail: req.workspaceUser?.email || '',
+		packId: payload.packId || payload.id,
+		idempotencyKey: payload.idempotencyKey || '',
+		actor: req.workspaceUser?.email || req.pocketbaseUserId,
+		actorUserId: req.pocketbaseUserId,
+		successUrl: payload.successUrl || '',
+		cancelUrl: payload.cancelUrl || '',
+		allowLocalFulfillment: false,
+	});
 }

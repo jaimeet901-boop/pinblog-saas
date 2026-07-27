@@ -13,6 +13,7 @@ import aiPinsRouter from './ai-pins.js';
 import adminRouter from './admin/index.js';
 import workspaceRouter from './workspace/index.js';
 import legalRouter from './legal.js';
+import billingRouter from './billing.js';
 
 const router = Router();
 
@@ -24,6 +25,7 @@ export default () => {
         });
     });
     router.use('/legal', legalRouter);
+    router.use('/billing', billingRouter);
     router.use('/integrated-ai', integratedAiRouter);
     router.use('/websites', pocketbaseAuth, attachWorkspace, requireWorkspaceRead, websitesRouter);
     router.use('/wordpress', wordpressRouter);

@@ -13,6 +13,7 @@ import {
 	changeWorkspacePlan,
 	getWorkspaceUsage,
 	getWorkspaceCredits,
+	purchaseWorkspaceCreditPack,
 } from '../../services/workspace-billing.js';
 import { getWorkspaceDashboard } from '../../services/workspace-dashboard.js';
 import {
@@ -189,6 +190,15 @@ router.get('/usage', async (req, res) => {
 
 router.get('/credits', async (req, res) => {
 	res.json(await getWorkspaceCredits(req));
+});
+
+router.get('/credits/packs', async (req, res) => {
+	const data = await getWorkspaceSubscription(req);
+	res.json(data.creditPacks || { items: [] });
+});
+
+router.post('/credits/packs/purchase', async (req, res) => {
+	res.status(201).json(await purchaseWorkspaceCreditPack(req, req.body || {}));
 });
 
 router.get('/history', async (req, res) => {

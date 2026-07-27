@@ -36,6 +36,11 @@ function emptyKpi() {
 		pinterestPublications: 0,
 		wordpressPublications: 0,
 		creditsConsumed: 0,
+		creditsDistributed: 0,
+		purchasedCredits: 0,
+		avgCreditsPerWorkspace: 0,
+		avgAiCost: 0,
+		grossMargin: 0,
 		revenue: 0,
 		mrr: 0,
 		arr: 0,
@@ -141,10 +146,47 @@ export async function buildPlatformOverview({ range = '30d', from, to, bypassCac
 	kpis.wordpressPublications = wpPubs.filter((row) => row.result === 'published' || row.result === 'scheduled' || !row.result).length;
 	kpis.creditsConsumed = burns.reduce((sum, row) => sum + Math.abs(Number(row.amount) || 0), 0);
 
+	const grants = creditTx.filter((row) => inRange(row.created, start, end) && (row.type === 'grant' || row.type === 'topup' || row.feature === 'monthly_reset') && Number(row.amount) > 0);
+	const topups = creditTx.filter((row) => inRange(row.created, start, end) && (row.type === 'topup' || row.feature === 'payg') && Number(row.amount) > 0);
+	kpis.creditsDistributed = grants.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+	kpis.purchasedCredits = Math.round(
+		topups.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
+		+ subscriptions.reduce((sum, sub) => sum + (Number(sub.purchased_credits) || 0), 0),
+	);
+	kpis.avgCreditsPerWorkspace = subscriptions.length
+		? Math.round(subscriptions.reduce((sum, sub) => sum + (Number(sub.credits_balance) || 0), 0) / subscriptions.length)
+		: 0;
+
 	// Estimate AI cost/profit from burned credits using platform image credit estimate (~$0.01/credit).
 	const creditUnitUsd = 0.01;
 	kpis.aiCost = Math.round(kpis.creditsConsumed * creditUnitUsd * 100) / 100;
+	kpis.avgAiCost = kpis.creditsConsumed
+		? Math.round((kpis.aiCost / Math.max(kpis.creditsConsumed, 1)) * 10000) / 10000
+		: 0;
 	kpis.aiProfit = Math.round((kpis.mrr - kpis.aiCost) * 100) / 100;
+	kpis.grossMargin = kpis.mrr > 0
+		? Math.round(((kpis.mrr - kpis.aiCost) / kpis.mrr) * 1000) / 10
+		: 0;
+
+	const revenueByPlan = {};
+	for (const sub of subscriptions) {
+		if (!['active', 'trialing'].includes(sub.status)) continue;
+		const plan = sub.expand?.plan || planById.get(sub.plan);
+		const slug = String(plan?.slug || 'free').toLowerCase();
+		const price = Number(plan?.monthly_price) || 0;
+		if (!revenueByPlan[slug]) revenueByPlan[slug] = { plan: slug, mrr: 0, subscribers: 0 };
+		revenueByPlan[slug].mrr += price;
+		revenueByPlan[slug].subscribers += 1;
+	}
+
+	const revenueByTopupPack = {};
+	for (const row of topups) {
+		const packName = row.metadata?.pack?.name || row.reason || 'Top-up';
+		if (!revenueByTopupPack[packName]) revenueByTopupPack[packName] = { pack: packName, credits: 0, revenue: 0, count: 0 };
+		revenueByTopupPack[packName].credits += Number(row.amount) || 0;
+		revenueByTopupPack[packName].revenue += Number(row.metadata?.pack?.price || row.metadata?.price) || 0;
+		revenueByTopupPack[packName].count += 1;
+	}
 
 	const consumerMap = new Map();
 	for (const row of burns) {
@@ -374,6 +416,8 @@ export async function buildPlatformOverview({ range = '30d', from, to, bypassCac
 		topModels,
 		topCreditConsumers,
 		planDistribution,
+		revenueByPlan: Object.values(revenueByPlan),
+		revenueByTopupPack: Object.values(revenueByTopupPack),
 		publishing,
 		queue,
 		subscriptions: subscriptionsDto,

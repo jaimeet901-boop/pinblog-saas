@@ -38,6 +38,8 @@ const EMPTY = {
 	topModels: [],
 	topCreditConsumers: [],
 	planDistribution: [],
+	revenueByPlan: [],
+	revenueByTopupPack: [],
 	publishing: { wordpress: 0, pinterest: 0, facebook: 0, scheduled: 0, failed: 0 },
 	queue: { running: 0, queued: 0, completed: 0, failed: 0, avgQueueTime: '—' },
 	subscriptions: {
@@ -113,12 +115,17 @@ export default function AdminAnalyticsPage() {
 		{ label: 'Pinterest Publications', value: Number(kpis.pinterestPublications || 0).toLocaleString() },
 		{ label: 'WordPress Publications', value: Number(kpis.wordpressPublications || 0).toLocaleString() },
 		{ label: 'Credits Consumed', value: Number(kpis.creditsConsumed || 0).toLocaleString() },
+		{ label: 'Credits Distributed', value: Number(kpis.creditsDistributed || 0).toLocaleString() },
+		{ label: 'Purchased Credits', value: Number(kpis.purchasedCredits || 0).toLocaleString() },
+		{ label: 'Avg Credits / Workspace', value: Number(kpis.avgCreditsPerWorkspace || 0).toLocaleString() },
 		{ label: 'Revenue', value: money(kpis.revenue ?? kpis.mrr) },
 		{ label: 'MRR', value: money(kpis.mrr) },
 		{ label: 'ARR', value: money(kpis.arr) },
 		{ label: 'Active Plans', value: Number(kpis.activePlans || 0).toLocaleString() },
 		{ label: 'AI Cost', value: money(kpis.aiCost) },
+		{ label: 'Avg AI Cost', value: money(kpis.avgAiCost) },
 		{ label: 'AI Profit', value: money(kpis.aiProfit) },
+		{ label: 'Gross Margin', value: `${Number(kpis.grossMargin || 0)}%` },
 	]), [kpis]);
 
 	const exportReport = async () => {
@@ -247,6 +254,61 @@ export default function AdminAnalyticsPage() {
 					))}
 				</div>
 			</section>
+
+			<div className="admin-grid admin-grid--2 mt-4">
+				<section className="admin-card">
+					<h3>Revenue by Plan</h3>
+					<div className="admin-table-wrap">
+						<table className="admin-table">
+							<thead>
+								<tr>
+									<th>Plan</th>
+									<th>Subscribers</th>
+									<th>MRR</th>
+								</tr>
+							</thead>
+							<tbody>
+								{(data.revenueByPlan || []).length === 0 ? (
+									<tr><td colSpan={3} style={{ color: 'var(--admin-muted)' }}>{loading ? 'Loading…' : 'No plan revenue yet.'}</td></tr>
+								) : (data.revenueByPlan || []).map((row) => (
+									<tr key={row.plan}>
+										<td className="font-medium">{row.plan}</td>
+										<td>{Number(row.subscribers || 0).toLocaleString()}</td>
+										<td>{money(row.mrr)}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				</section>
+				<section className="admin-card">
+					<h3>Revenue by Top-up Packs</h3>
+					<div className="admin-table-wrap">
+						<table className="admin-table">
+							<thead>
+								<tr>
+									<th>Pack</th>
+									<th>Orders</th>
+									<th>Credits</th>
+									<th>Revenue</th>
+								</tr>
+							</thead>
+							<tbody>
+								{(data.revenueByTopupPack || []).length === 0 ? (
+									<tr><td colSpan={4} style={{ color: 'var(--admin-muted)' }}>{loading ? 'Loading…' : 'No top-up revenue yet.'}</td></tr>
+								) : (data.revenueByTopupPack || []).map((row) => (
+									<tr key={row.pack}>
+										<td className="font-medium">{row.pack}</td>
+										<td>{Number(row.count || 0).toLocaleString()}</td>
+										<td>{Number(row.credits || 0).toLocaleString()}</td>
+										<td>{money(row.revenue)}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				</section>
+			</div>
 
 			<section className="admin-card mt-4">
 				<h3>AI Providers</h3>

@@ -24,6 +24,8 @@ import { ensureOfficialPinTemplatesSeeded } from './services/official-pin-templa
 import { ensureWordpressIntegrationSchema } from './utils/ensure-wordpress-integration-schema.js';
 import { ensureArticleLifecycleSchema } from './utils/ensure-article-lifecycle-schema.js';
 import { ensureCreditsEngineSchema } from './utils/ensure-credits-engine-schema.js';
+import { ensureBillingAutomationSchema } from './utils/ensure-billing-automation-schema.js';
+import { startBillingAutomationWorker, stopBillingAutomationWorker } from './services/billing/index.js';
 import pocketbaseClient from './utils/pocketbaseClient.js';
 
 const app = express();
@@ -86,6 +88,7 @@ process.on('SIGINT', async () => {
 	stopAnalyticsRefreshWorker();
 	stopAuditRetentionWorker();
 	stopHealthMonitorWorker();
+	stopBillingAutomationWorker();
 	process.exit(0);
 });
 
@@ -100,6 +103,7 @@ process.on('SIGTERM', async () => {
 	stopAnalyticsRefreshWorker();
 	stopAuditRetentionWorker();
 	stopHealthMonitorWorker();
+	stopBillingAutomationWorker();
 
 	await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -157,6 +161,9 @@ app.listen(port, () => {
 	ensureCreditsEngineSchema(pocketbaseClient).catch((error) => {
 		logger.warn('Credits engine schema ensure skipped:', error?.message || error);
 	});
+	ensureBillingAutomationSchema(pocketbaseClient).catch((error) => {
+		logger.warn('Billing automation schema ensure skipped:', error?.message || error);
+	});
 	startPinterestPublishQueue();
 	startPinterestAnalyticsSync();
 	startAIPinImageQueue();
@@ -166,6 +173,7 @@ app.listen(port, () => {
 	startAnalyticsRefreshWorker();
 	startAuditRetentionWorker();
 	startHealthMonitorWorker();
+	startBillingAutomationWorker();
 });
 
 export default app;

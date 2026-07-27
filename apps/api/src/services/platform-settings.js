@@ -159,6 +159,25 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 			autoTopupThreshold: 0,
 			autoTopupPackCredits: 500,
 		},
+		creditPacks: [
+			{ id: 'pack-100', name: 'Starter Pack', credits: 100, price: 9, currency: 'USD', active: true },
+			{ id: 'pack-500', name: 'Growth Pack', credits: 500, price: 29, currency: 'USD', active: true },
+			{ id: 'pack-2000', name: 'Scale Pack', credits: 2000, price: 99, currency: 'USD', active: true },
+		],
+	},
+	billing: {
+		provider: 'none',
+		checkoutEnabled: false,
+		planEnforcementEnabled: false,
+		autoRenew: true,
+		autoResetCredits: true,
+		gracePeriodDays: 3,
+		webhookPath: '/billing/webhooks',
+		providers: {
+			stripe: { secretKeySet: false, webhookSecretSet: false },
+			paddle: { apiKeySet: false, webhookSecretSet: false },
+			lemonsqueezy: { apiKeySet: false, webhookSecretSet: false },
+		},
 	},
 };
 

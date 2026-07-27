@@ -32,7 +32,7 @@ export function adminAuditMiddleware(req, res, next) {
 			category: 'admin',
 			uiCategory: path.includes('/providers')
 				? 'Providers'
-				: path.includes('/plans')
+				: path.includes('/plans') || path.includes('/billing')
 					? 'Subscriptions'
 					: path.includes('/credits')
 						? 'Payments'

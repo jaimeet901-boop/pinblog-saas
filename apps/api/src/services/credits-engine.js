@@ -303,6 +303,10 @@ export async function consumeWorkspaceCredits({
 	}
 	await pocketbaseClient.collection('workspace_usage').update(usage.id, usagePatch).catch(() => null);
 
+	import('./billing/notifications.js')
+		.then((mod) => mod.maybeNotifyCreditThresholds(workspaceKey))
+		.catch(() => null);
+
 	return {
 		idempotent: false,
 		transactionId: tx.id,
@@ -310,6 +314,11 @@ export async function consumeWorkspaceCredits({
 		amount: -burnAmount,
 		usedTotal,
 	};
+}
+
+// Fire-and-forget low-balance notifications after successful burns.
+export async function consumeWorkspaceCreditsAndNotify(args = {}) {
+	return consumeWorkspaceCredits(args);
 }
 
 export async function reserveCredits({
