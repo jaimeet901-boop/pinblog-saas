@@ -16,6 +16,7 @@ export {
 	cancelSubscription,
 	processSubscriptionLifecycleBatch,
 	getSubscriptionSnapshot,
+	fulfillSubscriptionPurchase,
 } from './subscriptions.js';
 export {
 	listCreditPacks,

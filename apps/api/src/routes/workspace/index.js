@@ -10,6 +10,7 @@ import {
 import {
 	getWorkspaceSubscription,
 	changeWorkspacePlan,
+	startWorkspaceSubscriptionCheckout,
 	getWorkspaceUsage,
 	getWorkspaceCredits,
 	purchaseWorkspaceCreditPack,
@@ -283,6 +284,10 @@ router.get('/subscription', async (req, res) => {
 
 router.post('/subscription/change', async (req, res) => {
 	res.json(await changeWorkspacePlan(req, req.body || {}));
+});
+
+router.post('/subscription/checkout', async (req, res) => {
+	res.status(201).json(await startWorkspaceSubscriptionCheckout(req, req.body || {}));
 });
 
 router.get('/usage', async (req, res) => {

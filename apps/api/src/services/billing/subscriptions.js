@@ -496,3 +496,119 @@ export async function getSubscriptionSnapshot(workspaceKey) {
 		wallet,
 	};
 }
+
+/**
+ * Activate a paid plan only after a verified provider webhook confirms payment.
+ * Idempotent — safe to retry on duplicate webhook delivery.
+ */
+export async function fulfillSubscriptionPurchase({
+	workspaceKey,
+	planSlug,
+	planId = '',
+	provider = '',
+	idempotencyKey = '',
+	paymentRef = '',
+	actor = 'webhook',
+} = {}) {
+	if (!workspaceKey) throw httpError(422, 'workspaceKey is required', 'VALIDATION_ERROR');
+	const plan = await loadPlan(planId || planSlug);
+	if (!plan) throw httpError(404, 'Plan not found', 'PLAN_NOT_FOUND');
+
+	const key = String(idempotencyKey || `sub-fulfill:${workspaceKey}:${plan.slug}:${paymentRef || 'none'}`).slice(0, 180);
+	const idem = await claimIdempotencyKey({
+		idempotencyKey: key,
+		scope: 'subscription_fulfill',
+		workspaceKey,
+		provider,
+		eventType: 'subscription_activated',
+		payload: { planSlug: plan.slug, paymentRef },
+	});
+	if (idem.duplicate) {
+		return { duplicate: true, fulfilled: true, result: idem.result };
+	}
+
+	try {
+		const subscription = await ensureWorkspaceWallet(workspaceKey);
+		const fromPlan = subscription.expand?.plan?.slug
+			|| (await loadPlan(subscription.plan))?.slug
+			|| '';
+
+		const now = new Date();
+		const end = new Date(now);
+		end.setMonth(end.getMonth() + 1);
+
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			plan: plan.id,
+			status: 'active',
+			billing_status: 'active',
+			pending_plan: '',
+			credits_balance: Number(plan.credits) || 0,
+			current_period_start: now.toISOString(),
+			current_period_end: end.toISOString(),
+			provider: provider || subscription.provider || 'none',
+			provider_subscription_id: paymentRef ? String(paymentRef).slice(0, 180) : (subscription.provider_subscription_id || ''),
+			grace_period_ends_at: null,
+		});
+
+		const workspace = await pocketbaseClient.collection('workspaces').getFirstListItem(
+			pocketbaseClient.filter('workspace_key = {:key}', { key: workspaceKey }),
+			{ requestKey: null },
+		).catch(() => null);
+		if (workspace) {
+			await pocketbaseClient.collection('workspaces').update(workspace.id, {
+				plan_slug: plan.slug,
+			}).catch(() => null);
+			const ownerId = workspace.owner || '';
+			if (ownerId) {
+				await pocketbaseClient.collection('users').update(ownerId, { plan: plan.slug }).catch(() => null);
+			}
+		}
+
+		await pocketbaseClient.collection('credit_transactions').create({
+			workspace_key: workspaceKey,
+			workspace_name: subscription.workspace_name || workspaceKey,
+			amount: Number(plan.credits) || 0,
+			type: 'grant',
+			reason: `Paid subscription activated (${plan.name})`,
+			balance: Number(plan.credits) || 0,
+			created_by: actor,
+			idempotency_key: key,
+			reference_id: paymentRef || '',
+			metadata: { provider, planSlug: plan.slug },
+		}).catch(() => null);
+
+		await logBillingAction({
+			action: 'Subscription activated after payment',
+			eventType: 'upgrade',
+			workspaceKey,
+			workspaceName: subscription.workspace_name,
+			actor,
+			fromPlan,
+			toPlan: plan.slug,
+			credits: Number(plan.credits) || 0,
+			provider,
+			idempotencyKey: key,
+			metadata: { paymentRef },
+		});
+
+		await notifyPlanUpgraded(
+			{ ...subscription, credits_balance: Number(plan.credits) || 0, plan: plan.id },
+			fromPlan,
+			plan.slug,
+		).catch(() => null);
+
+		const result = {
+			fulfilled: true,
+			workspaceKey,
+			fromPlan,
+			toPlan: plan.slug,
+			provider,
+			paymentRef: paymentRef || '',
+		};
+		await completeIdempotency(idem.record.id, result);
+		return result;
+	} catch (error) {
+		await failIdempotency(idem.record.id, error?.message || String(error));
+		throw error;
+	}
+}

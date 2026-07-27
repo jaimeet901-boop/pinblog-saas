@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
 	Check, Crown, CreditCard, Download, RefreshCw, Sparkles, Gauge,
 	FileText, Image as ImageIcon, Pin, Globe, HardDrive, AlertTriangle,
-	Settings, Coins,
+	Settings, Coins, X, LifeBuoy,
 } from 'lucide-react';
 import {
 	ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -14,6 +14,8 @@ import { Badge, Button, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import './SubscriptionPage.css';
+
+const SUPPORT_MAILTO = 'mailto:support@tbuy.store';
 
 const PLACEHOLDER_PLANS = [
 	{
@@ -33,6 +35,77 @@ const PLACEHOLDER_PLANS = [
 		placeholder: true,
 	},
 ];
+
+function BillingUnavailableModal({ open, onClose }) {
+	const backdropPointerDownRef = useRef(false);
+
+	useEffect(() => {
+		if (!open) return undefined;
+		const onKey = (event) => {
+			if (event.key === 'Escape') onClose?.();
+		};
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	}, [open, onClose]);
+
+	if (!open) return null;
+
+	const handleBackdropPointerDown = (event) => {
+		backdropPointerDownRef.current = event.target === event.currentTarget;
+	};
+
+	const handleBackdropClick = (event) => {
+		const pressedOnBackdrop = backdropPointerDownRef.current;
+		backdropPointerDownRef.current = false;
+		if (event.target !== event.currentTarget) return;
+		if (!pressedOnBackdrop) return;
+		onClose?.();
+	};
+
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="billing-unavailable-title"
+			onPointerDown={handleBackdropPointerDown}
+			onClick={handleBackdropClick}
+		>
+			<div
+				className="w-full max-w-md rounded-2xl border border-border bg-background p-6 shadow-xl"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<div className="flex items-start justify-between gap-3">
+					<div>
+						<h2 id="billing-unavailable-title" className="font-display text-xl font-semibold">
+							Billing is not available
+						</h2>
+						<p className="mt-2 text-sm text-muted-foreground">
+							The administrator has not configured a payment provider yet. Please try again later.
+						</p>
+					</div>
+					<button
+						type="button"
+						className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+						aria-label="Close"
+						onClick={onClose}
+					>
+						<X size={16} />
+					</button>
+				</div>
+				<div className="mt-6 flex flex-wrap justify-end gap-2">
+					<Button variant="outline" onClick={onClose}>Close</Button>
+					<a href={SUPPORT_MAILTO}>
+						<Button>
+							<LifeBuoy size={15} />
+							Contact Support
+						</Button>
+					</a>
+				</div>
+			</div>
+		</div>
+	);
+}
 
 const CHART_COLORS = ['hsl(12 80% 55%)', 'hsl(38 90% 55%)', 'hsl(142 45% 40%)', 'hsl(210 55% 45%)'];
 
@@ -80,6 +153,8 @@ export default function SubscriptionPage() {
 	const [plans, setPlans] = useState([]);
 	const [subscription, setSubscription] = useState(null);
 	const [planDto, setPlanDto] = useState(null);
+	const [billing, setBilling] = useState(null);
+	const [billingUnavailableOpen, setBillingUnavailableOpen] = useState(false);
 	const [credits, setCredits] = useState({ balance: 0, quota: 0, used: 0, remaining: 0 });
 	const [usage, setUsage] = useState({
 		articles: 0,
@@ -90,22 +165,74 @@ export default function SubscriptionPage() {
 		monthArticles: 0,
 	});
 
+	const openBillingUnavailable = () => setBillingUnavailableOpen(true);
+
 	const choose = async (planSlug) => {
 		if (planSlug === (subscription?.planSlug || user?.plan)) return;
 		setBusy(planSlug);
 		try {
-			const response = await apiServerClient.fetch('/workspace/v1/subscription/change', {
+			const origin = typeof window !== 'undefined' ? window.location.origin : '';
+			const response = await apiServerClient.fetch('/workspace/v1/subscription/checkout', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ planSlug }),
+				body: JSON.stringify({
+					planSlug,
+					successUrl: origin ? `${origin}/app/subscription?checkout=success` : '',
+					cancelUrl: origin ? `${origin}/app/subscription?checkout=cancel` : '',
+				}),
 			});
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
-				throw new Error(payload.message || 'Could not update plan');
+				if (
+					response.status === 404
+					|| payload.errorCode === 'PLAN_NOT_FOUND'
+					|| payload.errorCode === 'CHECKOUT_REQUIRED'
+				) {
+					openBillingUnavailable();
+					return;
+				}
+				throw new Error(payload.message || 'Could not start billing');
 			}
-			await applySubscriptionPayload(payload);
-			await refresh();
-			toast({ title: 'Plan updated', description: `You are now on the ${payload.plan?.name || planSlug} plan.` });
+
+			if (payload.status === 'billing_unavailable') {
+				openBillingUnavailable();
+				return;
+			}
+
+			if (payload.status === 'activated') {
+				await applySubscriptionPayload(payload);
+				await refresh();
+				toast({
+					title: 'Plan updated',
+					description: `You are now on the ${payload.plan?.name || planSlug} plan.`,
+				});
+				return;
+			}
+
+			if (payload.status === 'checkout_pending') {
+				const checkoutUrl = payload.checkoutUrl || payload.checkout?.checkoutUrl;
+				if (checkoutUrl) {
+					window.location.assign(checkoutUrl);
+					return;
+				}
+				toast({
+					title: 'Checkout unavailable',
+					description: payload.message
+						|| `${payload.provider || 'Payment'} checkout could not be started. Please try again later.`,
+				});
+				return;
+			}
+
+			if (payload.status === 'checkout_unavailable') {
+				toast({
+					title: 'Checkout unavailable',
+					description: payload.message
+						|| `${payload.provider || 'Payment'} checkout could not be started. Please try again later.`,
+				});
+				return;
+			}
+
+			openBillingUnavailable();
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Error', description: err?.message });
 		} finally {
@@ -116,6 +243,7 @@ export default function SubscriptionPage() {
 	const applySubscriptionPayload = (payload) => {
 		setSubscription(payload.subscription || null);
 		setPlanDto(payload.plan || null);
+		setBilling(payload.billing || null);
 		setPlans((payload.plans || []).map(mapPlanCard));
 		setCredits(payload.credits || { balance: 0, quota: 0, used: 0, remaining: 0 });
 		const totals = payload.usage?.totals || {};
@@ -245,14 +373,24 @@ export default function SubscriptionPage() {
 	}, [usagePct, creditsRemaining, currentPlan, currentPlanId, renewalDate, usage.pinterestAccounts]);
 
 	const billingHistory = [];
-	const allPlanCards = [...plans, ...PLACEHOLDER_PLANS];
+	const allPlanCards = useMemo(() => {
+		const seen = new Set(plans.map((plan) => plan.id));
+		const extras = PLACEHOLDER_PLANS.filter((plan) => !seen.has(plan.id));
+		return [...plans, ...extras];
+	}, [plans]);
 
 	const notifyBillingPlaceholder = (action) => {
 		toast({
 			title: `${action} unavailable`,
-			description: 'Stripe billing UI is a placeholder until payment integration is connected.',
+			description: billing?.provider && billing.provider !== 'none'
+				? `${billing.provider} billing portal is not connected yet.`
+				: 'Billing portal is unavailable until a payment provider is configured in Admin settings.',
 		});
 	};
+
+	const providerLabel = billing?.provider && billing.provider !== 'none'
+		? billing.provider.charAt(0).toUpperCase() + billing.provider.slice(1)
+		: null;
 
 	const scrollToPlans = () => {
 		document.getElementById('bill-upgrade-plans')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -290,7 +428,9 @@ export default function SubscriptionPage() {
 				</div>
 				<p className="mt-3 text-xs text-muted-foreground inline-flex items-center gap-1.5">
 					<Crown size={12} className="text-primary" />
-					Secure billing powered by Stripe · Checkout session not connected yet
+					{providerLabel
+						? `Secure billing via ${providerLabel}${billing?.checkoutEnabled ? '' : ' · checkout disabled'}`
+						: 'Payment provider not configured · paid upgrades require Admin billing setup'}
 				</p>
 			</section>
 
@@ -441,19 +581,13 @@ export default function SubscriptionPage() {
 												<li key={item}><Check size={15} className="mt-0.5 shrink-0 text-primary" />{item}</li>
 											))}
 										</ul>
-										{plan.placeholder ? (
-											<Button variant="outline" onClick={() => notifyBillingPlaceholder(`${plan.name} upgrade`)}>
-												Contact sales
-											</Button>
-										) : (
-											<Button
-												variant={current ? 'outline' : plan.popular ? 'primary' : 'outline'}
-												disabled={current || busy === plan.id}
-												onClick={() => choose(plan.id)}
-											>
-												{current ? 'Current plan' : busy === plan.id ? 'Processing…' : `Upgrade to ${plan.name}`}
-											</Button>
-										)}
+										<Button
+											variant={current ? 'outline' : plan.popular ? 'primary' : 'outline'}
+											disabled={current || busy === plan.id}
+											onClick={() => choose(plan.id)}
+										>
+											{current ? 'Current plan' : busy === plan.id ? 'Processing…' : `Upgrade to ${plan.name}`}
+										</Button>
 									</div>
 								);
 							})}
@@ -583,6 +717,11 @@ export default function SubscriptionPage() {
 					</section>
 				</aside>
 			</div>
+
+			<BillingUnavailableModal
+				open={billingUnavailableOpen}
+				onClose={() => setBillingUnavailableOpen(false)}
+			/>
 		</div>
 	);
 }

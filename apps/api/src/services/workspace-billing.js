@@ -3,6 +3,7 @@ import { httpError } from '../middleware/require-admin.js';
 import { assertCapability } from './workspace-rbac.js';
 import { ensurePlansSeeded, listPlans, mapPlanDto } from './plans.js';
 import { getSubscriptionPlan } from './workspace-context.js';
+import { getBillingProvider, resolveBillingConfig } from './billing/providers/index.js';
 
 function currentPeriod() {
 	const now = new Date();
@@ -191,10 +192,8 @@ export async function getWorkspaceSubscription(req) {
 	};
 }
 
-export async function changeWorkspacePlan(req, payload = {}) {
-	assertCapability(req, 'workspace.billing.manage');
+async function resolvePlanFromPayload(payload = {}) {
 	await ensurePlansSeeded();
-
 	const slug = String(payload.planSlug || payload.plan || payload.slug || '').trim().toLowerCase();
 	const planId = payload.planId || '';
 	let plan = null;
@@ -210,7 +209,34 @@ export async function changeWorkspacePlan(req, payload = {}) {
 	if (!plan || plan.active === false || plan.status === 'hidden' || plan.status === 'deprecated') {
 		throw httpError(404, 'Plan not found or unavailable', 'PLAN_NOT_FOUND');
 	}
+	return plan;
+}
 
+function planIsPaid(plan) {
+	return (Number(plan?.monthly_price) || 0) > 0 || (Number(plan?.yearly_price) || 0) > 0;
+}
+
+function billingUnavailableResult(plan, providerCode = 'none') {
+	return {
+		status: 'billing_unavailable',
+		provider: providerCode || 'none',
+		message: 'The administrator has not configured a payment provider yet. Please try again later.',
+		plan: mapPlanDto(plan),
+		checkoutUrl: null,
+	};
+}
+
+/**
+ * Apply a plan change server-side. Used for free activations and post-payment webhook fulfillment only.
+ * Never call this from user-controlled HTTP payloads for paid plans without a verified payment path.
+ */
+async function applyWorkspacePlanChange(req, plan, {
+	actor = '',
+	actorUserId = '',
+	provider = '',
+	paymentRef = '',
+	reason = '',
+} = {}) {
 	const previousSlug = req.workspace.plan_slug
 		|| req.workspaceSubscription?.expand?.plan?.slug
 		|| '';
@@ -223,7 +249,7 @@ export async function changeWorkspacePlan(req, payload = {}) {
 	const body = {
 		workspace_key: req.workspaceKey,
 		workspace_name: req.workspace.name,
-		owner_email: req.workspaceUser.email || '',
+		owner_email: req.workspaceUser?.email || '',
 		plan: plan.id,
 		status: 'active',
 		billing_status: 'active',
@@ -231,8 +257,12 @@ export async function changeWorkspacePlan(req, payload = {}) {
 		current_period_start: now.toISOString(),
 		current_period_end: end.toISOString(),
 		credits_balance: Number(plan.credits) || 0,
-		owner_user: req.pocketbaseUserId,
+		owner_user: req.pocketbaseUserId || req.workspaceOwnerId || '',
+		provider: provider || req.workspaceSubscription?.provider || 'none',
 	};
+	if (paymentRef) {
+		body.provider_subscription_id = String(paymentRef).slice(0, 180);
+	}
 
 	const updated = req.workspaceSubscription?.id
 		? await pocketbaseClient.collection('workspace_subscriptions').update(req.workspaceSubscription.id, body)
@@ -242,20 +272,22 @@ export async function changeWorkspacePlan(req, payload = {}) {
 		plan_slug: plan.slug,
 	});
 
-	// Keep legacy users.plan in sync for the workspace owner (not the acting member).
 	const ownerUserId = req.workspaceOwnerId || req.workspace?.owner || req.pocketbaseUserId;
-	await pocketbaseClient.collection('users').update(ownerUserId, {
-		plan: plan.slug,
-	}).catch(() => null);
+	if (ownerUserId) {
+		await pocketbaseClient.collection('users').update(ownerUserId, {
+			plan: plan.slug,
+		}).catch(() => null);
+	}
 
 	await pocketbaseClient.collection('credit_transactions').create({
 		workspace_key: req.workspaceKey,
 		workspace_name: req.workspace.name,
 		amount: Number(plan.credits) || 0,
 		type: 'grant',
-		reason: `Plan change to ${plan.name}`,
+		reason: reason || `Plan change to ${plan.name}`,
 		balance: Number(plan.credits) || 0,
-		created_by: req.workspaceUser.email || req.pocketbaseUserId,
+		created_by: actor || req.workspaceUser?.email || req.pocketbaseUserId || 'system',
+		reference_id: paymentRef || '',
 	}).catch(() => null);
 
 	req.workspaceSubscription = updated;
@@ -277,14 +309,163 @@ export async function changeWorkspacePlan(req, payload = {}) {
 		eventType,
 		workspaceKey: req.workspaceKey,
 		workspaceName: req.workspace.name,
-		actor: req.workspaceUser.email || req.pocketbaseUserId,
-		actorUserId: req.pocketbaseUserId,
+		actor: actor || req.workspaceUser?.email || req.pocketbaseUserId,
+		actorUserId: actorUserId || req.pocketbaseUserId,
 		fromPlan: previousSlug,
 		toPlan: plan.slug,
 		credits: Number(plan.credits) || 0,
+		provider: provider || '',
+		metadata: paymentRef ? { paymentRef } : {},
 	}).catch(() => null);
 
 	return getWorkspaceSubscription(req);
+}
+
+/**
+ * Start subscription checkout for a paid plan.
+ * Never activates a paid plan — activation happens only after provider webhook confirmation.
+ */
+export async function startWorkspaceSubscriptionCheckout(req, payload = {}) {
+	assertCapability(req, 'workspace.billing.manage');
+
+	const plan = await resolvePlanFromPayload(payload);
+	const currentSlug = req.workspace.plan_slug
+		|| req.workspaceSubscription?.expand?.plan?.slug
+		|| '';
+	if (plan.slug === currentSlug) {
+		throw httpError(409, 'Already on this plan', 'PLAN_UNCHANGED');
+	}
+
+	// Free / $0 plans do not require a payment provider.
+	if (!planIsPaid(plan)) {
+		const activated = await applyWorkspacePlanChange(req, plan, {
+			actor: req.workspaceUser?.email || req.pocketbaseUserId,
+			actorUserId: req.pocketbaseUserId,
+			provider: 'none',
+			reason: `Free plan activation (${plan.name})`,
+		});
+		return {
+			status: 'activated',
+			provider: 'none',
+			checkoutUrl: null,
+			...activated,
+		};
+	}
+
+	const billingConfig = await resolveBillingConfig();
+	const provider = await getBillingProvider();
+	const providerCode = billingConfig.provider || provider.code || 'none';
+
+	if (
+		providerCode === 'none'
+		|| provider.code === 'none'
+		|| !billingConfig.checkoutEnabled
+		|| !provider.ready
+	) {
+		return billingUnavailableResult(plan, providerCode);
+	}
+
+	const successUrl = String(payload.successUrl || '').trim();
+	const cancelUrl = String(payload.cancelUrl || '').trim();
+	const idempotencyKey = String(
+		payload.idempotencyKey
+		|| `sub:${req.workspaceKey}:${plan.slug}:${Date.now()}`,
+	).slice(0, 180);
+
+	let checkout;
+	try {
+		checkout = await provider.createSubscriptionCheckout({
+			workspaceKey: req.workspaceKey,
+			planId: plan.id,
+			planSlug: plan.slug,
+			planName: plan.name,
+			monthlyPrice: Number(plan.monthly_price) || 0,
+			currency: plan.currency || 'USD',
+			customerEmail: req.workspaceUser?.email || '',
+			successUrl,
+			cancelUrl,
+			idempotencyKey,
+			metadata: {
+				workspaceKey: req.workspaceKey,
+				workspaceId: req.workspace?.id,
+				planSlug: plan.slug,
+				planId: plan.id,
+				planName: plan.name,
+				monthlyPrice: Number(plan.monthly_price) || 0,
+			},
+		});
+	} catch (error) {
+		if (error?.code === 'PROVIDER_NOT_IMPLEMENTED' || error?.status === 501) {
+			return billingUnavailableResult(plan, providerCode);
+		}
+		throw error;
+	}
+
+	const checkoutUrl = checkout?.checkoutUrl || null;
+	if (!checkoutUrl) {
+		return {
+			status: 'checkout_unavailable',
+			provider: provider.code,
+			message: checkout?.message
+				|| 'Checkout session could not be created for the active payment provider.',
+			plan: mapPlanDto(plan),
+			checkout,
+			checkoutUrl: null,
+		};
+	}
+
+	const { logBillingAction } = await import('./billing/index.js');
+	await logBillingAction({
+		action: 'Subscription checkout started',
+		eventType: 'checkout_started',
+		workspaceKey: req.workspaceKey,
+		workspaceName: req.workspace?.name || '',
+		actor: req.workspaceUser?.email || req.pocketbaseUserId,
+		actorUserId: req.pocketbaseUserId,
+		provider: provider.code,
+		toPlan: plan.slug,
+		idempotencyKey,
+		metadata: {
+			checkoutUrl,
+			sessionId: checkout?.sessionId || null,
+			ready: Boolean(checkout?.ready),
+		},
+	}).catch(() => null);
+
+	return {
+		status: 'checkout_pending',
+		provider: provider.code,
+		message: checkout?.message || '',
+		plan: mapPlanDto(plan),
+		checkout,
+		checkoutUrl,
+		sessionId: checkout?.sessionId || null,
+	};
+}
+
+/**
+ * Public plan-change endpoint: free / $0 plans only.
+ * Paid activations require verified webhook fulfillment — client flags are ignored.
+ */
+export async function changeWorkspacePlan(req, payload = {}) {
+	assertCapability(req, 'workspace.billing.manage');
+
+	const plan = await resolvePlanFromPayload(payload);
+
+	if (planIsPaid(plan)) {
+		throw httpError(
+			402,
+			'Paid plan changes require a completed checkout. Use subscription checkout instead.',
+			'CHECKOUT_REQUIRED',
+		);
+	}
+
+	return applyWorkspacePlanChange(req, plan, {
+		actor: req.workspaceUser?.email || req.pocketbaseUserId,
+		actorUserId: req.pocketbaseUserId,
+		provider: 'none',
+		reason: `Plan change to ${plan.name}`,
+	});
 }
 
 export async function purchaseWorkspaceCreditPack(req, payload = {}) {
