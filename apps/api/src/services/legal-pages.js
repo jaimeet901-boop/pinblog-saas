@@ -6,10 +6,15 @@ import {
 	LEGAL_PAGE_TEMPLATES,
 	listLegalPageTemplateMeta,
 } from './legal-page-templates.js';
+import { ensureLegalPagesSchema } from '../utils/ensure-legal-pages-schema.js';
 
 export const LEGAL_PAGE_SLUGS = Object.freeze(LEGAL_PAGE_TEMPLATES.map((item) => item.slug));
 
 const SITE_URL = 'https://tbuy.store';
+
+async function ready() {
+	await ensureLegalPagesSchema(pocketbaseClient);
+}
 
 function normalizeSlug(value) {
 	return String(value || '').trim().toLowerCase();
@@ -114,6 +119,7 @@ async function snapshotVersion(page, adminUser) {
  * Never overwrites existing pages. Always seeds as draft.
  */
 export async function ensureDefaultLegalPages(adminUser = null) {
+	await ready();
 	const existingCount = await countLegalPages();
 	if (existingCount > 0) {
 		return [];
@@ -140,6 +146,7 @@ export async function ensureDefaultLegalPages(adminUser = null) {
 }
 
 export async function listLegalPages({ q = '', seed = true } = {}) {
+	await ready();
 	if (seed) {
 		await ensureDefaultLegalPages();
 	}
@@ -160,6 +167,7 @@ export async function listLegalPages({ q = '', seed = true } = {}) {
 }
 
 export async function getQuickStartCatalog() {
+	await ready();
 	const { items } = await listLegalPages({ seed: false });
 	const existing = new Set(items.map((item) => item.slug));
 	return {
@@ -174,6 +182,7 @@ export async function getQuickStartCatalog() {
 }
 
 export async function createLegalPageFromTemplate(slug, adminUser = null) {
+	await ready();
 	const normalized = assertSlug(slug);
 	const template = getLegalPageTemplate(normalized);
 	if (!template) {
@@ -191,6 +200,7 @@ export async function createLegalPageFromTemplate(slug, adminUser = null) {
 }
 
 export async function getLegalPageBySlug(slug) {
+	await ready();
 	const record = await getBySlugRecord(slug);
 	if (!record) {
 		throw httpError(404, 'Legal page not found.', 'LEGAL_PAGE_NOT_FOUND');
@@ -199,6 +209,7 @@ export async function getLegalPageBySlug(slug) {
 }
 
 export async function getPublishedLegalPageBySlug(slug) {
+	await ready();
 	await ensureDefaultLegalPages();
 	const record = await getBySlugRecord(slug);
 	if (!record || record.status !== 'published') {
@@ -208,6 +219,7 @@ export async function getPublishedLegalPageBySlug(slug) {
 }
 
 export async function createLegalPage(body = {}, adminUser = null) {
+	await ready();
 	const slug = assertSlug(body.slug);
 	const existing = await getBySlugRecord(slug);
 	if (existing) {
@@ -249,6 +261,7 @@ export async function createLegalPage(body = {}, adminUser = null) {
 }
 
 export async function updateLegalPage(slug, body = {}, adminUser = null) {
+	await ready();
 	const record = await getBySlugRecord(slug);
 	if (!record) {
 		throw httpError(404, 'Legal page not found.', 'LEGAL_PAGE_NOT_FOUND');
@@ -294,6 +307,7 @@ export async function updateLegalPage(slug, body = {}, adminUser = null) {
 }
 
 export async function deleteLegalPage(slug, adminUser = null) {
+	await ready();
 	const record = await getBySlugRecord(slug);
 	if (!record) {
 		throw httpError(404, 'Legal page not found.', 'LEGAL_PAGE_NOT_FOUND');
@@ -312,6 +326,7 @@ export async function deleteLegalPage(slug, adminUser = null) {
 }
 
 export async function listLegalPageVersions(slug) {
+	await ready();
 	assertSlug(slug);
 	const rows = await pocketbaseClient.collection('legal_page_versions').getFullList({
 		filter: pocketbaseClient.filter('slug = {:slug}', { slug: normalizeSlug(slug) }),
@@ -322,6 +337,7 @@ export async function listLegalPageVersions(slug) {
 }
 
 export async function restoreLegalPageVersion(slug, version, adminUser = null) {
+	await ready();
 	const normalized = assertSlug(slug);
 	const versionNumber = Number(version);
 	if (!Number.isFinite(versionNumber) || versionNumber < 1) {

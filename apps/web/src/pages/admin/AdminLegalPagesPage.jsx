@@ -19,7 +19,10 @@ const SLUG_OPTIONS = [
 async function readApiError(response) {
 	try {
 		const data = await response.json();
-		return data?.message || `Request failed (${response.status})`;
+		return data?.message
+			|| data?.data?.message
+			|| data?.error
+			|| `Request failed (${response.status})`;
 	} catch {
 		return `Request failed (${response.status})`;
 	}
