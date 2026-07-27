@@ -2,8 +2,10 @@ import { Router } from 'express';
 import { httpError } from '../../middleware/require-admin.js';
 import {
 	createLegalPage,
+	createLegalPageFromTemplate,
 	deleteLegalPage,
 	getLegalPageBySlug,
+	getQuickStartCatalog,
 	listLegalPages,
 	listLegalPageVersions,
 	restoreLegalPageVersion,
@@ -19,7 +21,16 @@ function asyncHandler(fn) {
 }
 
 router.get('/', asyncHandler(async (req, res) => {
-	res.json(await listLegalPages({ q: req.query.q || '' }));
+	const seed = String(req.query.seed || 'true').toLowerCase() !== 'false';
+	res.json(await listLegalPages({ q: req.query.q || '', seed }));
+}));
+
+router.get('/quick-start', asyncHandler(async (_req, res) => {
+	res.json(await getQuickStartCatalog());
+}));
+
+router.post('/quick-start/:slug', asyncHandler(async (req, res) => {
+	res.status(201).json(await createLegalPageFromTemplate(req.params.slug, req.adminUser));
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
