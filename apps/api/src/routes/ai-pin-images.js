@@ -12,7 +12,12 @@ import {
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
 import { mirrorImageJob } from '../services/queue/mirrors.js';
-import { assertSafePublicHttpUrl, safeFetch } from '../utils/ssrf-guard.js';
+import { assertSafePublicHttpUrl } from '../utils/ssrf-guard.js';
+import {
+	diagnoseFeaturedImageUrl,
+	sendFeaturedImageProxyError,
+	streamFeaturedImageToResponse,
+} from '../services/featured-image-proxy.js';
 
 const router = Router();
 
@@ -133,49 +138,54 @@ router.get('/providers', async (req, res) => {
 /**
  * Same-origin image proxy for Featured Image canvas compose (avoids tainted canvas).
  * No AI providers. No credits.
+ *
+ * Production-grade: browser-like headers, SSRF-safe redirects, DNS/private IP checks,
+ * streaming with size limits, MIME/magic validation, structured error diagnostics.
  */
 router.get('/proxy', async (req, res) => {
 	const rawUrl = normalizeString(req.query.url, 'url', { required: true, max: 2000 });
-	const safeUrl = assertSafePublicHttpUrl(rawUrl, { fieldName: 'url' });
+	try {
+		// Validate early so contract stays the same for invalid URLs.
+		assertSafePublicHttpUrl(rawUrl, { fieldName: 'url' });
+		await streamFeaturedImageToResponse(req, res, rawUrl);
+	} catch (error) {
+		if (res.headersSent) {
+			logger.error('Featured image proxy failed after response started', {
+				message: error?.message,
+				url: rawUrl,
+			});
+			return undefined;
+		}
+		return sendFeaturedImageProxyError(res, error);
+	}
+});
 
-	const { response: upstream } = await safeFetch(safeUrl, {
-		method: 'GET',
-		headers: {
-			Accept: 'image/*,*/*;q=0.8',
-			'User-Agent': 'PinblogFeaturedCompose/1.0',
-		},
-		signal: (() => {
-			const controller = new AbortController();
-			setTimeout(() => controller.abort(), 20000);
-			return controller.signal;
-		})(),
-		fieldName: 'url',
-	}).catch((error) => {
-		logger.warn('Featured image proxy fetch failed', { error: error?.message, url: safeUrl });
-		throw httpError(502, 'Failed to fetch featured image');
-	});
-
-	if (!upstream.ok) {
-		throw httpError(502, `Featured image fetch failed (${upstream.status})`);
+/**
+ * Diagnostic mode for featured-image proxy troubleshooting.
+ * Reports DNS / connection / redirect / MIME / bytes / latency without compose.
+ */
+router.get('/proxy/diagnose', async (req, res) => {
+	const rawUrl = normalizeString(req.query.url, 'url', { required: true, max: 2000 });
+	try {
+		assertSafePublicHttpUrl(rawUrl, { fieldName: 'url' });
+	} catch (error) {
+		return res.status(error.status || 422).json({
+			ok: false,
+			dnsOk: false,
+			connectionOk: false,
+			redirectOk: false,
+			imageDownloaded: false,
+			mimeDetected: null,
+			bytesReceived: 0,
+			totalLatencyMs: 0,
+			errorCode: error.errorCode || 'INVALID_URL',
+			message: error.message || 'Invalid URL',
+			originalUrl: rawUrl,
+		});
 	}
 
-	const contentType = String(upstream.headers.get('content-type') || '').toLowerCase();
-	if (contentType && !contentType.startsWith('image/') && !contentType.includes('octet-stream')) {
-		throw httpError(422, 'url did not return an image');
-	}
-
-	const bytes = Buffer.from(await upstream.arrayBuffer());
-	if (bytes.length === 0) {
-		throw httpError(502, 'Featured image was empty');
-	}
-	if (bytes.length > 12 * 1024 * 1024) {
-		throw httpError(413, 'Featured image is too large');
-	}
-
-	res.setHeader('Content-Type', contentType.startsWith('image/') ? contentType : 'application/octet-stream');
-	res.setHeader('Cache-Control', 'private, max-age=300');
-	res.setHeader('X-Pinblog-Compose', 'featured-proxy');
-	return res.status(200).send(bytes);
+	const report = await diagnoseFeaturedImageUrl(rawUrl);
+	return res.status(report.ok ? 200 : 502).json(report);
 });
 
 /**
