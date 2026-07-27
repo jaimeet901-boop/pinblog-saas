@@ -77,16 +77,18 @@ function ingestItems(items) {
 
 export async function loadGalleryFirstPage(overrides = {}) {
 	const filters = { ...state.filters, ...overrides };
+	const perPage = Math.max(1, Number(overrides.perPage || filters.perPage || state.perPage) || 24);
 	setState({
 		loading: true,
 		error: '',
 		filters,
+		perPage,
 		page: 0,
 		items: [],
 		hasMore: true,
 	});
 	try {
-		const payload = await api.fetchGalleryPage({ ...filters, page: 1, perPage: state.perPage });
+		const payload = await api.fetchGalleryPage({ ...filters, page: 1, perPage });
 		ingestItems(payload.items || []);
 		setState({
 			items: payload.items || [],

@@ -158,8 +158,8 @@ function buildGalleryFilter(req, query) {
 	const status = String(query.status || '').trim();
 	if (status && TEMPLATE_STATUS.includes(status)) {
 		if (status === 'published') {
-			// Treat missing status as published for backward compat
-			clauses.push(`(status = "published" || status = "")`);
+			// Treat missing/blank status as published for backward compat with seeded rows
+			clauses.push('(status = "published" || status = "")');
 		} else {
 			clauses.push(`status = "${escapeFilterValue(status)}"`);
 		}
@@ -233,7 +233,8 @@ export async function listGalleryTemplates(req, query = {}) {
 	assertCapability(req, 'workspace.read');
 
 	const page = Math.max(1, Number(query.page) || 1);
-	const perPage = Math.min(48, Math.max(1, Number(query.perPage) || 24));
+	// No low artificial page-size cap — client controls page size for gallery scrolling.
+	const perPage = Math.max(1, Number(query.perPage) || 24);
 	const q = String(query.q || query.search || '').trim();
 	const favoriteOnly = query.favorite === '1' || query.favorite === 'true' || query.favorites === '1';
 
@@ -250,18 +251,36 @@ export async function listGalleryTemplates(req, query = {}) {
 			requestKey: null,
 		});
 	} catch (error) {
-		// Fallback for environments missing new fields/indexes
+		// Fallback for environments missing new fields/indexes — still include official library.
+		console.warn('[template-gallery] primary filter failed; using owner+official fallback', {
+			message: error?.message || String(error),
+			filter,
+		});
 		const all = await pocketbaseClient.collection('ai_pin_templates').getFullList({
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
+			filter: pocketbaseClient.filter(
+				'owner = {:owner} || visibility = "official"',
+				{ owner: req.pocketbaseUserId },
+			),
 			sort: '-updated',
 			requestKey: null,
 		}).catch(() => []);
+		const includeArchived = query.includeArchived === '1' || query.includeArchived === 'true';
+		const status = String(query.status || '').trim();
+		const filtered = all.filter((row) => {
+			if (row.deleted_at) return false;
+			const rowStatus = String(row.status || '').trim();
+			if (status === 'published') {
+				return !rowStatus || rowStatus === 'published';
+			}
+			if (!includeArchived && rowStatus === 'archived') return false;
+			return true;
+		});
 		result = {
-			items: all.slice((page - 1) * perPage, page * perPage),
+			items: filtered.slice((page - 1) * perPage, page * perPage),
 			page,
 			perPage,
-			totalItems: all.length,
-			totalPages: Math.max(1, Math.ceil(all.length / perPage)),
+			totalItems: filtered.length,
+			totalPages: Math.max(1, Math.ceil(filtered.length / perPage)),
 		};
 	}
 

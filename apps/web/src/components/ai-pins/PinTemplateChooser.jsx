@@ -17,9 +17,10 @@ import '@/pages/app/TemplatesPage.css';
 import './PinTemplateChooser.css';
 
 const SELECT_FILTERS = {
-	status: 'published',
+	// Match Admin Template Gallery: all non-archived (do not restrict to published only)
 	includeArchived: false,
 	sort: 'recently_updated',
+	perPage: 48,
 };
 
 /**
@@ -44,6 +45,7 @@ export default function PinTemplateChooser({
 	const totalItems = useGalleryStore((s) => s.totalItems);
 	const previewTemplateId = useGalleryStore((s) => s.previewTemplateId);
 	const sentinelRef = useRef(null);
+	const panelRef = useRef(null);
 	const [query, setQuery] = useState('');
 
 	const previewTemplate = items.find((item) => item.id === previewTemplateId) || null;
@@ -73,15 +75,16 @@ export default function PinTemplateChooser({
 
 	useEffect(() => {
 		const node = sentinelRef.current;
+		const root = panelRef.current;
 		if (!open || !node) return undefined;
 		const observer = new IntersectionObserver((entries) => {
 			if (entries.some((entry) => entry.isIntersecting)) {
 				loadGalleryNextPage();
 			}
-		}, { rootMargin: '280px' });
+		}, { root: root || null, rootMargin: '320px' });
 		observer.observe(node);
 		return () => observer.disconnect();
-	}, [open, items.length, hasMore]);
+	}, [open, items.length, hasMore, loading, loadingMore]);
 
 	if (!open) return null;
 
@@ -105,7 +108,7 @@ export default function PinTemplateChooser({
 	return (
 		<div className="pin-tpl-chooser" role="dialog" aria-modal="true" aria-label="Choose template">
 			<button type="button" className="pin-tpl-chooser__backdrop" aria-label="Close gallery" onClick={onClose} />
-			<div className="pin-tpl-chooser__panel">
+			<div className="pin-tpl-chooser__panel" ref={panelRef}>
 				<header className="pin-tpl-chooser__header">
 					<div className="pin-tpl-chooser__brand">
 						<span className="pin-tpl-chooser__eyebrow">
