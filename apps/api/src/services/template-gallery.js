@@ -145,8 +145,15 @@ function resolvePreview(record, previewMap) {
 function buildOwnerFilter(req) {
 	const ownerId = String(req.pocketbaseUserId || '').trim();
 	const workspaceId = String(req.workspace?.id || '').trim();
-	// Shared Chef IA library + caller-owned + workspace-scoped rows.
-	const parts = ['visibility = "official"'];
+	// Shared library:
+	// - visibility = "official" (Chef IA seeded library)
+	// - visibility = "" (legacy rows created before the visibility field existed;
+	//   production admin library ~500 templates landed here after 1783981100)
+	// Plus caller-owned and workspace-scoped rows.
+	const parts = [
+		'visibility = "official"',
+		'visibility = ""',
+	];
 	if (ownerId) {
 		parts.push(`owner = "${escapeFilterValue(ownerId)}"`);
 	}
@@ -282,9 +289,21 @@ export async function listGalleryTemplates(req, query = {}) {
 	const filter = buildGalleryFilter(req, query);
 	const sort = sortForQuery(query.sort);
 
-	const [ownerOnlyCount, officialOnlyCount, unscopedCount] = await Promise.all([
+	const [
+		ownerOnlyCount,
+		officialOnlyCount,
+		blankVisibilityCount,
+		privateVisibilityCount,
+		workspaceOnlyCount,
+		unscopedCount,
+	] = await Promise.all([
 		userId ? pocketbaseCount(`owner = "${escapeFilterValue(userId)}"`) : Promise.resolve(0),
 		pocketbaseCount('visibility = "official"'),
+		pocketbaseCount('visibility = ""'),
+		pocketbaseCount('visibility = "private"'),
+		workspaceId
+			? pocketbaseCount(`workspace_id = "${escapeFilterValue(workspaceId)}"`)
+			: Promise.resolve(0),
 		pocketbaseCount(''),
 	]);
 
@@ -300,6 +319,9 @@ export async function listGalleryTemplates(req, query = {}) {
 			message: error?.message || String(error),
 			ownerOnlyCount,
 			officialOnlyCount,
+			blankVisibilityCount,
+			privateVisibilityCount,
+			workspaceOnlyCount,
 			unscopedCount,
 		});
 		throw httpError(502, 'Template gallery query failed', 'GALLERY_QUERY_FAILED');
@@ -315,6 +337,9 @@ export async function listGalleryTemplates(req, query = {}) {
 		pbCountBeforeTransform,
 		ownerOnlyCount,
 		officialOnlyCount,
+		blankVisibilityCount,
+		privateVisibilityCount,
+		workspaceOnlyCount,
 		unscopedCount,
 		page,
 		perPage,
@@ -377,9 +402,11 @@ export async function getPinTemplate(req, id) {
 
 	const isOwner = record.owner === req.pocketbaseUserId;
 	const sameWorkspace = record.workspace_id && record.workspace_id === req.workspace?.id;
-	const sharedVisibility = ['workspace', 'public', 'official', 'community'].includes(record.visibility);
-	const isOfficialLibrary = record.visibility === 'official';
-	if (!isOwner && !isOfficialLibrary && !(sameWorkspace && sharedVisibility)) {
+	const visibility = String(record.visibility || '').trim();
+	const sharedVisibility = ['workspace', 'public', 'official', 'community'].includes(visibility);
+	// Blank visibility = legacy library rows (pre-visibility-field schema).
+	const isSharedLibrary = visibility === 'official' || visibility === '';
+	if (!isOwner && !isSharedLibrary && !(sameWorkspace && sharedVisibility)) {
 		throw httpError(404, 'Template not found', 'NOT_FOUND');
 	}
 
