@@ -5,6 +5,10 @@
  * - credit_transactions extras (feature, reservation, idempotency)
  * - credit_reservations collection
  * - billing_events for upgrade history
+ *
+ * Production upgrade note:
+ * Existing credit_transactions may contain duplicate idempotency_key values.
+ * Dedupe (keep first, UUID the rest) before creating the UNIQUE index.
  */
 
 const coreNS = typeof core !== "undefined" ? core : {};
@@ -68,6 +72,142 @@ function relationField(name, collectionId, options = {}) {
 	};
 }
 
+const CREDIT_TX_IDEMPOTENCY_INDEX_SQL =
+	"CREATE UNIQUE INDEX `idx_credit_tx_idempotency` ON `credit_transactions` (`idempotency_key`)";
+const CREDIT_TX_IDEMPOTENCY_INDEX_MARKER = "idx_credit_tx_idempotency";
+const CREDIT_TX_FEATURE_INDEX_SQL =
+	"CREATE INDEX `idx_credit_tx_feature` ON `credit_transactions` (`workspace_key`, `feature`)";
+
+function recordString(record, field) {
+	try {
+		const v = record.get(field);
+		if (v == null) return "";
+		return String(v).trim();
+	} catch (_) {
+		return "";
+	}
+}
+
+function recordTimestampMs(record) {
+	try {
+		const updated = record.get("updated");
+		const created = record.get("created");
+		const t = Date.parse(String(updated || created || ""));
+		return Number.isFinite(t) ? t : 0;
+	} catch (_) {
+		return 0;
+	}
+}
+
+function generateUuidV4() {
+	// Prefer runtime crypto when available (PocketBase goja / host).
+	try {
+		if (typeof $security !== "undefined" && typeof $security.randomString === "function") {
+			// Fall through to deterministic-style builder below if no UUID helper.
+		}
+	} catch (_) {
+		// ignore
+	}
+	try {
+		if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+			return crypto.randomUUID();
+		}
+	} catch (_) {
+		// ignore
+	}
+
+	// Deterministic-enough UUID v4 from time + Math.random for migration repair.
+	const bytes = [];
+	for (let i = 0; i < 16; i += 1) {
+		bytes.push(Math.floor(Math.random() * 256));
+	}
+	bytes[6] = (bytes[6] & 0x0f) | 0x40;
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+	const hex = bytes.map((x) => x.toString(16).padStart(2, "0")).join("");
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+function findAllRecordsSafe(app, collectionName) {
+	try {
+		return app.findRecordsByFilter(collectionName, "", "-created,-updated", 0, 0) || [];
+	} catch (_) {
+		try {
+			return app.findAllRecords(collectionName) || [];
+		} catch {
+			return [];
+		}
+	}
+}
+
+/**
+ * Preserve all credit_transactions rows.
+ * For each duplicated idempotency_key: keep the first record, assign a new UUID to the rest.
+ * Empty/blank keys are treated as a duplicate group as well (SQLite UNIQUE treats '' as equal).
+ */
+function dedupeCreditTransactionIdempotencyKeys(app, txsCollection) {
+	if (!txsCollection || !txsCollection.fields.getByName("idempotency_key")) {
+		return { changed: 0, duplicatesFixed: 0 };
+	}
+
+	const collectionName = txsCollection.name || "credit_transactions";
+	const records = findAllRecordsSafe(app, collectionName);
+	if (!Array.isArray(records) || !records.length) {
+		return { changed: 0, duplicatesFixed: 0 };
+	}
+
+	const groups = {};
+	for (const record of records) {
+		const key = recordString(record, "idempotency_key");
+		if (!groups[key]) groups[key] = [];
+		groups[key].push(record);
+	}
+
+	const dirtyRecords = [];
+	let duplicatesFixed = 0;
+	const usedKeys = new Set(Object.keys(groups).filter((k) => k !== ""));
+
+	for (const key of Object.keys(groups)) {
+		const group = groups[key];
+		if (!Array.isArray(group) || group.length < 2) continue;
+
+		// Keep the earliest/first record; re-key the rest.
+		group.sort((a, b) => {
+			const ta = recordTimestampMs(a);
+			const tb = recordTimestampMs(b);
+			if (ta !== tb) return ta - tb;
+			return String(a.id || "").localeCompare(String(b.id || ""));
+		});
+
+		for (let i = 1; i < group.length; i += 1) {
+			const record = group[i];
+			let nextKey = generateUuidV4();
+			// Extremely unlikely, but avoid colliding with an existing key in this batch.
+			while (usedKeys.has(nextKey)) {
+				nextKey = generateUuidV4();
+			}
+			usedKeys.add(nextKey);
+			record.set("idempotency_key", nextKey);
+			dirtyRecords.push(record);
+			duplicatesFixed += 1;
+		}
+	}
+
+	for (const record of dirtyRecords) {
+		if (typeof app.saveNoValidate === "function") {
+			app.saveNoValidate(record);
+		} else {
+			app.save(record);
+		}
+	}
+
+	return { changed: dirtyRecords.length, duplicatesFixed };
+}
+
+function collectionHasIndexMarker(collection, marker) {
+	const indexes = Array.isArray(collection?.indexes) ? collection.indexes : [];
+	return indexes.some((sql) => String(sql).includes(marker));
+}
+
 migrate((app) => {
 	const plans = findCollectionSafe(app, "plans");
 	if (plans) {
@@ -87,9 +227,34 @@ migrate((app) => {
 		dirty = ensureField(txs, { name: "idempotency_key", type: "text", max: 120 }) || dirty;
 		dirty = ensureField(txs, { name: "reservation_id", type: "text", max: 64 }) || dirty;
 		dirty = ensureField(txs, { name: "reference_id", type: "text", max: 120 }) || dirty;
-		dirty = ensureIndex(txs, "CREATE INDEX `idx_credit_tx_feature` ON `credit_transactions` (`workspace_key`, `feature`)") || dirty;
-		dirty = ensureIndex(txs, "CREATE UNIQUE INDEX `idx_credit_tx_idempotency` ON `credit_transactions` (`idempotency_key`)") || dirty;
-		if (dirty) app.save(txs);
+
+		const existingIndexes = Array.isArray(txs.indexes) ? txs.indexes.slice() : [];
+		const hasUniqueIdempotency = existingIndexes.some((sql) =>
+			String(sql).includes(CREDIT_TX_IDEMPOTENCY_INDEX_MARKER),
+		);
+
+		if (!hasUniqueIdempotency) {
+			// Save schema + non-unique indexes first (UNIQUE must wait for dedupe).
+			const indexesWithoutUnique = existingIndexes.filter(
+				(sql) => !String(sql).includes(CREDIT_TX_IDEMPOTENCY_INDEX_MARKER),
+			);
+			if (!indexesWithoutUnique.includes(CREDIT_TX_FEATURE_INDEX_SQL)) {
+				indexesWithoutUnique.push(CREDIT_TX_FEATURE_INDEX_SQL);
+			}
+			txs.indexes = indexesWithoutUnique;
+			app.save(txs);
+
+			dedupeCreditTransactionIdempotencyKeys(app, txs);
+
+			const post = findCollectionSafe(app, "credit_transactions");
+			if (post && !collectionHasIndexMarker(post, CREDIT_TX_IDEMPOTENCY_INDEX_MARKER)) {
+				ensureIndex(post, CREDIT_TX_IDEMPOTENCY_INDEX_SQL);
+				app.save(post);
+			}
+		} else {
+			dirty = ensureIndex(txs, CREDIT_TX_FEATURE_INDEX_SQL) || dirty;
+			if (dirty) app.save(txs);
+		}
 	}
 
 	const subs = findCollectionSafe(app, "workspace_subscriptions");
