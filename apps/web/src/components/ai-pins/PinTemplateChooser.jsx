@@ -16,11 +16,18 @@ import { TEMPLATE_CATEGORIES } from '@/lib/pinEngineConstants';
 import '@/pages/app/TemplatesPage.css';
 import './PinTemplateChooser.css';
 
+// Exact same filter surface as Admin Template Gallery (TemplatesPage → loadGalleryFirstPage).
 const SELECT_FILTERS = {
-	// Match Admin Template Gallery: all non-archived (do not restrict to published only)
-	includeArchived: false,
+	q: '',
+	category: '',
+	status: '',
+	visibility: '',
+	scope: '',
 	sort: 'recently_updated',
-	perPage: 48,
+	favorite: false,
+	recentlyUsed: false,
+	tag: '',
+	includeArchived: false,
 };
 
 /**
@@ -66,7 +73,7 @@ export default function PinTemplateChooser({
 	useEffect(() => {
 		if (!open) return undefined;
 		setQuery('');
-		loadGalleryFirstPage({ ...SELECT_FILTERS, q: '', category: '', scope: '' });
+		loadGalleryFirstPage({ ...SELECT_FILTERS });
 		return () => {
 			resetGalleryStore();
 			revokeGalleryLivePreviewUrls();
@@ -76,7 +83,7 @@ export default function PinTemplateChooser({
 	useEffect(() => {
 		const node = sentinelRef.current;
 		const root = panelRef.current;
-		if (!open || !node) return undefined;
+		if (!open || !node || loading) return undefined;
 		const observer = new IntersectionObserver((entries) => {
 			if (entries.some((entry) => entry.isIntersecting)) {
 				loadGalleryNextPage();
@@ -172,10 +179,7 @@ export default function PinTemplateChooser({
 						onCreate={null}
 						onClear={() => {
 							setQuery('');
-							loadGalleryFirstPage({
-								q: '', category: '', scope: '',
-								...SELECT_FILTERS,
-							});
+							loadGalleryFirstPage({ ...SELECT_FILTERS });
 						}}
 					/>
 				) : null}

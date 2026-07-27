@@ -38,6 +38,7 @@ function createState() {
 
 let state = createState();
 const listeners = new Set();
+let loadGeneration = 0;
 
 function emit() {
 	for (const listener of listeners) listener();
@@ -58,6 +59,7 @@ export function subscribeGallery(listener) {
 }
 
 export function resetGalleryStore() {
+	loadGeneration += 1;
 	state = createState();
 	emit();
 }
@@ -76,6 +78,7 @@ function ingestItems(items) {
 }
 
 export async function loadGalleryFirstPage(overrides = {}) {
+	const generation = ++loadGeneration;
 	const filters = { ...state.filters, ...overrides };
 	const perPage = Math.max(1, Number(overrides.perPage || filters.perPage || state.perPage) || 24);
 	setState({
@@ -86,9 +89,11 @@ export async function loadGalleryFirstPage(overrides = {}) {
 		page: 0,
 		items: [],
 		hasMore: true,
+		totalItems: 0,
 	});
 	try {
 		const payload = await api.fetchGalleryPage({ ...filters, page: 1, perPage });
+		if (generation !== loadGeneration) return;
 		ingestItems(payload.items || []);
 		setState({
 			items: payload.items || [],
@@ -100,20 +105,25 @@ export async function loadGalleryFirstPage(overrides = {}) {
 			selectedIds: [],
 		});
 	} catch (error) {
+		if (generation !== loadGeneration) return;
 		setState({ loading: false, error: error.message || 'Failed to load gallery' });
 	}
 }
 
 export async function loadGalleryNextPage() {
 	if (state.loading || state.loadingMore || !state.hasMore) return;
+	// page is 0 before the first page resolves — never treat that as "load page 2".
+	if (!state.page || state.page < 1) return;
+	const generation = loadGeneration;
 	setState({ loadingMore: true, error: '' });
 	try {
-		const nextPage = (state.page || 1) + 1;
+		const nextPage = state.page + 1;
 		const payload = await api.fetchGalleryPage({
 			...state.filters,
 			page: nextPage,
 			perPage: state.perPage,
 		});
+		if (generation !== loadGeneration) return;
 		ingestItems(payload.items || []);
 		const incoming = payload.items || [];
 		const seen = new Set(state.items.map((item) => item.id));
@@ -126,6 +136,7 @@ export async function loadGalleryNextPage() {
 			loadingMore: false,
 		});
 	} catch (error) {
+		if (generation !== loadGeneration) return;
 		setState({ loadingMore: false, error: error.message || 'Failed to load more' });
 	}
 }

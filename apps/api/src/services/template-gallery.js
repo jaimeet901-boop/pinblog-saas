@@ -229,18 +229,44 @@ function matchesSearch(item, q) {
 	return false;
 }
 
+/** List fields only — never pull configuration JSON for gallery pages. */
+const GALLERY_LIST_FIELDS = [
+	'id',
+	'name',
+	'thumbnail',
+	'config_checksum',
+	'is_default',
+	'category',
+	'status',
+	'visibility',
+	'marketplace_meta',
+	'created_by',
+	'owner',
+	'editor_version',
+	'schema_version',
+	'revision',
+	'use_count',
+	'last_used_at',
+	'workspace_id',
+	'created',
+	'updated',
+	'deleted_at',
+].join(',');
+
 export async function listGalleryTemplates(req, query = {}) {
 	assertCapability(req, 'workspace.read');
 
 	const page = Math.max(1, Number(query.page) || 1);
-	// No low artificial page-size cap — client controls page size for gallery scrolling.
-	const perPage = Math.max(1, Number(query.perPage) || 24);
+	// Keep page size bounded — large pages + expand previously tripped primary getList and
+	// fell through to a broken empty fallback (AI Pins chooser regression).
+	const perPage = Math.min(48, Math.max(1, Number(query.perPage) || 24));
 	const q = String(query.q || query.search || '').trim();
 	const favoriteOnly = query.favorite === '1' || query.favorite === 'true' || query.favorites === '1';
 
 	const favoriteIds = await listFavoriteTemplateIds(req);
 	const filter = buildGalleryFilter(req, query);
 	const sort = sortForQuery(query.sort);
+	const ownerScope = buildOwnerFilter(req);
 
 	let result;
 	try {
@@ -248,40 +274,49 @@ export async function listGalleryTemplates(req, query = {}) {
 			filter,
 			sort,
 			expand: 'owner,created_by',
+			fields: GALLERY_LIST_FIELDS,
 			requestKey: null,
 		});
-	} catch (error) {
-		// Fallback for environments missing new fields/indexes — still include official library.
-		console.warn('[template-gallery] primary filter failed; using owner+official fallback', {
-			message: error?.message || String(error),
-			filter,
-		});
-		const all = await pocketbaseClient.collection('ai_pin_templates').getFullList({
-			filter: pocketbaseClient.filter(
-				'owner = {:owner} || visibility = "official"',
-				{ owner: req.pocketbaseUserId },
-			),
-			sort: '-updated',
-			requestKey: null,
-		}).catch(() => []);
-		const includeArchived = query.includeArchived === '1' || query.includeArchived === 'true';
-		const status = String(query.status || '').trim();
-		const filtered = all.filter((row) => {
-			if (row.deleted_at) return false;
-			const rowStatus = String(row.status || '').trim();
-			if (status === 'published') {
-				return !rowStatus || rowStatus === 'published';
+	} catch (primaryError) {
+		// Retry without expand (relation expand can fail on partial schemas).
+		try {
+			result = await pocketbaseClient.collection('ai_pin_templates').getList(page, perPage, {
+				filter,
+				sort,
+				fields: GALLERY_LIST_FIELDS,
+				requestKey: null,
+			});
+		} catch (error) {
+			// Same visibility scope as primary (owner || workspace || official) — never owner-only.
+			console.warn('[template-gallery] primary filter failed; using owner-scope getList fallback', {
+				message: error?.message || String(error),
+				primaryMessage: primaryError?.message || String(primaryError),
+				filter,
+				ownerScope,
+				page,
+				perPage,
+			});
+			try {
+				result = await pocketbaseClient.collection('ai_pin_templates').getList(page, perPage, {
+					filter: `${ownerScope} && deleted_at = ""`,
+					sort: '-updated',
+					fields: GALLERY_LIST_FIELDS,
+					requestKey: null,
+				});
+			} catch (fallbackError) {
+				console.error('[template-gallery] fallback getList failed', {
+					message: fallbackError?.message || String(fallbackError),
+					ownerScope,
+				});
+				result = {
+					items: [],
+					page,
+					perPage,
+					totalItems: 0,
+					totalPages: 1,
+				};
 			}
-			if (!includeArchived && rowStatus === 'archived') return false;
-			return true;
-		});
-		result = {
-			items: filtered.slice((page - 1) * perPage, page * perPage),
-			page,
-			perPage,
-			totalItems: filtered.length,
-			totalPages: Math.max(1, Math.ceil(filtered.length / perPage)),
-		};
+		}
 	}
 
 	let items = result.items || [];
