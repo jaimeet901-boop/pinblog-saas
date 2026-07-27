@@ -164,22 +164,19 @@ function listSqliteColumns(app, tableName) {
 
 /**
  * Probe a single column via SELECT. If the statement prepares/runs, the column exists.
+ * DynamicModel requires a non-empty shape — never pass {}.
  */
 function sqliteColumnSelectable(app, tableName, columnName) {
 	try {
 		const safeTable = String(tableName).replace(/"/g, '""');
 		const safeColumn = String(columnName).replace(/"/g, '""');
-		app.db().newQuery(`SELECT "${safeColumn}" FROM "${safeTable}" LIMIT 0`).all(arrayOf(new DynamicModel({})));
+		const rows = arrayOf(new DynamicModel({ value: "" }));
+		app.db()
+			.newQuery(`SELECT "${safeColumn}" AS value FROM "${safeTable}" LIMIT 0`)
+			.all(rows);
 		return true;
 	} catch (_) {
-		try {
-			const safeTable = String(tableName).replace(/"/g, '""');
-			const safeColumn = String(columnName).replace(/"/g, '""');
-			app.db().newQuery(`SELECT "${safeColumn}" FROM "${safeTable}" LIMIT 0`).one();
-			return true;
-		} catch (__) {
-			return false;
-		}
+		return false;
 	}
 }
 
