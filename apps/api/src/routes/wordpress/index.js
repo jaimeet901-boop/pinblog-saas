@@ -21,6 +21,9 @@ import {
 import { listWordpressApiLogs } from '../../services/wordpress-api-log.js';
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { getWordpressQueueStats } from '../../services/wordpress-publish-queue.js';
+import { discoverOwnedWordpressSite } from '../../services/wordpress-discovery.js';
+import { syncOwnedWordpressSite, processDueWordpressSyncs } from '../../services/wordpress-sync.js';
+import { ensureWordpressIntegrationSchema } from '../../utils/ensure-wordpress-integration-schema.js';
 
 const router = Router();
 
@@ -128,6 +131,90 @@ router.get('/sites/:id/health', async (req, res) => {
 router.post('/test', async (req, res) => {
 	const siteId = req.body?.siteId || req.body?.websiteId;
 	const result = await testOwnedWordpressSite(req.pocketbaseUserId, siteId);
+	res.json(result);
+});
+
+/**
+ * Explicit connection probe — same core as /test, returns richer profile fields.
+ * Existing /test remains for Website Manager "Test" button compatibility.
+ */
+router.post('/sites/:id/connect', async (req, res) => {
+	const result = await testOwnedWordpressSite(req.pocketbaseUserId, req.params.id);
+	res.json(result);
+});
+
+router.post('/sites/:id/discover', async (req, res) => {
+	const result = await discoverOwnedWordpressSite(req.pocketbaseUserId, req.params.id, {
+		refreshConnection: req.body?.refreshConnection !== false,
+	});
+	res.json(result);
+});
+
+router.get('/sites/:id/profile', async (req, res) => {
+	await ensureWordpressIntegrationSchema(pocketbaseClient);
+	const sites = await listWordpressSites(req.pocketbaseUserId);
+	const site = (sites.items || []).find((item) => (
+		item.id === req.params.id || item.websiteId === req.params.id
+	));
+	if (!site) {
+		return res.status(404).json({ message: 'WordPress site not found', errorCode: 'NOT_FOUND' });
+	}
+	res.json({
+		site,
+		profile: site.siteProfile || null,
+		discovery: site.discovery || null,
+		health: site.health || null,
+		sync: {
+			status: site.syncStatus || 'idle',
+			lastSyncedAt: site.lastSyncedAt || '',
+			nextSyncAt: site.nextSyncAt || '',
+			cursor: site.syncCursor || null,
+			lastError: site.lastSyncError || '',
+		},
+	});
+});
+
+router.post('/sites/:id/sync', async (req, res) => {
+	const mode = req.body?.mode || 'manual';
+	const result = await syncOwnedWordpressSite(req.pocketbaseUserId, req.params.id, { mode });
+	res.json(result);
+});
+
+router.get('/sites/:id/sync/status', async (req, res) => {
+	await ensureWordpressIntegrationSchema(pocketbaseClient);
+	const sites = await listWordpressSites(req.pocketbaseUserId);
+	const site = (sites.items || []).find((item) => (
+		item.id === req.params.id || item.websiteId === req.params.id
+	));
+	if (!site) {
+		return res.status(404).json({ message: 'WordPress site not found', errorCode: 'NOT_FOUND' });
+	}
+
+	const runs = await pocketbaseClient.collection('wordpress_sync_runs').getList(1, 10, {
+		filter: pocketbaseClient.filter('owner = {:owner} && site = {:site}', {
+			owner: req.pocketbaseUserId,
+			site: site.id,
+		}),
+		sort: '-started_at',
+		requestKey: null,
+	}).catch(() => ({ items: [], totalItems: 0 }));
+
+	res.json({
+		status: site.syncStatus || 'idle',
+		lastSyncedAt: site.lastSyncedAt || '',
+		nextSyncAt: site.nextSyncAt || '',
+		cursor: site.syncCursor || null,
+		lastError: site.lastSyncError || '',
+		runs: runs.items || [],
+		totalRuns: runs.totalItems || 0,
+	});
+});
+
+router.post('/sync/process-due', async (req, res) => {
+	// Operator/admin-safe internal tick; still requires auth.
+	const result = await processDueWordpressSyncs({
+		limit: Math.min(20, Math.max(1, Number(req.body?.limit) || 5)),
+	});
 	res.json(result);
 });
 

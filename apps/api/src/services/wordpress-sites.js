@@ -56,6 +56,19 @@ export function mapWordpressSite(site, extras = {}) {
 		username: extras.username || '',
 		created: site.created,
 		updated: site.updated,
+		// Integration foundation (safe extras; ignored by older clients)
+		siteProfile: site.site_profile || null,
+		discovery: site.discovery || null,
+		language: site.language || site.site_profile?.language || '',
+		timezone: site.timezone || site.site_profile?.timezone || '',
+		permalinkStructure: site.permalink_structure || site.site_profile?.permalinkStructure || '',
+		httpsValidated: Boolean(site.https_validated ?? site.site_profile?.httpsValidated),
+		lastDiscoveredAt: site.last_discovered_at || '',
+		lastSyncedAt: site.last_synced_at || '',
+		nextSyncAt: site.next_sync_at || '',
+		syncStatus: site.sync_status || 'idle',
+		syncCursor: site.sync_cursor || null,
+		lastSyncError: site.last_sync_error || '',
 	};
 }
 
@@ -301,12 +314,22 @@ export async function testOwnedWordpressSite(ownerId, siteId) {
 			auth_type: result.authType,
 			last_tested_at: new Date().toISOString(),
 			last_error: '',
+			site_profile: result.siteProfile || null,
+			language: result.siteProfile?.language || '',
+			timezone: result.siteProfile?.timezone || '',
+			permalink_structure: result.siteProfile?.permalinkStructure || '',
+			https_validated: Boolean(result.https?.httpsValidated),
 		};
 		const updated = await pocketbaseClient.collection('wordpress_sites').update(site.id, updatePayload).catch(async () => {
 			const legacy = { ...updatePayload };
 			delete legacy.endpoints;
 			delete legacy.wp_version;
 			delete legacy.auth_type;
+			delete legacy.site_profile;
+			delete legacy.language;
+			delete legacy.timezone;
+			delete legacy.permalink_structure;
+			delete legacy.https_validated;
 			return pocketbaseClient.collection('wordpress_sites').update(site.id, legacy);
 		});
 		if (site.website) {
@@ -318,6 +341,8 @@ export async function testOwnedWordpressSite(ownerId, siteId) {
 			user: result.user,
 			version: result.version,
 			endpoints: result.endpoints,
+			siteProfile: result.siteProfile || null,
+			https: result.https || null,
 			site: mapWordpressSite(updated, { hasCredentials: true, username, authType }),
 			health: result.health,
 		};

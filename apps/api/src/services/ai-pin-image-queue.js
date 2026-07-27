@@ -12,6 +12,7 @@ import {
 } from '../utils/pocketbase-safe-query.js';
 import { mirrorImageJob } from './queue/mirrors.js';
 import { isImmediateImageFallbackError } from '../constants/image-source-strategy.js';
+import { safeTransitionArticleLifecycle } from './article-lifecycle.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_POLL_MS || '12000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.AI_IMAGE_QUEUE_BATCH || '5', 10);
@@ -109,6 +110,35 @@ async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' 
 			image_generation_error: lastError,
 			image_job_id: job.id,
 		}).catch(() => null);
+	}
+
+	if (job.articleId) {
+		const ownerId = typeof job.owner === 'string' ? job.owner : (job.owner?.id || '');
+		if (status === 'failed') {
+			await safeTransitionArticleLifecycle(job.articleId, 'FAILED', {
+				ownerId,
+				source: 'ai_pin_image_queue',
+				message: lastError || 'Pin image generation failed',
+				failureReason: lastError || 'Pin image generation failed',
+				failedStage: 'PINS_GENERATING',
+				force: true,
+			});
+		} else {
+			await safeTransitionArticleLifecycle(job.articleId, 'PINS_READY', {
+				ownerId,
+				source: 'ai_pin_image_queue',
+				message: status === 'fallback'
+					? 'Pins ready (fallback image)'
+					: 'Pins generated',
+				force: true,
+			});
+			await safeTransitionArticleLifecycle(job.articleId, 'READY_FOR_PUBLISH', {
+				ownerId,
+				source: 'ai_pin_image_queue',
+				message: 'Article ready for publish',
+				force: true,
+			});
+		}
 	}
 
 	// Module 7: advance linked pin-generation run (templates untouched).
@@ -483,6 +513,16 @@ async function processDueJobs() {
 
 			await mirrorImageJob(fullJob, 'Image worker claimed job').catch(() => null);
 
+			if (fullJob.articleId) {
+				const ownerId = typeof fullJob.owner === 'string' ? fullJob.owner : (fullJob.owner?.id || '');
+				await safeTransitionArticleLifecycle(fullJob.articleId, 'PINS_GENERATING', {
+					ownerId,
+					source: 'ai_pin_image_queue',
+					message: 'Pin image generation started',
+					force: true,
+				});
+			}
+
 			if (fullJob.ai_pin) {
 				await pocketbaseClient.collection('ai_pins').update(fullJob.ai_pin, {
 					image_generation_status: 'processing',
@@ -537,6 +577,18 @@ async function processDueJobs() {
 						image_generation_error: error?.message || 'Image generation failed',
 						image_job_id: fullJob.id,
 					}).catch(() => null);
+				}
+
+				if (!shouldRetry && fullJob.articleId) {
+					const ownerId = typeof fullJob.owner === 'string' ? fullJob.owner : (fullJob.owner?.id || '');
+					await safeTransitionArticleLifecycle(fullJob.articleId, 'FAILED', {
+						ownerId,
+						source: 'ai_pin_image_queue',
+						message: error?.message || 'Pin image generation failed',
+						failureReason: error?.message || 'Pin image generation failed',
+						failedStage: 'PINS_GENERATING',
+						force: true,
+					});
 				}
 
 				failedTotal += 1;

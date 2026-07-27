@@ -13,6 +13,7 @@ import { mirrorPinterestJob } from './queue/mirrors.js';
 import { notifyWorkspaceUser, logWorkflowStep } from './workspace-notify.js';
 import { enqueueAnalyticsRefresh } from './analytics/refresh.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
+import { safeTransitionArticleLifecycle } from './article-lifecycle.js';
 
 function workflowIdFor(job) {
 	return String(job.workflow_id || job.payload?.workflowId || `wf-${job.id}`).slice(0, 80);
@@ -302,6 +303,15 @@ export async function continueChefIaPublishWorkflow({
 			? 'Waiting for Pinterest provider credentials'
 			: '',
 	}).catch(() => null);
+
+	if (!waitingProvider && catalogArticle?.id) {
+		await safeTransitionArticleLifecycle(catalogArticle.id, 'SCHEDULED', {
+			ownerId,
+			source: 'publish_pipeline',
+			message: 'Pinterest publish scheduled',
+			force: true,
+		});
+	}
 
 	await pocketbaseClient.collection('pinterest_publish_events').create({
 		owner: ownerId,

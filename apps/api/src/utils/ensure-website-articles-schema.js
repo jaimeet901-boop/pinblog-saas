@@ -133,6 +133,21 @@ export async function ensureWebsiteArticlesSchema(pocketbaseClient) {
 		buildSelectField('status', ['new', 'imported', 'published'], { required: true }),
 		buildTextField('source', { max: 64 }),
 		buildTextField('scan_run_id', { max: 64 }),
+		{ name: 'wp_post_id', type: 'number', min: 0 },
+		buildTextField('excerpt', { max: 5000 }),
+		buildTextField('content'),
+		{ name: 'categories', type: 'json', maxSize: 100000 },
+		{ name: 'tags', type: 'json', maxSize: 100000 },
+		buildTextField('seo_title', { max: 500 }),
+		buildTextField('seo_description', { max: 2000 }),
+		{ name: 'reading_time', type: 'number', min: 0 },
+		{ name: 'word_count', type: 'number', min: 0 },
+		{ name: 'canonical_url', type: 'url' },
+		{ name: 'featured', type: 'bool' },
+		buildTextField('wp_status', { max: 40 }),
+		buildTextField('sync_hash', { max: 128 }),
+		buildDateField('deleted_at'),
+		buildTextField('author_id', { max: 80 }),
 	];
 
 	const missing = requiredFields.filter((field) => !hasField(collection, field.name));

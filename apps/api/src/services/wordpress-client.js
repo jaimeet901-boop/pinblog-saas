@@ -17,6 +17,93 @@ export function resolveWordpressOrigin(url) {
 	}
 }
 
+/**
+ * Chef IA requires HTTPS for Application Password transport.
+ * Allows http only for localhost / private-lab hosts.
+ */
+export function assertWordpressHttps(url, { allowLocalHttp = true } = {}) {
+	let parsed;
+	try {
+		parsed = new URL(url);
+	} catch {
+		throw httpError(422, 'Invalid website URL', 'VALIDATION_ERROR');
+	}
+
+	const host = parsed.hostname.toLowerCase();
+	const isLocal = host === 'localhost'
+		|| host === '127.0.0.1'
+		|| host.endsWith('.local')
+		|| host.endsWith('.test');
+
+	if (parsed.protocol === 'https:') {
+		return {
+			ok: true,
+			httpsValidated: true,
+			protocol: 'https:',
+			origin: parsed.origin,
+			host,
+		};
+	}
+
+	if (parsed.protocol === 'http:' && allowLocalHttp && isLocal) {
+		return {
+			ok: true,
+			httpsValidated: false,
+			protocol: 'http:',
+			origin: parsed.origin,
+			host,
+			warning: 'HTTP allowed only for local development hosts',
+		};
+	}
+
+	throw httpError(
+		422,
+		'WordPress site must use HTTPS for Application Password authentication',
+		'WP_HTTPS_REQUIRED',
+	);
+}
+
+function stripHtml(value) {
+	return String(value || '')
+		.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, ' ')
+		.replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, ' ')
+		.replace(/<[^>]+>/g, ' ')
+		.replace(/&nbsp;/gi, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+export function computeWordCount(htmlOrText) {
+	const text = stripHtml(htmlOrText);
+	if (!text) return 0;
+	return text.split(/\s+/).filter(Boolean).length;
+}
+
+export function computeReadingTimeMinutes(wordCount, wordsPerMinute = 200) {
+	const words = Number(wordCount) || 0;
+	if (words <= 0) return 0;
+	return Math.max(1, Math.ceil(words / Math.max(1, wordsPerMinute)));
+}
+
+export function computeArticleSyncHash(payload = {}) {
+	const basis = [
+		payload.wpPostId || '',
+		payload.modified || '',
+		payload.title || '',
+		payload.slug || '',
+		payload.status || '',
+		payload.featuredImage || '',
+		payload.wordCount || 0,
+		payload.contentLength || 0,
+	].join('|');
+	let hash = 0;
+	for (let i = 0; i < basis.length; i += 1) {
+		hash = ((hash << 5) - hash) + basis.charCodeAt(i);
+		hash |= 0;
+	}
+	return `h${Math.abs(hash)}`;
+}
+
 /** @deprecated Prefer buildWordpressAuthHeader from wordpress-auth.js */
 export function buildWordpressAuthHeaderLegacy(username, appPassword) {
 	return buildWordpressAuthHeader({
@@ -160,6 +247,11 @@ async function probePublicRest(base) {
 	}
 }
 
+export async function probePublicRestSafe(urlOrOrigin) {
+	const base = resolveWordpressOrigin(urlOrOrigin);
+	return probePublicRest(base);
+}
+
 function detectVersion(indexPayload, authenticatedPayload) {
 	const fromAuth = authenticatedPayload?.generator
 		|| authenticatedPayload?.version
@@ -193,7 +285,8 @@ export async function testWordpressConnection({
 	authType = WP_AUTH_TYPES.APPLICATION_PASSWORD,
 	logContext = null,
 }) {
-	const base = resolveWordpressOrigin(url);
+	const https = assertWordpressHttps(url);
+	const base = https.origin || resolveWordpressOrigin(url);
 	const auth = authFromOptions({ authType, username, appPassword, password });
 	const publicIndex = await probePublicRest(base);
 
@@ -219,6 +312,7 @@ export async function testWordpressConnection({
 		tags: false,
 		users: true,
 		types: false,
+		settings: false,
 	};
 
 	const probes = [
@@ -228,6 +322,7 @@ export async function testWordpressConnection({
 		['categories', '/wp-json/wp/v2/categories?per_page=1'],
 		['tags', '/wp-json/wp/v2/tags?per_page=1'],
 		['types', '/wp-json/wp/v2/types?context=edit'],
+		['settings', '/wp-json/wp/v2/settings'],
 	];
 
 	await Promise.all(probes.map(async ([key, path]) => {
@@ -239,8 +334,55 @@ export async function testWordpressConnection({
 		}
 	}));
 
+	let settings = null;
+	if (authenticated.settings) {
+		settings = await wpFetch(base, auth, '/wp-json/wp/v2/settings', { logContext }).catch(() => null);
+	}
+
 	const endpoints = endpointChecklist(publicIndex, authenticated);
-	const version = detectVersion(publicIndex, me);
+	endpoints.settings = authenticated.settings;
+	const version = detectVersion(publicIndex, me) || String(settings?.version || '').slice(0, 40);
+
+	const language = String(
+		settings?.language
+		|| me?.locale
+		|| publicIndex?.language
+		|| '',
+	).slice(0, 32);
+
+	const timezone = String(
+		settings?.timezone
+		|| publicIndex.timezone
+		|| '',
+	).slice(0, 120);
+
+	const permalinkStructure = String(
+		settings?.permalink_structure
+		|| settings?.permalinkStructure
+		|| '',
+	).slice(0, 255);
+
+	const capabilities = me?.capabilities && typeof me.capabilities === 'object'
+		? Object.keys(me.capabilities).filter((key) => me.capabilities[key])
+		: [];
+
+	const siteProfile = {
+		name: settings?.title || publicIndex.name || '',
+		description: settings?.description || publicIndex.description || '',
+		url: settings?.url || publicIndex.url || base,
+		home: settings?.url || publicIndex.url || base,
+		language,
+		timezone,
+		gmtOffset: publicIndex.gmtOffset ?? settings?.gmt_offset ?? null,
+		permalinkStructure,
+		httpsValidated: Boolean(https.httpsValidated),
+		httpsWarning: https.warning || '',
+		version,
+		namespaces: publicIndex.namespaces || [],
+		capabilities,
+		roles: me?.roles || [],
+		checkedAt: new Date().toISOString(),
+	};
 
 	return {
 		ok: true,
@@ -252,19 +394,28 @@ export async function testWordpressConnection({
 			slug: me?.slug || '',
 			roles: me?.roles || [],
 			capabilities: me?.capabilities || {},
+			capabilityKeys: capabilities,
 		},
 		version,
 		endpoints,
+		siteProfile,
+		https,
 		health: {
 			restApi: true,
 			credentialsValid: true,
 			typesAvailable: authenticated.types,
+			settingsAvailable: authenticated.settings,
 			version,
 			endpoints,
-			siteName: publicIndex.name || '',
-			timezone: publicIndex.timezone || '',
+			siteName: siteProfile.name,
+			description: siteProfile.description,
+			language,
+			timezone,
+			permalinkStructure,
+			httpsValidated: Boolean(https.httpsValidated),
 			namespaces: publicIndex.namespaces || [],
-			checkedAt: new Date().toISOString(),
+			capabilities,
+			checkedAt: siteProfile.checkedAt,
 		},
 	};
 }
@@ -325,6 +476,195 @@ function mapPostLike(item) {
 		author: item.author || null,
 		categories: item.categories || [],
 		tags: item.tags || [],
+	};
+}
+
+/**
+ * Full post mapping for Chef IA article sync (Phase 4 fields).
+ */
+export function mapWordpressPostFull(item, {
+	featuredImageUrl = '',
+	categoryNames = [],
+	tagNames = [],
+	authorName = '',
+	language = '',
+} = {}) {
+	const title = stripHtml(item.title?.rendered || item.title || '');
+	const contentHtml = item.content?.rendered || item.content?.raw || item.content || '';
+	const excerptHtml = item.excerpt?.rendered || item.excerpt?.raw || item.excerpt || '';
+	const wordCount = computeWordCount(contentHtml || excerptHtml || title);
+	const seoTitle = stripHtml(
+		item.yoast_head_json?.title
+		|| item.rank_math?.title
+		|| item.meta?.['_yoast_wpseo_title']
+		|| title,
+	).slice(0, 500);
+	const seoDescription = stripHtml(
+		item.yoast_head_json?.description
+		|| item.rank_math?.description
+		|| item.meta?.['_yoast_wpseo_metadesc']
+		|| excerptHtml,
+	).slice(0, 2000);
+	const canonicalUrl = String(
+		item.yoast_head_json?.canonical
+		|| item.link
+		|| '',
+	).slice(0, 1000);
+	const sticky = Boolean(item.sticky);
+	const payload = {
+		wpPostId: Number(item.id) || 0,
+		slug: String(item.slug || '').slice(0, 255),
+		permalink: String(item.link || '').slice(0, 1000),
+		title: title.slice(0, 500),
+		excerpt: stripHtml(excerptHtml).slice(0, 5000),
+		content: String(contentHtml || ''),
+		featuredImage: String(featuredImageUrl || '').slice(0, 1000),
+		categories: Array.isArray(categoryNames) ? categoryNames : [],
+		tags: Array.isArray(tagNames) ? tagNames : [],
+		categoryIds: Array.isArray(item.categories) ? item.categories : [],
+		tagIds: Array.isArray(item.tags) ? item.tags : [],
+		author: String(authorName || '').slice(0, 255),
+		authorId: item.author != null ? String(item.author) : '',
+		seoTitle,
+		seoDescription,
+		readingTime: computeReadingTimeMinutes(wordCount),
+		wordCount,
+		publishDate: item.date_gmt || item.date || '',
+		modifiedDate: item.modified_gmt || item.modified || '',
+		status: String(item.status || '').slice(0, 40),
+		language: String(language || item.lang || '').slice(0, 32),
+		canonicalUrl,
+		featured: sticky,
+		featuredMediaId: Number(item.featured_media) || 0,
+	};
+	payload.syncHash = computeArticleSyncHash({
+		wpPostId: payload.wpPostId,
+		modified: payload.modifiedDate,
+		title: payload.title,
+		slug: payload.slug,
+		status: payload.status,
+		featuredImage: payload.featuredImage,
+		wordCount: payload.wordCount,
+		contentLength: payload.content.length,
+	});
+	return payload;
+}
+
+async function wpFetchRaw(base, auth, path, options = {}) {
+	const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
+	const started = Date.now();
+	let response;
+	try {
+		response = await fetch(url, {
+			...options,
+			headers: {
+				Authorization: auth,
+				Accept: 'application/json',
+				...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+				...(options.headers || {}),
+			},
+		});
+	} catch (err) {
+		if (options.logContext) {
+			await writeWordpressApiLog({
+				...options.logContext,
+				method: options.method || 'GET',
+				path,
+				statusCode: 0,
+				durationMs: Date.now() - started,
+				ok: false,
+				error: err.message,
+			});
+		}
+		throw httpError(502, `Could not reach WordPress: ${err.message}`, 'WP_UNREACHABLE');
+	}
+
+	const text = await response.text().catch(() => '');
+	let data = null;
+	try {
+		data = text ? JSON.parse(text) : null;
+	} catch {
+		data = { raw: text };
+	}
+
+	if (options.logContext) {
+		await writeWordpressApiLog({
+			...options.logContext,
+			method: options.method || 'GET',
+			path,
+			statusCode: response.status,
+			durationMs: Date.now() - started,
+			ok: response.ok,
+			error: response.ok ? '' : (data?.message || response.statusText || ''),
+			responseMeta: {
+				status: response.status,
+				code: data?.code || null,
+				total: response.headers.get('X-WP-Total'),
+				totalPages: response.headers.get('X-WP-TotalPages'),
+			},
+		});
+	}
+
+	if (!response.ok) {
+		const message = data?.message
+			|| data?.code
+			|| `${response.status} ${response.statusText}${text ? ` — ${text.slice(0, 240)}` : ''}`;
+		const error = httpError(
+			response.status === 401 || response.status === 403 ? response.status : 502,
+			`WordPress error: ${message}`,
+			response.status === 401 || response.status === 403 ? 'WP_AUTH_FAILED' : 'WP_REQUEST_FAILED',
+		);
+		error.wpStatus = response.status;
+		error.retryable = response.status >= 500 || response.status === 429;
+		error.authFailed = response.status === 401 || response.status === 403;
+		throw error;
+	}
+
+	return {
+		data,
+		headers: response.headers,
+		total: Number(response.headers.get('X-WP-Total') || 0) || 0,
+		totalPages: Number(response.headers.get('X-WP-TotalPages') || 0) || 0,
+	};
+}
+
+export async function countWordpressCollection(options = {}, collection = 'posts') {
+	const base = resolveWordpressOrigin(options.url);
+	const auth = authFromOptions(options);
+	const status = options.status ? `&status=${encodeURIComponent(options.status)}` : '';
+	const result = await wpFetchRaw(
+		base,
+		auth,
+		`/wp-json/wp/v2/${collection}?per_page=1${status}`,
+		{ logContext: options.logContext },
+	);
+	return result.total;
+}
+
+export async function listWordpressPostsRaw(options = {}) {
+	const base = resolveWordpressOrigin(options.url);
+	const auth = authFromOptions(options);
+	const page = Math.max(1, Number(options.page) || 1);
+	const perPage = Math.min(100, Math.max(1, Number(options.perPage) || 20));
+	const search = options.search ? `&search=${encodeURIComponent(options.search)}` : '';
+	const status = options.status ? `&status=${encodeURIComponent(options.status)}` : '&status=publish,draft,pending,private,future';
+	const modifiedAfter = options.modifiedAfter
+		? `&modified_after=${encodeURIComponent(options.modifiedAfter)}`
+		: '';
+	const orderby = options.orderby ? `&orderby=${encodeURIComponent(options.orderby)}` : '&orderby=modified';
+	const order = options.order ? `&order=${encodeURIComponent(options.order)}` : '&order=desc';
+	const result = await wpFetchRaw(
+		base,
+		auth,
+		`/wp-json/wp/v2/posts?per_page=${perPage}&page=${page}${search}${status}${modifiedAfter}${orderby}${order}&context=edit&_embed=1`,
+		{ logContext: options.logContext },
+	);
+	return {
+		items: Array.isArray(result.data) ? result.data : [],
+		total: result.total,
+		totalPages: result.totalPages,
+		page,
+		perPage,
 	};
 }
 

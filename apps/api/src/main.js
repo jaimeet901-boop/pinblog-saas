@@ -13,6 +13,7 @@ import { validateServerEnv } from './utils/env.js';
 import { startAIPinImageQueue, stopAIPinImageQueue } from './services/ai-pin-image-queue.js';
 import { startPinterestAnalyticsSync, stopPinterestAnalyticsSync } from './services/pinterest-analytics-sync.js';
 import { startWordpressPublishQueue, stopWordpressPublishQueue } from './services/wordpress-publish-queue.js';
+import { startWordpressSyncScheduler, stopWordpressSyncScheduler } from './services/wordpress-sync-scheduler.js';
 import { startQueueEngine, stopQueueEngine } from './services/queue/engine.js';
 import { startAnalyticsRefreshWorker, stopAnalyticsRefreshWorker } from './services/analytics/refresh.js';
 import { startAuditRetentionWorker, stopAuditRetentionWorker } from './services/audit/retention.js';
@@ -20,6 +21,9 @@ import { startHealthMonitorWorker, stopHealthMonitorWorker } from './services/he
 import { ensurePinterestAppCredentialsSeeded } from './services/pinterest-app-credentials.js';
 import { ensurePlatformSettingsSeeded } from './services/platform-settings.js';
 import { ensureOfficialPinTemplatesSeeded } from './services/official-pin-templates-seed.js';
+import { ensureWordpressIntegrationSchema } from './utils/ensure-wordpress-integration-schema.js';
+import { ensureArticleLifecycleSchema } from './utils/ensure-article-lifecycle-schema.js';
+import pocketbaseClient from './utils/pocketbaseClient.js';
 
 const app = express();
 
@@ -76,6 +80,7 @@ process.on('SIGINT', async () => {
 	stopPinterestAnalyticsSync();
 	stopAIPinImageQueue();
 	stopWordpressPublishQueue();
+	stopWordpressSyncScheduler();
 	stopQueueEngine();
 	stopAnalyticsRefreshWorker();
 	stopAuditRetentionWorker();
@@ -89,6 +94,7 @@ process.on('SIGTERM', async () => {
 	stopPinterestAnalyticsSync();
 	stopAIPinImageQueue();
 	stopWordpressPublishQueue();
+	stopWordpressSyncScheduler();
 	stopQueueEngine();
 	stopAnalyticsRefreshWorker();
 	stopAuditRetentionWorker();
@@ -141,10 +147,17 @@ app.listen(port, () => {
 	ensureOfficialPinTemplatesSeeded().catch((error) => {
 		logger.warn('Official pin templates seed skipped:', error?.message || error);
 	});
+	ensureWordpressIntegrationSchema(pocketbaseClient).catch((error) => {
+		logger.warn('WordPress integration schema ensure skipped:', error?.message || error);
+	});
+	ensureArticleLifecycleSchema(pocketbaseClient).catch((error) => {
+		logger.warn('Article lifecycle schema ensure skipped:', error?.message || error);
+	});
 	startPinterestPublishQueue();
 	startPinterestAnalyticsSync();
 	startAIPinImageQueue();
 	startWordpressPublishQueue();
+	startWordpressSyncScheduler();
 	startQueueEngine();
 	startAnalyticsRefreshWorker();
 	startAuditRetentionWorker();

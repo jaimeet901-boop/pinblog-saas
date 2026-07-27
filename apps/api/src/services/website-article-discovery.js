@@ -1,5 +1,6 @@
 import { sanitizeCollectionPayload, safeGetFullList, safeGetList, extractCollectionFieldNames } from '../utils/pocketbase-safe-query.js';
 import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
+import { markArticleSynced } from './article-lifecycle.js';
 
 const MAX_SOURCE_URLS = 250;
 const MAX_ARTICLE_FETCHES = 50;
@@ -1404,6 +1405,12 @@ export async function scanWebsiteArticles({ pocketbaseClient, website, ownerId: 
 					if (Object.keys(metaPatch).length > 0) {
 						created = await pocketbaseClient.collection('website_articles').update(created.id, metaPatch).catch(() => created);
 					}
+
+					await markArticleSynced(created.id, {
+						ownerId,
+						source: source || 'website_scan',
+						discovered: true,
+					});
 
 					existingByUrl.set(article.url, created);
 					summary.newArticles += 1;

@@ -26,6 +26,7 @@ import { promoteWaitingProviderPinterestJobs } from './publish-pipeline.js';
 import { notifyWorkspaceUser, logWorkflowStep } from './workspace-notify.js';
 import { enqueueAnalyticsRefresh } from './analytics/refresh.js';
 import { resolvePinDestinationUrl, validatePinForPinterestPublish } from '../utils/pin-publish-destination.js';
+import { safeTransitionArticleLifecycle } from './article-lifecycle.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.PINTEREST_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.PINTEREST_QUEUE_BATCH || '10', 10);
@@ -131,22 +132,30 @@ async function processJob(job) {
 			},
 		});
 		await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, publishPayload);
-		await markPinStatus(pin.id, {
-			status: 'published',
-			scheduled_at: '',
-			scheduled_timezone: '',
-			publish_error: '',
-			pinterest_pin_id: existingPinId,
-			pinterest_pin_url: pinterestPinUrl,
-			published_at: publishedAt,
+	await markPinStatus(pin.id, {
+		status: 'published',
+		scheduled_at: '',
+		scheduled_timezone: '',
+		publish_error: '',
+		pinterest_pin_id: existingPinId,
+		pinterest_pin_url: pinterestPinUrl,
+		published_at: publishedAt,
+	});
+	if (pin.articleId) {
+		await safeTransitionArticleLifecycle(pin.articleId, 'PUBLISHED', {
+			ownerId: owner,
+			source: 'pinterest_publish_queue',
+			message: 'Pin already published; article marked published',
+			force: true,
 		});
-		await appendPublishEvent({
-			owner,
-			jobId: job.id,
-			eventType: 'published',
-			message: 'Pin already published; skipped duplicate create',
-			payload: { pinterestPinId: existingPinId, pinterestPinUrl },
-		});
+	}
+	await appendPublishEvent({
+		owner,
+		jobId: job.id,
+		eventType: 'published',
+		message: 'Pin already published; skipped duplicate create',
+		payload: { pinterestPinId: existingPinId, pinterestPinUrl },
+	});
 		await writePinterestPublishHistory({
 			owner,
 			accountId: job.account,
@@ -329,6 +338,15 @@ async function processJob(job) {
 		},
 	});
 
+	if (pin.articleId) {
+		await safeTransitionArticleLifecycle(pin.articleId, 'PUBLISHED', {
+			ownerId: owner,
+			source: 'pinterest_publish_queue',
+			message: 'Pin published successfully',
+			force: true,
+		});
+	}
+
 	await appendPublishEvent({
 		owner,
 		jobId: job.id,
@@ -463,6 +481,17 @@ async function processDueJobs() {
 				publish_error: '',
 			});
 
+			const claimedPin = await pocketbaseClient.collection('ai_pins').getOne(locked.ai_pin).catch(() => null);
+			if (claimedPin?.articleId) {
+				await safeTransitionArticleLifecycle(claimedPin.articleId, 'SCHEDULED', {
+					ownerId: locked.owner,
+					source: 'pinterest_publish_queue',
+					message: 'Publish job claimed / in progress',
+					force: true,
+					allowSame: true,
+				});
+			}
+
 			await appendPublishEvent({
 				owner: locked.owner,
 				jobId: locked.id,
@@ -565,6 +594,17 @@ async function processDueJobs() {
 							rawResponseBody: normalized.rawResponseBody || null,
 						},
 					});
+					const failedPin = await pocketbaseClient.collection('ai_pins').getOne(locked.ai_pin).catch(() => null);
+					if (failedPin?.articleId) {
+						await safeTransitionArticleLifecycle(failedPin.articleId, 'FAILED', {
+							ownerId: locked.owner,
+							source: 'pinterest_publish_queue',
+							message: storedError,
+							failureReason: storedError,
+							failedStage: 'SCHEDULED',
+							force: true,
+						});
+					}
 					await enqueueAnalyticsRefresh(locked.owner).catch(() => null);
 				}
 			}

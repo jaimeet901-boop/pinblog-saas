@@ -8,6 +8,7 @@ import { getCache, setCache } from '../utils/cache.js';
 import { safeGetFullList, extractCollectionFieldNames } from '../utils/pocketbase-safe-query.js';
 import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
 import { getWebsitesControlCenter, getWebsiteDashboard } from '../services/website-control-center.js';
+import articleLifecycleRouter from './article-lifecycle.js';
 
 const router = Router();
 const WEBSITE_FETCH_TIMEOUT_MS = 10000;
@@ -758,6 +759,8 @@ router.get('/:websiteId/stats', async (req, res) => {
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
 	res.json(await getWebsiteStats(site));
 });
+
+router.use('/:websiteId/articles/:articleId/lifecycle', articleLifecycleRouter);
 
 router.get('/:websiteId/articles', async (req, res) => {
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });

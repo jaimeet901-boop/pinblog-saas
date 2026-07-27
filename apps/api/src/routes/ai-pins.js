@@ -11,6 +11,7 @@ import { consumeCredits, getUserCreditUsage, recordGenerationHistory } from '../
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { uploadFiles } from '../middleware/file-upload.js';
 import { normalizeDestinationUrl } from '../utils/pin-publish-destination.js';
+import { safeTransitionArticleLifecycle } from '../services/article-lifecycle.js';
 
 const router = Router();
 const MAX_REFERENCE_IMAGES = 6;
@@ -336,11 +337,30 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 
 	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, ai: 1, image: 0 });
 	const article = mapArticle(articleRecord);
-	const analysis = await analyzeArticleForPin({
-		owner: req.pocketbaseUserId,
-		article,
-		style,
+	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
+		ownerId: req.pocketbaseUserId,
+		source: 'ai_pins.analyze',
+		message: 'AI analysis started',
+		force: true,
 	});
+	let analysis;
+	try {
+		analysis = await analyzeArticleForPin({
+			owner: req.pocketbaseUserId,
+			article,
+			style,
+		});
+	} catch (error) {
+		await safeTransitionArticleLifecycle(articleId, 'FAILED', {
+			ownerId: req.pocketbaseUserId,
+			source: 'ai_pins.analyze',
+			message: error?.message || 'AI analysis failed',
+			failureReason: error?.message || 'AI analysis failed',
+			failedStage: 'AI_GENERATING',
+			force: true,
+		});
+		throw error;
+	}
 
 	await recordGenerationHistory(pocketbaseClient, {
 		owner: req.pocketbaseUserId,
@@ -351,6 +371,19 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		metadata: { style },
 		ai_credits_used: 1,
 		image_credits_used: 0,
+	});
+
+	await safeTransitionArticleLifecycle(articleId, 'AI_COMPLETED', {
+		ownerId: req.pocketbaseUserId,
+		source: 'ai_pins.analyze',
+		message: 'AI analysis completed',
+		force: true,
+	});
+	await safeTransitionArticleLifecycle(articleId, 'READY_FOR_PINS', {
+		ownerId: req.pocketbaseUserId,
+		source: 'ai_pins.analyze',
+		message: 'Article ready for pin generation',
+		force: true,
 	});
 
 	const credits = await getUserCreditUsage(pocketbaseClient, req.pocketbaseUserId);
@@ -376,17 +409,37 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 
 	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, ai: 1, image: 0 });
 	const article = mapArticle(articleRecord);
-	const resolvedAnalysis = analysis || await analyzeArticleForPin({
-		owner: req.pocketbaseUserId,
-		article,
-		style,
+	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
+		ownerId: req.pocketbaseUserId,
+		source: 'ai_pins.prompts',
+		message: 'AI prompt generation started',
+		force: true,
 	});
-	const promptResult = await generateImagePromptForPin({
-		owner: req.pocketbaseUserId,
-		article,
-		analysis: resolvedAnalysis,
-		style,
-	});
+	let resolvedAnalysis;
+	let promptResult;
+	try {
+		resolvedAnalysis = analysis || await analyzeArticleForPin({
+			owner: req.pocketbaseUserId,
+			article,
+			style,
+		});
+		promptResult = await generateImagePromptForPin({
+			owner: req.pocketbaseUserId,
+			article,
+			analysis: resolvedAnalysis,
+			style,
+		});
+	} catch (error) {
+		await safeTransitionArticleLifecycle(articleId, 'FAILED', {
+			ownerId: req.pocketbaseUserId,
+			source: 'ai_pins.prompts',
+			message: error?.message || 'AI prompt generation failed',
+			failureReason: error?.message || 'AI prompt generation failed',
+			failedStage: 'AI_GENERATING',
+			force: true,
+		});
+		throw error;
+	}
 
 	await recordGenerationHistory(pocketbaseClient, {
 		owner: req.pocketbaseUserId,
@@ -398,6 +451,19 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		metadata: { style: promptResult.style, source: promptResult.source },
 		ai_credits_used: 1,
 		image_credits_used: 0,
+	});
+
+	await safeTransitionArticleLifecycle(articleId, 'AI_COMPLETED', {
+		ownerId: req.pocketbaseUserId,
+		source: 'ai_pins.prompts',
+		message: 'AI prompt generation completed',
+		force: true,
+	});
+	await safeTransitionArticleLifecycle(articleId, 'READY_FOR_PINS', {
+		ownerId: req.pocketbaseUserId,
+		source: 'ai_pins.prompts',
+		message: 'Article ready for pin generation',
+		force: true,
 	});
 
 	const credits = await getUserCreditUsage(pocketbaseClient, req.pocketbaseUserId);
