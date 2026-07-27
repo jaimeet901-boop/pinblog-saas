@@ -1,8 +1,15 @@
 /// <reference path="../pb_data/types.d.ts" />
 /**
- * Template Engine Module 1 — additive fields on ai_pin_templates.
- * Non-breaking: all new fields optional / defaultable.
- * Reversible: down removes only fields introduced by this migration.
+ * Ensure Template Engine fields exist on ai_pin_templates.
+ *
+ * Production can be missing visibility/status/deleted_at while still having
+ * hundreds of rows (pre–Module 1 schema). 1783981000 is the original adder;
+ * this migration re-applies the same fields idempotently and FAILS if they
+ * are still absent after save — so the migration cannot be recorded as
+ * applied without the schema actually changing.
+ *
+ * Also hardens against the silent early-return in 1783981000
+ * (`if (!templates) return`), which marks a migration applied with no work.
  */
 
 const coreNS = typeof core !== "undefined" ? core : {};
@@ -44,13 +51,6 @@ function ensureField(collection, def) {
 	return true;
 }
 
-function removeFieldSafe(collection, name) {
-	const field = collection.fields.getByName(name);
-	if (!field) return false;
-	collection.fields.removeById(field.id);
-	return true;
-}
-
 function relationField(name, collectionId, options = {}) {
 	return {
 		name,
@@ -62,10 +62,16 @@ function relationField(name, collectionId, options = {}) {
 	};
 }
 
-// Keep identical to apps/web pinEngineConstants and apps/api pin-engine.js
 const TEMPLATE_CATEGORIES = [
 	"recipes",
+	"dinner",
+	"breakfast",
 	"desserts",
+	"snacks",
+	"drinks",
+	"healthy",
+	"lifestyle",
+	"home",
 	"fitness",
 	"travel",
 	"finance",
@@ -76,29 +82,14 @@ const TEMPLATE_CATEGORIES = [
 const TEMPLATE_STATUS = ["draft", "published", "archived"];
 const TEMPLATE_VISIBILITY = ["private", "workspace", "public", "official", "community"];
 
-const ADDED_FIELD_NAMES = [
-	"workspace_id",
-	"created_by",
-	"deleted_at",
-	"category",
-	"editor_version",
-	"schema_version",
-	"status",
-	"visibility",
-	"last_used_at",
-	"use_count",
-	"variant_group_id",
-	"brand_kit",
-	"marketplace_meta",
-];
+const REQUIRED_AFTER_SAVE = ["status", "visibility", "deleted_at", "workspace_id", "category"];
 
 migrate(
 	(app) => {
 		const templates = findCollectionSafe(app, "ai_pin_templates");
-		// Never silent-return: PocketBase still records the migration as applied.
 		if (!templates) {
 			throw new Error(
-				"1783981000: ai_pin_templates is required before Template Engine fields can be applied",
+				"1783981100: ai_pin_templates is required before Template Engine fields can be applied",
 			);
 		}
 
@@ -146,7 +137,6 @@ migrate(
 
 		dirty = ensureField(templates, { type: "json", name: "marketplace_meta", maxSize: 100000 }) || dirty;
 
-		// Indexes — always ensure (idempotent), even if fields already existed.
 		const indexSql = [
 			"CREATE INDEX `idx_ai_pin_templates_workspace` ON `ai_pin_templates` (`workspace_id`)",
 			"CREATE INDEX `idx_ai_pin_templates_workspace_category` ON `ai_pin_templates` (`workspace_id`, `category`)",
@@ -171,32 +161,16 @@ migrate(
 		}
 
 		const persisted = app.findCollectionByNameOrId("ai_pin_templates");
-		for (const name of ["status", "visibility", "deleted_at"]) {
-			if (!persisted.fields.getByName(name)) {
-				throw new Error(
-					`1783981000: ai_pin_templates missing required field "${name}" after save`,
-				);
-			}
+		const missing = REQUIRED_AFTER_SAVE.filter((name) => !persisted.fields.getByName(name));
+		if (missing.length) {
+			throw new Error(
+				`1783981100: ai_pin_templates still missing fields after ensure: ${missing.join(", ")}`,
+			);
 		}
 	},
 	(app) => {
+		// Non-destructive down: do not strip fields that older migrations also own.
 		const templates = findCollectionSafe(app, "ai_pin_templates");
 		if (!templates) return;
-
-		let dirty = false;
-		for (const name of ADDED_FIELD_NAMES) {
-			dirty = removeFieldSafe(templates, name) || dirty;
-		}
-
-		if (Array.isArray(templates.indexes)) {
-			templates.indexes = templates.indexes.filter((sql) => !String(sql).includes("idx_ai_pin_templates_workspace")
-				&& !String(sql).includes("idx_ai_pin_templates_variant_group")
-				&& !String(sql).includes("idx_ai_pin_templates_created_by"));
-			dirty = true;
-		}
-
-		if (dirty) {
-			app.save(templates);
-		}
 	},
 );
