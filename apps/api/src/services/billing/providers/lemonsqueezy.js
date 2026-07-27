@@ -64,4 +64,16 @@ export class LemonSqueezyBillingProvider extends BillingProvider {
 			payload: req.body || {},
 		};
 	}
+
+	async verifyWebhook(req) {
+		const bypass = process.env.BILLING_WEBHOOK_DEV_BYPASS === '1'
+			&& process.env.NODE_ENV !== 'production';
+		if (bypass) return { ok: true, bypass: true };
+		const secret = this.config?.webhookSecret || process.env.LEMONSQUEEZY_WEBHOOK_SECRET || '';
+		const signature = req.headers?.['x-signature'] || req.headers?.['X-Signature'];
+		if (!secret || !signature) {
+			return { ok: false, error: 'lemonsqueezy_webhook_unverified' };
+		}
+		return { ok: false, error: 'lemonsqueezy_webhook_hmac_not_wired' };
+	}
 }

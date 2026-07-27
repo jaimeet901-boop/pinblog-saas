@@ -76,4 +76,25 @@ export class StripeBillingProvider extends BillingProvider {
 			payload: req.body || {},
 		};
 	}
+
+	async verifyWebhook(req) {
+		const bypass = process.env.BILLING_WEBHOOK_DEV_BYPASS === '1'
+			&& process.env.NODE_ENV !== 'production';
+		if (bypass) return { ok: true, bypass: true };
+
+		const secret = this.config?.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET || '';
+		const signature = req.headers?.['stripe-signature'] || req.headers?.['Stripe-Signature'];
+		if (!secret) return { ok: false, error: 'stripe_webhook_secret_missing' };
+		if (!signature) return { ok: false, error: 'stripe_signature_missing' };
+
+		try {
+			const Stripe = (await import('stripe')).default;
+			const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || this.config?.secretKey || 'sk_unused');
+			const raw = req.rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {}));
+			stripe.webhooks.constructEvent(raw, signature, secret);
+			return { ok: true };
+		} catch (error) {
+			return { ok: false, error: error?.message || 'stripe_signature_invalid' };
+		}
+	}
 }

@@ -150,6 +150,7 @@ export async function continueChefIaPublishWorkflow({
 		const { consumeFeatureCredits } = await import('./ai-pin-credits.js');
 		await consumeFeatureCredits(null, {
 			userId: ownerId,
+			workspaceKey: job.workspace_key || job.workspaceKey || '',
 			feature: 'wordpress_publish',
 			units: 1,
 			reason: `WordPress ${historyResult}`,
@@ -494,10 +495,12 @@ export async function notifyWordpressPublishFailure({ job, error, retrying = fal
 		body: error?.message || job.last_error || 'Unknown error',
 		priority: retrying ? 'low' : 'high',
 		meta: {
-			type: retrying ? 'publish_retrying' : 'publish_failed',
+			type: retrying ? 'publishing_failed' : 'publishing_failed',
+			event: 'publishing_failed',
 			jobId: job.id,
 			provider: 'wordpress',
 			workflowId: workflowIdFor(job),
+			retrying,
 		},
 	});
 

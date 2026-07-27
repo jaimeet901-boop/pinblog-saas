@@ -25,6 +25,8 @@ import { ensureWordpressIntegrationSchema } from './utils/ensure-wordpress-integ
 import { ensureArticleLifecycleSchema } from './utils/ensure-article-lifecycle-schema.js';
 import { ensureCreditsEngineSchema } from './utils/ensure-credits-engine-schema.js';
 import { ensureBillingAutomationSchema } from './utils/ensure-billing-automation-schema.js';
+import { ensureWorkspaceEnterpriseSchema } from './utils/ensure-workspace-enterprise-schema.js';
+import { ensureWorkspaceOwnershipSchema } from './utils/ensure-workspace-ownership-schema.js';
 import { startBillingAutomationWorker, stopBillingAutomationWorker } from './services/billing/index.js';
 import pocketbaseClient from './utils/pocketbaseClient.js';
 
@@ -163,6 +165,12 @@ app.listen(port, () => {
 	});
 	ensureBillingAutomationSchema(pocketbaseClient).catch((error) => {
 		logger.warn('Billing automation schema ensure skipped:', error?.message || error);
+	});
+	ensureWorkspaceEnterpriseSchema(pocketbaseClient).catch((error) => {
+		logger.warn('Workspace enterprise schema ensure skipped:', error?.message || error);
+	});
+	ensureWorkspaceOwnershipSchema(pocketbaseClient).catch((error) => {
+		logger.warn('Workspace ownership schema ensure skipped:', error?.message || error);
 	});
 	startPinterestPublishQueue();
 	startPinterestAnalyticsSync();

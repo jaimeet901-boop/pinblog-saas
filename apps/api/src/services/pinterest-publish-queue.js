@@ -27,6 +27,7 @@ import { notifyWorkspaceUser, logWorkflowStep } from './workspace-notify.js';
 import { enqueueAnalyticsRefresh } from './analytics/refresh.js';
 import { resolvePinDestinationUrl, validatePinForPinterestPublish } from '../utils/pin-publish-destination.js';
 import { safeTransitionArticleLifecycle } from './article-lifecycle.js';
+import { workspaceKeyForUser } from './workspace-context.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.PINTEREST_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.PINTEREST_QUEUE_BATCH || '10', 10);
@@ -376,6 +377,7 @@ async function processJob(job) {
 	const { consumeFeatureCredits } = await import('./ai-pin-credits.js');
 	await consumeFeatureCredits(null, {
 		userId: owner,
+		workspaceKey: job.workspace_key || job.workspaceKey || workspaceKeyForUser(owner),
 		feature: 'pin_publish',
 		units: 1,
 		reason: 'Pinterest pin published',
@@ -403,7 +405,8 @@ async function processJob(job) {
 		body: pinterestPinUrl || `${pin.title || 'Pin'} published successfully`,
 		priority: 'normal',
 		meta: {
-			type: isRetrySuccess ? 'publish_retry_success' : 'publish_success',
+			type: isRetrySuccess ? 'publishing_completed' : 'publishing_completed',
+			event: 'publishing_completed',
 			provider: 'pinterest',
 			jobId: job.id,
 			pinterestPinId,
@@ -581,9 +584,11 @@ async function processDueJobs() {
 					body: normalized.message,
 					priority: shouldRetry ? 'low' : 'high',
 					meta: {
-						type: shouldRetry ? 'publish_retrying' : 'publish_failed',
+						type: 'publishing_failed',
+						event: 'publishing_failed',
 						provider: 'pinterest',
 						jobId: locked.id,
+						retrying: shouldRetry,
 					},
 				}).catch(() => null);
 

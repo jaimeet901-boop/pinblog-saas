@@ -9,6 +9,7 @@ import { ProtectedRoute, Spinner } from '@/components/kit';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { WorkspaceConfigProvider } from '@/context/WorkspaceConfigContext';
+import { WorkspaceProvider } from '@/context/WorkspaceContext';
 
 import LandingPage from '@/pages/LandingPage';
 import LegalPage from '@/pages/LegalPage';
@@ -95,8 +96,9 @@ function App() {
 		<ThemeProvider>
 			<AuthProvider>
 				<Router>
-					<ScrollToTop />
-					<Routes>
+					<WorkspaceProvider>
+						<ScrollToTop />
+						<Routes>
 						<Route path="/" element={<LandingPage />} />
 						<Route path="/privacy" element={<LegalPage slug="privacy" />} />
 						<Route path="/terms" element={<LegalPage slug="terms" />} />
@@ -155,6 +157,7 @@ function App() {
 						<Route path="*" element={<NotFoundPage />} />
 					</Routes>
 					<Toaster />
+					</WorkspaceProvider>
 				</Router>
 			</AuthProvider>
 		</ThemeProvider>

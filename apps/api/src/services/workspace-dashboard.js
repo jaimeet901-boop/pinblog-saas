@@ -3,6 +3,8 @@ import { httpError } from '../middleware/require-admin.js';
 import { assertCapability } from './workspace-rbac.js';
 import { getSubscriptionPlan } from './workspace-context.js';
 import { getWorkspaceCredits, getWorkspaceUsage } from './workspace-billing.js';
+import { listWorkspaceResources } from './workspace-ownership.js';
+import { computeWorkspaceHealthDetailed } from './workspace-health.js';
 
 function statusTone(status) {
 	if (status === 'published' || status === 'connected' || status === 'completed') return 'green';
@@ -11,24 +13,54 @@ function statusTone(status) {
 	return 'default';
 }
 
-async function listOwned(collection, ownerId, { sort = '-created', perPage = 20 } = {}) {
-	return pocketbaseClient.collection(collection).getList(1, perPage, {
-		filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-		sort,
+async function listOwned(collection, req, { sort = '-created', perPage = 20 } = {}) {
+	return listWorkspaceResources(collection, req, { sort, perPage });
+}
+
+async function loadMonthlyTrends(ownerId, workspaceKey) {
+	const months = [];
+	const now = new Date();
+	for (let i = 5; i >= 0; i -= 1) {
+		const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+		months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+	}
+
+	const usageRows = await pocketbaseClient.collection('workspace_usage').getFullList({
+		filter: pocketbaseClient.filter('workspace_key = {:key}', { key: workspaceKey }),
+		sort: '-period',
 		requestKey: null,
-	}).catch(() => ({ items: [], totalItems: 0 }));
+	}).catch(() => []);
+
+	const byPeriod = new Map();
+	for (const row of usageRows) {
+		const key = String(row.period || '').slice(0, 7);
+		if (key) byPeriod.set(key, row);
+	}
+
+	return months.map((period) => {
+		const row = byPeriod.get(period);
+		return {
+			period,
+			creditsUsed: Number(row?.credits_burned) || 0,
+			aiRequests: Number(row?.tokens) || 0,
+			articles: Number(row?.articles) || 0,
+			images: Number(row?.images) || 0,
+			pins: Number(row?.pins) || 0,
+		};
+	});
 }
 
 export async function getWorkspaceDashboard(req) {
 	assertCapability(req, 'workspace.read');
-	const ownerId = req.pocketbaseUserId;
+	const ownerId = req.workspaceOwnerId || req.workspace?.owner || req.pocketbaseUserId;
+	const viewerId = req.pocketbaseUserId;
 	const plan = await getSubscriptionPlan(req.workspaceSubscription);
-	const [usage, credits, websites, articles, pins, activity, notifications, providers] = await Promise.all([
+	const [usage, credits, websites, articles, pins, activity, notifications, providers, members, monthlyTrends, health] = await Promise.all([
 		getWorkspaceUsage(req),
 		getWorkspaceCredits(req),
-		listOwned('websites', ownerId, { perPage: 50 }),
-		listOwned('articles', ownerId, { perPage: 10 }),
-		listOwned('pins', ownerId, { perPage: 20 }),
+		listOwned('websites', req, { perPage: 50 }),
+		listOwned('articles', req, { perPage: 10 }),
+		listOwned('pins', req, { perPage: 20 }),
 		pocketbaseClient.collection('workspace_activity').getList(1, 15, {
 			filter: pocketbaseClient.filter('workspace = {:ws}', { ws: req.workspace.id }),
 			sort: '-created',
@@ -36,8 +68,8 @@ export async function getWorkspaceDashboard(req) {
 		}).catch(() => ({ items: [] })),
 		pocketbaseClient.collection('workspace_notifications').getList(1, 10, {
 			filter: pocketbaseClient.filter(
-				'workspace = {:ws} && (user = "" || user = {:user})',
-				{ ws: req.workspace.id, user: ownerId },
+				'workspace = {:ws} && (user = "" || user = {:user} || user = {:viewer})',
+				{ ws: req.workspace.id, user: ownerId, viewer: viewerId },
 			),
 			sort: '-created',
 			requestKey: null,
@@ -47,26 +79,40 @@ export async function getWorkspaceDashboard(req) {
 			fields: 'id,code,name,status,enabled',
 			requestKey: null,
 		}).catch(() => []),
+		pocketbaseClient.collection('workspace_members').getFullList({
+			filter: pocketbaseClient.filter('workspace = {:ws} && (status = "active" || status = "invited")', {
+				ws: req.workspace.id,
+			}),
+			fields: 'id,role,status',
+			requestKey: null,
+		}).catch(() => []),
+		loadMonthlyTrends(ownerId, req.workspaceKey),
+		computeWorkspaceHealthDetailed({
+			workspace: req.workspace,
+			subscription: req.workspaceSubscription,
+			ownerId,
+			req,
+		}).catch(() => ({
+			score: null,
+			label: 'unknown',
+			issues: [],
+			recommendations: [],
+			integrations: {},
+			metrics: {},
+		})),
 	]);
 
 	let pinterestAccounts = [];
 	try {
-		const result = await pocketbaseClient.collection('pinterest_accounts').getFullList({
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-			requestKey: null,
-		});
-		pinterestAccounts = result;
+		const result = await listWorkspaceResources('pinterest_accounts', req, { perPage: 50 });
+		pinterestAccounts = result.items || [];
 	} catch {
 		pinterestAccounts = [];
 	}
 
 	let publishJobs = [];
 	try {
-		const result = await pocketbaseClient.collection('pinterest_publish_jobs').getList(1, 100, {
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-			sort: '-updated',
-			requestKey: null,
-		});
+		const result = await listWorkspaceResources('pinterest_publish_jobs', req, { perPage: 100, sort: '-updated' });
 		publishJobs = result.items || [];
 	} catch {
 		publishJobs = [];
@@ -74,11 +120,7 @@ export async function getWorkspaceDashboard(req) {
 
 	let wordpressJobs = [];
 	try {
-		const result = await pocketbaseClient.collection('publish_jobs').getList(1, 100, {
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-			sort: '-updated',
-			requestKey: null,
-		});
+		const result = await listWorkspaceResources('publish_jobs', req, { perPage: 100, sort: '-updated' });
 		wordpressJobs = result.items || [];
 	} catch {
 		wordpressJobs = [];
@@ -86,12 +128,9 @@ export async function getWorkspaceDashboard(req) {
 
 	let queueDepth = 0;
 	try {
-		const depth = await pocketbaseClient.collection('queue_jobs').getList(1, 1, {
-			filter: pocketbaseClient.filter(
-				'owner = {:owner} && (status = "pending" || status = "queued" || status = "waiting" || status = "waiting_provider" || status = "retrying" || status = "running")',
-				{ owner: ownerId },
-			),
-			requestKey: null,
+		const depth = await listWorkspaceResources('queue_jobs', req, {
+			perPage: 1,
+			extraFilter: '(status = "pending" || status = "queued" || status = "waiting" || status = "waiting_provider" || status = "retrying" || status = "running")',
 		});
 		queueDepth = depth.totalItems || 0;
 	} catch {
@@ -225,6 +264,12 @@ export async function getWorkspaceDashboard(req) {
 			}));
 	}
 
+	const storageUsedGb = Number(req.workspace.metadata?.storageUsedGb)
+		|| Math.round(((Number(usage.totals?.tokens) || 0) / 1_000_000) * 10) / 10
+		|| 0.1;
+	const storageLimitGb = Number(req.workspace.metadata?.storageLimitGb)
+		|| (plan?.slug === 'agency' ? 100 : plan?.slug === 'pro' ? 50 : plan?.slug === 'starter' ? 20 : 5);
+
 	return {
 		workspace: {
 			id: req.workspace.id,
@@ -232,6 +277,8 @@ export async function getWorkspaceDashboard(req) {
 			slug: req.workspace.slug,
 			status: req.workspace.status,
 			role: req.workspaceRole,
+			ownerId,
+			planSlug: plan?.slug || req.workspace.plan_slug || 'free',
 		},
 		plan: {
 			slug: plan?.slug || 'free',
@@ -247,12 +294,32 @@ export async function getWorkspaceDashboard(req) {
 			remaining: credits.remaining,
 		},
 		usage,
+		usageDashboard: {
+			creditsUsed: Number(credits.used) || 0,
+			creditsRemaining: Number(credits.remaining ?? credits.balance) || 0,
+			storageUsedGb,
+			storageLimitGb,
+			aiRequests: Number(usage.totals?.tokens) || Number(usage.tokens) || 0,
+			generatedArticles: articles.totalItems || 0,
+			generatedImages: pins.items.filter((pin) => pin.image_url).length || Number(usage.totals?.images) || 0,
+			generatedPins: pins.totalItems || 0,
+			wordpressPublications: publishedWp,
+			pinterestPublications: publishedPins,
+			monthlyTrends,
+		},
+		members: {
+			total: members.length,
+			active: members.filter((row) => row.status === 'active').length,
+			invited: members.filter((row) => row.status === 'invited').length,
+			seats: Number(req.workspaceSubscription?.seats) || 1,
+		},
 		statistics: {
 			websites: websites.totalItems || 0,
 			articles: articles.totalItems || 0,
 			pins: pins.totalItems || 0,
 			images: recentImages.length,
 			publishedPins,
+			publishedWordpress: publishedWp,
 			publishedPosts,
 			scheduledJobs,
 			failedJobs,
@@ -261,6 +328,9 @@ export async function getWorkspaceDashboard(req) {
 			pinterestAccounts: connectedPinterest,
 			successRate,
 			monthArticles: usage.totals?.monthArticles || 0,
+			storageUsedGb,
+			storageLimitGb,
+			members: members.length,
 		},
 		websites: websites.items.map((site) => ({
 			id: site.id,
@@ -307,18 +377,11 @@ export async function getWorkspaceDashboard(req) {
 				created: item.created,
 			})),
 		},
+		health,
 	};
 }
 
 export async function recordWorkspaceActivity(req, { type, title, summary = '', tone = 'default', meta = {} }) {
-	if (!req.workspace?.id) return null;
-	return pocketbaseClient.collection('workspace_activity').create({
-		workspace: req.workspace.id,
-		user: req.pocketbaseUserId,
-		type,
-		title,
-		summary,
-		tone,
-		meta,
-	}).catch(() => null);
+	const { recordTypedWorkspaceActivity } = await import('./workspace-activity.js');
+	return recordTypedWorkspaceActivity(req, { type, title, summary, tone, meta });
 }

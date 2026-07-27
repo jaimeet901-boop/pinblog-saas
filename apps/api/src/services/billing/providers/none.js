@@ -50,4 +50,8 @@ export class NoneBillingProvider extends BillingProvider {
 			payload: { ignored: true },
 		};
 	}
+
+	async verifyWebhook() {
+		return { ok: true, provider: 'none' };
+	}
 }

@@ -24,3 +24,25 @@ export function requireWorkspaceCapability(capability) {
 		}
 	};
 }
+
+/**
+ * Require a capability (or any of several) for mutating HTTP methods only.
+ */
+export function requireWorkspaceMutation(capabilityOrList) {
+	const capabilities = Array.isArray(capabilityOrList) ? capabilityOrList : [capabilityOrList];
+	return (req, res, next) => {
+		if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+			return next();
+		}
+		let lastError = null;
+		for (const capability of capabilities) {
+			try {
+				assertCapability(req, capability);
+				return next();
+			} catch (error) {
+				lastError = error;
+			}
+		}
+		return next(lastError);
+	};
+}

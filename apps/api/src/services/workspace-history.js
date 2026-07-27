@@ -1,52 +1,31 @@
-import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { assertCapability } from './workspace-rbac.js';
 
 /**
- * Unified generation / publishing history for the workspace owner.
- * Isolates by owner (personal workspace) — never cross-tenant.
+ * Unified generation / publishing history for the active workspace.
+ * Scoped by workspace (+ legacy owner fallback), not acting user id.
  */
 export async function getWorkspaceHistory(req, query = {}) {
 	assertCapability(req, 'workspace.read');
-	const ownerId = req.pocketbaseUserId;
+	const { listWorkspaceResources } = await import('./workspace-ownership.js');
 	const page = Math.max(1, Number(query.page) || 1);
 	const perPage = Math.min(50, Math.max(1, Number(query.perPage) || 20));
 	const type = String(query.type || 'all').toLowerCase();
 
 	const [articles, pins, generations, publishJobs, imageJobs] = await Promise.all([
 		type === 'all' || type === 'articles'
-			? pocketbaseClient.collection('articles').getList(page, perPage, {
-				filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-				sort: '-created',
-				requestKey: null,
-			}).catch(() => ({ items: [], totalItems: 0 }))
+			? listWorkspaceResources('articles', req, { page, perPage, sort: '-created' })
 			: Promise.resolve({ items: [], totalItems: 0 }),
 		type === 'all' || type === 'images' || type === 'recipes'
-			? pocketbaseClient.collection('pins').getList(page, perPage, {
-				filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-				sort: '-created',
-				requestKey: null,
-			}).catch(() => ({ items: [], totalItems: 0 }))
+			? listWorkspaceResources('pins', req, { page, perPage, sort: '-created' })
 			: Promise.resolve({ items: [], totalItems: 0 }),
 		type === 'all' || type === 'exports' || type === 'generations'
-			? pocketbaseClient.collection('ai_pin_generation_history').getList(page, perPage, {
-				filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-				sort: '-created',
-				requestKey: null,
-			}).catch(() => ({ items: [], totalItems: 0 }))
+			? listWorkspaceResources('ai_pin_generation_history', req, { page, perPage, sort: '-created' })
 			: Promise.resolve({ items: [], totalItems: 0 }),
 		type === 'all' || type === 'publishing'
-			? pocketbaseClient.collection('pinterest_publish_jobs').getList(page, perPage, {
-				filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-				sort: '-created',
-				requestKey: null,
-			}).catch(() => ({ items: [], totalItems: 0 }))
+			? listWorkspaceResources('pinterest_publish_jobs', req, { page, perPage, sort: '-created' })
 			: Promise.resolve({ items: [], totalItems: 0 }),
 		type === 'all' || type === 'images'
-			? pocketbaseClient.collection('ai_pin_image_jobs').getList(page, perPage, {
-				filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-				sort: '-created',
-				requestKey: null,
-			}).catch(() => ({ items: [], totalItems: 0 }))
+			? listWorkspaceResources('ai_pin_image_jobs', req, { page, perPage, sort: '-created' })
 			: Promise.resolve({ items: [], totalItems: 0 }),
 	]);
 

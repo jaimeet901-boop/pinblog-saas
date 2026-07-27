@@ -46,29 +46,23 @@ async function countOwned(collection, ownerId, extraFilter = '') {
 
 export async function getWorkspaceUsage(req) {
 	assertCapability(req, 'workspace.read');
-	const ownerId = req.pocketbaseUserId;
+	const ownerId = req.workspaceOwnerId || req.workspace?.owner || req.pocketbaseUserId;
 	const workspaceKey = req.workspaceKey;
 	const period = currentPeriod();
 	const usageRow = await getOrCreateUsage(workspaceKey, period);
 
+	const { countWorkspaceResources } = await import('./workspace-ownership.js');
 	const [articles, pins, websites, aiPins, history] = await Promise.all([
-		countOwned('articles', ownerId),
-		countOwned('pins', ownerId),
-		countOwned('websites', ownerId),
-		countOwned('ai_pins', ownerId),
-		pocketbaseClient.collection('ai_pin_generation_history').getList(1, 1, {
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-			requestKey: null,
-		}).catch(() => ({ totalItems: 0 })),
+		countWorkspaceResources('articles', req),
+		countWorkspaceResources('pins', req),
+		countWorkspaceResources('websites', req),
+		countWorkspaceResources('ai_pins', req).catch(() => 0),
+		countWorkspaceResources('ai_pin_generation_history', req).catch(() => 0),
 	]);
 
 	let pinterestAccounts = 0;
 	try {
-		const accounts = await pocketbaseClient.collection('pinterest_accounts').getList(1, 1, {
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-			requestKey: null,
-		});
-		pinterestAccounts = accounts.totalItems || 0;
+		pinterestAccounts = await countWorkspaceResources('pinterest_accounts', req);
 	} catch {
 		pinterestAccounts = 0;
 	}
@@ -76,7 +70,8 @@ export async function getWorkspaceUsage(req) {
 	const now = new Date();
 	const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 	const monthArticles = await pocketbaseClient.collection('articles').getList(1, 1, {
-		filter: pocketbaseClient.filter('owner = {:owner} && created >= {:start}', {
+		filter: pocketbaseClient.filter('(workspace = {:ws} || owner = {:owner}) && created >= {:start}', {
+			ws: req.workspace?.id || '',
 			owner: ownerId,
 			start: monthStart,
 		}),
@@ -98,8 +93,10 @@ export async function getWorkspaceUsage(req) {
 			pins: aiPins || pins,
 			websites,
 			pinterestAccounts,
-			generations: history.totalItems || 0,
+			generations: typeof history === 'number' ? history : (history.totalItems || 0),
 			monthArticles: monthArticles.totalItems || 0,
+			tokens: Number(usageRow.tokens) || 0,
+			creditsBurned: Number(usageRow.credits_burned) || 0,
 		},
 	};
 }
@@ -245,8 +242,9 @@ export async function changeWorkspacePlan(req, payload = {}) {
 		plan_slug: plan.slug,
 	});
 
-	// Keep legacy users.plan in sync for existing UI/credits helpers.
-	await pocketbaseClient.collection('users').update(req.pocketbaseUserId, {
+	// Keep legacy users.plan in sync for the workspace owner (not the acting member).
+	const ownerUserId = req.workspaceOwnerId || req.workspace?.owner || req.pocketbaseUserId;
+	await pocketbaseClient.collection('users').update(ownerUserId, {
 		plan: plan.slug,
 	}).catch(() => null);
 

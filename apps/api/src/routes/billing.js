@@ -14,13 +14,31 @@ function asyncHandler(fn) {
  * POST /billing/webhooks/:provider
  */
 router.post('/webhooks/:provider', asyncHandler(async (req, res) => {
-	const result = await handleBillingWebhook(req, req.params.provider);
-	res.status(200).json(result);
+	try {
+		const result = await handleBillingWebhook(req, req.params.provider);
+		res.status(200).json(result);
+	} catch (error) {
+		const status = error?.status || 500;
+		res.status(status).json({
+			ok: false,
+			error: error?.errorCode || 'WEBHOOK_ERROR',
+			message: error?.message || 'Webhook failed',
+		});
+	}
 }));
 
 router.post('/webhooks', asyncHandler(async (req, res) => {
-	const result = await handleBillingWebhook(req);
-	res.status(200).json(result);
+	try {
+		const result = await handleBillingWebhook(req);
+		res.status(200).json(result);
+	} catch (error) {
+		const status = error?.status || 500;
+		res.status(status).json({
+			ok: false,
+			error: error?.errorCode || 'WEBHOOK_ERROR',
+			message: error?.message || 'Webhook failed',
+		});
+	}
 }));
 
 export default router;

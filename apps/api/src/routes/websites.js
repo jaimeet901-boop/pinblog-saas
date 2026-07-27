@@ -164,16 +164,19 @@ async function resolveWebsitesSchema() {
 	}
 }
 
-async function createWebsiteRecord({ payload, urlField, context }) {
+async function createWebsiteRecord({ payload, urlField, context, req = null }) {
+	const { stampCreateOwnership } = await import('../services/workspace-ownership.js');
+	const nextPayload = req ? stampCreateOwnership(req, payload) : payload;
+
 	logger.info('PocketBase createRecord payload', {
 		context,
 		collection: 'websites',
 		urlField,
-		payload,
-		payloadUrl: payload?.[urlField],
+		payload: nextPayload,
+		payloadUrl: nextPayload?.[urlField],
 	});
 
-	const record = await pocketbaseClient.collection('websites').create(payload);
+	const record = await pocketbaseClient.collection('websites').create(nextPayload);
 
 	logger.info('PocketBase createRecord response', {
 		context,
@@ -951,6 +954,7 @@ router.post('/', async (req, res) => {
 		payload: createPayload,
 		urlField: websitesSchema.urlField,
 		context: 'websites:post:create',
+		req,
 	});
 	const persistedAfterCreate = await pocketbaseClient.collection('websites').getOne(record.id).catch(() => null);
 

@@ -85,6 +85,14 @@ export class BillingProvider {
 	}
 
 	/**
+	 * Verify inbound webhook authenticity. Providers must fail closed when not verified.
+	 * @returns {Promise<{ ok: boolean, error?: string, bypass?: boolean }>}
+	 */
+	async verifyWebhook(_req) {
+		return { ok: false, error: 'webhook_verification_not_implemented' };
+	}
+
+	/**
 	 * Verify and normalize an inbound webhook payload.
 	 * @returns {Promise<{ idempotencyKey: string, eventType: string, payload: object }>}
 	 */

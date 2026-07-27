@@ -70,6 +70,7 @@ export async function getUserCreditUsage(pocketbaseClient, userId) {
 
 export async function consumeFeatureCredits(pocketbaseClientArg, {
 	userId,
+	workspaceKey: workspaceKeyInput = '',
 	feature,
 	units = 1,
 	reason = '',
@@ -79,7 +80,7 @@ export async function consumeFeatureCredits(pocketbaseClientArg, {
 } = {}) {
 	const pb = pocketbaseClientArg || (await import('../utils/pocketbaseClient.js')).default;
 	const user = await pb.collection('users').getOne(userId).catch(() => null);
-	const workspaceKey = workspaceKeyForUser(userId);
+	const workspaceKey = String(workspaceKeyInput || '').trim() || workspaceKeyForUser(userId);
 	await ensureWorkspaceWallet(workspaceKey, {
 		workspaceName: user?.name || user?.email || workspaceKey,
 		ownerEmail: user?.email || '',
@@ -99,13 +100,20 @@ export async function consumeFeatureCredits(pocketbaseClientArg, {
 	});
 }
 
-export async function consumeCredits(pocketbaseClient, { userId, ai = 0, image = 0 }) {
+export async function consumeCredits(pocketbaseClient, {
+	userId,
+	workspaceKey = '',
+	ai = 0,
+	image = 0,
+}) {
 	const aiCount = Number(ai) || 0;
 	const imageCount = Number(image) || 0;
+	const key = String(workspaceKey || '').trim() || workspaceKeyForUser(userId);
 
 	if (aiCount > 0) {
 		await consumeFeatureCredits(pocketbaseClient, {
 			userId,
+			workspaceKey: key,
 			feature: aiCount > 1 ? 'ai_writer' : 'ai_analyze',
 			units: aiCount,
 			reason: `AI credits ×${aiCount}`,
@@ -115,6 +123,7 @@ export async function consumeCredits(pocketbaseClient, { userId, ai = 0, image =
 	if (imageCount > 0) {
 		await consumeFeatureCredits(pocketbaseClient, {
 			userId,
+			workspaceKey: key,
 			feature: 'ai_image',
 			units: imageCount,
 			reason: `Image credits ×${imageCount}`,

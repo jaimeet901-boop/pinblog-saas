@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { pocketbaseAuth } from '../../middleware/pocketbase-auth.js';
 import { resolveWorkspace } from '../../middleware/resolve-workspace.js';
-import { mapMemberDto } from '../../services/workspace-rbac.js';
 import {
 	getWorkspaceSettings,
 	updateWorkspaceSettings,
@@ -67,7 +66,6 @@ import {
 	workspaceConfigEtag,
 	WORKSPACE_CONFIG_API_VERSION,
 } from '../../services/workspace-config.js';
-import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import queueRouter from './queue.js';
 import analyticsRouter from './analytics.js';
 import logsRouter from './logs.js';
@@ -135,6 +133,7 @@ router.get('/me', async (req, res) => {
 	res.json({
 		workspace: req.workspaceDto,
 		role: req.workspaceRole,
+		capabilities: req.workspaceDto?.capabilities || [],
 		user: {
 			id: req.workspaceUser.id,
 			name: req.workspaceUser.name,
@@ -144,13 +143,115 @@ router.get('/me', async (req, res) => {
 	});
 });
 
-router.get('/members', async (req, res) => {
-	const records = await pocketbaseClient.collection('workspace_members').getFullList({
-		filter: pocketbaseClient.filter('workspace = {:ws} && status = "active"', { ws: req.workspace.id }),
-		requestKey: null,
-	});
-	res.json({ items: records.map(mapMemberDto), totalItems: records.length });
-});
+router.get('/workspaces', asyncHandler(async (req, res) => {
+	const { listUserWorkspaces } = await import('../../services/workspace-context.js');
+	res.json({ items: await listUserWorkspaces(req.pocketbaseUserId) });
+}));
+
+router.get('/members', asyncHandler(async (req, res) => {
+	const { listWorkspaceMembers } = await import('../../services/workspace-members.js');
+	res.json(await listWorkspaceMembers(req, req.query || {}));
+}));
+
+router.post('/members/invite', asyncHandler(async (req, res) => {
+	const { inviteWorkspaceMember } = await import('../../services/workspace-members.js');
+	res.status(201).json(await inviteWorkspaceMember(req, req.body || {}));
+}));
+
+router.post('/members/accept', asyncHandler(async (req, res) => {
+	const { acceptWorkspaceInvite } = await import('../../services/workspace-members.js');
+	res.json(await acceptWorkspaceInvite(req, req.body || {}));
+}));
+
+router.post('/members/:id/resend', asyncHandler(async (req, res) => {
+	const { resendWorkspaceInvite } = await import('../../services/workspace-members.js');
+	res.json(await resendWorkspaceInvite(req, req.params.id));
+}));
+
+router.post('/members/:id/revoke', asyncHandler(async (req, res) => {
+	const { revokeWorkspaceInvite } = await import('../../services/workspace-members.js');
+	res.json(await revokeWorkspaceInvite(req, req.params.id));
+}));
+
+router.patch('/members/:id', asyncHandler(async (req, res) => {
+	const { updateWorkspaceMember } = await import('../../services/workspace-members.js');
+	res.json(await updateWorkspaceMember(req, req.params.id, req.body || {}));
+}));
+
+router.post('/members/:id/suspend', asyncHandler(async (req, res) => {
+	const { suspendWorkspaceMember } = await import('../../services/workspace-members.js');
+	res.json(await suspendWorkspaceMember(req, req.params.id, req.body || {}));
+}));
+
+router.post('/members/:id/reactivate', asyncHandler(async (req, res) => {
+	const { reactivateWorkspaceMember } = await import('../../services/workspace-members.js');
+	res.json(await reactivateWorkspaceMember(req, req.params.id));
+}));
+
+router.delete('/members/:id', asyncHandler(async (req, res) => {
+	const { removeWorkspaceMember } = await import('../../services/workspace-members.js');
+	res.json(await removeWorkspaceMember(req, req.params.id));
+}));
+
+router.post('/ownership/transfer', asyncHandler(async (req, res) => {
+	const { transferWorkspaceOwnership } = await import('../../services/workspace-members.js');
+	res.json(await transferWorkspaceOwnership(req, req.body || {}));
+}));
+
+router.get('/roles', asyncHandler(async (req, res) => {
+	const { listWorkspaceRoles } = await import('../../services/workspace-members.js');
+	res.json(await listWorkspaceRoles(req));
+}));
+
+router.post('/roles', asyncHandler(async (req, res) => {
+	const { createWorkspaceRole } = await import('../../services/workspace-members.js');
+	res.status(201).json(await createWorkspaceRole(req, req.body || {}));
+}));
+
+router.patch('/roles/:id', asyncHandler(async (req, res) => {
+	const { updateWorkspaceRole } = await import('../../services/workspace-members.js');
+	res.json(await updateWorkspaceRole(req, req.params.id, req.body || {}));
+}));
+
+router.delete('/roles/:id', asyncHandler(async (req, res) => {
+	const { deleteWorkspaceRole } = await import('../../services/workspace-members.js');
+	res.json(await deleteWorkspaceRole(req, req.params.id));
+}));
+
+router.get('/activity', asyncHandler(async (req, res) => {
+	const { listWorkspaceActivityTimeline } = await import('../../services/workspace-activity.js');
+	res.json(await listWorkspaceActivityTimeline(req, req.query || {}));
+}));
+
+router.get('/audit', asyncHandler(async (req, res) => {
+	const { listWorkspaceAudit } = await import('../../services/workspace-audit.js');
+	res.json(await listWorkspaceAudit(req, req.query || {}));
+}));
+
+router.get('/health', asyncHandler(async (req, res) => {
+	const { computeWorkspaceHealthDetailed } = await import('../../services/workspace-health.js');
+	res.json(await computeWorkspaceHealthDetailed({
+		workspace: req.workspace,
+		subscription: req.workspaceSubscription,
+		ownerId: req.workspaceOwnerId,
+		req,
+	}));
+}));
+
+router.get('/onboarding', asyncHandler(async (req, res) => {
+	const { getWorkspaceOnboarding } = await import('../../services/workspace-onboarding.js');
+	res.json(await getWorkspaceOnboarding(req));
+}));
+
+router.patch('/onboarding', asyncHandler(async (req, res) => {
+	const { updateWorkspaceOnboarding } = await import('../../services/workspace-onboarding.js');
+	res.json(await updateWorkspaceOnboarding(req, req.body || {}));
+}));
+
+router.post('/onboarding', asyncHandler(async (req, res) => {
+	const { updateWorkspaceOnboarding } = await import('../../services/workspace-onboarding.js');
+	res.json(await updateWorkspaceOnboarding(req, req.body || {}));
+}));
 
 router.get('/dashboard', async (req, res) => {
 	res.json(await getWorkspaceDashboard(req));

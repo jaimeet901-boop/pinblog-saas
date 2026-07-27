@@ -335,7 +335,7 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		throw httpError(404, 'Article not found');
 	}
 
-	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, ai: 1, image: 0 });
+	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, workspaceKey: req.workspaceKey, ai: 1, image: 0 });
 	const article = mapArticle(articleRecord);
 	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
 		ownerId: req.pocketbaseUserId,
@@ -407,7 +407,7 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		throw httpError(404, 'Article not found');
 	}
 
-	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, ai: 1, image: 0 });
+	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, workspaceKey: req.workspaceKey, ai: 1, image: 0 });
 	const article = mapArticle(articleRecord);
 	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
 		ownerId: req.pocketbaseUserId,

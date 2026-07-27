@@ -11,6 +11,15 @@ export async function handleBillingWebhook(req, providerCode = '') {
 	const config = await resolveBillingConfig();
 	const code = providerCode || config.provider;
 	const provider = await getBillingProvider(code);
+
+	const verified = await provider.verifyWebhook(req).catch(() => ({ ok: false, error: 'verify_failed' }));
+	if (!verified?.ok) {
+		const error = new Error(verified?.error || 'Webhook signature verification failed');
+		error.status = 401;
+		error.errorCode = 'WEBHOOK_UNAUTHORIZED';
+		throw error;
+	}
+
 	const parsed = await provider.parseWebhook(req);
 	const idempotencyKey = String(parsed.idempotencyKey || '').slice(0, 180);
 	if (!idempotencyKey) {

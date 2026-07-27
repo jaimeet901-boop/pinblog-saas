@@ -12,6 +12,8 @@ import {
 	clearCreditThresholdFlags,
 	notifyCreditsReset,
 	notifyPaymentFailed,
+	notifyPlanDowngraded,
+	notifyPlanUpgraded,
 	notifySubscriptionEnding,
 	notifyTrialEnding,
 } from './notifications.js';
@@ -183,6 +185,11 @@ export async function upgradeSubscription(workspaceKey, planSlugOrId, { actor = 
 			provider: provider.code,
 			metadata: { remote, immediate: true },
 		});
+		await notifyPlanUpgraded(
+			{ ...subscription, credits_balance: nextCredits, plan: nextPlan.id },
+			fromPlan,
+			nextPlan.slug,
+		).catch(() => null);
 		return { upgraded: true, immediate: true, fromPlan, toPlan: nextPlan.slug, remote };
 	}
 
@@ -253,6 +260,11 @@ export async function downgradeSubscription(workspaceKey, planSlugOrId, { actor 
 		toPlan: nextPlan.slug,
 		credits: balance,
 	});
+	await notifyPlanDowngraded(
+		{ ...subscription, credits_balance: balance, plan: nextPlan.id },
+		fromPlan,
+		nextPlan.slug,
+	).catch(() => null);
 	return { downgraded: true, immediate: true, fromPlan, toPlan: nextPlan.slug, balance };
 }
 

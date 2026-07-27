@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { pocketbaseAuth } from '../../middleware/pocketbase-auth.js';
 import { requireAdmin } from '../../middleware/require-admin.js';
-import { attachWorkspace, requireWorkspaceRead } from '../../middleware/product-access.js';
+import { attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation } from '../../middleware/product-access.js';
 import {
 	listWordpressSites,
 	setDefaultWordpressSite,
@@ -79,6 +79,7 @@ async function waitForJobResult(ownerId, jobId, { timeoutMs = 25000, intervalMs 
 router.use(pocketbaseAuth);
 router.use(attachWorkspace);
 router.use(requireWorkspaceRead);
+router.use(requireWorkspaceMutation('workspace.wordpress.publish'));
 
 router.get('/auth-providers', async (_req, res) => {
 	res.json({ items: listWordpressAuthProviders() });

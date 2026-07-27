@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useMemo, useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import AuthShell from './AuthShell';
 import { Button, Input, Spinner } from '@/components/kit';
@@ -33,17 +33,23 @@ function OAuthButton({ provider, disabled, loading, onClick }) {
 export default function SignupPage() {
 	const { signup, loginWithOAuth, authMethods } = useAuth();
 	const navigate = useNavigate();
+	const [searchParams] = useSearchParams();
 	const { toast } = useToast();
 	const [form, setForm] = useState({
 		name: '',
 		workspaceName: '',
-		email: '',
+		email: searchParams.get('email') || '',
 		password: '',
 		confirmPassword: '',
 		acceptTerms: false,
 	});
 	const [loading, setLoading] = useState(false);
 	const [oauthLoading, setOauthLoading] = useState('');
+
+	useEffect(() => {
+		const email = searchParams.get('email');
+		if (email) setForm((prev) => ({ ...prev, email }));
+	}, [searchParams]);
 
 	const enabledProviders = useMemo(() => new Set((authMethods?.oauth2?.providers || []).map((provider) => provider.name)), [authMethods]);
 
@@ -90,6 +96,19 @@ export default function SignupPage() {
 		setLoading(true);
 		try {
 			await signup(form.name.trim(), form.email.trim(), form.password);
+			const inviteToken = searchParams.get('invite');
+			if (inviteToken) {
+				try {
+					const { default: apiServerClient } = await import('@/lib/apiServerClient');
+					await apiServerClient.fetch('/workspace/v1/members/accept', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ token: inviteToken }),
+					});
+				} catch {
+					/* claimPendingInvites still runs on first workspace resolve */
+				}
+			}
 			toast({ title: 'Welcome to Chef IA!', description: 'Your account is ready. Check your inbox to verify your email.' });
 			navigate('/app');
 		} catch (err) {

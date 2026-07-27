@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-	Eye, Pencil, Ban, CheckCircle2, Trash2, X, ArrowLeftRight, Loader2,
+	Eye, Pencil, Ban, CheckCircle2, Trash2, X, ArrowLeftRight, Loader2, Coins, RotateCcw,
 } from 'lucide-react';
 import { AdminHero, StatusPill, AdminPagination, AdminEmptyState } from '@/components/admin/AdminUi';
 import apiServerClient from '@/lib/apiServerClient';
@@ -299,6 +299,63 @@ export default function AdminWorkspacesPage() {
 						</div>
 
 						<section className="admin-user-drawer__section">
+							<h3>Workspace Health</h3>
+							<div className="admin-meta-row"><span>Score</span><span>{selected.health?.score ?? '—'} / 100</span></div>
+							<div className="admin-meta-row"><span>Status</span><StatusPill status={selected.health?.label || selected.status} /></div>
+							{(selected.health?.issues || []).length ? (
+								<div className="admin-list mt-2">
+									{selected.health.issues.map((issue) => (
+										<div key={issue} className="admin-list__item"><span>{issue}</span><span /></div>
+									))}
+								</div>
+							) : (
+								<p className="text-sm" style={{ color: 'var(--admin-muted)' }}>No health issues detected.</p>
+							)}
+							{(selected.health?.recommendations || []).length ? (
+								<div className="admin-list mt-2">
+									{selected.health.recommendations.slice(0, 5).map((item) => (
+										<div key={item.code || item.label} className="admin-list__item">
+											<span>{item.label}</span>
+											<span>fix</span>
+										</div>
+									))}
+								</div>
+							) : null}
+						</section>
+
+						<section className="admin-user-drawer__section">
+							<h3>Members</h3>
+							{(selected.members || []).length ? (
+								<div className="admin-list">
+									{selected.members.slice(0, 12).map((member) => (
+										<div key={member.id} className="admin-list__item">
+											<span>{member.email || member.name || member.userId || member.id} · {member.role}</span>
+											<StatusPill status={member.status} />
+										</div>
+									))}
+								</div>
+							) : (
+								<p className="text-sm" style={{ color: 'var(--admin-muted)' }}>No members loaded.</p>
+							)}
+						</section>
+
+						<section className="admin-user-drawer__section">
+							<h3>Workspace Activity</h3>
+							{(selected.activity || []).length ? (
+								<div className="admin-list">
+									{selected.activity.slice(0, 12).map((row) => (
+										<div key={row.id} className="admin-list__item">
+											<span>{row.type}: {row.title}</span>
+											<span>{row.created ? new Date(row.created).toLocaleString() : '—'}</span>
+										</div>
+									))}
+								</div>
+							) : (
+								<p className="text-sm" style={{ color: 'var(--admin-muted)' }}>No activity yet.</p>
+							)}
+						</section>
+
+						<section className="admin-user-drawer__section">
 							<h3>Workspace Information</h3>
 							<div className="admin-meta-row"><span>Name</span><span>{selected.name}</span></div>
 							<div className="admin-meta-row"><span>Created</span><span>{selected.created}</span></div>
@@ -440,6 +497,31 @@ export default function AdminWorkspacesPage() {
 							</button>
 							<button type="button" className="admin-btn" disabled={busy} onClick={() => toast({ title: 'Edit', description: 'Use PATCH /workspaces/:id for field updates.' })}>
 								<Pencil size={13} /> Edit
+							</button>
+							<button
+								type="button"
+								className="admin-btn"
+								disabled={busy}
+								onClick={() => {
+									const amount = window.prompt('Credit amount to grant (positive or negative)');
+									if (!amount) return;
+									const reason = window.prompt('Reason', 'Admin grant') || 'Admin grant';
+									runAction(selected.id, '/credits/grant', 'POST', { amount: Number(amount), reason });
+								}}
+							>
+								<Coins size={13} /> Grant Credits
+							</button>
+							<button
+								type="button"
+								className="admin-btn"
+								disabled={busy}
+								onClick={() => {
+									if (window.confirm('Reset workspace? Non-owner members will be removed.')) {
+										runAction(selected.id, '/reset', 'POST', { reason: 'Admin reset from console' });
+									}
+								}}
+							>
+								<RotateCcw size={13} /> Reset Workspace
 							</button>
 							<button type="button" className="admin-btn" disabled={busy} onClick={() => runAction(selected.id, '/suspend')}>
 								<Ban size={13} /> Suspend Workspace

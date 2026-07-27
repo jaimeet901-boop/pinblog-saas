@@ -42,7 +42,7 @@ import {
 } from '../utils/pocketbase-safe-query.js';
 import { resolveScheduledAtUtc } from '../utils/timezone.js';
 import { normalizeDestinationUrl, validatePinForPinterestPublish } from '../utils/pin-publish-destination.js';
-import { attachWorkspace, requireWorkspaceRead } from '../middleware/product-access.js';
+import { attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation } from '../middleware/product-access.js';
 import { analyzeGrantedScopes, DEFAULT_SCOPES, mergeRequiredScopes } from '../services/pinterest-scopes.js';
 import { getPinterestAppCredentials } from '../services/pinterest-app-credentials.js';
 import { listPublishProviders, setPublishProvider, getPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
@@ -635,6 +635,7 @@ router.get('/oauth/callback', async (req, res) => {
 router.use(pocketbaseAuth);
 router.use(attachWorkspace);
 router.use(requireWorkspaceRead);
+router.use(requireWorkspaceMutation(['workspace.pinterest.manage', 'workspace.pinterest.publish']));
 
 router.get('/account', async (req, res) => {
 	// Legacy alias: returns the default (or first connected) account.

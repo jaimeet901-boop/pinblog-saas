@@ -18,7 +18,7 @@ function workspaceKeyFor(req) {
 }
 
 export async function buildWorkspaceOverview(req, { range = '30d', from, to, bypassCache = false } = {}) {
-	const owner = req.pocketbaseUserId;
+	const owner = req.workspaceOwnerId || req.workspace?.owner || req.pocketbaseUserId;
 	const workspaceKey = workspaceKeyFor(req);
 	const { rangeKey, start, end, startIso, endIso } = resolveRange(range, from, to);
 	const cacheKey = `workspace:${workspaceKey}:overview:${rangeKey}:${startIso.slice(0, 10)}`;

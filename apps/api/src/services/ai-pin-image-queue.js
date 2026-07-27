@@ -343,7 +343,12 @@ async function processJob(job) {
 		throw new Error('Image provider API key is not configured');
 	}
 
-	await consumeCredits(pocketbaseClient, { userId: job.owner, ai: 0, image: 1 }).catch((error) => {
+	await consumeCredits(pocketbaseClient, {
+		userId: job.owner,
+		workspaceKey: job.workspace_key || job.workspaceKey || '',
+		ai: 0,
+		image: 1,
+	}).catch((error) => {
 		if (error?.status === 402) {
 			throw error;
 		}

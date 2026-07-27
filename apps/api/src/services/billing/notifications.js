@@ -94,8 +94,8 @@ export async function maybeNotifyCreditThresholds(workspaceKey) {
 			title: check.title,
 			body: check.body,
 			priority: check.priority,
-			type: `credits_${check.key}`,
-			metadata: { remaining, quota, ratio },
+			type: check.key === 'exhausted' ? 'credits_low' : 'credits_low',
+			metadata: { remaining, quota, ratio, threshold: check.key },
 		});
 		notified.push(check.key);
 	}
@@ -167,5 +167,27 @@ export async function notifyCreditsReset(subscription, balance) {
 		priority: 'normal',
 		type: 'credits_reset',
 		metadata: { balance },
+	});
+}
+
+export async function notifyPlanUpgraded(subscription, fromPlan, toPlan) {
+	await notifyBillingEvent({
+		subscription,
+		title: 'Plan upgraded',
+		body: `Your workspace plan moved from ${fromPlan || 'previous'} to ${toPlan}.`,
+		priority: 'normal',
+		type: 'plan_upgraded',
+		metadata: { fromPlan, toPlan },
+	});
+}
+
+export async function notifyPlanDowngraded(subscription, fromPlan, toPlan) {
+	await notifyBillingEvent({
+		subscription,
+		title: 'Plan downgraded',
+		body: `Your workspace plan moved from ${fromPlan || 'previous'} to ${toPlan}.`,
+		priority: 'normal',
+		type: 'plan_downgraded',
+		metadata: { fromPlan, toPlan },
 	});
 }

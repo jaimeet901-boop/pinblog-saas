@@ -1,6 +1,11 @@
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { httpError } from '../../middleware/require-admin.js';
 import { writeAuditLog } from '../audit/write.js';
+import { grantCredits } from '../credits.js';
+import { applyOwnershipTransfer } from '../workspace-members.js';
+import { listWorkspaceActivityForAdmin, recordTypedWorkspaceActivity } from '../workspace-activity.js';
+import { mapMemberDto } from '../workspace-rbac.js';
+import { notifyWorkspaceById } from '../workspace-notify.js';
 import {
 	domainFromUrl,
 	formatDate,
@@ -18,7 +23,7 @@ async function loadWorkspaceDetail(workspace, owner) {
 	const ownerId = workspace.owner || owner?.id || '';
 	const workspaceKey = workspace.workspace_key || '';
 
-	const [websites, pinterestAccounts, wordpressSites, publishHistory, subscription, usage, billingEvents] = await Promise.all([
+	const [websites, pinterestAccounts, wordpressSites, publishHistory, subscription, usage, billingEvents, members, activity] = await Promise.all([
 		safeFullList('websites', {
 			filter: ownerId
 				? pocketbaseClient.filter('owner = {:owner}', { owner: ownerId })
@@ -55,6 +60,10 @@ async function loadWorkspaceDetail(workspace, owner) {
 				requestKey: null,
 			}).catch(() => ({ items: [] }))
 			: Promise.resolve({ items: [] }),
+		safeFullList('workspace_members', {
+			filter: pocketbaseClient.filter('workspace = {:ws}', { ws: workspace.id }),
+		}).catch(() => []),
+		listWorkspaceActivityForAdmin(workspace.id, { perPage: 20 }),
 	]);
 
 	const billingHistory = (billingEvents.items || []).map((row) => ({
@@ -93,6 +102,14 @@ async function loadWorkspaceDetail(workspace, owner) {
 		|| 0.1;
 	const storageLimitGb = Number(workspace.metadata?.storageLimitGb)
 		|| (plan === 'agency' ? 100 : plan === 'pro' ? 50 : plan === 'starter' ? 20 : 5);
+
+	const memberDtos = members.map((row) => mapMemberDto(row));
+	const { computeWorkspaceHealthDetailed } = await import('../workspace-health.js');
+	const healthScore = await computeWorkspaceHealthDetailed({
+		workspace,
+		subscription,
+		ownerId,
+	});
 
 	return {
 		websites: websites.map((site) => ({
@@ -141,6 +158,10 @@ async function loadWorkspaceDetail(workspace, owner) {
 		},
 		storageUsedGb: Math.round(storageUsedGb * 10) / 10,
 		storageLimitGb,
+		members: memberDtos,
+		memberCount: memberDtos.length,
+		activity: activity.items || [],
+		health: healthScore,
 	};
 }
 
@@ -339,25 +360,173 @@ export async function activateAdminWorkspace(id, actor = {}) {
 export async function transferAdminWorkspace(id, newOwnerUserId, actor = {}) {
 	if (!newOwnerUserId) throw httpError(422, 'newOwnerUserId is required', 'VALIDATION_ERROR');
 	await pocketbaseClient.collection('users').getOne(newOwnerUserId);
-	const updated = await pocketbaseClient.collection('workspaces').update(id, { owner: newOwnerUserId });
+	const workspace = await pocketbaseClient.collection('workspaces').getOne(id);
+	const transfer = await applyOwnershipTransfer({
+		workspaceId: id,
+		fromOwnerId: workspace.owner,
+		toOwnerId: newOwnerUserId,
+		actorUserId: actor.id,
+	});
 	await writeAuditLog({
 		category: 'admin',
 		uiCategory: 'Workspaces',
 		severity: 'warn',
-		action: `Transferred workspace ${updated.name || id}`,
+		action: `Transferred workspace ${workspace.name || id}`,
 		actorUserId: actor.id,
 		actorLabel: actor.email || 'admin',
 		resourceType: 'workspace',
 		resourceId: id,
 		result: 'ok',
-		metadata: { newOwnerUserId },
+		metadata: transfer,
 	});
+	await recordTypedWorkspaceActivity({
+		workspaceId: id,
+		userId: actor.id,
+	}, {
+		type: 'workspace',
+		title: 'Ownership transferred by admin',
+		summary: `New owner ${newOwnerUserId}`,
+		tone: 'amber',
+		meta: { event: 'ownership_transfer', ...transfer },
+	});
+	const updated = await pocketbaseClient.collection('workspaces').getOne(id, { expand: 'owner' });
 	return mapAdminWorkspace(updated, { detail: true });
+}
+
+export async function grantAdminWorkspaceCredits(id, payload = {}, actor = {}) {
+	const workspace = await pocketbaseClient.collection('workspaces').getOne(id);
+	const amount = Number(payload.amount);
+	if (!Number.isFinite(amount) || amount === 0) {
+		throw httpError(422, 'amount must be a non-zero number', 'VALIDATION_ERROR');
+	}
+	const result = await grantCredits({
+		workspaceKey: workspace.workspace_key,
+		workspaceName: workspace.name,
+		ownerEmail: workspace.billing_email || '',
+		amount,
+		reason: payload.reason || 'Admin grant from Workspaces console',
+		type: payload.type || 'grant',
+		bonus: payload.bonus === true,
+	}, actor);
+	await recordTypedWorkspaceActivity({
+		workspaceId: id,
+		userId: actor.id,
+	}, {
+		type: 'credits',
+		title: 'Credits granted by admin',
+		summary: `${amount > 0 ? '+' : ''}${amount} credits`,
+		tone: 'green',
+		meta: { event: 'credits_grant', amount, reason: payload.reason || '' },
+	});
+	await notifyWorkspaceById({
+		workspaceId: id,
+		userId: workspace.owner,
+		title: 'Credits granted',
+		body: `${Math.abs(amount)} credits were ${amount > 0 ? 'added to' : 'adjusted on'} your workspace.`,
+		priority: 'normal',
+		meta: { type: 'credits', event: 'credits_grant', amount },
+		recordActivity: false,
+	});
+	await writeAuditLog({
+		category: 'admin',
+		uiCategory: 'Workspaces',
+		action: `Granted credits to workspace ${workspace.name || id}`,
+		actorUserId: actor.id,
+		actorLabel: actor.email || 'admin',
+		resourceType: 'workspace',
+		resourceId: id,
+		result: 'ok',
+		metadata: { amount, reason: payload.reason || '' },
+	});
+	return {
+		ok: true,
+		grant: result,
+		workspace: await getAdminWorkspace(id),
+	};
+}
+
+export async function resetAdminWorkspace(id, payload = {}, actor = {}) {
+	const workspace = await pocketbaseClient.collection('workspaces').getOne(id);
+	const members = await safeFullList('workspace_members', {
+		filter: pocketbaseClient.filter('workspace = {:ws}', { ws: id }),
+	}).catch(() => []);
+
+	for (const member of members) {
+		if (String(member.user) === String(workspace.owner)) continue;
+		if (member.status === 'removed') continue;
+		await pocketbaseClient.collection('workspace_members').update(member.id, {
+			status: 'removed',
+			invite_token: '',
+		}).catch(() => null);
+	}
+
+	const metadata = {
+		...(workspace.metadata && typeof workspace.metadata === 'object' ? workspace.metadata : {}),
+		resetAt: new Date().toISOString(),
+		resetBy: actor.id || '',
+		resetReason: String(payload.reason || 'Admin reset').slice(0, 300),
+	};
+	await pocketbaseClient.collection('workspaces').update(id, {
+		status: 'active',
+		metadata,
+	});
+
+	await recordTypedWorkspaceActivity({
+		workspaceId: id,
+		userId: actor.id,
+	}, {
+		type: 'workspace',
+		title: 'Workspace reset by admin',
+		summary: payload.reason || 'Non-owner memberships cleared',
+		tone: 'amber',
+		meta: { event: 'workspace_reset' },
+	});
+	await writeAuditLog({
+		category: 'admin',
+		uiCategory: 'Workspaces',
+		severity: 'warn',
+		action: `Reset workspace ${workspace.name || id}`,
+		actorUserId: actor.id,
+		actorLabel: actor.email || 'admin',
+		resourceType: 'workspace',
+		resourceId: id,
+		result: 'ok',
+		metadata: { reason: payload.reason || '' },
+	});
+	return getAdminWorkspace(id);
+}
+
+export async function getAdminWorkspaceActivity(id, query = {}) {
+	await pocketbaseClient.collection('workspaces').getOne(id);
+	return listWorkspaceActivityForAdmin(id, query);
+}
+
+export async function getAdminWorkspaceMembers(id) {
+	const workspace = await pocketbaseClient.collection('workspaces').getOne(id);
+	const members = await safeFullList('workspace_members', {
+		filter: pocketbaseClient.filter('workspace = {:ws}', { ws: id }),
+	}).catch(() => []);
+	return {
+		workspaceId: id,
+		ownerId: workspace.owner,
+		items: members.map((row) => mapMemberDto(row)),
+		totalItems: members.length,
+	};
 }
 
 export async function deleteAdminWorkspace(id, actor = {}) {
 	const workspace = await pocketbaseClient.collection('workspaces').getOne(id);
 	await pocketbaseClient.collection('workspaces').update(id, { status: 'closed' });
+	await recordTypedWorkspaceActivity({
+		workspaceId: id,
+		userId: actor.id,
+	}, {
+		type: 'workspace',
+		title: 'Workspace deleted (closed)',
+		summary: 'Status set to closed by admin',
+		tone: 'red',
+		meta: { event: 'workspace_deleted' },
+	});
 	await writeAuditLog({
 		category: 'admin',
 		uiCategory: 'Workspaces',

@@ -110,7 +110,9 @@ export async function loadTemplateSnapshotReadOnly(owner, templateId) {
 }
 
 export async function createGenerationRun(req, body = {}) {
-	const owner = req.pocketbaseUserId;
+	const { stampCreateOwnership, getWorkspaceActor } = await import('./workspace-ownership.js');
+	const actor = getWorkspaceActor(req);
+	const owner = actor.workspaceOwnerId || req.pocketbaseUserId;
 	if (!owner) throw httpError(401, 'Please sign in', 'UNAUTHENTICATED');
 
 	const imageMode = String(body.imageMode || 'generate_ai');
@@ -164,9 +166,9 @@ export async function createGenerationRun(req, body = {}) {
 		teamId: body.teamId || body.extensions?.teamId || null,
 	};
 
-	const record = await pocketbaseClient.collection('ai_pin_generation_runs').create({
+	const record = await pocketbaseClient.collection('ai_pin_generation_runs').create(stampCreateOwnership(req, {
 		owner,
-		created_by: owner,
+		created_by: actor.creatorId || owner,
 		workspace_id: req.workspace?.id || body.workspaceId || null,
 		status: 'queued',
 		stage: 'queued',
@@ -197,7 +199,7 @@ export async function createGenerationRun(req, body = {}) {
 		completed_at: null,
 		cancelled_at: null,
 		deleted_at: null,
-	});
+	}));
 
 	logger.info('[pin-generation] run created', {
 		runId: record.id,

@@ -804,7 +804,8 @@ export async function uploadWordpressMedia({
 
 	let imageResponse;
 	try {
-		imageResponse = await fetch(imageUrl);
+		const { safeFetch } = await import('../utils/ssrf-guard.js');
+		imageResponse = await safeFetch(imageUrl, { fieldName: 'featured_image_url' });
 	} catch (err) {
 		throw httpError(502, `Failed to download featured image: ${err.message}`, 'MEDIA_DOWNLOAD_FAILED');
 	}

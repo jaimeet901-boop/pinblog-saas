@@ -4,11 +4,11 @@ import {
 	Link2, Loader2, Save, Unlink, User, Building2, Globe, Pin,
 	Bell, Shield, Palette, SlidersHorizontal, Settings2, RotateCcw,
 	ExternalLink, RefreshCw, Download, Upload, AlertTriangle, BookOpen,
-	LifeBuoy, Mail, Crown, Coins, HardDrive,
+	LifeBuoy, Mail, Crown, Coins, HardDrive, Users,
 } from 'lucide-react';
 import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
-import { Badge, Button, Input, Select, Spinner, Textarea } from '@/components/kit';
+import { Badge, Button, Input, Select, Textarea } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import { OAUTH_PROVIDERS, getEnabledProviderNames, normalizePocketBaseError } from '@/lib/auth';
 import { useAuth } from '@/context/AuthContext';
@@ -19,6 +19,7 @@ const TABS = [
 	{ id: 'general', label: 'General', icon: Settings2 },
 	{ id: 'profile', label: 'Profile', icon: User },
 	{ id: 'workspace', label: 'Workspace', icon: Building2 },
+	{ id: 'team', label: 'Team', icon: Users },
 	{ id: 'websites', label: 'Websites', icon: Globe },
 	{ id: 'wordpress', label: 'WordPress', icon: Globe },
 	{ id: 'pinterest', label: 'Pinterest', icon: Pin },
@@ -26,6 +27,14 @@ const TABS = [
 	{ id: 'security', label: 'Security', icon: Shield },
 	{ id: 'appearance', label: 'Appearance', icon: Palette },
 	{ id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
+];
+
+const TEAM_ROLES = [
+	{ value: 'administrator', label: 'Administrator' },
+	{ value: 'editor', label: 'Editor' },
+	{ value: 'author', label: 'Author' },
+	{ value: 'viewer', label: 'Viewer' },
+	{ value: 'custom', label: 'Custom' },
 ];
 
 const defaultPrefs = {
@@ -76,6 +85,12 @@ export default function SettingsPage() {
 	const [prefs, setPrefs] = useState(() => ({ ...defaultPrefs }));
 	const [baseline, setBaseline] = useState(() => ({ name: user?.name || '', prefs: { ...defaultPrefs } }));
 	const [passwordForm, setPasswordForm] = useState({ oldPassword: '', password: '', passwordConfirm: '' });
+	const [members, setMembers] = useState([]);
+	const [memberSeats, setMemberSeats] = useState({ used: 0, limit: 1 });
+	const [teamBusy, setTeamBusy] = useState(false);
+	const [inviteEmail, setInviteEmail] = useState('');
+	const [inviteRole, setInviteRole] = useState('viewer');
+	const [activityItems, setActivityItems] = useState([]);
 
 	const enabledProviders = useMemo(() => getEnabledProviderNames(authMethods), [authMethods]);
 	const connectedProviders = useMemo(() => new Set((externalAuths || []).map((item) => item.provider)), [externalAuths]);
@@ -144,13 +159,151 @@ export default function SettingsPage() {
 
 	useEffect(() => {
 		loadWorkspaceData();
+		const onChange = () => {
+			loadWorkspaceData();
+		};
+		window.addEventListener('chefia:workspace-changed', onChange);
+		return () => window.removeEventListener('chefia:workspace-changed', onChange);
 	}, []);
+
+	const loadTeamData = async () => {
+		try {
+			const [membersRes, activityRes] = await Promise.all([
+				apiServerClient.fetch('/workspace/v1/members?includeRemoved=0', { method: 'GET' })
+					.then(async (response) => {
+						const payload = await response.json().catch(() => ({}));
+						if (!response.ok) throw new Error(payload.message || 'Failed to load members');
+						return payload;
+					}),
+				apiServerClient.fetch('/workspace/v1/activity?perPage=20', { method: 'GET' })
+					.then(async (response) => {
+						const payload = await response.json().catch(() => ({}));
+						return response.ok ? payload : { items: [] };
+					})
+					.catch(() => ({ items: [] })),
+			]);
+			setMembers(Array.isArray(membersRes.items) ? membersRes.items : []);
+			setMemberSeats(membersRes.seats || { used: 0, limit: 1 });
+			setActivityItems(Array.isArray(activityRes.items) ? activityRes.items : []);
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Team', description: error?.message || 'Failed to load team' });
+		}
+	};
+
+	useEffect(() => {
+		if (tab === 'team') loadTeamData();
+	}, [tab]);
 
 	useEffect(() => {
 		if (user?.name != null) {
 			setName(user.name || '');
 		}
 	}, [user?.name]);
+
+	const inviteMember = async () => {
+		if (!inviteEmail.trim()) return;
+		setTeamBusy(true);
+		try {
+			const response = await apiServerClient.fetch('/workspace/v1/members/invite', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.message || 'Invite failed');
+			toast({ title: 'Invitation sent', description: `${inviteEmail} invited as ${inviteRole}` });
+			setInviteEmail('');
+			await loadTeamData();
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Invite failed', description: error?.message || 'Could not invite member' });
+		} finally {
+			setTeamBusy(false);
+		}
+	};
+
+	const memberAction = async (membershipId, action, body = {}) => {
+		setTeamBusy(true);
+		try {
+			const path = action === 'remove'
+				? `/workspace/v1/members/${membershipId}`
+				: `/workspace/v1/members/${membershipId}/${action}`;
+			const response = await apiServerClient.fetch(path, {
+				method: action === 'remove' ? 'DELETE' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: action === 'remove' ? undefined : JSON.stringify(body),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.message || 'Action failed');
+			toast({ title: 'Updated', description: 'Team membership updated.' });
+			await loadTeamData();
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Team action failed', description: error?.message || 'Could not update member' });
+		} finally {
+			setTeamBusy(false);
+		}
+	};
+
+	const changeMemberRole = async (membershipId, role) => {
+		setTeamBusy(true);
+		try {
+			const response = await apiServerClient.fetch(`/workspace/v1/members/${membershipId}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ role }),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.message || 'Role update failed');
+			toast({ title: 'Role updated', description: `Set to ${role}` });
+			await loadTeamData();
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Role update failed', description: error?.message || 'Could not update role' });
+		} finally {
+			setTeamBusy(false);
+		}
+	};
+
+	const acceptInvite = async (membership) => {
+		setTeamBusy(true);
+		try {
+			const response = await apiServerClient.fetch('/workspace/v1/members/accept', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					membershipId: membership.id,
+					token: membership.inviteToken || '',
+				}),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.message || 'Accept failed');
+			toast({ title: 'Joined workspace', description: 'Invitation accepted.' });
+			await loadTeamData();
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Accept failed', description: error?.message || 'Could not accept invite' });
+		} finally {
+			setTeamBusy(false);
+		}
+	};
+
+	const transferOwnership = async () => {
+		const newOwnerUserId = window.prompt('Transfer ownership to user id');
+		if (!newOwnerUserId) return;
+		setTeamBusy(true);
+		try {
+			const response = await apiServerClient.fetch('/workspace/v1/ownership/transfer', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ newOwnerUserId }),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.message || 'Transfer failed');
+			toast({ title: 'Ownership transferred' });
+			await loadTeamData();
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Transfer failed', description: error?.message || 'Could not transfer ownership' });
+		} finally {
+			setTeamBusy(false);
+		}
+	};
 
 	const updatePref = (key, value) => {
 		setPrefs((prev) => ({ ...prev, [key]: value }));
@@ -512,6 +665,95 @@ export default function SettingsPage() {
 											<option key={zone} value={zone}>{zone}</option>
 										))}
 									</Select>
+								</div>
+							</div>
+						) : null}
+
+						{tab === 'team' ? (
+							<div className="set-section">
+								<div className="set-card space-y-4">
+									<div className="flex flex-wrap items-center justify-between gap-2">
+										<div>
+											<h3>Team members</h3>
+									<p className="hint">Invite by email — existing users join now; new users join automatically after signup. Seats: {memberSeats.used}/{memberSeats.limit}</p>
+										</div>
+										<Button size="sm" variant="outline" disabled={teamBusy} onClick={transferOwnership}>
+											Transfer ownership
+										</Button>
+									</div>
+									<div className="grid gap-2 md:grid-cols-[1fr_160px_auto]">
+										<Input label="Invite email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="teammate@company.com" />
+										<Select label="Role" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>
+											{TEAM_ROLES.map((role) => (
+												<option key={role.value} value={role.value}>{role.label}</option>
+											))}
+										</Select>
+										<div className="flex items-end">
+											<Button disabled={teamBusy || !inviteEmail.trim()} onClick={inviteMember}>
+												{teamBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users size={14} />} Invite
+											</Button>
+										</div>
+									</div>
+									<div className="space-y-2">
+										{members.length === 0 ? (
+											<p className="text-sm text-muted-foreground">No members yet.</p>
+										) : members.map((member) => (
+											<div key={member.id} className="flex flex-col gap-2 rounded-2xl border border-border/80 p-3 sm:flex-row sm:items-center sm:justify-between">
+												<div>
+													<p className="font-medium">{member.name || member.email || member.userId || member.id}</p>
+													<p className="text-xs text-muted-foreground">{member.email || '—'} · {member.status}</p>
+												</div>
+												<div className="flex flex-wrap items-center gap-2">
+													{member.role !== 'owner' ? (
+														<Select value={member.role} onChange={(e) => changeMemberRole(member.id, e.target.value)} disabled={teamBusy}>
+															{TEAM_ROLES.map((role) => (
+																<option key={role.value} value={role.value}>{role.label}</option>
+															))}
+														</Select>
+													) : (
+														<Badge tone="green">Owner</Badge>
+													)}
+													{member.status === 'invited' ? (
+														<>
+															<Button size="sm" variant="outline" disabled={teamBusy} onClick={() => memberAction(member.id, 'resend')}>Resend</Button>
+															<Button size="sm" variant="outline" disabled={teamBusy} onClick={() => memberAction(member.id, 'revoke')}>Revoke</Button>
+														</>
+													) : null}
+													{member.status === 'invited' && member.userId === user?.id ? (
+														<Button size="sm" disabled={teamBusy} onClick={() => acceptInvite(member)}>Accept invite</Button>
+													) : null}
+													{member.role !== 'owner' && member.status === 'active' ? (
+														<Button size="sm" variant="outline" disabled={teamBusy} onClick={() => memberAction(member.id, 'suspend', { reason: 'Suspended from settings' })}>Suspend</Button>
+													) : null}
+													{member.status === 'suspended' ? (
+														<Button size="sm" variant="outline" disabled={teamBusy} onClick={() => memberAction(member.id, 'reactivate')}>Reactivate</Button>
+													) : null}
+													{member.role !== 'owner' ? (
+														<Button size="sm" variant="outline" disabled={teamBusy} onClick={() => memberAction(member.id, 'remove')}>Remove</Button>
+													) : null}
+												</div>
+											</div>
+										))}
+									</div>
+								</div>
+								<div className="set-card space-y-3">
+									<h3>Activity history</h3>
+									<p className="hint">Role changes, invites, and workspace events for this team.</p>
+									{activityItems.length === 0 ? (
+										<p className="text-sm text-muted-foreground">No activity yet.</p>
+									) : (
+										<div className="space-y-2">
+											{activityItems.slice(0, 12).map((item) => (
+												<div key={item.id} className="flex items-start justify-between gap-3 border-b border-border/60 pb-2 text-sm last:border-0">
+													<div>
+														<p className="font-medium">{item.title}</p>
+														<p className="text-xs text-muted-foreground">{item.type}{item.summary ? ` · ${item.summary}` : ''}</p>
+													</div>
+													<span className="shrink-0 text-xs text-muted-foreground">{item.created ? new Date(item.created).toLocaleString() : ''}</span>
+												</div>
+											))}
+										</div>
+									)}
 								</div>
 							</div>
 						) : null}

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import WorkspaceSwitcher from '@/components/WorkspaceSwitcher';
 import {
 	DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 	DropdownMenuSeparator, DropdownMenuTrigger,
@@ -149,9 +150,10 @@ export default function AppLayout({ children }) {
 						>
 							<Menu size={22} />
 						</button>
-						<div>
+						<WorkspaceSwitcher />
+						<div className="hidden sm:block">
 							<p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Workspace</p>
-							<h2 className="font-display text-base font-600 leading-tight sm:text-lg">{currentLabel}</h2>
+							<h2 className="font-display text-base font-semibold leading-tight sm:text-lg">{currentLabel}</h2>
 						</div>
 					</div>
 
@@ -223,7 +225,7 @@ function Brand() {
 			<span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/25">
 				<Sparkles size={18} />
 			</span>
-			<span className="font-display text-xl font-600 tracking-tight">Chef IA</span>
+			<span className="font-display text-xl font-semibold tracking-tight">Chef IA</span>
 		</Link>
 	);
 }

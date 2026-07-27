@@ -62,4 +62,17 @@ export class PaddleBillingProvider extends BillingProvider {
 			payload: req.body || {},
 		};
 	}
+
+	async verifyWebhook(req) {
+		const bypass = process.env.BILLING_WEBHOOK_DEV_BYPASS === '1'
+			&& process.env.NODE_ENV !== 'production';
+		if (bypass) return { ok: true, bypass: true };
+		const secret = this.config?.webhookSecret || process.env.PADDLE_WEBHOOK_SECRET || '';
+		const signature = req.headers?.['paddle-signature'] || req.headers?.['Paddle-Signature'];
+		if (!secret || !signature) {
+			return { ok: false, error: 'paddle_webhook_unverified' };
+		}
+		// HMAC verification not wired yet — fail closed outside explicit local bypass.
+		return { ok: false, error: 'paddle_webhook_hmac_not_wired' };
+	}
 }

@@ -1,6 +1,47 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { ensureUserWorkspace } from './workspace-context.js';
 import { writeAuditLog } from './audit/write.js';
+import { normalizeActivityType, recordTypedWorkspaceActivity } from './workspace-activity.js';
+
+/**
+ * Notify a specific workspace (optionally a user). Broadcasts when userId is empty.
+ */
+export async function notifyWorkspaceById({
+	workspaceId,
+	userId = '',
+	title,
+	body = '',
+	priority = 'normal',
+	meta = {},
+	recordActivity = true,
+}) {
+	if (!workspaceId || !title) return null;
+
+	const created = await pocketbaseClient.collection('workspace_notifications').create({
+		workspace: workspaceId,
+		user: userId || undefined,
+		title: String(title).slice(0, 300),
+		body: String(body || '').slice(0, 2000),
+		priority,
+		channel: 'in_app',
+		meta,
+	}).catch(() => null);
+
+	if (recordActivity) {
+		await recordTypedWorkspaceActivity({
+			workspaceId,
+			userId: userId || '',
+		}, {
+			type: normalizeActivityType(meta.type || meta.event || 'workspace'),
+			title,
+			summary: body,
+			tone: priority === 'high' ? 'red' : priority === 'low' ? 'amber' : 'default',
+			meta,
+		});
+	}
+
+	return created;
+}
 
 /**
  * Create an in-app workspace notification without an Express request.
@@ -22,27 +63,14 @@ export async function notifyWorkspaceUser({
 	}
 	if (!workspaceId) return null;
 
-	const created = await pocketbaseClient.collection('workspace_notifications').create({
-		workspace: workspaceId,
-		user: ownerId,
-		title: String(title).slice(0, 300),
-		body: String(body || '').slice(0, 2000),
+	return notifyWorkspaceById({
+		workspaceId,
+		userId: ownerId,
+		title,
+		body,
 		priority,
-		channel: 'in_app',
 		meta,
-	}).catch(() => null);
-
-	await pocketbaseClient.collection('workspace_activity').create({
-		workspace: workspaceId,
-		user: ownerId,
-		type: meta.type || 'publishing',
-		title: String(title).slice(0, 300),
-		summary: String(body || '').slice(0, 500),
-		tone: priority === 'high' ? 'red' : priority === 'normal' ? 'default' : 'amber',
-		meta,
-	}).catch(() => null);
-
-	return created;
+	});
 }
 
 export async function logWorkflowStep({

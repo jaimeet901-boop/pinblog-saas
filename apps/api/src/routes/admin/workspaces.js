@@ -3,7 +3,11 @@ import {
 	activateAdminWorkspace,
 	deleteAdminWorkspace,
 	getAdminWorkspace,
+	getAdminWorkspaceActivity,
+	getAdminWorkspaceMembers,
+	grantAdminWorkspaceCredits,
 	listAdminWorkspaces,
+	resetAdminWorkspace,
 	suspendAdminWorkspace,
 	transferAdminWorkspace,
 	updateAdminWorkspace,
@@ -29,6 +33,14 @@ router.get('/:id', asyncHandler(async (req, res) => {
 	res.json(await getAdminWorkspace(req.params.id));
 }));
 
+router.get('/:id/members', asyncHandler(async (req, res) => {
+	res.json(await getAdminWorkspaceMembers(req.params.id));
+}));
+
+router.get('/:id/activity', asyncHandler(async (req, res) => {
+	res.json(await getAdminWorkspaceActivity(req.params.id, req.query || {}));
+}));
+
 router.patch('/:id', asyncHandler(async (req, res) => {
 	res.json(await updateAdminWorkspace(req.params.id, req.body || {}, actor(req)));
 }));
@@ -43,6 +55,14 @@ router.post('/:id/activate', asyncHandler(async (req, res) => {
 
 router.post('/:id/transfer', asyncHandler(async (req, res) => {
 	res.json(await transferAdminWorkspace(req.params.id, req.body?.newOwnerUserId, actor(req)));
+}));
+
+router.post('/:id/credits/grant', asyncHandler(async (req, res) => {
+	res.status(201).json(await grantAdminWorkspaceCredits(req.params.id, req.body || {}, actor(req)));
+}));
+
+router.post('/:id/reset', asyncHandler(async (req, res) => {
+	res.json(await resetAdminWorkspace(req.params.id, req.body || {}, actor(req)));
 }));
 
 router.delete('/:id', asyncHandler(async (req, res) => {

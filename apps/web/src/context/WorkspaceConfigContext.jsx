@@ -121,8 +121,15 @@ export function WorkspaceConfigProvider({ children }) {
 	useEffect(() => {
 		mountedRef.current = true;
 		refresh({ silent: false });
+		const onWorkspaceChange = () => {
+			lastValidRef.current = null;
+			setHasValidConfig(false);
+			refresh({ silent: false });
+		};
+		window.addEventListener('chefia:workspace-changed', onWorkspaceChange);
 		return () => {
 			mountedRef.current = false;
+			window.removeEventListener('chefia:workspace-changed', onWorkspaceChange);
 		};
 	}, [refresh]);
 

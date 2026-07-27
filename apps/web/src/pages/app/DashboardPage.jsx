@@ -9,6 +9,7 @@ import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import WorkspaceOnboardingWizard from '@/components/WorkspaceOnboardingWizard';
 import './DashboardPage.css';
 
 const QUICK_ACTIONS = [
@@ -53,7 +54,7 @@ export default function DashboardPage() {
 	const [error, setError] = useState('');
 
 	useEffect(() => {
-		(async () => {
+		const load = async () => {
 			setLoading(true);
 			setError('');
 			try {
@@ -70,12 +71,19 @@ export default function DashboardPage() {
 			} finally {
 				setLoading(false);
 			}
-		})();
+		};
+		load();
+		const onChange = () => load();
+		window.addEventListener('chefia:workspace-changed', onChange);
+		return () => window.removeEventListener('chefia:workspace-changed', onChange);
 	}, [toast]);
 
 	const stats = dashboard?.statistics || {};
 	const credits = dashboard?.credits || {};
 	const plan = dashboard?.plan || {};
+	const usageDash = dashboard?.usageDashboard || {};
+	const monthlyTrends = usageDash.monthlyTrends || [];
+	const health = dashboard?.health || {};
 	const websites = dashboard?.websites || [];
 	const calendarJobs = dashboard?.calendarJobs || [];
 	const recent = dashboard?.recentArticles || [];
@@ -129,22 +137,27 @@ export default function DashboardPage() {
 	}, [dashboard, websites, connectedPinterest, queueDepth, pinterestWaiting]);
 
 	const statCards = [
-		{ label: 'Articles Created', value: stats.articles, to: '/app/writer', hint: null },
-		{ label: 'Pins Generated', value: stats.pins, to: '/app/ai-pins', hint: null },
-		{ label: 'Images Generated', value: stats.images || recentImages.length, to: '/app/images', hint: 'From pin library' },
+		{ label: 'Articles Created', value: usageDash.generatedArticles ?? stats.articles, to: '/app/writer', hint: null },
+		{ label: 'Pins Generated', value: usageDash.generatedPins ?? stats.pins, to: '/app/ai-pins', hint: null },
+		{ label: 'Images Generated', value: usageDash.generatedImages ?? stats.images ?? recentImages.length, to: '/app/images', hint: 'From pin library' },
+		{ label: 'Pinterest published', value: usageDash.pinterestPublications ?? stats.publishedPins ?? 0, to: '/app/pinterest-history', hint: null },
+		{ label: 'WordPress published', value: usageDash.wordpressPublications ?? stats.publishedWordpress ?? 0, to: '/app/history', hint: null },
 		{ label: 'Published posts', value: publishedPins, to: '/app/pinterest-history', hint: null },
 		{ label: 'Scheduled Jobs', value: scheduledJobs, to: '/app/calendar', hint: null },
 		{ label: 'Failed Jobs', value: failedJobs, to: '/app/pinterest-history', hint: null },
 		{ label: 'Queue depth', value: queueDepth, to: '/app/pinterest-history', hint: null },
-		{ label: 'Pinterest waiting', value: pinterestWaiting, to: '/app/pinterest', hint: pinterestWaiting ? 'Waiting provider' : null },
 		{ label: 'Connected Websites', value: stats.websites, to: '/app/websites', hint: null },
 		{ label: 'Pinterest Accounts', value: connectedPinterest || '—', to: '/app/pinterest', hint: connectedPinterest ? null : 'Connect in Hub' },
-		{ label: 'Credits Remaining', value: creditsRemaining, to: '/app/subscription', hint: `${usageCount}/${quota || '—'} used` },
+		{ label: 'Credits Remaining', value: usageDash.creditsRemaining ?? creditsRemaining, to: '/app/subscription', hint: `${usageDash.creditsUsed ?? usageCount}/${quota || '—'} used` },
+		{ label: 'Storage Used', value: `${usageDash.storageUsedGb ?? stats.storageUsedGb ?? '—'} GB`, to: '/app/settings', hint: usageDash.storageLimitGb ? `of ${usageDash.storageLimitGb} GB` : null },
+		{ label: 'Team seats', value: dashboard?.members?.active ?? stats.members ?? '—', to: '/app/settings', hint: dashboard?.members?.seats ? `${dashboard.members.active}/${dashboard.members.seats}` : null },
 		{ label: 'Success Rate', value: successRate == null ? '—' : `${successRate}%`, to: '/app/analytics', hint: successRate == null ? 'Needs publish history' : null },
 	];
 
 	return (
 		<div className="dash-atelier">
+			<WorkspaceOnboardingWizard />
+
 			<section className="dash-hero">
 				<p className="dash-hero__eyebrow">Chef IA Command Center</p>
 				<h1 className="dash-hero__title">{greeting}, {firstName}</h1>
@@ -159,6 +172,7 @@ export default function DashboardPage() {
 					<span className="dash-pill"><Globe size={12} /> {primaryWebsite?.name || primaryWebsite?.domain || 'No website yet'}</span>
 					<span className="dash-pill"><Gauge size={12} /> {planLabel} plan</span>
 					<span className="dash-pill"><CheckCircle2 size={12} /> {creditsRemaining} credits left</span>
+					<span className="dash-pill"><Activity size={12} /> Health {health.score ?? '—'} · {health.label || 'n/a'}</span>
 					<span className="dash-pill"><Clock size={12} /> {now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</span>
 				</div>
 				<div className="mt-4 flex flex-wrap gap-2">
@@ -166,6 +180,23 @@ export default function DashboardPage() {
 					<Link to="/app/ai-pins"><Button variant="outline"><Wand2 size={16} /> Open AI Pins</Button></Link>
 				</div>
 			</section>
+
+			{(health.recommendations || []).length ? (
+				<section className="mb-6 rounded-2xl border border-border/80 bg-card/80 p-4">
+					<div className="mb-2 flex items-center justify-between gap-2">
+						<h3 className="font-display text-base font-semibold">Workspace health · {health.score}/100</h3>
+						<Badge tone={health.label === 'healthy' ? 'green' : health.label === 'watch' ? 'amber' : 'red'}>{health.label || 'n/a'}</Badge>
+					</div>
+					<ul className="space-y-1.5 text-sm">
+						{health.recommendations.slice(0, 4).map((item) => (
+							<li key={item.code} className="flex items-center justify-between gap-3">
+								<span className="text-muted-foreground">{item.label}</span>
+								<Link to={item.to} className="text-xs font-medium text-primary hover:underline">Fix</Link>
+							</li>
+						))}
+					</ul>
+				</section>
+			) : null}
 
 			<div className="dash-stats">
 				{statCards.map((card) => (
@@ -379,12 +410,31 @@ export default function DashboardPage() {
 							</div>
 						</div>
 						<div className="flex items-baseline justify-between">
-							<p className="text-sm text-muted-foreground">{usageCount} / {quota || '—'} credits</p>
-							<span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{creditsRemaining} left</span>
+							<p className="text-sm text-muted-foreground">{usageDash.creditsUsed ?? usageCount} / {quota || '—'} credits</p>
+							<span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{usageDash.creditsRemaining ?? creditsRemaining} left</span>
 						</div>
 						<div className="dash-meter mt-2">
-							<span style={{ width: `${Math.min(100, quota ? (usageCount / quota) * 100 : 0)}%` }} />
+							<span style={{ width: `${Math.min(100, quota ? ((usageDash.creditsUsed ?? usageCount) / quota) * 100 : 0)}%` }} />
 						</div>
+						<div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+							<span>AI requests: {Number(usageDash.aiRequests || 0).toLocaleString()}</span>
+							<span>Storage: {usageDash.storageUsedGb ?? '—'} / {usageDash.storageLimitGb ?? '—'} GB</span>
+							<span>Articles: {usageDash.generatedArticles ?? stats.articles ?? 0}</span>
+							<span>Images: {usageDash.generatedImages ?? 0}</span>
+							<span>Pins: {usageDash.generatedPins ?? stats.pins ?? 0}</span>
+							<span>WP pubs: {usageDash.wordpressPublications ?? 0}</span>
+						</div>
+						{monthlyTrends.length ? (
+							<div className="mt-3 space-y-1">
+								<p className="text-xs font-medium text-foreground">6-month trend</p>
+								{monthlyTrends.map((row) => (
+									<div key={row.period} className="flex items-center justify-between text-[11px] text-muted-foreground">
+										<span>{row.period}</span>
+										<span>{Number(row.creditsUsed || 0).toLocaleString()} credits · {Number(row.articles || 0)} arts</span>
+									</div>
+								))}
+							</div>
+						) : null}
 						<Link to="/app/subscription" className="mt-3 inline-block text-sm font-medium text-primary hover:underline">Upgrade plan</Link>
 					</section>
 
