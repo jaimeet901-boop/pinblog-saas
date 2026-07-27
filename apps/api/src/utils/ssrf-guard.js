@@ -13,7 +13,11 @@ const BLOCKED_HOSTNAMES = new Set([
 ]);
 
 function normalizeHost(hostname) {
-	return String(hostname || '').trim().toLowerCase().replace(/\.$/, '');
+	return String(hostname || '')
+		.trim()
+		.toLowerCase()
+		.replace(/^\[(.*)\]$/, '$1')
+		.replace(/\.$/, '');
 }
 
 function parseIpv4(host) {
