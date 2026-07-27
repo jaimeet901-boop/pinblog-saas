@@ -37,6 +37,32 @@ function formatDate(value) {
 	}
 }
 
+function formatDateTime(value) {
+	if (!value) {
+		return '—';
+	}
+
+	try {
+		return new Date(value).toLocaleString();
+	} catch {
+		return '—';
+	}
+}
+
+function statusTone(status) {
+	const value = String(status || '').toLowerCase();
+	if (['connected', 'active', 'ready', 'healthy', 'operational', 'ok', 'published', 'completed', 'configured'].includes(value)) {
+		return 'green';
+	}
+	if (['failed', 'error', 'down', 'disconnected', 'not_configured'].includes(value)) {
+		return 'red';
+	}
+	if (['running', 'scanning', 'queued', 'pending', 'degraded', 'scheduled', 'paused', 'untested', 'idle'].includes(value)) {
+		return 'amber';
+	}
+	return 'default';
+}
+
 function deriveFallbackMetadata(rawUrl) {
 	try {
 		const parsed = new URL(rawUrl);
@@ -70,6 +96,7 @@ export default function WebsitesPage() {
 	const { toast } = useToast();
 	const navigate = useNavigate();
 	const [sites, setSites] = useState([]);
+	const [workspaceIndicators, setWorkspaceIndicators] = useState(null);
 	const [loading, setLoading] = useState(true);
 	const [loadError, setLoadError] = useState('');
 	const [modal, setModal] = useState(null); // {mode, data}
@@ -83,17 +110,27 @@ export default function WebsitesPage() {
 		setLoading(true);
 		setLoadError('');
 		try {
-			const res = await apiServerClient.fetch('/websites', { method: 'GET' });
+			const res = await apiServerClient.fetch('/websites/control-center', { method: 'GET' });
 
 			if (!res.ok) {
-				const message = await readErrorMessage(res, `Failed to load websites (${res.status})`);
-				throw new Error(message);
+				// Fallback to classic list if control-center is unavailable.
+				const fallback = await apiServerClient.fetch('/websites', { method: 'GET' });
+				if (!fallback.ok) {
+					const message = await readErrorMessage(fallback, `Failed to load websites (${fallback.status})`);
+					throw new Error(message);
+				}
+				const payload = await fallback.json();
+				setSites(Array.isArray(payload) ? payload : []);
+				setWorkspaceIndicators(null);
+				return;
 			}
 
 			const payload = await res.json();
-			setSites(Array.isArray(payload) ? payload : []);
+			setSites(Array.isArray(payload?.items) ? payload.items : []);
+			setWorkspaceIndicators(payload?.indicators || null);
 		} catch (err) {
 			setSites([]);
+			setWorkspaceIndicators(null);
 			setLoadError(err?.message || 'Failed to load websites.');
 		} finally {
 			setLoading(false);
@@ -330,7 +367,20 @@ export default function WebsitesPage() {
 			/>
 
 			{loading ? (
-				<div className="flex justify-center py-16"><Spinner className="text-primary" /></div>
+				<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+					{[1, 2, 3].map((key) => (
+						<Card key={key}>
+							<div className="h-10 w-10 animate-pulse rounded-xl bg-secondary" />
+							<div className="mt-3 h-5 w-2/3 animate-pulse rounded bg-secondary" />
+							<div className="mt-2 h-4 w-full animate-pulse rounded bg-secondary" />
+							<div className="mt-4 space-y-2">
+								<div className="h-3 w-full animate-pulse rounded bg-secondary" />
+								<div className="h-3 w-5/6 animate-pulse rounded bg-secondary" />
+								<div className="h-3 w-4/6 animate-pulse rounded bg-secondary" />
+							</div>
+						</Card>
+					))}
+				</div>
 			) : loadError ? (
 				<Empty
 					icon={Globe}
@@ -346,38 +396,126 @@ export default function WebsitesPage() {
 					action={<Button onClick={openNewModal}><Plus size={16} /> Add website</Button>}
 				/>
 			) : (
-				<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-					{sites.map((s) => (
-						<Card key={s.id}>
-							<div className="flex items-start justify-between">
-								{s.favicon ? (
-									<img src={s.favicon} alt={`${s.name} favicon`} loading="lazy" decoding="async" className="h-10 w-10 rounded-xl border border-border object-cover" />
-								) : (
-									<span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><Globe size={19} /></span>
-								)}
-								<Badge tone={s.status === 'active' || s.status === 'connected' ? 'green' : s.status === 'failed' ? 'red' : 'default'}>{s.status || 'active'}</Badge>
-							</div>
-							<h3 className="mt-3 truncate font-semibold">{s.name}</h3>
-							<a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-muted-foreground hover:text-primary">{s.url || '—'}</a>
-							<p className="mt-1 text-xs text-muted-foreground">Domain: {s.domain || '—'}</p>
-							<p className="mt-1 text-xs text-muted-foreground">Discovery: {s.discovery_status || 'pending'}</p>
-							<p className="mt-1 text-xs text-muted-foreground">Created: {formatDate(s.created)}</p>
-							<div className="mt-4 flex flex-wrap gap-2">
-								<Button size="sm" onClick={() => navigate(`/app/websites/${s.id}`)}>Dashboard</Button>
-								<Button size="sm" variant="outline" onClick={() => navigate(`/app/websites/${s.id}/articles`)}>Articles</Button>
-								<Button size="sm" variant="outline" onClick={() => test(s)} disabled={testing === s.id}>
-									{testing === s.id ? <Spinner className="h-3.5 w-3.5" /> : <Plug size={14} />} Test
-								</Button>
-								<Button size="sm" variant="ghost" onClick={() => {
-									setModal({ mode: 'edit', data: { ...blank, ...s } });
-									setUrlError('');
-									setLastMetadataUrl('');
-								}}><Pencil size={14} /></Button>
-								<Button size="sm" variant="ghost" onClick={() => remove(s.id)}><Trash2 size={14} className="text-destructive" /></Button>
-							</div>
-						</Card>
-					))}
-				</div>
+				<>
+					{workspaceIndicators && (
+						<div className="mb-4 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+							{[
+								workspaceIndicators.aiImageProvider,
+								workspaceIndicators.pinterestConnection,
+								workspaceIndicators.brandKitAssigned,
+								workspaceIndicators.publishingQueue,
+								workspaceIndicators.scheduler,
+							].filter(Boolean).map((item) => (
+								<Card key={item.label}>
+									<p className="text-sm text-muted-foreground">{item.label}</p>
+									<div className="mt-2 flex items-center gap-2">
+										<Badge tone={item.tone || statusTone(item.status)}>{item.status || '—'}</Badge>
+									</div>
+									{item.detail ? <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p> : null}
+								</Card>
+							))}
+						</div>
+					)}
+
+					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+						{sites.map((s) => {
+							const health = s.control?.health || {};
+							const stats = s.control?.stats || {};
+							const score = s.control?.score || null;
+							const performance = s.control?.performance || {};
+							const contentOverview = s.control?.contentOverview || {};
+							const problems = Array.isArray(s.control?.problems) ? s.control.problems : [];
+							return (
+								<Card key={s.id}>
+									<div className="flex items-start justify-between">
+										{s.favicon ? (
+											<img src={s.favicon} alt={`${s.name} favicon`} loading="lazy" decoding="async" className="h-10 w-10 rounded-xl border border-border object-cover" />
+										) : (
+											<span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><Globe size={19} /></span>
+										)}
+										<Badge tone={s.status === 'active' || s.status === 'connected' ? 'green' : s.status === 'failed' ? 'red' : 'default'}>{s.status || 'active'}</Badge>
+									</div>
+									<h3 className="mt-3 truncate font-semibold">{s.name}</h3>
+									<a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-muted-foreground hover:text-primary">{s.url || '—'}</a>
+									<p className="mt-1 text-xs text-muted-foreground">Domain: {s.domain || '—'}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Discovery: {s.discovery_status || 'pending'}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Created: {formatDate(s.created)}</p>
+
+									{score && (
+										<div className="mt-3 space-y-1 border-t border-border pt-3">
+											<p className="text-xs font-medium text-muted-foreground">Website Score</p>
+											<p className="text-xs text-muted-foreground">
+												{score.score}/100 <Badge tone={score.tone || statusTone(score.label)}>{score.label}</Badge>
+											</p>
+										</div>
+									)}
+
+									<div className="mt-3 space-y-1 border-t border-border pt-3">
+										<p className="text-xs font-medium text-muted-foreground">Website Health</p>
+										<p className="text-xs text-muted-foreground">WordPress: <Badge tone={health.wordpressConnection?.tone || statusTone(health.wordpressConnection?.status)}>{health.wordpressConnection?.status || '—'}</Badge></p>
+										<p className="text-xs text-muted-foreground">REST API: <Badge tone={health.restApi?.tone || statusTone(health.restApi?.status)}>{health.restApi?.status || '—'}</Badge></p>
+										<p className="text-xs text-muted-foreground">Last successful scan: {formatDateTime(health.lastSuccessfulScan || s.last_scan_at)}</p>
+										<p className="text-xs text-muted-foreground">Discovered articles: {health.discoveredArticles ?? stats.totalArticles ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Last synchronization: {formatDateTime(health.lastSynchronization || s.updated)}</p>
+									</div>
+
+									<div className="mt-3 space-y-1 border-t border-border pt-3">
+										<p className="text-xs font-medium text-muted-foreground">Statistics</p>
+										<p className="text-xs text-muted-foreground">Total Articles: {stats.totalArticles ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Ready Articles: {stats.readyArticles ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Published Pins: {stats.publishedPins ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Pending Jobs: {stats.pendingJobs ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Failed Jobs: {stats.failedJobs ?? '—'}</p>
+									</div>
+
+									<div className="mt-3 space-y-1 border-t border-border pt-3">
+										<p className="text-xs font-medium text-muted-foreground">Website Performance</p>
+										<p className="text-xs text-muted-foreground">Total AI Pins generated: {performance.totalAiPinsGenerated ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Total published Pins: {performance.totalPublishedPins ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Success rate: {performance.successRate != null ? `${performance.successRate}%` : '—'}</p>
+										<p className="text-xs text-muted-foreground">Last publish: {formatDateTime(performance.lastPublishAt)}</p>
+										<p className="text-xs text-muted-foreground">Last generated image: {formatDateTime(performance.lastGeneratedImageAt)}</p>
+									</div>
+
+									<div className="mt-3 space-y-1 border-t border-border pt-3">
+										<p className="text-xs font-medium text-muted-foreground">Content Overview</p>
+										<p className="text-xs text-muted-foreground">Total Articles: {contentOverview.totalArticles ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Ready for Pins: {contentOverview.readyForPins ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Already Published: {contentOverview.alreadyPublished ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Missing Featured Image: {contentOverview.missingFeaturedImage ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Missing SEO Title: {contentOverview.missingSeoTitle ?? '—'}</p>
+									</div>
+
+									{problems.length > 0 && (
+										<div className="mt-3 space-y-1 border-t border-border pt-3">
+											<p className="text-xs font-medium text-muted-foreground">Quick Problems</p>
+											{problems.map((problem) => (
+												<p key={problem.id} className="text-xs text-muted-foreground">
+													<Badge tone={problem.tone || 'amber'}>{problem.label}</Badge>
+													{problem.detail ? ` ${problem.detail}` : ''}
+												</p>
+											))}
+										</div>
+									)}
+
+									<div className="mt-4 flex flex-wrap gap-2">
+										<Button size="sm" onClick={() => navigate(`/app/websites/${s.id}`)}>Dashboard</Button>
+										<Button size="sm" variant="outline" onClick={() => navigate(`/app/websites/${s.id}/articles`)}>Articles</Button>
+										<Button size="sm" variant="outline" onClick={() => test(s)} disabled={testing === s.id}>
+											{testing === s.id ? <Spinner className="h-3.5 w-3.5" /> : <Plug size={14} />} Test
+										</Button>
+										<Button size="sm" variant="ghost" onClick={() => {
+											setModal({ mode: 'edit', data: { ...blank, ...s } });
+											setUrlError('');
+											setLastMetadataUrl('');
+										}}><Pencil size={14} /></Button>
+										<Button size="sm" variant="ghost" onClick={() => remove(s.id)}><Trash2 size={14} className="text-destructive" /></Button>
+									</div>
+								</Card>
+							);
+						})}
+					</div>
+				</>
 			)}
 
 			{modal && (

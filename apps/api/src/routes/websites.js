@@ -7,6 +7,7 @@ import { scanWebsiteArticles, countWebsiteArticles, listWebsiteArticles, repairO
 import { getCache, setCache } from '../utils/cache.js';
 import { safeGetFullList, extractCollectionFieldNames } from '../utils/pocketbase-safe-query.js';
 import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
+import { getWebsitesControlCenter, getWebsiteDashboard } from '../services/website-control-center.js';
 
 const router = Router();
 const WEBSITE_FETCH_TIMEOUT_MS = 10000;
@@ -670,6 +671,29 @@ router.get('/', async (req, res) => {
 	}
 });
 
+router.get('/control-center', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in to view websites');
+	}
+
+	try {
+		const websites = await listOwnedWebsites({ userId: req.pocketbaseUserId });
+		const payload = await getWebsitesControlCenter(req.pocketbaseUserId, websites);
+		res.json(payload);
+	} catch (error) {
+		logger.error('Websites control center failed', {
+			message: error?.message || null,
+			stack: error?.stack || null,
+			pocketbaseUserId: req.pocketbaseUserId || '',
+		});
+		if (!error?.status || error.status >= 500) {
+			res.json({ items: [], indicators: null });
+			return;
+		}
+		throw error;
+	}
+});
+
 router.get('/:websiteId', async (req, res) => {
 	const websitesSchema = await resolveWebsitesSchema();
 	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
@@ -697,6 +721,37 @@ router.get('/:websiteId', async (req, res) => {
 	}
 
 	res.json({ ...mapWebsite(normalizedSite), stats });
+});
+
+router.get('/:websiteId/dashboard', async (req, res) => {
+	const websitesSchema = await resolveWebsitesSchema();
+	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const normalizedUrl = getFieldValue(site, [websitesSchema.urlField, ...WEBSITE_URL_FIELD_CANDIDATES]);
+	const mapped = mapWebsite({
+		...site,
+		[websitesSchema.urlField]: normalizedUrl,
+	});
+
+	let stats = {
+		totalArticles: 0,
+		newArticles: 0,
+		lastScan: mapped.last_scan_at || '',
+		nextScheduledScan: mapped.next_scan_at || '',
+	};
+	try {
+		stats = await getWebsiteStats(site);
+	} catch (error) {
+		logger.warn('Website dashboard stats failed', {
+			websiteId: mapped.id,
+			message: error?.message || null,
+		});
+	}
+
+	const dashboard = await getWebsiteDashboard(req.pocketbaseUserId, mapped);
+	res.json({
+		website: { ...mapped, stats },
+		dashboard,
+	});
 });
 
 router.get('/:websiteId/stats', async (req, res) => {
