@@ -41,72 +41,96 @@ async function findByTemplateUuid(templateUuid) {
 	}
 }
 
+let seedInFlight = null;
+
 export async function ensureOfficialPinTemplatesSeeded() {
-	const ownerId = await resolveSeedOwnerId();
-	if (!ownerId) {
-		logger.warn('[official-templates] seed skipped — no users yet');
-		return { seeded: 0, updated: 0, skipped: true };
-	}
+	if (seedInFlight) return seedInFlight;
 
-	const catalog = listOfficialPinTemplateCatalog();
-	let seeded = 0;
-	let updated = 0;
-
-	for (const entry of catalog) {
-		const validated = validateTemplateConfiguration(entry.configuration);
-		if (!validated.ok) {
-			logger.warn('[official-templates] invalid config skipped', {
-				templateUuid: entry.templateUuid,
-				issues: validated.issues,
-			});
-			continue;
+	seedInFlight = (async () => {
+		const ownerId = await resolveSeedOwnerId();
+		if (!ownerId) {
+			logger.warn('[official-templates] seed skipped — no users yet');
+			return { seeded: 0, updated: 0, skipped: true, failed: 0 };
 		}
-		const configuration = validated.configuration;
-		const checksum = checksumOf(configuration);
-		const payload = {
-			owner: ownerId,
-			created_by: ownerId,
-			workspace_id: '',
-			name: entry.name,
-			thumbnail: entry.thumbnail || '',
-			configuration,
-			is_default: false,
-			category: entry.category || 'general',
-			status: 'published',
-			visibility: 'official',
-			template_uuid: entry.templateUuid,
-			config_checksum: checksum,
-			revision: 1,
-			editor_version: 1,
-			schema_version: 1,
-			marketplace_meta: {
-				tags: entry.tags || [],
-				official: true,
-				library: 'chefia-pin-library-v1',
-			},
-			deleted_at: '',
-		};
 
-		const existing = await findByTemplateUuid(entry.templateUuid);
-		if (existing) {
-			await pocketbaseClient.collection('ai_pin_templates').update(existing.id, {
-				name: payload.name,
-				thumbnail: payload.thumbnail,
-				configuration: payload.configuration,
-				category: payload.category,
-				status: 'published',
-				visibility: 'official',
-				config_checksum: payload.config_checksum,
-				marketplace_meta: payload.marketplace_meta,
-				deleted_at: '',
-			});
-			updated += 1;
-		} else {
-			await pocketbaseClient.collection('ai_pin_templates').create(payload);
-			seeded += 1;
+		const catalog = listOfficialPinTemplateCatalog();
+		let seeded = 0;
+		let updated = 0;
+		let failed = 0;
+
+		for (const entry of catalog) {
+			try {
+				const validated = validateTemplateConfiguration(entry.configuration);
+				if (!validated.ok) {
+					failed += 1;
+					logger.warn('[official-templates] invalid config skipped', {
+						templateUuid: entry.templateUuid,
+						issues: validated.issues,
+					});
+					continue;
+				}
+				const configuration = validated.configuration;
+				const checksum = checksumOf(configuration);
+				const payload = {
+					owner: ownerId,
+					created_by: ownerId,
+					name: entry.name,
+					thumbnail: entry.thumbnail || '',
+					configuration,
+					is_default: false,
+					category: entry.category || 'general',
+					status: 'published',
+					visibility: 'official',
+					template_uuid: entry.templateUuid,
+					config_checksum: checksum,
+					revision: 1,
+					editor_version: 1,
+					schema_version: 1,
+					marketplace_meta: {
+						tags: entry.tags || [],
+						official: true,
+						library: 'chefia-pin-library-v1',
+					},
+					deleted_at: '',
+				};
+
+				const existing = await findByTemplateUuid(entry.templateUuid);
+				if (existing) {
+					await pocketbaseClient.collection('ai_pin_templates').update(existing.id, {
+						name: payload.name,
+						thumbnail: payload.thumbnail,
+						configuration: payload.configuration,
+						category: payload.category,
+						status: 'published',
+						visibility: 'official',
+						config_checksum: payload.config_checksum,
+						marketplace_meta: payload.marketplace_meta,
+						deleted_at: '',
+					});
+					updated += 1;
+				} else {
+					await pocketbaseClient.collection('ai_pin_templates').create(payload);
+					seeded += 1;
+				}
+			} catch (error) {
+				failed += 1;
+				logger.warn('[official-templates] entry failed', {
+					templateUuid: entry.templateUuid,
+					message: error?.message || String(error),
+				});
+			}
 		}
-	}
 
-	logger.info('[official-templates] seed complete', { seeded, updated, total: catalog.length });
-	return { seeded, updated, skipped: false };
+		logger.info('[official-templates] seed complete', {
+			seeded,
+			updated,
+			failed,
+			total: catalog.length,
+		});
+		return { seeded, updated, skipped: false, failed };
+	})().finally(() => {
+		seedInFlight = null;
+	});
+
+	return seedInFlight;
 }

@@ -4,6 +4,7 @@
  */
 
 import pocketbaseClient from '../utils/pocketbaseClient.js';
+import logger from '../utils/logger.js';
 import { httpError } from '../middleware/require-admin.js';
 import { assertCapability } from './workspace-rbac.js';
 import {
@@ -12,6 +13,7 @@ import {
 	TEMPLATE_VISIBILITY,
 } from '../constants/pin-engine.js';
 import { createTemplateUuid, hashTemplateConfigurationSync } from '../utils/pin-template-identity.js';
+import { ensureOfficialPinTemplatesSeeded } from './official-pin-templates-seed.js';
 
 function escapeFilterValue(value) {
 	return String(value || '').replace(/"/g, '\\"');
@@ -143,7 +145,7 @@ function resolvePreview(record, previewMap) {
 function buildOwnerFilter(req) {
 	const ownerId = String(req.pocketbaseUserId || '').trim();
 	const workspaceId = String(req.workspace?.id || '').trim();
-	// Official library first — every authenticated user must see Chef IA designs.
+	// Shared Chef IA library + caller-owned + workspace-scoped rows.
 	const parts = ['visibility = "official"'];
 	if (ownerId) {
 		parts.push(`owner = "${escapeFilterValue(ownerId)}"`);
@@ -155,23 +157,23 @@ function buildOwnerFilter(req) {
 }
 
 function buildGalleryFilter(req, query) {
-	// Soft empty checks — PocketBase date/select empty matching varies by version.
 	const clauses = [
 		buildOwnerFilter(req),
-		'(deleted_at = "" || deleted_at = null)',
+		// Match Classic soft-delete semantics: only exclude rows with a deleted_at timestamp.
+		'deleted_at = ""',
 	];
 
 	const status = String(query.status || '').trim();
 	if (status && TEMPLATE_STATUS.includes(status)) {
 		if (status === 'published') {
-			// Treat missing/blank status as published for backward compat with seeded rows
+			// Blank status is treated as published for pre-engine rows.
 			clauses.push('(status = "published" || status = "")');
 		} else {
 			clauses.push(`status = "${escapeFilterValue(status)}"`);
 		}
 	} else if (query.includeArchived !== '1' && query.includeArchived !== 'true') {
-		// Prefer != archived only — status = "" can break select-field filters on some PB builds.
-		clauses.push('status != "archived"');
+		// Include blank status — `status != "archived"` alone can drop legacy rows on some PB builds.
+		clauses.push('(status = "" || status != "archived")');
 	}
 
 	const category = String(query.category || '').trim();
@@ -182,7 +184,7 @@ function buildGalleryFilter(req, query) {
 	const visibility = String(query.visibility || '').trim();
 	if (visibility && TEMPLATE_VISIBILITY.includes(visibility)) {
 		if (visibility === 'private') {
-			clauses.push(`(visibility = "private" || visibility = "")`);
+			clauses.push('(visibility = "private" || visibility = "")');
 		} else {
 			clauses.push(`visibility = "${escapeFilterValue(visibility)}"`);
 		}
@@ -194,13 +196,13 @@ function buildGalleryFilter(req, query) {
 	} else if (scope === 'workspace' && req.workspace?.id) {
 		clauses.push(`workspace_id = "${escapeFilterValue(req.workspace.id)}"`);
 	} else if (scope === 'official') {
-		clauses.push(`visibility = "official"`);
+		clauses.push('visibility = "official"');
 	} else if (scope === 'community') {
-		clauses.push(`visibility = "community"`);
+		clauses.push('visibility = "community"');
 	}
 
 	if (query.recentlyUsed === '1' || query.recentlyUsed === 'true') {
-		clauses.push(`last_used_at != ""`);
+		clauses.push('last_used_at != ""');
 	}
 
 	return clauses.join(' && ');
@@ -236,16 +238,25 @@ function matchesSearch(item, q) {
 	return false;
 }
 
-async function pocketbaseGalleryPage(page, perPage, filter, sort, { expand = false } = {}) {
-	const options = {
+async function pocketbaseGalleryPage(page, perPage, filter, sort) {
+	// No expand on list — relation expand failures previously collapsed the gallery to [].
+	return pocketbaseClient.collection('ai_pin_templates').getList(page, perPage, {
 		filter,
 		sort,
 		requestKey: null,
-	};
-	if (expand) {
-		options.expand = 'owner,created_by';
+	});
+}
+
+async function pocketbaseCount(filter) {
+	try {
+		const result = await pocketbaseClient.collection('ai_pin_templates').getList(1, 1, {
+			filter,
+			requestKey: null,
+		});
+		return Number(result.totalItems) || 0;
+	} catch {
+		return -1;
 	}
-	return pocketbaseClient.collection('ai_pin_templates').getList(page, perPage, options);
 }
 
 export async function listGalleryTemplates(req, query = {}) {
@@ -255,106 +266,59 @@ export async function listGalleryTemplates(req, query = {}) {
 	const perPage = Math.min(48, Math.max(1, Number(query.perPage) || 24));
 	const q = String(query.q || query.search || '').trim();
 	const favoriteOnly = query.favorite === '1' || query.favorite === 'true' || query.favorites === '1';
+	const userId = String(req.pocketbaseUserId || '').trim();
+	const workspaceId = String(req.workspace?.id || '').trim();
+	const collection = 'ai_pin_templates';
+
+	// Heal missing Chef IA shared library before the gallery query.
+	// Classic listWorkspaceTemplates never needs this — it only filters owner = user.
+	await ensureOfficialPinTemplatesSeeded().catch((error) => {
+		logger.warn('[template-gallery] official seed before list failed', {
+			message: error?.message || String(error),
+		});
+	});
 
 	const favoriteIds = await listFavoriteTemplateIds(req);
 	const filter = buildGalleryFilter(req, query);
 	const sort = sortForQuery(query.sort);
-	const ownerScope = buildOwnerFilter(req);
-	const includeArchived = query.includeArchived === '1' || query.includeArchived === 'true';
-	const status = String(query.status || '').trim();
 
-	// Cascading fallbacks: never swallow to [] before trying the official library.
-	const attempts = [
-		{ label: 'primary+expand', filter, expand: true },
-		{ label: 'primary', filter, expand: false },
-		{
-			label: 'owner-scope',
-			filter: includeArchived
-				? `${ownerScope} && (deleted_at = "" || deleted_at = null)`
-				: `${ownerScope} && (deleted_at = "" || deleted_at = null) && status != "archived"`,
-			expand: false,
-		},
-		{
-			label: 'official-library',
-			filter: status === 'published'
-				? '(visibility = "official") && (deleted_at = "" || deleted_at = null) && (status = "published" || status = "")'
-				: '(visibility = "official") && (deleted_at = "" || deleted_at = null) && status != "archived"',
-			expand: false,
-		},
-	];
+	const [ownerOnlyCount, officialOnlyCount, unscopedCount] = await Promise.all([
+		userId ? pocketbaseCount(`owner = "${escapeFilterValue(userId)}"`) : Promise.resolve(0),
+		pocketbaseCount('visibility = "official"'),
+		pocketbaseCount(''),
+	]);
 
-	let result = null;
-	let lastError = null;
-	let usedAttempt = null;
-	for (const attempt of attempts) {
-		try {
-			result = await pocketbaseGalleryPage(page, perPage, attempt.filter, sort, {
-				expand: attempt.expand,
-			});
-			usedAttempt = attempt.label;
-			if (attempt.label !== 'primary+expand') {
-				console.warn('[template-gallery] recovered with fallback query', {
-					attempt: attempt.label,
-					filter: attempt.filter,
-					totalItems: result?.totalItems,
-					previousError: lastError?.message || null,
-				});
-			}
-			break;
-		} catch (error) {
-			lastError = error;
-			console.warn('[template-gallery] gallery query failed', {
-				attempt: attempt.label,
-				filter: attempt.filter,
-				message: error?.message || String(error),
-			});
-		}
-	}
-
-	// Primary can succeed with 0 rows when owner/workspace scope mismatches.
-	// For the unscoped gallery (AI Pins chooser / Admin All), always surface the official library.
-	const restrictive = Boolean(
-		status
-		|| String(query.visibility || '').trim()
-		|| String(query.scope || '').trim()
-		|| String(query.category || '').trim()
-		|| favoriteOnly
-		|| q
-		|| String(query.tag || '').trim(),
-	);
-	if (
-		result
-		&& !restrictive
-		&& Number(result.totalItems || 0) === 0
-		&& usedAttempt !== 'official-library'
-	) {
-		try {
-			const officialFilter = '(visibility = "official") && (deleted_at = "" || deleted_at = null) && status != "archived"';
-			result = await pocketbaseGalleryPage(page, perPage, officialFilter, sort, { expand: false });
-			console.warn('[template-gallery] empty scoped gallery; using official library', {
-				previousAttempt: usedAttempt,
-				totalItems: result?.totalItems,
-			});
-		} catch (error) {
-			console.warn('[template-gallery] official library recovery failed', {
-				message: error?.message || String(error),
-			});
-		}
-	}
-
-	if (!result) {
-		console.error('[template-gallery] all gallery queries failed', {
+	let result;
+	try {
+		result = await pocketbaseGalleryPage(page, perPage, filter, sort);
+	} catch (error) {
+		logger.error('[template-gallery] PocketBase gallery query failed', {
+			userId,
+			workspaceId,
+			collection,
 			filter,
-			message: lastError?.message || String(lastError),
+			message: error?.message || String(error),
+			ownerOnlyCount,
+			officialOnlyCount,
+			unscopedCount,
 		});
-		result = {
-			items: [],
-			page,
-			perPage,
-			totalItems: 0,
-			totalPages: 1,
-		};
+		throw httpError(502, 'Template gallery query failed', 'GALLERY_QUERY_FAILED');
 	}
+
+	const pbCountBeforeTransform = Number(result.totalItems) || 0;
+
+	logger.info('[template-gallery] list', {
+		userId,
+		workspaceId,
+		collection,
+		filter,
+		pbCountBeforeTransform,
+		ownerOnlyCount,
+		officialOnlyCount,
+		unscopedCount,
+		page,
+		perPage,
+	});
 
 	let items = result.items || [];
 	if (favoriteOnly) {
@@ -383,15 +347,15 @@ export async function listGalleryTemplates(req, query = {}) {
 
 	const totalItems = favoriteOnly || q || tag
 		? mapped.length + (page - 1) * perPage // approximate when post-filtered
-		: (result.totalItems || mapped.length);
+		: pbCountBeforeTransform;
 
 	return {
 		items: mapped,
 		page: result.page || page,
 		perPage: result.perPage || perPage,
-		totalItems: result.totalItems ?? totalItems,
-		totalPages: result.totalPages || Math.max(1, Math.ceil((result.totalItems || mapped.length) / perPage)),
-		hasMore: (result.page || page) < (result.totalPages || 1),
+		totalItems,
+		totalPages: result.totalPages || Math.max(1, Math.ceil(totalItems / perPage)),
+		hasMore: (result.page || page) < (result.totalPages || Math.max(1, Math.ceil(totalItems / perPage))),
 		facets: {
 			categories: TEMPLATE_CATEGORIES,
 			statuses: TEMPLATE_STATUS,
