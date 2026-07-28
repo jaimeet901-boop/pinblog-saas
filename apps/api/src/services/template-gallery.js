@@ -13,7 +13,7 @@ import {
 	TEMPLATE_VISIBILITY,
 } from '../constants/pin-engine.js';
 import { createTemplateUuid, hashTemplateConfigurationSync } from '../utils/pin-template-identity.js';
-import { ensureOfficialPinTemplatesSeeded } from './official-pin-templates-seed.js';
+import { ensureOfficialPinTemplatesSeeded, resolvePlatformLibraryOwnerId } from './official-pin-templates-seed.js';
 
 function escapeFilterValue(value) {
 	return String(value || '').replace(/"/g, '\\"');
@@ -142,17 +142,110 @@ function resolvePreview(record, previewMap) {
 	return { previewUrl: record.thumbnail || '', previewCached: false };
 }
 
-function buildOwnerFilter(req) {
-	const ownerId = String(req.workspaceOwnerId || req.pocketbaseUserId || '').trim();
+function resolveGalleryPerPage(query) {
+	const requested = Number(query.perPage) || Number(query.per_page) || 24;
+	const maxPerPage = Number(query.maxPerPage) || Number(query.max_per_page) || 200;
+	return Math.min(Math.max(1, requested), Math.max(1, maxPerPage));
+}
+
+let cachedPlatformLibraryOwnerId = null;
+let platformLibraryOwnerResolvedAt = 0;
+const PLATFORM_OWNER_CACHE_MS = 5 * 60 * 1000;
+
+async function getPlatformLibraryOwnerId() {
+	const now = Date.now();
+	if (cachedPlatformLibraryOwnerId && now - platformLibraryOwnerResolvedAt < PLATFORM_OWNER_CACHE_MS) {
+		return cachedPlatformLibraryOwnerId;
+	}
+	cachedPlatformLibraryOwnerId = await resolvePlatformLibraryOwnerId().catch(() => null);
+	platformLibraryOwnerResolvedAt = now;
+	return cachedPlatformLibraryOwnerId;
+}
+
+/**
+ * Promote catalog / marketplace official rows to visibility=official (idempotent, no migration).
+ */
+async function reconcileSharedLibraryVisibility() {
+	const platformOwnerId = await getPlatformLibraryOwnerId();
+	if (!platformOwnerId) return { updated: 0 };
+
+	let rows = [];
+	try {
+		rows = await pocketbaseClient.collection('ai_pin_templates').getFullList({
+			filter: pocketbaseClient.filter(
+				'(visibility = "" || visibility = "private") && deleted_at = ""',
+				{},
+			),
+			fields: 'id,visibility,marketplace_meta,template_uuid,owner',
+			requestKey: null,
+		});
+	} catch {
+		return { updated: 0 };
+	}
+
+	let updated = 0;
+	for (const row of rows) {
+		const meta = row.marketplace_meta && typeof row.marketplace_meta === 'object'
+			? row.marketplace_meta
+			: {};
+		const uuid = String(row.template_uuid || '').trim();
+		const isOfficialMeta = meta.official === true
+			|| String(meta.library || '') === 'chefia-pin-library-v1';
+		const isOfficialUuid = uuid.startsWith('chefia-official-');
+		if (!isOfficialMeta && !isOfficialUuid) continue;
+
+		try {
+			await pocketbaseClient.collection('ai_pin_templates').update(row.id, {
+				visibility: 'official',
+				status: row.status || 'published',
+				deleted_at: '',
+			});
+			updated += 1;
+		} catch {
+			// skip row
+		}
+	}
+	return { updated };
+}
+
+function buildOwnerFilter(req, scope = '') {
+	const userId = String(req.pocketbaseUserId || '').trim();
+	const workspaceOwnerId = String(req.workspaceOwnerId || req.pocketbaseUserId || '').trim();
 	const workspaceId = String(req.workspace?.id || '').trim();
-	// Shared library is official only. Blank visibility is legacy private (not global).
+	const platformOwnerId = String(cachedPlatformLibraryOwnerId || '').trim();
+
+	if (scope === 'mine') {
+		if (!userId) return 'id = ""';
+		return `(owner = "${escapeFilterValue(userId)}")`;
+	}
+
+	if (scope === 'workspace' && workspaceId) {
+		return `(workspace_id = "${escapeFilterValue(workspaceId)}" || workspace = "${escapeFilterValue(workspaceId)}")`;
+	}
+
+	if (scope === 'official') {
+		return 'visibility = "official"';
+	}
+
+	if (scope === 'community') {
+		return 'visibility = "community"';
+	}
+
+	// Shared pin template library (default): official catalog + platform owner's published rows + personal/workspace scope.
 	const parts = [
 		'visibility = "official"',
 	];
-	if (ownerId) {
-		parts.push(`owner = "${escapeFilterValue(ownerId)}"`);
-		// Legacy rows with empty workspace + blank visibility remain visible to workspace owner only.
-		parts.push(`(visibility = "" && owner = "${escapeFilterValue(ownerId)}")`);
+	if (platformOwnerId) {
+		parts.push(
+			`(owner = "${escapeFilterValue(platformOwnerId)}" && deleted_at = "" && (status = "published" || status = ""))`,
+		);
+	}
+	if (userId) {
+		parts.push(`owner = "${escapeFilterValue(userId)}"`);
+		parts.push(`(visibility = "" && owner = "${escapeFilterValue(userId)}")`);
+	}
+	if (workspaceOwnerId && workspaceOwnerId !== userId) {
+		parts.push(`owner = "${escapeFilterValue(workspaceOwnerId)}"`);
 	}
 	if (workspaceId) {
 		parts.push(`workspace_id = "${escapeFilterValue(workspaceId)}"`);
@@ -162,8 +255,9 @@ function buildOwnerFilter(req) {
 }
 
 function buildGalleryFilter(req, query) {
+	const scope = String(query.scope || '').trim();
 	const clauses = [
-		buildOwnerFilter(req),
+		buildOwnerFilter(req, scope),
 		// Match Classic soft-delete semantics: only exclude rows with a deleted_at timestamp.
 		'deleted_at = ""',
 	];
@@ -193,17 +287,6 @@ function buildGalleryFilter(req, query) {
 		} else {
 			clauses.push(`visibility = "${escapeFilterValue(visibility)}"`);
 		}
-	}
-
-	const scope = String(query.scope || '').trim();
-	if (scope === 'mine') {
-		clauses.push(`owner = "${escapeFilterValue(req.pocketbaseUserId)}"`);
-	} else if (scope === 'workspace' && req.workspace?.id) {
-		clauses.push(`workspace_id = "${escapeFilterValue(req.workspace.id)}"`);
-	} else if (scope === 'official') {
-		clauses.push('visibility = "official"');
-	} else if (scope === 'community') {
-		clauses.push('visibility = "community"');
 	}
 
 	if (query.recentlyUsed === '1' || query.recentlyUsed === 'true') {
@@ -264,24 +347,34 @@ async function pocketbaseCount(filter) {
 	}
 }
 
-export async function listGalleryTemplates(req, query = {}) {
-	assertCapability(req, 'workspace.read');
-
-	const page = Math.max(1, Number(query.page) || 1);
-	const perPage = Math.min(48, Math.max(1, Number(query.perPage) || 24));
-	const q = String(query.q || query.search || '').trim();
-	const favoriteOnly = query.favorite === '1' || query.favorite === 'true' || query.favorites === '1';
-	const userId = String(req.pocketbaseUserId || '').trim();
-	const workspaceId = String(req.workspace?.id || '').trim();
-	const collection = 'ai_pin_templates';
-
-	// Heal missing Chef IA shared library before the gallery query.
-	// Classic listWorkspaceTemplates never needs this — it only filters owner = user.
+async function prepareGalleryLibrary() {
 	await ensureOfficialPinTemplatesSeeded().catch((error) => {
 		logger.warn('[template-gallery] official seed before list failed', {
 			message: error?.message || String(error),
 		});
 	});
+	await getPlatformLibraryOwnerId();
+	await reconcileSharedLibraryVisibility().catch((error) => {
+		logger.warn('[template-gallery] visibility reconcile failed', {
+			message: error?.message || String(error),
+		});
+	});
+}
+
+export async function listGalleryTemplates(req, query = {}) {
+	assertCapability(req, 'workspace.read');
+
+	if (!query._skipLibraryPrepare) {
+		await prepareGalleryLibrary();
+	}
+
+	const page = Math.max(1, Number(query.page) || 1);
+	const perPage = resolveGalleryPerPage(query);
+	const q = String(query.q || query.search || '').trim();
+	const favoriteOnly = query.favorite === '1' || query.favorite === 'true' || query.favorites === '1';
+	const userId = String(req.pocketbaseUserId || '').trim();
+	const workspaceId = String(req.workspace?.id || '').trim();
+	const collection = 'ai_pin_templates';
 
 	const favoriteIds = await listFavoriteTemplateIds(req);
 	const filter = buildGalleryFilter(req, query);
@@ -355,6 +448,9 @@ export async function listGalleryTemplates(req, query = {}) {
 			isFavorite: favoriteIds.has(record.id),
 			previewUrl: preview.previewUrl,
 			previewCached: preview.previewCached,
+			includeConfiguration: query.includeConfiguration === '1'
+				|| query.includeConfiguration === 'true'
+				|| query.includeConfiguration === true,
 		});
 	});
 
@@ -388,6 +484,33 @@ export async function listGalleryTemplates(req, query = {}) {
 		},
 	};
 }
+
+/**
+ * Paginate through the shared pin template library (same service as gallery + chooser).
+ * Used by workspace config so AI Pins and Template Gallery stay in sync.
+ */
+export async function listPinTemplateLibraryAllPages(req, query = {}) {
+	await prepareGalleryLibrary();
+	const perPage = resolveGalleryPerPage({ ...query, perPage: query.perPage || 100 });
+	let page = 1;
+	let totalPages = 1;
+	const items = [];
+	let totalItems = 0;
+
+	while (page <= totalPages) {
+		const result = await listGalleryTemplates(req, { ...query, page, perPage, _skipLibraryPrepare: true });
+		items.push(...(result.items || []));
+		totalItems = Number(result.totalItems) || items.length;
+		totalPages = Math.max(1, Number(result.totalPages) || 1);
+		if (!result.hasMore || page >= totalPages) break;
+		page += 1;
+	}
+
+	return { items, totalItems };
+}
+
+/** @alias listGalleryTemplates — single shared library entry point */
+export const listPinTemplateLibrary = listGalleryTemplates;
 
 export async function getPinTemplate(req, id) {
 	assertCapability(req, 'workspace.read');

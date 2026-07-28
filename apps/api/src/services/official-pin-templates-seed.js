@@ -29,6 +29,11 @@ async function resolveSeedOwnerId() {
 	}
 }
 
+/** Platform library owner — first user; official catalog rows are seeded under this account. */
+export async function resolvePlatformLibraryOwnerId() {
+	return resolveSeedOwnerId();
+}
+
 async function findByTemplateUuid(templateUuid) {
 	try {
 		const result = await pocketbaseClient.collection('ai_pin_templates').getList(1, 1, {

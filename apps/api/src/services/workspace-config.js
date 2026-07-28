@@ -11,7 +11,7 @@ import { getPlatformSettings, DEFAULT_PLATFORM_SETTINGS } from './platform-setti
 import { listProviders } from './ai-providers.js';
 import { listModels } from './ai-models.js';
 import { getWorkspaceCredits } from './workspace-billing.js';
-import { listWorkspaceTemplates } from './workspace-templates.js';
+import { listPinTemplateLibraryAllPages } from './template-gallery.js';
 import { getSubscriptionPlan } from './workspace-context.js';
 import { getUserCreditUsage } from './ai-pin-credits.js';
 import {
@@ -180,7 +180,7 @@ export async function buildWorkspaceConfig(req) {
 			planName: 'Free',
 			ledger: [],
 		})),
-		listWorkspaceTemplates(req, { category: 'pin', perPage: 100 }).catch(() => ({ items: [] })),
+		listPinTemplateLibraryAllPages(req, { category: 'pin', includeConfiguration: true }).catch(() => ({ items: [] })),
 		listBrandKits(ownerId, workspaceId),
 		getSubscriptionPlan(req.workspaceSubscription).catch(() => null),
 		ownerId
