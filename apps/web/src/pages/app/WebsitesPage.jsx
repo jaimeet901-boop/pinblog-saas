@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Globe, Plus, Trash2, Pencil, Plug, X } from 'lucide-react';
+import { Globe, Plus, Trash2, Plug, X } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { Card, PageHeader, Button, Input, Badge, Empty, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
@@ -54,13 +54,56 @@ function statusTone(status) {
 	if (['connected', 'active', 'ready', 'healthy', 'operational', 'ok', 'published', 'completed', 'configured'].includes(value)) {
 		return 'green';
 	}
-	if (['failed', 'error', 'down', 'disconnected', 'not_configured'].includes(value)) {
+	if (['failed', 'error', 'down', 'disconnected', 'not_configured', 'missing'].includes(value)) {
 		return 'red';
 	}
-	if (['running', 'scanning', 'queued', 'pending', 'degraded', 'scheduled', 'paused', 'untested', 'idle'].includes(value)) {
+	if (['running', 'scanning', 'queued', 'pending', 'degraded', 'scheduled', 'paused', 'untested', 'idle', 'needs_attention', 'not_tracked'].includes(value)) {
 		return 'amber';
 	}
 	return 'default';
+}
+
+function formatRelative(value) {
+	if (!value) return '—';
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return '—';
+	const diffMs = Date.now() - date.getTime();
+	const mins = Math.round(diffMs / 60000);
+	if (mins < 1) return 'just now';
+	if (mins < 60) return `${mins} min ago`;
+	const hours = Math.round(mins / 60);
+	if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+	const days = Math.round(hours / 24);
+	if (days < 14) return `${days} day${days === 1 ? '' : 's'} ago`;
+	return formatDateTime(value);
+}
+
+function formatDuration(ms) {
+	if (ms == null || !Number.isFinite(Number(ms))) return '—';
+	const value = Number(ms);
+	if (value < 1000) return `${value} ms`;
+	const seconds = Math.round(value / 1000);
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.round(seconds / 60);
+	return `${minutes} min`;
+}
+
+function StatusLine({ ok, label, missingLabel }) {
+	const ready = Boolean(ok);
+	return (
+		<p className="text-xs text-muted-foreground">
+			{ready ? '✅' : '❌'} {ready ? label : (missingLabel || label)}
+		</p>
+	);
+}
+
+function Section({ title, children }) {
+	return (
+		<div className="mt-3 space-y-1 border-t border-border pt-3">
+			<p className="text-xs font-medium text-muted-foreground">{title}</p>
+			{children}
+		</div>
+	);
 }
 
 function deriveFallbackMetadata(rawUrl) {
@@ -300,11 +343,12 @@ export default function WebsitesPage() {
 			setUrlError('');
 			setLastMetadataUrl('');
 
-			if (mode === 'new') {
+			if (mode === 'edit') {
+				toast({ title: 'Saved', description: 'Website saved successfully.' });
+				await load();
+			} else {
 				toast({ title: 'Website added', description: 'Website was added successfully and is ready to scan.' });
 				navigate(`/app/websites/${savedSite.id}`);
-			} else {
-				toast({ title: 'Saved', description: 'Website saved successfully.' });
 			}
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Error', description: err?.message });
@@ -425,6 +469,20 @@ export default function WebsitesPage() {
 							const performance = s.control?.performance || {};
 							const contentOverview = s.control?.contentOverview || {};
 							const problems = Array.isArray(s.control?.problems) ? s.control.problems : [];
+							const wordpress = s.control?.wordpress || {};
+							const pinterest = s.control?.pinterest || {};
+							const aiConfiguration = s.control?.aiConfiguration || {};
+							const seoHealth = s.control?.seoHealth || {};
+							const publishingHealth = s.control?.publishingHealth || {};
+							const credentialsHealth = s.control?.credentialsHealth || {};
+							const aiReadiness = s.control?.aiReadiness || {};
+							const siteInfo = s.control?.siteInfo || {};
+							const recentActivity = Array.isArray(s.control?.recentActivity) ? s.control.recentActivity : [];
+							const openSettings = () => {
+								setModal({ mode: 'edit', data: { ...blank, ...s, wp_app_password: '' } });
+								setUrlError('');
+								setLastMetadataUrl('');
+							};
 							return (
 								<Card key={s.id}>
 									<div className="flex items-start justify-between">
@@ -437,78 +495,161 @@ export default function WebsitesPage() {
 									</div>
 									<h3 className="mt-3 truncate font-semibold">{s.name}</h3>
 									<a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-muted-foreground hover:text-primary">{s.url || '—'}</a>
-									<p className="mt-1 text-xs text-muted-foreground">Domain: {s.domain || '—'}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Discovery: {s.discovery_status || 'pending'}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Created: {formatDate(s.created)}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Domain: {siteInfo.domain || s.domain || '—'}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Created: {formatDate(siteInfo.created || s.created)}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Last Scan: {formatRelative(siteInfo.lastScan || s.last_scan_at)}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Last Sync: {formatRelative(siteInfo.lastSync || health.lastSynchronization || s.updated)}</p>
+									<p className="mt-1 text-xs text-muted-foreground">WordPress Version: {siteInfo.wordpressVersion || health.wpVersion || '—'}</p>
+									<p className="mt-1 text-xs text-muted-foreground">PHP Version: {siteInfo.phpVersion || '—'}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Theme: {siteInfo.theme || '—'}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Active Plugins: {siteInfo.activePluginsCount ?? '—'}</p>
 
 									{score && (
-										<div className="mt-3 space-y-1 border-t border-border pt-3">
-											<p className="text-xs font-medium text-muted-foreground">Website Score</p>
+										<Section title="Website Score">
 											<p className="text-xs text-muted-foreground">
 												{score.score}/100 <Badge tone={score.tone || statusTone(score.label)}>{score.label}</Badge>
 											</p>
-										</div>
+										</Section>
 									)}
 
-									<div className="mt-3 space-y-1 border-t border-border pt-3">
-										<p className="text-xs font-medium text-muted-foreground">Website Health</p>
-										<p className="text-xs text-muted-foreground">WordPress: <Badge tone={health.wordpressConnection?.tone || statusTone(health.wordpressConnection?.status)}>{health.wordpressConnection?.status || '—'}</Badge></p>
-										<p className="text-xs text-muted-foreground">REST API: <Badge tone={health.restApi?.tone || statusTone(health.restApi?.status)}>{health.restApi?.status || '—'}</Badge></p>
-										<p className="text-xs text-muted-foreground">Last successful scan: {formatDateTime(health.lastSuccessfulScan || s.last_scan_at)}</p>
-										<p className="text-xs text-muted-foreground">Discovered articles: {health.discoveredArticles ?? stats.totalArticles ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Last synchronization: {formatDateTime(health.lastSynchronization || s.updated)}</p>
-									</div>
+									<Section title="WordPress">
+										<StatusLine ok={wordpress.connection?.status === 'connected'} label="Connected" missingLabel={wordpress.connection?.label || 'Not Connected'} />
+										<StatusLine ok={wordpress.restApi?.status === 'ok'} label="REST API" missingLabel={wordpress.restApi?.label || 'REST API Missing'} />
+										<StatusLine ok={wordpress.credentials?.status === 'configured'} label="Credentials Saved" missingLabel="Credentials Missing" />
+										<StatusLine ok={wordpress.applicationPassword?.status === 'configured'} label="Application Password" missingLabel="Application Password Missing" />
+										<p className="text-xs text-muted-foreground">Last Publish: {formatRelative(wordpress.lastPublishAt)}</p>
+										<p className="text-xs text-muted-foreground">Last Sync: {formatRelative(wordpress.lastSyncAt)}</p>
+										{wordpress.needsConfiguration ? (
+											<>
+												<p className="text-xs text-muted-foreground">{wordpress.configureHint || 'WordPress credentials are missing. Configure them in Website Settings.'}</p>
+												<Button size="sm" variant="outline" onClick={openSettings}>Configure WordPress</Button>
+											</>
+										) : null}
+									</Section>
 
-									<div className="mt-3 space-y-1 border-t border-border pt-3">
-										<p className="text-xs font-medium text-muted-foreground">Statistics</p>
-										<p className="text-xs text-muted-foreground">Total Articles: {stats.totalArticles ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Ready Articles: {stats.readyArticles ?? '—'}</p>
+									<Section title="Pinterest">
+										<p className="text-xs text-muted-foreground">Connected Account: {pinterest.account?.label || '—'}</p>
+										<p className="text-xs text-muted-foreground">Default Board: {pinterest.defaultBoard?.label || '—'}</p>
+										<p className="text-xs text-muted-foreground">API Status: <Badge tone={pinterest.api?.tone || statusTone(pinterest.api?.status)}>{pinterest.api?.label || '—'}</Badge></p>
+										<p className="text-xs text-muted-foreground">Last Publish: {formatRelative(pinterest.lastPublishAt)}</p>
+										<p className="text-xs text-muted-foreground">Published Pins: {pinterest.publishedPins ?? 0}</p>
+										<p className="text-xs text-muted-foreground">Failed Pins: {pinterest.failedPins ?? 0}</p>
+										{pinterest.needsConfiguration ? (
+											<p className="text-xs text-muted-foreground">{pinterest.configureHint || 'Connect a Pinterest account in Pinterest settings.'}</p>
+										) : null}
+									</Section>
+
+									<Section title="AI Configuration">
+										<p className="text-xs text-muted-foreground">AI Model: {aiConfiguration.model || '—'}</p>
+										<p className="text-xs text-muted-foreground">Language: {aiConfiguration.language || '—'}</p>
+										<p className="text-xs text-muted-foreground">Country: {aiConfiguration.country || '—'}</p>
+										<p className="text-xs text-muted-foreground">Writing Tone: {aiConfiguration.tone || '—'}</p>
+										<p className="text-xs text-muted-foreground">Default Prompt: {aiConfiguration.defaultPromptPreview || '—'}</p>
+										<p className="text-xs text-muted-foreground">Image Provider: {aiConfiguration.imageProvider || '—'}</p>
+										<Button size="sm" variant="outline" onClick={() => navigate(aiConfiguration.editHref || '/app/settings')}>Edit</Button>
+									</Section>
+
+									<Section title="Website Statistics">
+										<p className="text-xs text-muted-foreground">Generated Articles: {stats.generatedArticles ?? stats.totalArticles ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Published Articles: {stats.publishedArticles ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Draft Articles: {stats.draftArticles ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Generated Pins: {stats.generatedPins ?? '—'}</p>
 										<p className="text-xs text-muted-foreground">Published Pins: {stats.publishedPins ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Pending Jobs: {stats.pendingJobs ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Generated Images: {stats.generatedImages ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Traffic Imports: {stats.trafficImports ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">WordPress Syncs: {stats.wordpressSyncs ?? '—'}</p>
 										<p className="text-xs text-muted-foreground">Failed Jobs: {stats.failedJobs ?? '—'}</p>
-									</div>
+										<p className="text-xs text-muted-foreground">Ready to Publish: {stats.readyToPublish ?? '—'}</p>
+									</Section>
 
-									<div className="mt-3 space-y-1 border-t border-border pt-3">
-										<p className="text-xs font-medium text-muted-foreground">Website Performance</p>
-										<p className="text-xs text-muted-foreground">Total AI Pins generated: {performance.totalAiPinsGenerated ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Total published Pins: {performance.totalPublishedPins ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Success rate: {performance.successRate != null ? `${performance.successRate}%` : '—'}</p>
-										<p className="text-xs text-muted-foreground">Last publish: {formatDateTime(performance.lastPublishAt)}</p>
-										<p className="text-xs text-muted-foreground">Last generated image: {formatDateTime(performance.lastGeneratedImageAt)}</p>
-									</div>
+									<Section title="SEO Health">
+										{(seoHealth.items || [
+											{ label: 'Missing Featured Images', count: contentOverview.missingFeaturedImage, tone: Number(contentOverview.missingFeaturedImage) > 0 ? 'amber' : 'green' },
+											{ label: 'Missing SEO Titles', count: contentOverview.missingSeoTitle, tone: Number(contentOverview.missingSeoTitle) > 0 ? 'amber' : 'green' },
+										]).map((item) => (
+											<p key={item.key || item.label} className="text-xs text-muted-foreground">
+												{item.label}:{' '}
+												{item.tracked === false ? (
+													<Badge tone="default">Not tracked</Badge>
+												) : (
+													<Badge tone={item.tone || statusTone(item.status)}>{item.count ?? 0}</Badge>
+												)}
+											</p>
+										))}
+									</Section>
 
-									<div className="mt-3 space-y-1 border-t border-border pt-3">
-										<p className="text-xs font-medium text-muted-foreground">Content Overview</p>
-										<p className="text-xs text-muted-foreground">Total Articles: {contentOverview.totalArticles ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Ready for Pins: {contentOverview.readyForPins ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Already Published: {contentOverview.alreadyPublished ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Missing Featured Image: {contentOverview.missingFeaturedImage ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Missing SEO Title: {contentOverview.missingSeoTitle ?? '—'}</p>
-									</div>
+									<Section title="Recent Activity">
+										{recentActivity.length === 0 ? (
+											<p className="text-xs text-muted-foreground">No recent activity yet.</p>
+										) : recentActivity.map((event) => (
+											<p key={event.id} className="text-xs text-muted-foreground">
+												{event.title || event.type} · {formatRelative(event.at)}
+											</p>
+										))}
+									</Section>
+
+									<Section title="Publishing Health">
+										{(publishingHealth.items || []).map((item) => (
+											<StatusLine key={item.key} ok={item.ok} label={item.label} missingLabel={`${item.label} Missing`} />
+										))}
+										<p className="text-xs text-muted-foreground">
+											Overall Score: {publishingHealth.overallScore != null ? `${publishingHealth.overallScore}%` : '—'}
+										</p>
+									</Section>
+
+									<Section title="Website Performance">
+										<p className="text-xs text-muted-foreground">Total Generated Content: {performance.totalGeneratedContent ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Total Published: {performance.totalPublished ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Success Rate: {performance.successRate != null ? `${performance.successRate}%` : '—'}</p>
+										<p className="text-xs text-muted-foreground">Average Publish Time: {formatDuration(performance.avgPublishTimeMs)}</p>
+										<p className="text-xs text-muted-foreground">Last AI Generation: {formatRelative(performance.lastAiGenerationAt || performance.lastGeneratedAt)}</p>
+										<p className="text-xs text-muted-foreground">Last Pin Generation: {formatRelative(performance.lastPinGenerationAt || performance.lastGeneratedAt)}</p>
+										<p className="text-xs text-muted-foreground">Last Image Generation: {formatRelative(performance.lastImageGenerationAt || performance.lastGeneratedImageAt)}</p>
+									</Section>
+
+									<Section title="Credentials Health">
+										{(credentialsHealth.items || []).map((item) => (
+											<p key={item.key} className="text-xs text-muted-foreground">
+												{item.label}: <Badge tone={item.tone || statusTone(item.status)}>{item.labelStatus || (item.configured ? 'Configured' : 'Missing')}</Badge>
+											</p>
+										))}
+									</Section>
+
+									<Section title="AI Readiness">
+										{(aiReadiness.items || []).map((item) => (
+											<div key={item.key}>
+												<StatusLine ok={item.ok} label={item.label} missingLabel={item.label} />
+												{!item.ok && item.hint ? (
+													<p className="text-xs text-muted-foreground pl-4">{item.hint}</p>
+												) : null}
+											</div>
+										))}
+										<p className="text-xs text-muted-foreground">
+											Overall Ready: <Badge tone={aiReadiness.overallTone || statusTone(aiReadiness.overallLabel)}>{aiReadiness.overallLabel || '—'}</Badge>
+										</p>
+									</Section>
 
 									{problems.length > 0 && (
-										<div className="mt-3 space-y-1 border-t border-border pt-3">
-											<p className="text-xs font-medium text-muted-foreground">Quick Problems</p>
+										<Section title="Quick Problems">
 											{problems.map((problem) => (
 												<p key={problem.id} className="text-xs text-muted-foreground">
 													<Badge tone={problem.tone || 'amber'}>{problem.label}</Badge>
 													{problem.detail ? ` ${problem.detail}` : ''}
 												</p>
 											))}
-										</div>
+										</Section>
 									)}
 
 									<div className="mt-4 flex flex-wrap gap-2">
 										<Button size="sm" onClick={() => navigate(`/app/websites/${s.id}`)}>Dashboard</Button>
 										<Button size="sm" variant="outline" onClick={() => navigate(`/app/websites/${s.id}/articles`)}>Articles</Button>
+										<Button size="sm" variant="outline" onClick={() => navigate(`/app/writer?websiteId=${s.id}`)}>AI Writer</Button>
+										<Button size="sm" variant="outline" onClick={() => navigate(`/app/ai-pins?websiteId=${s.id}`)}>AI Pins</Button>
+										<Button size="sm" variant="outline" onClick={() => navigate('/app/images')}>Image Generator</Button>
 										<Button size="sm" variant="outline" onClick={() => test(s)} disabled={testing === s.id}>
-											{testing === s.id ? <Spinner className="h-3.5 w-3.5" /> : <Plug size={14} />} Test
+											{testing === s.id ? <Spinner className="h-3.5 w-3.5" /> : <Plug size={14} />} Test Connection
 										</Button>
-										<Button size="sm" variant="ghost" onClick={() => {
-											setModal({ mode: 'edit', data: { ...blank, ...s } });
-											setUrlError('');
-											setLastMetadataUrl('');
-										}}><Pencil size={14} /></Button>
+										<Button size="sm" variant="ghost" onClick={openSettings}>Settings</Button>
 										<Button size="sm" variant="ghost" onClick={() => remove(s.id)}><Trash2 size={14} className="text-destructive" /></Button>
 									</div>
 								</Card>

@@ -8,9 +8,11 @@ import { countWebsiteArticles } from './website-article-discovery.js';
 import { listWordpressSites } from './wordpress-sites.js';
 import { getWordpressPublishAnalytics, listPublishHistory, listPublishJobs } from './wordpress-publish.js';
 import { listWordpressApiLogs } from './wordpress-api-log.js';
-import { listProviders } from './ai-providers.js';
+import { listProviders, isTextOrientedProvider, isImageOrientedProvider } from './ai-providers.js';
 import { getUserCreditUsage } from './ai-pin-credits.js';
 import { getWordpressQueueStats } from './wordpress-publish-queue.js';
+import { getPlatformSettings } from './platform-settings.js';
+import { getOwnedUserSettings, mapSettingsResponse } from './user-settings.js';
 import logger from '../utils/logger.js';
 
 const PENDING_JOB_STATUSES = new Set([
@@ -115,7 +117,17 @@ function connectionStatusFromWp(wpSite, website) {
 
 async function articleStatsForWebsite(websiteId, schema) {
 	const websiteFilter = pocketbaseClient.filter(`${schema.websiteField} = {:websiteId}`, { websiteId });
-	const [totalArticles, newArticles, publishedArticles, importedArticles, missingFeaturedImage, missingSeoTitle] = await Promise.all([
+	const [
+		totalArticles,
+		newArticles,
+		publishedArticles,
+		importedArticles,
+		missingFeaturedImage,
+		missingSeoTitle,
+		missingMetaDescription,
+		missingCategory,
+		missingTags,
+	] = await Promise.all([
 		countWebsiteArticles({
 			pocketbaseClient,
 			websiteId,
@@ -143,17 +155,24 @@ async function articleStatsForWebsite(websiteId, schema) {
 			status: 'imported',
 		}),
 		safeCount('website_articles', `${websiteFilter} && featured_image = ""`),
-		safeCount('website_articles', `${websiteFilter} && (title = "" || meta_description = "")`),
+		safeCount('website_articles', `${websiteFilter} && title = ""`),
+		safeCount('website_articles', `${websiteFilter} && meta_description = ""`),
+		safeCount('website_articles', `${websiteFilter} && category = ""`).catch(() => 0),
+		safeCount('website_articles', `${websiteFilter} && tags = ""`).catch(() => 0),
 	]);
 
 	return {
 		totalArticles: totalArticles || 0,
 		newArticles: newArticles || 0,
 		readyArticles: newArticles || 0,
+		draftArticles: newArticles || 0,
 		publishedArticles: publishedArticles || 0,
 		importedArticles: importedArticles || 0,
 		missingFeaturedImage: missingFeaturedImage || 0,
 		missingSeoTitle: missingSeoTitle || 0,
+		missingMetaDescription: missingMetaDescription || 0,
+		missingCategory: missingCategory || 0,
+		missingTags: missingTags || 0,
 		lastScan: '',
 		nextScheduledScan: '',
 	};
@@ -263,32 +282,60 @@ async function pinAndJobStatsForWebsite(ownerId, websiteId, wpSiteId) {
 	const publishedPinCount = publishedPinJobs || 0;
 	const wpPending = (wpJobs || []).filter((job) => PENDING_JOB_STATUSES.has(String(job.status || ''))).length;
 	const wpFailed = (wpJobs || []).filter((job) => job.status === 'failed').length;
+	const wpPublished = (wpJobs || []).filter((job) => job.status === 'published').length;
 	const wpScheduled = (wpJobs || []).filter((job) => (
 		job.status === 'scheduled'
 		|| (job.status === 'published' && (job.wp_status === 'future' || Boolean(job.scheduled_at)))
 	));
+	const lastWpPublish = (wpJobs || [])
+		.filter((job) => job.status === 'published' || job.wp_post_url)
+		.sort((a, b) => new Date(b.completed_at || b.updated || b.created || 0) - new Date(a.completed_at || a.updated || a.created || 0))[0]
+		|| null;
 
-	const attempts = publishedPinCount + (failedPinJobs || 0);
+	const completedWithDuration = (wpJobs || []).filter((job) => {
+		const start = job.started_at ? new Date(job.started_at).getTime() : NaN;
+		const end = job.completed_at ? new Date(job.completed_at).getTime() : NaN;
+		return Number.isFinite(start) && Number.isFinite(end) && end >= start;
+	});
+	const avgPublishTimeMs = completedWithDuration.length
+		? Math.round(completedWithDuration.reduce((sum, job) => {
+			const start = new Date(job.started_at).getTime();
+			const end = new Date(job.completed_at).getTime();
+			return sum + (end - start);
+		}, 0) / completedWithDuration.length)
+		: null;
+
+	const attempts = publishedPinCount + (failedPinJobs || 0) + wpPublished + wpFailed;
+	const successes = publishedPinCount + wpPublished;
 	const successRate = attempts > 0
-		? Math.round((publishedPinCount / attempts) * 1000) / 10
+		? Math.round((successes / attempts) * 1000) / 10
 		: null;
 
 	const lastPublishRow = (latestPublishedJob.items || [])[0] || null;
 	const lastGeneratedPin = (latestGeneratedPin.items || [])[0] || null;
 	const lastGeneratedImageRow = (latestGeneratedImage.items || [])[0] || null;
+	const generatedImages = Number(latestGeneratedImage.totalItems) || 0;
 
 	return {
 		publishedPins: publishedPinCount || 0,
+		failedPins: failedPinJobs || 0,
 		aiPinsTotal: aiPinsTotal || 0,
+		generatedImages,
 		pendingJobs: (pendingPinJobs || 0) + wpPending + (pendingQueueJobs || 0),
 		failedJobs: (failedPinJobs || 0) + wpFailed + (failedQueueJobs || 0),
 		retryingJobs: retryingPinJobs || 0,
 		queuePending: pendingQueueJobs || 0,
 		queueFailed: failedQueueJobs || 0,
 		wpJobCount: (wpJobs || []).length,
+		wpPublished,
+		wpFailed,
+		wpSyncs: (wpJobs || []).length,
+		lastWpPublishAt: lastWpPublish?.completed_at || lastWpPublish?.updated || lastWpPublish?.created || '',
+		lastWpPublishTitle: lastWpPublish?.title || '',
+		avgPublishTimeMs,
 		successRate,
-		lastPublishAt: lastPublishRow?.published_at || lastPublishRow?.updated || '',
-		lastPublishTitle: lastPublishRow?.title || '',
+		lastPublishAt: lastPublishRow?.published_at || lastPublishRow?.updated || lastWpPublish?.completed_at || '',
+		lastPublishTitle: lastPublishRow?.title || lastWpPublish?.title || '',
 		lastGeneratedAt: lastGeneratedPin?.created || '',
 		lastGeneratedTitle: lastGeneratedPin?.title || '',
 		lastGeneratedImageAt: lastGeneratedImageRow?.updated || lastGeneratedImageRow?.created || '',
@@ -394,20 +441,473 @@ function buildContentOverview(articleStats) {
 		alreadyPublished: articleStats.publishedArticles || 0,
 		missingFeaturedImage: articleStats.missingFeaturedImage || 0,
 		missingSeoTitle: articleStats.missingSeoTitle || 0,
+		missingMetaDescription: articleStats.missingMetaDescription || 0,
+		missingCategory: articleStats.missingCategory || 0,
+		missingTags: articleStats.missingTags || 0,
 	};
 }
 
-function buildPerformance(jobStats) {
+function buildPerformance(jobStats, articleStats) {
+	const totalGenerated = (articleStats?.totalArticles || 0) + (jobStats.aiPinsTotal || 0) + (jobStats.generatedImages || 0);
+	const totalPublished = (articleStats?.publishedArticles || 0) + (jobStats.publishedPins || 0) + (jobStats.wpPublished || 0);
 	return {
 		totalAiPinsGenerated: jobStats.aiPinsTotal || 0,
 		totalPublishedPins: jobStats.publishedPins || 0,
+		totalGeneratedContent: totalGenerated,
+		totalPublished,
 		successRate: jobStats.successRate,
+		avgPublishTimeMs: jobStats.avgPublishTimeMs,
 		lastPublishAt: jobStats.lastPublishAt || '',
 		lastPublishTitle: jobStats.lastPublishTitle || '',
 		lastGeneratedImageAt: jobStats.lastGeneratedImageAt || '',
 		lastGeneratedImageUrl: jobStats.lastGeneratedImageUrl || '',
 		lastGeneratedAt: jobStats.lastGeneratedAt || '',
 		lastGeneratedTitle: jobStats.lastGeneratedTitle || '',
+		lastAiGenerationAt: jobStats.lastGeneratedAt || '',
+		lastPinGenerationAt: jobStats.lastGeneratedAt || '',
+		lastImageGenerationAt: jobStats.lastGeneratedImageAt || '',
+	};
+}
+
+function buildStatsBlock(articleStats, jobStats, website) {
+	return {
+		totalArticles: articleStats.totalArticles || 0,
+		generatedArticles: articleStats.totalArticles || 0,
+		publishedArticles: articleStats.publishedArticles || 0,
+		draftArticles: articleStats.draftArticles || articleStats.newArticles || 0,
+		readyArticles: articleStats.readyArticles || 0,
+		generatedPins: jobStats.aiPinsTotal || 0,
+		publishedPins: jobStats.publishedPins || 0,
+		generatedImages: jobStats.generatedImages || 0,
+		trafficImports: articleStats.importedArticles || 0,
+		wordpressSyncs: jobStats.wpSyncs || jobStats.wpJobCount || 0,
+		failedJobs: jobStats.failedJobs || 0,
+		readyToPublish: (jobStats.draftPins || []).length,
+		pendingJobs: jobStats.pendingJobs || 0,
+		newArticles: articleStats.newArticles || 0,
+		lastScan: website.last_scan_at || '',
+		nextScheduledScan: website.next_scan_at || '',
+	};
+}
+
+function statusLabel(ok, good, bad) {
+	return ok ? good : bad;
+}
+
+function buildWordpressStatus({ website, wpSite, jobStats }) {
+	const connection = connectionStatusFromWp(wpSite, website);
+	const restApi = restApiStatusFromWp(wpSite, website);
+	const hasUsername = Boolean(String(website?.wp_username || wpSite?.username || '').trim());
+	const hasAppPassword = Boolean(website?.has_wp_app_password || wpSite?.hasCredentials);
+	const credentialsOk = hasUsername && hasAppPassword;
+
+	return {
+		connection: {
+			status: connection.status,
+			tone: toneFromStatus(connection.status),
+			label: statusLabel(connection.status === 'connected', 'Connected', connection.status === 'configured' ? 'Configured' : 'Not Connected'),
+			detail: connection.detail || '',
+		},
+		restApi: {
+			status: restApi.status,
+			tone: toneFromStatus(restApi.status === 'ok' ? 'connected' : restApi.status),
+			label: statusLabel(restApi.status === 'ok', 'REST API', restApi.status === 'untested' ? 'REST API Untested' : 'REST API Missing'),
+			detail: restApi.detail || '',
+		},
+		credentials: {
+			status: credentialsOk ? 'configured' : 'not_configured',
+			tone: credentialsOk ? 'green' : 'red',
+			label: credentialsOk ? 'Credentials Saved' : 'Credentials Missing',
+			detail: credentialsOk
+				? 'WordPress username and application password are saved.'
+				: 'WordPress credentials are missing. Configure them in Website Settings.',
+		},
+		applicationPassword: {
+			status: hasAppPassword ? 'configured' : 'not_configured',
+			tone: hasAppPassword ? 'green' : 'red',
+			label: hasAppPassword ? 'Application Password' : 'Application Password Missing',
+			detail: hasAppPassword
+				? 'Application password is configured.'
+				: 'Add an application password in Website Settings.',
+		},
+		lastPublishAt: jobStats.lastWpPublishAt || '',
+		lastPublishTitle: jobStats.lastWpPublishTitle || '',
+		lastSyncAt: wpSite?.lastSyncedAt || website?.updated || website?.last_scan_at || '',
+		wpVersion: wpSite?.wpVersion || wpSite?.health?.version || '',
+		needsConfiguration: !credentialsOk,
+		configureHint: !credentialsOk
+			? 'WordPress credentials are missing. Configure them in Website Settings.'
+			: '',
+	};
+}
+
+function buildPinterestStatus({ workspaceIndicators, publishTarget, jobStats, pinterestMeta }) {
+	const connection = workspaceIndicators?.pinterestConnection || indicator('Pinterest', 'not_configured');
+	const connected = ['connected', 'configured', 'ready'].includes(String(connection.status || '').toLowerCase());
+	return {
+		account: {
+			status: connection.status,
+			tone: connection.tone || toneFromStatus(connection.status),
+			label: connection.detail || (connected ? 'Connected Account' : 'No Account Connected'),
+			detail: connected
+				? 'Pinterest account is available for this workspace.'
+				: 'Connect a Pinterest account in Pinterest settings.',
+		},
+		defaultBoard: {
+			status: publishTarget?.boardId ? 'configured' : 'not_configured',
+			tone: publishTarget?.boardId ? 'green' : 'amber',
+			label: pinterestMeta?.boardName || (publishTarget?.boardId ? 'Default board set' : 'No Default Board'),
+			detail: publishTarget?.boardId
+				? 'A default board is selected for publishing.'
+				: 'Choose a default board in Pinterest settings.',
+		},
+		api: {
+			status: connected ? 'ok' : 'not_configured',
+			tone: connected ? 'green' : 'red',
+			label: connected ? 'API Ready' : 'API Not Ready',
+			detail: connected ? 'Pinterest API access is available.' : 'Pinterest API is not ready yet.',
+		},
+		lastPublishAt: jobStats.lastPublishAt || '',
+		publishedPins: jobStats.publishedPins || 0,
+		failedPins: jobStats.failedPins || 0,
+		needsConfiguration: !connected,
+		configureHint: !connected
+			? 'Pinterest is not connected. Connect an account in Pinterest settings.'
+			: '',
+	};
+}
+
+function buildAiConfiguration(aiDefaults) {
+	return {
+		model: aiDefaults?.model || 'Default workspace model',
+		language: aiDefaults?.language || 'English',
+		country: aiDefaults?.country || 'United States',
+		tone: aiDefaults?.tone || 'Friendly',
+		defaultPromptPreview: aiDefaults?.promptPreview || '',
+		imageProvider: aiDefaults?.imageProvider || 'Not configured',
+		textProvider: aiDefaults?.textProvider || 'Not configured',
+		editHref: '/app/settings',
+	};
+}
+
+function buildSeoHealth(articleStats) {
+	const rows = [
+		{ key: 'missingFeaturedImages', label: 'Missing Featured Images', count: articleStats.missingFeaturedImage || 0 },
+		{ key: 'missingSeoTitles', label: 'Missing SEO Titles', count: articleStats.missingSeoTitle || 0 },
+		{ key: 'missingMetaDescriptions', label: 'Missing Meta Descriptions', count: articleStats.missingMetaDescription || 0 },
+		{ key: 'missingAltText', label: 'Missing ALT Text', count: null, tracked: false },
+		{ key: 'articlesWithoutCategories', label: 'Articles without Categories', count: articleStats.missingCategory || 0 },
+		{ key: 'articlesWithoutTags', label: 'Articles without Tags', count: articleStats.missingTags || 0 },
+		{ key: 'brokenImages', label: 'Broken Images', count: null, tracked: false },
+		{ key: 'brokenLinks', label: 'Broken Links', count: null, tracked: false },
+	];
+	return {
+		items: rows.map((row) => ({
+			...row,
+			tracked: row.tracked !== false,
+			tone: row.tracked === false
+				? 'default'
+				: (Number(row.count) > 0 ? 'amber' : 'green'),
+			status: row.tracked === false
+				? 'not_tracked'
+				: (Number(row.count) > 0 ? 'needs_attention' : 'ok'),
+		})),
+	};
+}
+
+function buildPublishingHealth({ wordpress, pinterest, workspaceIndicators, aiDefaults, jobStats }) {
+	const wordpressReady = !wordpress.needsConfiguration && ['connected', 'configured', 'ok'].includes(wordpress.connection.status);
+	const pinterestReady = !pinterest.needsConfiguration;
+	const aiReady = Boolean(aiDefaults?.textReady);
+	const imagesReady = Boolean(aiDefaults?.imageReady);
+	const queueRunning = workspaceIndicators?.publishingQueue?.status === 'operational';
+	const checks = [
+		{ key: 'wordpressReady', label: 'WordPress Ready', ok: wordpressReady },
+		{ key: 'pinterestReady', label: 'Pinterest Ready', ok: pinterestReady },
+		{ key: 'aiReady', label: 'AI Ready', ok: aiReady },
+		{ key: 'queueRunning', label: 'Queue Running', ok: queueRunning },
+		{ key: 'imagesReady', label: 'Images Ready', ok: imagesReady },
+	];
+	const score = Math.round((checks.filter((item) => item.ok).length / checks.length) * 100);
+	return {
+		items: checks.map((item) => ({
+			...item,
+			status: item.ok ? 'ready' : 'missing',
+			tone: item.ok ? 'green' : 'amber',
+		})),
+		overallScore: score,
+		failedJobs: jobStats.failedJobs || 0,
+		readyToPublish: (jobStats.draftPins || []).length,
+	};
+}
+
+function buildCredentialsHealth({ website, wpSite, workspaceIndicators, aiDefaults, userSettingsFlags }) {
+	const rows = [
+		{
+			key: 'wordpressUsername',
+			label: 'WordPress Username',
+			configured: Boolean(String(website?.wp_username || wpSite?.username || '').trim()),
+		},
+		{
+			key: 'applicationPassword',
+			label: 'Application Password',
+			configured: Boolean(website?.has_wp_app_password || wpSite?.hasCredentials),
+		},
+		{
+			key: 'pinterestToken',
+			label: 'Pinterest Token',
+			configured: ['connected', 'configured', 'ready'].includes(String(workspaceIndicators?.pinterestConnection?.status || '').toLowerCase())
+				|| Boolean(userSettingsFlags?.has_pinterest_token),
+		},
+		{
+			key: 'openaiProvider',
+			label: 'OpenAI Provider',
+			configured: Boolean(aiDefaults?.textReady || userSettingsFlags?.has_openai_key || userSettingsFlags?.has_gemini_key),
+		},
+		{
+			key: 'imageProvider',
+			label: 'Image Provider',
+			configured: Boolean(aiDefaults?.imageReady || userSettingsFlags?.has_fal_key),
+		},
+	];
+	return {
+		items: rows.map((row) => ({
+			...row,
+			status: row.configured ? 'configured' : 'missing',
+			tone: row.configured ? 'green' : 'red',
+			labelStatus: row.configured ? 'Configured' : 'Missing',
+		})),
+	};
+}
+
+function buildAiReadiness({ website, wordpress, pinterest, aiDefaults, publishingHealth }) {
+	const items = [
+		{
+			key: 'websiteConnected',
+			label: 'Website Connected',
+			ok: Boolean(website?.url),
+			hint: 'Add a valid website URL in Website Settings.',
+		},
+		{
+			key: 'wordpressReady',
+			label: 'WordPress Ready',
+			ok: !wordpress.needsConfiguration,
+			hint: wordpress.configureHint || 'Configure WordPress credentials in Website Settings.',
+		},
+		{
+			key: 'aiConfigured',
+			label: 'AI Configured',
+			ok: Boolean(aiDefaults?.textReady),
+			hint: 'Enable a text AI provider in Admin Settings.',
+		},
+		{
+			key: 'imageProviderReady',
+			label: 'Image Provider Ready',
+			ok: Boolean(aiDefaults?.imageReady),
+			hint: 'Enable an image provider in Admin Settings.',
+		},
+		{
+			key: 'pinterestReady',
+			label: 'Pinterest Ready',
+			ok: !pinterest.needsConfiguration,
+			hint: pinterest.configureHint || 'Connect Pinterest in Pinterest settings.',
+		},
+		{
+			key: 'publishingReady',
+			label: 'Publishing Ready',
+			ok: Number(publishingHealth.overallScore || 0) >= 60,
+			hint: 'Finish WordPress, Pinterest, and AI setup to publish confidently.',
+		},
+	];
+	const overallReady = items.every((item) => item.ok);
+	return {
+		items: items.map((item) => ({
+			...item,
+			status: item.ok ? 'ready' : 'missing',
+			tone: item.ok ? 'green' : 'amber',
+		})),
+		overallReady,
+		overallLabel: overallReady ? 'Overall Ready' : 'Setup Incomplete',
+		overallTone: overallReady ? 'green' : 'amber',
+	};
+}
+
+function buildSiteInfo({ website, wpSite }) {
+	const profile = wpSite?.siteProfile || {};
+	const plugins = Array.isArray(profile.activePlugins)
+		? profile.activePlugins.length
+		: (Number(profile.activePluginsCount) || Number(profile.pluginsCount) || null);
+	return {
+		domain: website.domain || '',
+		created: website.created || '',
+		lastScan: website.last_scan_at || '',
+		lastSync: wpSite?.lastSyncedAt || website.updated || '',
+		wordpressVersion: wpSite?.wpVersion || profile.wordpressVersion || profile.version || '',
+		phpVersion: profile.phpVersion || '',
+		theme: profile.theme || profile.activeTheme || '',
+		activePluginsCount: plugins,
+	};
+}
+
+function buildRecentActivityLite({ website, jobStats, wordpress }) {
+	const events = [];
+	if (website.last_scan_at) {
+		events.push({
+			id: `scan-${website.id}`,
+			type: 'scan',
+			title: 'Website scan',
+			status: website.discovery_status || 'completed',
+			at: website.last_scan_at,
+		});
+	}
+	if (wordpress.lastSyncAt) {
+		events.push({
+			id: `sync-${website.id}`,
+			type: 'sync',
+			title: 'WordPress sync',
+			status: 'completed',
+			at: wordpress.lastSyncAt,
+		});
+	}
+	if (jobStats.lastWpPublishAt) {
+		events.push({
+			id: `wp-publish-${website.id}`,
+			type: 'publish',
+			title: jobStats.lastWpPublishTitle || 'Published article',
+			status: 'published',
+			at: jobStats.lastWpPublishAt,
+		});
+	}
+	if (jobStats.lastPublishAt) {
+		events.push({
+			id: `pin-publish-${website.id}`,
+			type: 'publish',
+			title: jobStats.lastPublishTitle || 'Generated Pinterest pin',
+			status: 'published',
+			at: jobStats.lastPublishAt,
+		});
+	}
+	if (jobStats.lastGeneratedAt) {
+		events.push({
+			id: `ai-gen-${website.id}`,
+			type: 'ai_generation',
+			title: jobStats.lastGeneratedTitle || 'Generated article',
+			status: 'completed',
+			at: jobStats.lastGeneratedAt,
+		});
+	}
+	if (jobStats.lastGeneratedImageAt) {
+		events.push({
+			id: `img-${website.id}`,
+			type: 'ai_generation',
+			title: 'Image generated',
+			status: 'completed',
+			at: jobStats.lastGeneratedImageAt,
+		});
+	}
+	if ((jobStats.failedJobs || 0) > 0 && jobStats.lastPublishAt) {
+		events.push({
+			id: `fail-${website.id}`,
+			type: 'error',
+			title: 'Failed publish',
+			status: 'failed',
+			at: jobStats.lastPublishAt,
+		});
+	}
+	events.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+	return events.slice(0, 10).map(annotateTimelineEvent);
+}
+
+function assembleControlPayload({
+	website,
+	wpSite,
+	articleStats,
+	jobStats,
+	workspaceIndicators,
+	credits = null,
+	publishTarget = null,
+	aiDefaults = null,
+	userSettingsFlags = null,
+	pinterestMeta = null,
+}) {
+	const health = buildHealthBlock({ website, wpSite, articleStats, jobStats });
+	const stats = buildStatsBlock(articleStats, jobStats, website);
+	const score = computeWebsiteScore({ health, jobStats, indicators: workspaceIndicators, website });
+	const contentOverview = buildContentOverview(articleStats);
+	const performance = buildPerformance(jobStats, articleStats);
+	const problems = buildQuickProblems({
+		health,
+		indicators: workspaceIndicators,
+		website,
+		jobStats,
+		credits,
+	});
+	const wordpress = buildWordpressStatus({ website, wpSite, jobStats });
+	const pinterest = buildPinterestStatus({
+		workspaceIndicators,
+		publishTarget,
+		jobStats,
+		pinterestMeta,
+	});
+	const aiConfiguration = buildAiConfiguration(aiDefaults);
+	const seoHealth = buildSeoHealth(articleStats);
+	const publishingHealth = buildPublishingHealth({
+		wordpress,
+		pinterest,
+		workspaceIndicators,
+		aiDefaults,
+		jobStats,
+	});
+	const credentialsHealth = buildCredentialsHealth({
+		website,
+		wpSite,
+		workspaceIndicators,
+		aiDefaults,
+		userSettingsFlags,
+	});
+	const aiReadiness = buildAiReadiness({
+		website,
+		wordpress,
+		pinterest,
+		aiDefaults,
+		publishingHealth,
+	});
+	const siteInfo = buildSiteInfo({ website, wpSite });
+	const recentActivity = buildRecentActivityLite({ website, jobStats, wordpress });
+
+	if (wordpress.needsConfiguration) {
+		problems.unshift({
+			id: 'wordpress_credentials_missing',
+			code: 'wordpress_credentials_missing',
+			label: 'WordPress credentials missing',
+			tone: 'red',
+			detail: 'Configure them in Website Settings.',
+		});
+	}
+
+	return {
+		health,
+		stats,
+		score,
+		performance,
+		contentOverview,
+		problems,
+		indicators: workspaceIndicators,
+		publishReady: {
+			count: (jobStats.draftPins || []).length,
+			pinIds: (jobStats.draftPins || []).map((pin) => pin.id),
+			accountId: publishTarget?.accountId || '',
+			boardId: publishTarget?.boardId || '',
+		},
+		wordpress,
+		pinterest,
+		aiConfiguration,
+		seoHealth,
+		publishingHealth,
+		credentialsHealth,
+		aiReadiness,
+		siteInfo,
+		recentActivity,
 	};
 }
 
@@ -420,7 +920,7 @@ function buildQuickProblems({ health, indicators, website, jobStats, credits }) 
 			code: 'wordpress_disconnected',
 			label: 'WordPress disconnected',
 			tone: 'red',
-			detail: health.wordpressConnection?.detail || '',
+			detail: health.wordpressConnection?.detail || 'WordPress is not connected. Configure it in Website Settings.',
 		});
 	}
 
@@ -430,7 +930,7 @@ function buildQuickProblems({ health, indicators, website, jobStats, credits }) 
 			code: 'pinterest_disconnected',
 			label: 'Pinterest disconnected',
 			tone: 'red',
-			detail: indicators?.pinterestConnection?.detail || '',
+			detail: 'Pinterest is not connected. Connect an account in Pinterest settings.',
 		});
 	}
 
@@ -440,7 +940,7 @@ function buildQuickProblems({ health, indicators, website, jobStats, credits }) 
 			code: 'ai_provider_unavailable',
 			label: 'AI provider unavailable',
 			tone: 'red',
-			detail: indicators?.aiImageProvider?.detail || '',
+			detail: 'Enable an AI image provider in Admin Settings.',
 		});
 	}
 
@@ -450,7 +950,7 @@ function buildQuickProblems({ health, indicators, website, jobStats, credits }) 
 			code: 'scan_failed',
 			label: 'Scan failed',
 			tone: 'red',
-			detail: website.last_scan_summary?.errors?.[0] || 'Last discovery scan failed',
+			detail: 'The last website scan failed. Try scanning again from the Dashboard.',
 		});
 	}
 
@@ -478,7 +978,7 @@ function buildQuickProblems({ health, indicators, website, jobStats, credits }) 
 			code: 'credits_low',
 			label: 'Credits low',
 			tone: 'amber',
-			detail: `AI ${credits?.ai?.remaining ?? '—'}/${credits?.ai?.limit ?? '—'}, Image ${credits?.image?.remaining ?? '—'}/${credits?.image?.limit ?? '—'}`,
+			detail: 'Credits are running low. Review your plan or usage in Settings.',
 		});
 	}
 
@@ -649,58 +1149,6 @@ function buildHealthBlock({ website, wpSite, articleStats, jobStats }) {
 	};
 }
 
-function buildStatsBlock(articleStats, jobStats, website) {
-	return {
-		totalArticles: articleStats.totalArticles || 0,
-		readyArticles: articleStats.readyArticles || 0,
-		publishedPins: jobStats.publishedPins || 0,
-		pendingJobs: jobStats.pendingJobs || 0,
-		failedJobs: jobStats.failedJobs || 0,
-		newArticles: articleStats.newArticles || 0,
-		lastScan: website.last_scan_at || '',
-		nextScheduledScan: website.next_scan_at || '',
-	};
-}
-
-function assembleControlPayload({
-	website,
-	wpSite,
-	articleStats,
-	jobStats,
-	workspaceIndicators,
-	credits = null,
-	publishTarget = null,
-}) {
-	const health = buildHealthBlock({ website, wpSite, articleStats, jobStats });
-	const stats = buildStatsBlock(articleStats, jobStats, website);
-	const score = computeWebsiteScore({ health, jobStats, indicators: workspaceIndicators, website });
-	const contentOverview = buildContentOverview(articleStats);
-	const performance = buildPerformance(jobStats);
-	const problems = buildQuickProblems({
-		health,
-		indicators: workspaceIndicators,
-		website,
-		jobStats,
-		credits,
-	});
-
-	return {
-		health,
-		stats,
-		score,
-		performance,
-		contentOverview,
-		problems,
-		indicators: workspaceIndicators,
-		publishReady: {
-			count: (jobStats.draftPins || []).length,
-			pinIds: (jobStats.draftPins || []).map((pin) => pin.id),
-			accountId: publishTarget?.accountId || '',
-			boardId: publishTarget?.boardId || '',
-		},
-	};
-}
-
 export async function buildWebsiteControlSummary(website, {
 	ownerId,
 	wpSites = [],
@@ -708,6 +1156,9 @@ export async function buildWebsiteControlSummary(website, {
 	workspaceIndicators = null,
 	credits = null,
 	publishTarget = null,
+	aiDefaults = null,
+	userSettingsFlags = null,
+	pinterestMeta = null,
 } = {}) {
 	const schema = articlesSchema || await resolveArticlesSchema();
 	const wpSite = matchWordpressSite(wpSites, website.id);
@@ -724,18 +1175,57 @@ export async function buildWebsiteControlSummary(website, {
 		workspaceIndicators,
 		credits,
 		publishTarget,
+		aiDefaults,
+		userSettingsFlags,
+		pinterestMeta,
 	});
 }
 
+async function loadAiDefaults(ownerId) {
+	const [providers, platform, settingsRecord] = await Promise.all([
+		listProviders().catch(() => []),
+		getPlatformSettings().catch(() => ({ settings: {} })),
+		getOwnedUserSettings(ownerId).catch(() => null),
+	]);
+	const settings = platform?.settings || platform || {};
+	const textProvider = (providers || []).find((item) => isTextOrientedProvider(item.code) && item.enabled && (item.config?.hasApiKey || item.status === 'connected'))
+		|| (providers || []).find((item) => isTextOrientedProvider(item.code) && item.enabled)
+		|| null;
+	const imageProvider = (providers || []).find((item) => isImageOrientedProvider(item.code) && item.enabled && (item.config?.hasApiKey || item.status === 'connected'))
+		|| (providers || []).find((item) => isImageOrientedProvider(item.code) && item.enabled)
+		|| null;
+	const prompt = String(settings?.prompts?.writerSystem || '').trim();
+	const userFlags = mapSettingsResponse(settingsRecord);
+	return {
+		aiDefaults: {
+			model: textProvider?.defaultModel || textProvider?.config?.model || settings?.ai?.defaultModel || textProvider?.name || 'Default workspace model',
+			language: settings?.general?.defaultLanguage === 'en' ? 'English' : (settings?.general?.defaultLanguage || 'English'),
+			country: 'United States',
+			tone: settings?.content?.defaultPinTone || settings?.content?.recipeStyle || 'Friendly',
+			promptPreview: prompt ? `${prompt.slice(0, 120)}${prompt.length > 120 ? '…' : ''}` : 'No custom default prompt configured.',
+			imageProvider: imageProvider?.name || settings?.images?.defaultImageProvider || 'Not configured',
+			textProvider: textProvider?.name || settings?.ai?.defaultProvider || 'Not configured',
+			textReady: Boolean(textProvider?.config?.hasApiKey || textProvider?.status === 'connected' || userFlags.has_openai_key || userFlags.has_gemini_key),
+			imageReady: Boolean(imageProvider?.config?.hasApiKey || imageProvider?.status === 'connected' || userFlags.has_fal_key),
+		},
+		userSettingsFlags: userFlags,
+	};
+}
+
 export async function getWebsitesControlCenter(ownerId, websites = []) {
-	const [wpPayload, articlesSchema, workspaceIndicators, credits, publishTarget] = await Promise.all([
+	const [wpPayload, articlesSchema, workspaceIndicators, credits, publishTarget, aiBundle] = await Promise.all([
 		listWordpressSites(ownerId).catch(() => ({ items: [] })),
 		resolveArticlesSchema(),
 		loadWorkspaceStatusIndicators(ownerId),
 		getUserCreditUsage(pocketbaseClient, ownerId).catch(() => null),
 		resolveDefaultPinterestTarget(ownerId).catch(() => ({ accountId: '', boardId: '' })),
+		loadAiDefaults(ownerId).catch(() => ({ aiDefaults: null, userSettingsFlags: null })),
 	]);
 	const wpSites = wpPayload.items || [];
+	const pinterestMeta = {
+		boardName: publishTarget?.boardId ? 'Default board' : '',
+		accountName: workspaceIndicators?.pinterestConnection?.detail || '',
+	};
 
 	const items = await Promise.all((websites || []).map(async (website) => {
 		try {
@@ -746,6 +1236,9 @@ export async function getWebsitesControlCenter(ownerId, websites = []) {
 				workspaceIndicators,
 				credits,
 				publishTarget,
+				aiDefaults: aiBundle?.aiDefaults || null,
+				userSettingsFlags: aiBundle?.userSettingsFlags || null,
+				pinterestMeta,
 			});
 			return { ...website, control };
 		} catch (error) {
@@ -761,8 +1254,13 @@ export async function getWebsitesControlCenter(ownerId, websites = []) {
 				failedJobs: 0,
 				newArticles: 0,
 				publishedArticles: 0,
+				draftArticles: 0,
 				missingFeaturedImage: 0,
 				missingSeoTitle: 0,
+				missingMetaDescription: 0,
+				missingCategory: 0,
+				missingTags: 0,
+				importedArticles: 0,
 				lastScan: website.last_scan_at || '',
 				nextScheduledScan: website.next_scan_at || '',
 			};
@@ -770,9 +1268,14 @@ export async function getWebsitesControlCenter(ownerId, websites = []) {
 				pendingJobs: 0,
 				failedJobs: 0,
 				publishedPins: 0,
+				failedPins: 0,
 				aiPinsTotal: 0,
+				generatedImages: 0,
 				draftPins: [],
 				successRate: null,
+				wpPublished: 0,
+				wpFailed: 0,
+				wpSyncs: 0,
 			};
 			return {
 				...website,
@@ -784,6 +1287,9 @@ export async function getWebsitesControlCenter(ownerId, websites = []) {
 					workspaceIndicators,
 					credits,
 					publishTarget,
+					aiDefaults: aiBundle?.aiDefaults || null,
+					userSettingsFlags: aiBundle?.userSettingsFlags || null,
+					pinterestMeta,
 				}),
 			};
 		}
