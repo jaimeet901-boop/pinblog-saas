@@ -2,6 +2,7 @@
  * Centralized Credits Engine for Chef IA.
  * Single source of truth: workspace_subscriptions.credits_balance + credit_transactions.
  */
+import { randomUUID } from 'node:crypto';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { httpError } from '../middleware/require-admin.js';
 import { getPlatformSettings } from './platform-settings.js';
@@ -274,6 +275,9 @@ export async function consumeWorkspaceCredits({
 		credits_used_total: usedTotal,
 	});
 
+	// UNIQUE idx_credit_tx_idempotency treats omitted/empty as ""; generate a UUID so burns never collide.
+	const resolvedIdempotencyKey = String(idempotencyKey || '').trim() || randomUUID();
+
 	const tx = await pocketbaseClient.collection('credit_transactions').create({
 		workspace_key: workspaceKey,
 		workspace_name: subscription.workspace_name || workspaceKey,
@@ -283,7 +287,7 @@ export async function consumeWorkspaceCredits({
 		balance: nextBalance,
 		created_by: actor,
 		feature: String(feature || '').slice(0, 80),
-		idempotency_key: idempotencyKey || undefined,
+		idempotency_key: resolvedIdempotencyKey,
 		reference_id: referenceId || '',
 		metadata: metadata || {},
 	});
