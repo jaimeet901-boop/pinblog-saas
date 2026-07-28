@@ -5,12 +5,26 @@
  */
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 
+function httpError(status, message, errorCode = 'FORBIDDEN') {
+	const error = new Error(message);
+	error.status = status;
+	error.errorCode = errorCode;
+	return error;
+}
+
+function recordFieldId(value) {
+	if (value == null || value === '') return '';
+	if (typeof value === 'string') return value.trim();
+	if (typeof value === 'object') return String(value.id || value.value || '').trim();
+	return String(value).trim();
+}
+
 export function getWorkspaceActor(req) {
 	const workspaceId = req.workspace?.id || '';
 	const workspaceKey = req.workspaceKey || req.workspace?.workspace_key || '';
 	const creatorId = req.pocketbaseUserId || '';
 	const workspaceOwnerId = req.workspaceOwnerId
-		|| (typeof req.workspace?.owner === 'string' ? req.workspace.owner : req.workspace?.owner)
+		|| (typeof req.workspace?.owner === 'string' ? req.workspace.owner : recordFieldId(req.workspace?.owner))
 		|| creatorId;
 	return {
 		workspaceId,
@@ -68,6 +82,62 @@ export function workspaceScopeFilter(req, { ownerField = 'owner' } = {}) {
 }
 
 /**
+ * Combine workspace scope with an extra PocketBase filter expression.
+ */
+export function andWorkspaceScope(req, extraFilter = '', options = {}) {
+	const scope = workspaceScopeFilter(req, options);
+	const extra = String(extraFilter || '').trim();
+	if (!extra) return scope;
+	return `(${scope}) && (${extra})`;
+}
+
+/**
+ * True if a record belongs to the active workspace (including legacy empty-workspace rows).
+ */
+export function recordBelongsToWorkspace(record, req, { ownerField = 'owner' } = {}) {
+	if (!record) return false;
+	const actor = getWorkspaceActor(req);
+	const recordWs = recordFieldId(record.workspace);
+	const recordOwner = recordFieldId(record[ownerField]);
+
+	if (actor.workspaceId && recordWs && recordWs === String(actor.workspaceId)) {
+		return true;
+	}
+	if (actor.workspaceId && !recordWs && actor.workspaceOwnerId && recordOwner === actor.workspaceOwnerId) {
+		return true;
+	}
+	if (!actor.workspaceId) {
+		const fallbackOwner = actor.workspaceOwnerId || actor.creatorId;
+		return Boolean(fallbackOwner && recordOwner === fallbackOwner);
+	}
+	return false;
+}
+
+/**
+ * Assert a loaded record is in the active workspace. Throws 404 to avoid IDOR enumeration.
+ */
+export function assertWorkspaceOwnedRecord(record, req, {
+	ownerField = 'owner',
+	notFoundMessage = 'Record not found',
+} = {}) {
+	if (!record || !recordBelongsToWorkspace(record, req, { ownerField })) {
+		throw httpError(404, notFoundMessage, 'NOT_FOUND');
+	}
+	return record;
+}
+
+/**
+ * Load a collection record and assert workspace ownership.
+ */
+export async function getWorkspaceOwnedRecord(collection, id, req, {
+	ownerField = 'owner',
+	notFoundMessage = 'Record not found',
+} = {}) {
+	const record = await pocketbaseClient.collection(collection).getOne(id).catch(() => null);
+	return assertWorkspaceOwnedRecord(record, req, { ownerField, notFoundMessage });
+}
+
+/**
  * List helper scoped to the active workspace.
  */
 export async function listWorkspaceResources(collection, req, {
@@ -77,14 +147,30 @@ export async function listWorkspaceResources(collection, req, {
 	extraFilter = '',
 	fields,
 } = {}) {
-	const scope = workspaceScopeFilter(req);
-	const filter = extraFilter ? `(${scope}) && (${extraFilter})` : scope;
+	const filter = andWorkspaceScope(req, extraFilter);
 	return pocketbaseClient.collection(collection).getList(page, perPage, {
 		filter,
 		sort,
 		fields,
 		requestKey: null,
 	}).catch(() => ({ items: [], totalItems: 0, page, perPage, totalPages: 0 }));
+}
+
+/**
+ * Full list scoped to the active workspace.
+ */
+export async function listWorkspaceResourcesFull(collection, req, {
+	sort = '-created',
+	extraFilter = '',
+	fields,
+} = {}) {
+	const filter = andWorkspaceScope(req, extraFilter);
+	return pocketbaseClient.collection(collection).getFullList({
+		filter,
+		sort,
+		fields,
+		requestKey: null,
+	}).catch(() => []);
 }
 
 export async function countWorkspaceResources(collection, req, extraFilter = '') {

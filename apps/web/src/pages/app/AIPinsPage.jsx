@@ -6,7 +6,6 @@ import {
 	ChevronDown, History, LayoutTemplate, Palette, X, FileStack, PenLine, ListChecks,
 	Eye, Copy, ListPlus, Library,
 } from 'lucide-react';
-import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
 import { generateText, extractJson } from '@/lib/aiGenerate';
 import { Badge, Button, Card, Empty, Input, Select, Spinner, Textarea } from '@/components/kit';
@@ -628,10 +627,15 @@ export default function AIPinsPage() {
 
 		setLoadingPins(true);
 		try {
-			const pins = await pb.collection('ai_pins').getFullList({
-				sort: '-created',
-				filter: pb.filter('websiteId = {:websiteId}', { websiteId }),
-			});
+			const response = await apiServerClient.fetch(
+				`/ai-pins/pins?websiteId=${encodeURIComponent(websiteId)}`,
+				{ method: 'GET' },
+			);
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload?.message || `Failed to load pins (${response.status})`);
+			}
+			const pins = Array.isArray(payload.items) ? payload.items : [];
 			const mappedPins = pins.map(mapSavedPin);
 
 			for (const pin of mappedPins) {
@@ -2121,18 +2125,26 @@ export default function AIPinsPage() {
 				...panel,
 				imageMode: panel.imageMode === 'use_featured' ? 'use_featured' : panel.imageMode,
 			});
-			const updated = await pb.collection('ai_pins').update(pin.id, {
-				title: regenerated.title || pin.title,
-				description: regenerated.description || pin.description,
-				overlay_text: regenerated.overlayText || pin.overlayText,
-				image_prompt: regenerated.imagePrompt || pin.imagePrompt,
-				image_url: pin.imageUrl || '',
-				suggested_keywords: safeArray(regenerated.suggestedKeywords),
-				suggested_hashtags: safeArray(regenerated.suggestedHashtags),
-				target_audience: panel.targetAudience,
-				tone_of_voice: panel.toneOfVoice,
-				language: panel.language,
+			const response = await apiServerClient.fetch(`/ai-pins/pins/${encodeURIComponent(pin.id)}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					title: regenerated.title || pin.title,
+					description: regenerated.description || pin.description,
+					overlay_text: regenerated.overlayText || pin.overlayText,
+					image_prompt: regenerated.imagePrompt || pin.imagePrompt,
+					image_url: pin.imageUrl || '',
+					suggested_keywords: safeArray(regenerated.suggestedKeywords),
+					suggested_hashtags: safeArray(regenerated.suggestedHashtags),
+					target_audience: panel.targetAudience,
+					tone_of_voice: panel.toneOfVoice,
+					language: panel.language,
+				}),
 			});
+			const updated = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(updated?.message || `Failed to regenerate pin (${response.status})`);
+			}
 			setSavedPins((prev) => prev.map((item) => (item.id === pin.id ? mapSavedPin(updated) : item)));
 			toast({
 				title: 'Regenerated',

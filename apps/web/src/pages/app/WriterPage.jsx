@@ -5,7 +5,6 @@ import {
 	Sparkles, Search, BookOpen, LayoutList, AlertCircle, Hash, Clock,
 	Facebook, Image as ImageIcon, Coins, History, Languages, Type,
 } from 'lucide-react';
-import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
 import { generateText, extractJson } from '@/lib/aiGenerate';
 import { Badge, Button, Input, Select, Textarea, Spinner } from '@/components/kit';
@@ -285,13 +284,13 @@ export default function WriterPage() {
 
 	const loadRecentDrafts = async () => {
 		try {
-			const ownerId = pb.authStore.record?.id;
-			if (!ownerId) return;
-			const rows = await pb.collection('articles').getList(1, 6, {
-				sort: '-created',
-				filter: pb.filter('owner = {:owner}', { owner: ownerId }),
-			});
-			setRecentDrafts(rows.items || []);
+			const response = await apiServerClient.fetch('/content/articles?perPage=6', { method: 'GET' });
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				setRecentDrafts([]);
+				return;
+			}
+			setRecentDrafts(Array.isArray(payload.items) ? payload.items : []);
 		} catch {
 			setRecentDrafts([]);
 		}
@@ -407,19 +406,26 @@ Respond ONLY with the JSON object described in your instructions.`;
 		if (!article) return;
 		setSaving(true);
 		try {
-			await pb.collection('articles').create({
-				owner: pb.authStore.record.id,
-				keyword: form.keyword,
-				seo_title: article.seo_title,
-				meta_description: article.meta_description,
-				slug: article.slug,
-				language: form.language,
-				country: form.country,
-				tone: form.tone,
-				body: article,
-				status,
-				...(status === 'scheduled' && { scheduled_at: new Date(Date.now() + 86400000).toISOString() }),
+			const response = await apiServerClient.fetch('/content/articles', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					keyword: form.keyword,
+					seo_title: article.seo_title,
+					meta_description: article.meta_description,
+					slug: article.slug,
+					language: form.language,
+					country: form.country,
+					tone: form.tone,
+					body: article,
+					status,
+					...(status === 'scheduled' && { scheduled_at: new Date(Date.now() + 86400000).toISOString() }),
+				}),
 			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload?.message || `Failed to save article (${response.status})`);
+			}
 			toast({ title: 'Saved', description: `Article saved as ${status}.` });
 			setArticle(null);
 			setArticleBaseline(null);
@@ -443,19 +449,26 @@ Respond ONLY with the JSON object described in your instructions.`;
 		setPublishing(true);
 		try {
 			const articleStatus = extras.scheduledAt ? 'scheduled' : (wpStatus === 'publish' ? 'published' : 'draft');
-			const savedArticle = await pb.collection('articles').create({
-				owner: pb.authStore.record.id,
-				keyword: form.keyword,
-				seo_title: article.seo_title,
-				meta_description: article.meta_description,
-				slug: article.slug,
-				language: form.language,
-				country: form.country,
-				tone: form.tone,
-				body: article,
-				status: articleStatus,
-				...(extras.scheduledAt ? { scheduled_at: extras.scheduledAt } : {}),
+			const createResponse = await apiServerClient.fetch('/content/articles', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					keyword: form.keyword,
+					seo_title: article.seo_title,
+					meta_description: article.meta_description,
+					slug: article.slug,
+					language: form.language,
+					country: form.country,
+					tone: form.tone,
+					body: article,
+					status: articleStatus,
+					...(extras.scheduledAt ? { scheduled_at: extras.scheduledAt } : {}),
+				}),
 			});
+			const savedArticle = await createResponse.json().catch(() => ({}));
+			if (!createResponse.ok) {
+				throw new Error(savedArticle?.message || `Failed to save article (${createResponse.status})`);
+			}
 
 			const endpoint = extras.scheduledAt ? '/wordpress/schedule' : '/wordpress/publish';
 			const res = await apiServerClient.fetch(endpoint, {

@@ -5,7 +5,6 @@ import {
 	Sparkles, Settings2, Layers, Copy, RefreshCw, Trash2, Search,
 	Star, Pin, LayoutTemplate, Palette, Upload, Coins, Heart,
 } from 'lucide-react';
-import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
 import { generateText } from '@/lib/aiGenerate';
 import { Badge, Button, Input, Select, Spinner, Textarea } from '@/components/kit';
@@ -139,7 +138,10 @@ export default function ImagesPage() {
 
 	const load = async () => {
 		try {
-			setPins(await pb.collection('pins').getFullList({ sort: '-created', requestKey: 'pins' }));
+			const response = await apiServerClient.fetch('/content/pins', { method: 'GET' });
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) return;
+			setPins(Array.isArray(payload.items) ? payload.items : []);
 		} catch (_) {
 			/* */
 		}
@@ -257,13 +259,20 @@ export default function ImagesPage() {
 		if (!image?.url) return;
 		setSaving(true);
 		try {
-			await pb.collection('pins').create({
-				owner: pb.authStore.record.id,
-				title: (image.prompt || prompt).slice(0, 120),
-				image_url: image.url,
-				format: image.format || format,
-				status: 'draft',
+			const response = await apiServerClient.fetch('/content/pins', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					title: (image.prompt || prompt).slice(0, 120),
+					image_url: image.url,
+					format: image.format || format,
+					status: 'draft',
+				}),
 			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload?.message || `Failed to save pin (${response.status})`);
+			}
 			toast({ title: 'Saved to pins' });
 			setBaselinePrompt(image.prompt || prompt);
 			await load();
@@ -299,7 +308,13 @@ export default function ImagesPage() {
 		if (selected.source === 'library' && selected.pinId) {
 			if (!confirm('Delete this saved pin?')) return;
 			try {
-				await pb.collection('pins').delete(selected.pinId);
+				const response = await apiServerClient.fetch(`/content/pins/${encodeURIComponent(selected.pinId)}`, {
+					method: 'DELETE',
+				});
+				if (!response.ok && response.status !== 204) {
+					const payload = await response.json().catch(() => ({}));
+					throw new Error(payload?.message || `Failed to delete pin (${response.status})`);
+				}
 				toast({ title: 'Deleted' });
 				setGallery((prev) => prev.filter((item) => item.id !== selected.id));
 				setSelectedId('');

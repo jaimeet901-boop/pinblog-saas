@@ -12,6 +12,16 @@ import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js
 import { uploadFiles } from '../middleware/file-upload.js';
 import { normalizeDestinationUrl } from '../utils/pin-publish-destination.js';
 import { safeTransitionArticleLifecycle } from '../services/article-lifecycle.js';
+import {
+	getWorkspaceActor,
+	stampCreateOwnership,
+	stampUpdateOwnership,
+	andWorkspaceScope,
+	listWorkspaceResources,
+	listWorkspaceResourcesFull,
+	getWorkspaceOwnedRecord,
+	assertWorkspaceOwnedRecord,
+} from '../services/workspace-ownership.js';
 
 const router = Router();
 const MAX_REFERENCE_IMAGES = 6;
@@ -69,28 +79,40 @@ function getOwnerId(record) {
 	return String(raw).trim();
 }
 
-async function getOwnedWebsite({ websiteId, userId }) {
+async function getOwnedWebsite({ websiteId, req }) {
 	const site = await pocketbaseClient.collection('websites').getOne(websiteId).catch(() => null);
 	if (!site) {
 		throw httpError(404, 'Website not found');
 	}
-
 	const storedOwnerId = getOwnerId(site);
-	if (storedOwnerId === userId) {
-		return site;
+	// Never claim orphan websites by ID — ownership is assigned only by admin/onboarding.
+	if (!storedOwnerId) {
+		throw httpError(403, 'Website has no owner and cannot be claimed via this endpoint');
 	}
+	return assertWorkspaceOwnedRecord(site, req, { notFoundMessage: 'Website not found' });
+}
 
-	if (!storedOwnerId && userId) {
-		const repaired = await pocketbaseClient
-			.collection('websites')
-			.update(site.id, { owner: userId })
-			.catch(() => null);
-		if (repaired) {
-			return repaired;
-		}
+function workspaceOwnerId(req) {
+	return getWorkspaceActor(req).workspaceOwnerId || req.pocketbaseUserId;
+}
+
+async function getOwnedAiPin({ pinId, req }) {
+	return getWorkspaceOwnedRecord('ai_pins', pinId, req, { notFoundMessage: 'Pin not found' });
+}
+
+async function getOwnedWebsiteArticle({ articleId, req }) {
+	const article = await pocketbaseClient.collection('website_articles').getOne(articleId).catch(() => null);
+	if (!article) {
+		throw httpError(404, 'Article not found');
 	}
-
-	throw httpError(403, 'You do not have access to this website');
+	const websiteId = typeof article.websiteId === 'string'
+		? article.websiteId
+		: (article.websiteId?.id || article.website || article.website_id || '');
+	if (!websiteId) {
+		throw httpError(404, 'Article not found');
+	}
+	await getOwnedWebsite({ websiteId, req });
+	return article;
 }
 
 function mapArticle(record) {
@@ -160,7 +182,7 @@ router.get('/articles', async (req, res) => {
 		throw httpError(422, 'websiteId is required');
 	}
 
-	await getOwnedWebsite({ websiteId, userId: req.pocketbaseUserId });
+	await getOwnedWebsite({ websiteId, req });
 	const schema = await ensureWebsiteArticlesSchema(pocketbaseClient);
 
 	const page = normalizePositiveInt(req.query.page, 1);
@@ -185,7 +207,7 @@ router.get('/articles', async (req, res) => {
 		pocketbaseClient,
 		websiteId,
 		websiteField: schema.websiteField,
-		owner: req.pocketbaseUserId,
+		owner: workspaceOwnerId(req),
 		page,
 		perPage,
 		filterExtra: filterExtraParts.join(' && '),
@@ -214,11 +236,7 @@ router.get('/articles/:articleId', async (req, res) => {
 		throw httpError(401, 'You must be signed in');
 	}
 
-	const article = await pocketbaseClient.collection('website_articles').getOne(req.params.articleId).catch(() => null);
-	if (!article || getOwnerId(article) !== req.pocketbaseUserId) {
-		throw httpError(404, 'Article not found');
-	}
-
+	const article = await getOwnedWebsiteArticle({ articleId: req.params.articleId, req });
 	res.json(mapArticle(article));
 });
 
@@ -236,7 +254,7 @@ router.post('/manual-articles', async (req, res) => {
 		throw httpError(422, 'websiteId is required');
 	}
 
-	const site = await getOwnedWebsite({ websiteId, userId: req.pocketbaseUserId });
+	const site = await getOwnedWebsite({ websiteId, req });
 	const schema = await ensureWebsiteArticlesSchema(pocketbaseClient);
 
 	const title = normalizeOptionalString(req.body?.title, 'title', 500);
@@ -267,9 +285,8 @@ router.post('/manual-articles', async (req, res) => {
 
 	const payload = await sanitizeCollectionPayload({
 		collection: 'website_articles',
-		payload: {
+		payload: stampCreateOwnership(req, {
 			[schema.websiteField]: websiteId,
-			owner: req.pocketbaseUserId,
 			url: normalizedUrl,
 			slug: deriveSlug(normalizedUrl, title),
 			title,
@@ -280,13 +297,13 @@ router.post('/manual-articles', async (req, res) => {
 			[schema.statusField]: 'imported',
 			source: 'manual',
 			language: normalizeOptionalString(req.body?.language, 'language', 32) || 'en',
-		},
+		}),
 		context: 'ai-pins:manual-article',
 		requiredKeys: [schema.websiteField, 'owner', 'url', 'title', schema.statusField],
 	});
 
 	payload[schema.websiteField] = websiteId;
-	payload.owner = req.pocketbaseUserId;
+	payload.owner = workspaceOwnerId(req);
 	payload[schema.statusField] = 'imported';
 
 	try {
@@ -294,7 +311,7 @@ router.post('/manual-articles', async (req, res) => {
 		logger.info('Manual AI pin article created', {
 			articleId: created.id,
 			websiteId,
-			owner: req.pocketbaseUserId,
+			owner: workspaceOwnerId(req),
 		});
 		res.status(201).json(mapArticle(created));
 	} catch (error) {
@@ -316,7 +333,11 @@ router.get('/credits', async (req, res) => {
 	if (!req.pocketbaseUserId) {
 		throw httpError(401, 'You must be signed in');
 	}
-	res.json(await getUserCreditUsage(pocketbaseClient, req.pocketbaseUserId));
+	res.json(await getUserCreditUsage(
+		pocketbaseClient,
+		workspaceOwnerId(req),
+		req.workspaceKey || '',
+	));
 });
 
 router.post('/analyze', integratedAiRateLimit, async (req, res) => {
@@ -330,15 +351,13 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		throw httpError(422, 'articleId is required');
 	}
 
-	const articleRecord = await pocketbaseClient.collection('website_articles').getOne(articleId).catch(() => null);
-	if (!articleRecord || getOwnerId(articleRecord) !== req.pocketbaseUserId) {
-		throw httpError(404, 'Article not found');
-	}
+	const articleRecord = await getOwnedWebsiteArticle({ articleId, req });
+	const ownerId = workspaceOwnerId(req);
 
 	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, workspaceKey: req.workspaceKey, ai: 1, image: 0 });
 	const article = mapArticle(articleRecord);
 	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
-		ownerId: req.pocketbaseUserId,
+		ownerId,
 		source: 'ai_pins.analyze',
 		message: 'AI analysis started',
 		force: true,
@@ -346,13 +365,13 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 	let analysis;
 	try {
 		analysis = await analyzeArticleForPin({
-			owner: req.pocketbaseUserId,
+			owner: ownerId,
 			article,
 			style,
 		});
 	} catch (error) {
 		await safeTransitionArticleLifecycle(articleId, 'FAILED', {
-			ownerId: req.pocketbaseUserId,
+			ownerId,
 			source: 'ai_pins.analyze',
 			message: error?.message || 'AI analysis failed',
 			failureReason: error?.message || 'AI analysis failed',
@@ -362,8 +381,8 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		throw error;
 	}
 
-	await recordGenerationHistory(pocketbaseClient, {
-		owner: req.pocketbaseUserId,
+	await recordGenerationHistory(pocketbaseClient, stampCreateOwnership(req, {
+		owner: ownerId,
 		articleId,
 		websiteId: article.websiteId || '',
 		event_type: 'analyze',
@@ -371,22 +390,22 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		metadata: { style },
 		ai_credits_used: 1,
 		image_credits_used: 0,
-	});
+	}));
 
 	await safeTransitionArticleLifecycle(articleId, 'AI_COMPLETED', {
-		ownerId: req.pocketbaseUserId,
+		ownerId,
 		source: 'ai_pins.analyze',
 		message: 'AI analysis completed',
 		force: true,
 	});
 	await safeTransitionArticleLifecycle(articleId, 'READY_FOR_PINS', {
-		ownerId: req.pocketbaseUserId,
+		ownerId,
 		source: 'ai_pins.analyze',
 		message: 'Article ready for pin generation',
 		force: true,
 	});
 
-	const credits = await getUserCreditUsage(pocketbaseClient, req.pocketbaseUserId);
+	const credits = await getUserCreditUsage(pocketbaseClient, ownerId, req.workspaceKey || '');
 	res.json({ analysis, credits });
 });
 
@@ -402,15 +421,13 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		throw httpError(422, 'articleId is required');
 	}
 
-	const articleRecord = await pocketbaseClient.collection('website_articles').getOne(articleId).catch(() => null);
-	if (!articleRecord || getOwnerId(articleRecord) !== req.pocketbaseUserId) {
-		throw httpError(404, 'Article not found');
-	}
+	const articleRecord = await getOwnedWebsiteArticle({ articleId, req });
+	const ownerId = workspaceOwnerId(req);
 
 	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, workspaceKey: req.workspaceKey, ai: 1, image: 0 });
 	const article = mapArticle(articleRecord);
 	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
-		ownerId: req.pocketbaseUserId,
+		ownerId,
 		source: 'ai_pins.prompts',
 		message: 'AI prompt generation started',
 		force: true,
@@ -419,19 +436,19 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 	let promptResult;
 	try {
 		resolvedAnalysis = analysis || await analyzeArticleForPin({
-			owner: req.pocketbaseUserId,
+			owner: ownerId,
 			article,
 			style,
 		});
 		promptResult = await generateImagePromptForPin({
-			owner: req.pocketbaseUserId,
+			owner: ownerId,
 			article,
 			analysis: resolvedAnalysis,
 			style,
 		});
 	} catch (error) {
 		await safeTransitionArticleLifecycle(articleId, 'FAILED', {
-			ownerId: req.pocketbaseUserId,
+			ownerId,
 			source: 'ai_pins.prompts',
 			message: error?.message || 'AI prompt generation failed',
 			failureReason: error?.message || 'AI prompt generation failed',
@@ -441,8 +458,8 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		throw error;
 	}
 
-	await recordGenerationHistory(pocketbaseClient, {
-		owner: req.pocketbaseUserId,
+	await recordGenerationHistory(pocketbaseClient, stampCreateOwnership(req, {
+		owner: ownerId,
 		articleId,
 		websiteId: article.websiteId || '',
 		event_type: 'prompt',
@@ -451,22 +468,22 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		metadata: { style: promptResult.style, source: promptResult.source },
 		ai_credits_used: 1,
 		image_credits_used: 0,
-	});
+	}));
 
 	await safeTransitionArticleLifecycle(articleId, 'AI_COMPLETED', {
-		ownerId: req.pocketbaseUserId,
+		ownerId,
 		source: 'ai_pins.prompts',
 		message: 'AI prompt generation completed',
 		force: true,
 	});
 	await safeTransitionArticleLifecycle(articleId, 'READY_FOR_PINS', {
-		ownerId: req.pocketbaseUserId,
+		ownerId,
 		source: 'ai_pins.prompts',
 		message: 'Article ready for pin generation',
 		force: true,
 	});
 
-	const credits = await getUserCreditUsage(pocketbaseClient, req.pocketbaseUserId);
+	const credits = await getUserCreditUsage(pocketbaseClient, ownerId, req.workspaceKey || '');
 	res.json({
 		...promptResult,
 		analysis: resolvedAnalysis,
@@ -483,8 +500,9 @@ router.get('/history', async (req, res) => {
 	const perPage = Math.min(normalizePositiveInt(req.query.perPage, 20), 100);
 
 	try {
-		const result = await pocketbaseClient.collection('ai_pin_generation_history').getList(page, perPage, {
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
+		const result = await listWorkspaceResources('ai_pin_generation_history', req, {
+			page,
+			perPage,
 			sort: '-created',
 		});
 		res.json({
@@ -537,10 +555,7 @@ router.get('/brand-kits', async (req, res) => {
 		throw httpError(401, 'You must be signed in');
 	}
 	try {
-		const items = await pocketbaseClient.collection('brand_kits').getFullList({
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
-			sort: '-updated',
-		});
+		const items = await listWorkspaceResourcesFull('brand_kits', req, { sort: '-updated' });
 		res.json(items
 			.sort((a, b) => Number(Boolean(b.is_default)) - Number(Boolean(a.is_default)))
 			.map(mapBrandKit));
@@ -555,8 +570,7 @@ router.post('/brand-kits', async (req, res) => {
 	}
 
 	const name = normalizeOptionalString(req.body?.name, 'name', 120) || 'Default brand';
-	const payload = {
-		owner: req.pocketbaseUserId,
+	const payload = stampCreateOwnership(req, {
 		name,
 		logo_url: normalizeOptionalString(req.body?.logoUrl, 'logoUrl', 1000),
 		primary_color: normalizeOptionalString(req.body?.primaryColor, 'primaryColor', 32) || '#111827',
@@ -568,11 +582,11 @@ router.post('/brand-kits', async (req, res) => {
 		watermark_url: normalizeOptionalString(req.body?.watermarkUrl, 'watermarkUrl', 1000),
 		website_url: normalizeOptionalString(req.body?.websiteUrl, 'websiteUrl', 500),
 		is_default: Boolean(req.body?.isDefault),
-	};
+	});
 
 	if (payload.is_default) {
-		const existing = await pocketbaseClient.collection('brand_kits').getFullList({
-			filter: pocketbaseClient.filter('owner = {:owner} && is_default = true', { owner: req.pocketbaseUserId }),
+		const existing = await listWorkspaceResourcesFull('brand_kits', req, {
+			extraFilter: 'is_default = true',
 		}).catch(() => []);
 		await Promise.all(existing.map((item) => pocketbaseClient.collection('brand_kits').update(item.id, { is_default: false }).catch(() => null)));
 	}
@@ -585,12 +599,14 @@ router.patch('/brand-kits/:id', async (req, res) => {
 	if (!req.pocketbaseUserId) {
 		throw httpError(401, 'You must be signed in');
 	}
-	const existing = await pocketbaseClient.collection('brand_kits').getOne(req.params.id).catch(() => null);
-	if (!existing || getOwnerId(existing) !== req.pocketbaseUserId) {
+	const existing = await getWorkspaceOwnedRecord('brand_kits', req.params.id, req, {
+		notFoundMessage: 'Brand kit not found',
+	}).catch(() => null);
+	if (!existing) {
 		throw httpError(404, 'Brand kit not found');
 	}
 
-	const updates = {};
+	const updates = stampUpdateOwnership(req, {});
 	const fields = [
 		['name', 'name', 120],
 		['logoUrl', 'logo_url', 1000],
@@ -611,8 +627,8 @@ router.patch('/brand-kits/:id', async (req, res) => {
 	if (typeof req.body?.isDefault === 'boolean') {
 		updates.is_default = req.body.isDefault;
 		if (req.body.isDefault) {
-			const others = await pocketbaseClient.collection('brand_kits').getFullList({
-				filter: pocketbaseClient.filter('owner = {:owner} && is_default = true', { owner: req.pocketbaseUserId }),
+			const others = await listWorkspaceResourcesFull('brand_kits', req, {
+				extraFilter: 'is_default = true',
 			}).catch(() => []);
 			await Promise.all(others.filter((item) => item.id !== existing.id).map((item) => (
 				pocketbaseClient.collection('brand_kits').update(item.id, { is_default: false }).catch(() => null)
@@ -628,8 +644,10 @@ router.delete('/brand-kits/:id', async (req, res) => {
 	if (!req.pocketbaseUserId) {
 		throw httpError(401, 'You must be signed in');
 	}
-	const existing = await pocketbaseClient.collection('brand_kits').getOne(req.params.id).catch(() => null);
-	if (!existing || getOwnerId(existing) !== req.pocketbaseUserId) {
+	const existing = await getWorkspaceOwnedRecord('brand_kits', req.params.id, req, {
+		notFoundMessage: 'Brand kit not found',
+	}).catch(() => null);
+	if (!existing) {
 		throw httpError(404, 'Brand kit not found');
 	}
 	await pocketbaseClient.collection('brand_kits').delete(existing.id);
@@ -641,8 +659,7 @@ router.get('/reference-images', async (req, res) => {
 		throw httpError(401, 'You must be signed in');
 	}
 
-	const records = await pocketbaseClient.collection('ai_pin_reference_images').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
+	const records = await listWorkspaceResourcesFull('ai_pin_reference_images', req, {
 		sort: '-created',
 	}).catch((error) => {
 		logger.error('Failed to list AI pin reference images', { error: error?.message });
@@ -671,8 +688,7 @@ router.post('/reference-images', (req, res, next) => {
 		throw httpError(422, 'At least one image file is required');
 	}
 
-	const existing = await pocketbaseClient.collection('ai_pin_reference_images').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
+	const existing = await listWorkspaceResourcesFull('ai_pin_reference_images', req, {
 		sort: '-created',
 	}).catch(() => []);
 
@@ -683,11 +699,15 @@ router.post('/reference-images', (req, res, next) => {
 
 	const toUpload = files.slice(0, remaining);
 	const created = [];
+	const actor = getWorkspaceActor(req);
 
 	for (const file of toUpload) {
 		const originalName = String(file.originalname || 'reference').slice(0, 255);
 		const formData = new FormData();
-		formData.append('owner', req.pocketbaseUserId);
+		formData.append('owner', actor.workspaceOwnerId || actor.creatorId);
+		if (actor.workspaceId) formData.append('workspace', actor.workspaceId);
+		if (actor.creatorId) formData.append('created_by', actor.creatorId);
+		if (actor.editorId) formData.append('last_edited_by', actor.editorId);
 		formData.append('name', originalName);
 		formData.append('original_name', originalName);
 		formData.append('mime_type', String(file.mimetype || '').slice(0, 120));
@@ -706,12 +726,118 @@ router.delete('/reference-images/:id', async (req, res) => {
 		throw httpError(401, 'You must be signed in');
 	}
 
-	const existing = await pocketbaseClient.collection('ai_pin_reference_images').getOne(req.params.id).catch(() => null);
-	if (!existing || getOwnerId(existing) !== req.pocketbaseUserId) {
+	const existing = await getWorkspaceOwnedRecord('ai_pin_reference_images', req.params.id, req, {
+		notFoundMessage: 'Reference image not found',
+	}).catch(() => null);
+	if (!existing) {
 		throw httpError(404, 'Reference image not found');
 	}
 
 	await pocketbaseClient.collection('ai_pin_reference_images').delete(existing.id);
+	res.status(204).end();
+});
+
+/**
+ * GET /ai-pins/pins?websiteId=
+ * List AI pins for a website (API-gated; replaces direct PB SDK list).
+ */
+router.get('/pins', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+	const websiteId = String(req.query.websiteId || '').trim();
+	if (!websiteId) {
+		throw httpError(422, 'websiteId is required');
+	}
+	await getOwnedWebsite({ websiteId, req });
+
+	const pins = await listWorkspaceResourcesFull('ai_pins', req, {
+		extraFilter: pocketbaseClient.filter('websiteId = {:websiteId}', { websiteId }),
+		sort: '-created',
+	}).catch(() => []);
+
+	res.json({ items: pins });
+});
+
+/**
+ * GET /ai-pins/pins/:pinId
+ */
+router.get('/pins/:pinId', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+	const pin = await getOwnedAiPin({ pinId: req.params.pinId, req });
+	res.json(pin);
+});
+
+/**
+ * PATCH /ai-pins/pins/:pinId
+ * General owned-pin field update (regenerate / scheduling targets).
+ */
+router.patch('/pins/:pinId', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+	await ensureAiPinsPublishFields(pocketbaseClient);
+	const pin = await getOwnedAiPin({ pinId: req.params.pinId, req });
+
+	const updates = {};
+	const body = req.body && typeof req.body === 'object' ? req.body : {};
+	const stringFields = [
+		['title', 'title', 300],
+		['description', 'description', 2000],
+		['overlay_text', 'overlay_text', 600],
+		['overlayText', 'overlay_text', 600],
+		['image_prompt', 'image_prompt', 4000],
+		['imagePrompt', 'image_prompt', 4000],
+		['image_url', 'image_url', 1000],
+		['imageUrl', 'image_url', 1000],
+		['source_url', 'source_url', 2000],
+		['sourceUrl', 'source_url', 2000],
+		['cta', 'cta', 300],
+		['style', 'style', 64],
+		['target_audience', 'target_audience', 200],
+		['targetAudience', 'target_audience', 200],
+		['tone_of_voice', 'tone_of_voice', 100],
+		['toneOfVoice', 'tone_of_voice', 100],
+		['language', 'language', 60],
+		['pinterest_account_id', 'pinterest_account_id', 80],
+		['pinterest_account_label', 'pinterest_account_label', 200],
+		['pinterest_board_id', 'pinterest_board_id', 120],
+		['pinterest_board_name', 'pinterest_board_name', 200],
+		['scheduled_at', 'scheduled_at', 64],
+		['scheduled_timezone', 'scheduled_timezone', 64],
+		['image_origin', 'image_origin', 32],
+	];
+	for (const [from, to, max] of stringFields) {
+		if (typeof body[from] === 'string') {
+			updates[to] = body[from].trim().slice(0, max);
+		}
+	}
+	if (Array.isArray(body.suggested_keywords)) updates.suggested_keywords = body.suggested_keywords;
+	if (Array.isArray(body.suggestedKeywords)) updates.suggested_keywords = body.suggestedKeywords;
+	if (Array.isArray(body.suggested_hashtags)) updates.suggested_hashtags = body.suggested_hashtags;
+	if (Array.isArray(body.suggestedHashtags)) updates.suggested_hashtags = body.suggestedHashtags;
+	if (body.analysis && typeof body.analysis === 'object') updates.analysis = body.analysis;
+	if (body.editor_state && typeof body.editor_state === 'object') updates.editor_state = body.editor_state;
+
+	if (Object.keys(updates).length === 0) {
+		return res.json(pin);
+	}
+
+	const updated = await pocketbaseClient.collection('ai_pins').update(pin.id, stampUpdateOwnership(req, updates));
+	res.json(updated);
+});
+
+/**
+ * DELETE /ai-pins/pins/:pinId
+ */
+router.delete('/pins/:pinId', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+	const pin = await getOwnedAiPin({ pinId: req.params.pinId, req });
+	await pocketbaseClient.collection('ai_pins').delete(pin.id);
 	res.status(204).end();
 });
 
@@ -743,13 +869,12 @@ router.post('/drafts', async (req, res) => {
 			collection: 'ai_pins',
 			context: 'ai-pins:create-draft',
 			requiredKeys: ['owner', 'articleId', 'websiteId', 'title', 'image_url', 'source_url'],
-			payload: {
+			payload: stampCreateOwnership(req, {
 				...item,
-				owner: req.pocketbaseUserId,
 				source_url: sourceUrl.slice(0, 2000),
 				image_origin: String(item?.image_origin || item?.imageOrigin || '').trim().slice(0, 32),
 				status: 'draft',
-			},
+			}),
 		});
 
 		if (!payload.source_url) {
@@ -818,10 +943,7 @@ router.post('/pins/ensure-source-url', async (req, res) => {
 
 	const items = [];
 	for (const pinId of pinIds) {
-		const pin = await pocketbaseClient.collection('ai_pins').getOne(pinId).catch(() => null);
-		if (!pin || getOwnerId(pin) !== req.pocketbaseUserId) {
-			throw httpError(404, `Pin ${pinId} not found`);
-		}
+		const pin = await getOwnedAiPin({ pinId, req });
 
 		const existing = normalizeDestinationUrl(pin.source_url || '');
 		if (existing) {
@@ -859,10 +981,7 @@ router.patch('/pins/:pinId/editor', async (req, res) => {
 		throw httpError(401, 'You must be signed in');
 	}
 	await ensureAiPinsPublishFields(pocketbaseClient);
-	const pin = await pocketbaseClient.collection('ai_pins').getOne(req.params.pinId).catch(() => null);
-	if (!pin || getOwnerId(pin) !== req.pocketbaseUserId) {
-		throw httpError(404, 'Pin not found');
-	}
+	const pin = await getOwnedAiPin({ pinId: req.params.pinId, req });
 
 	const updates = {};
 	if (typeof req.body?.title === 'string') updates.title = req.body.title.trim().slice(0, 300);
@@ -878,6 +997,26 @@ router.patch('/pins/:pinId/editor', async (req, res) => {
 	if (req.body?.analysis && typeof req.body.analysis === 'object') updates.analysis = req.body.analysis;
 	if (Array.isArray(req.body?.suggestedKeywords)) updates.suggested_keywords = req.body.suggestedKeywords;
 	if (Array.isArray(req.body?.suggestedHashtags)) updates.suggested_hashtags = req.body.suggestedHashtags;
+
+	// Pinterest / schedule targets (formerly updated via direct PB SDK).
+	if (typeof req.body?.pinterestAccountId === 'string') {
+		updates.pinterest_account_id = req.body.pinterestAccountId.trim().slice(0, 80);
+	}
+	if (typeof req.body?.pinterestAccountLabel === 'string') {
+		updates.pinterest_account_label = req.body.pinterestAccountLabel.trim().slice(0, 200);
+	}
+	if (typeof req.body?.pinterestBoardId === 'string') {
+		updates.pinterest_board_id = req.body.pinterestBoardId.trim().slice(0, 120);
+	}
+	if (typeof req.body?.pinterestBoardName === 'string') {
+		updates.pinterest_board_name = req.body.pinterestBoardName.trim().slice(0, 200);
+	}
+	if (typeof req.body?.scheduledAt === 'string') {
+		updates.scheduled_at = req.body.scheduledAt.trim().slice(0, 64);
+	}
+	if (typeof req.body?.scheduledTimezone === 'string') {
+		updates.scheduled_timezone = req.body.scheduledTimezone.trim().slice(0, 64);
+	}
 
 	// Template snapshot: omit = leave unchanged. clearTemplate = explicit user removal only.
 	if (req.body?.clearTemplate === true) {
@@ -908,9 +1047,9 @@ router.patch('/pins/:pinId/editor', async (req, res) => {
 		}
 	}
 
-	const updated = await pocketbaseClient.collection('ai_pins').update(pin.id, updates);
-	await recordGenerationHistory(pocketbaseClient, {
-		owner: req.pocketbaseUserId,
+	const updated = await pocketbaseClient.collection('ai_pins').update(pin.id, stampUpdateOwnership(req, updates));
+	await recordGenerationHistory(pocketbaseClient, stampCreateOwnership(req, {
+		owner: workspaceOwnerId(req),
 		ai_pin: pin.id,
 		articleId: pin.articleId || '',
 		websiteId: pin.websiteId || '',
@@ -921,7 +1060,7 @@ router.patch('/pins/:pinId/editor', async (req, res) => {
 		metadata: { editor_state: updated.editor_state || null },
 		ai_credits_used: 0,
 		image_credits_used: 0,
-	});
+	}));
 
 	res.json({
 		id: updated.id,
@@ -945,6 +1084,18 @@ router.patch('/pins/:pinId/editor', async (req, res) => {
 		sourceUrl: updated.source_url || '',
 		imageOrigin: updated.image_origin || '',
 		imageSource: updated.image_source || '',
+		pinterest_account_id: updated.pinterest_account_id || '',
+		pinterest_account_label: updated.pinterest_account_label || '',
+		pinterest_board_id: updated.pinterest_board_id || '',
+		pinterest_board_name: updated.pinterest_board_name || '',
+		scheduled_at: updated.scheduled_at || '',
+		scheduled_timezone: updated.scheduled_timezone || '',
+		publish_job_id: updated.publish_job_id || '',
+		status: updated.status || '',
+		articleId: updated.articleId || '',
+		websiteId: updated.websiteId || '',
+		created: updated.created,
+		updated: updated.updated,
 	});
 });
 

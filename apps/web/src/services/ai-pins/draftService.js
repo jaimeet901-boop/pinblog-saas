@@ -1,9 +1,9 @@
 /**
- * DraftService — save drafts, duplicate, update draft fields via PB + editor API.
+ * DraftService — save drafts, duplicate, update draft fields via secured API.
  */
 
-import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
+import { getPocketbaseAuthHeader } from '@/lib/pocketbaseClient';
 import {
 	assertPersistableImageUrl,
 	ensureHostedImageForPin,
@@ -56,8 +56,7 @@ function truncateText(value, max) {
 }
 
 /**
- * Extract the real PocketBase validation / API error instead of the generic
- * "Failed to create record" message.
+ * Extract validation / API error instead of a generic failure message.
  */
 export function formatPocketBaseError(error, fallback = 'Failed to save pin') {
 	if (!error) return fallback;
@@ -175,8 +174,7 @@ export function mapSavedPin(pin) {
 }
 
 function buildDraftPayload(pin, panel) {
-	const ownerId = pb.authStore?.record?.id;
-	if (!ownerId) {
+	if (!getPocketbaseAuthHeader()) {
 		throw new Error('You must be signed in to save pins');
 	}
 
@@ -211,7 +209,7 @@ function buildDraftPayload(pin, panel) {
 	});
 
 	return {
-		owner: ownerId,
+		// owner is stamped by the API from the authenticated session — never trust client owner.
 		articleId,
 		websiteId,
 		image_prompt: truncateText(pin.imagePrompt || '', 4000),
@@ -358,7 +356,14 @@ export async function duplicatePin(pin, { titleSuffix = ' (Copy)' } = {}) {
 	}
 
 	const source = pin.id
-		? await pb.collection('ai_pins').getOne(pin.id)
+		? await (async () => {
+			const response = await apiServerClient.fetch(`/ai-pins/pins/${encodeURIComponent(pin.id)}`, { method: 'GET' });
+			const body = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(body?.message || `Failed to load pin (${response.status})`);
+			}
+			return body;
+		})()
 		: null;
 
 	const base = source || {};
@@ -413,7 +418,19 @@ export async function duplicatePin(pin, { titleSuffix = ' (Copy)' } = {}) {
 			payload.editor_state = base.editor_state;
 		}
 
-		const created = await pb.collection('ai_pins').create(payload);
+		const response = await apiServerClient.fetch('/ai-pins/drafts', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ items: [payload] }),
+		});
+		const body = await response.json().catch(() => ({}));
+		if (!response.ok) {
+			throw new Error(body?.message || `Failed to duplicate pin (${response.status})`);
+		}
+		const created = Array.isArray(body.items) ? body.items[0] : null;
+		if (!created) {
+			throw new Error('Duplicate did not return a pin record');
+		}
 		return mapSavedPin(created);
 	} catch (error) {
 		throw new Error(formatPocketBaseError(error, 'Failed to duplicate pin'));
@@ -466,6 +483,14 @@ export async function updateDraftPin({
 			},
 			suggestedKeywords: safeArray(readyPin.suggestedKeywords),
 			suggestedHashtags: safeArray(readyPin.suggestedHashtags),
+			pinterestAccountId: readyPin.accountId || '',
+			pinterestAccountLabel: readyPin.accountId
+				? (selectedAccount?.label || selectedAccount?.accountName || selectedAccount?.username || '')
+				: '',
+			pinterestBoardId: readyPin.boardId || '',
+			pinterestBoardName: selectedBoard?.name || readyPin.boardName || '',
+			scheduledAt: readyPin.scheduledAt || '',
+			scheduledTimezone: readyPin.scheduledTimezone || '',
 			...toTemplateEditorPatch(readyPin),
 		}),
 	});
@@ -474,17 +499,7 @@ export async function updateDraftPin({
 		throw new Error(editorPayload?.message || 'Failed to save pin editor changes');
 	}
 
-	const updated = await pb.collection('ai_pins').update(readyPin.id, {
-		pinterest_account_id: readyPin.accountId || '',
-		pinterest_account_label: readyPin.accountId
-			? (selectedAccount?.label || selectedAccount?.accountName || selectedAccount?.username || '')
-			: '',
-		pinterest_board_id: readyPin.boardId || '',
-		pinterest_board_name: selectedBoard?.name || readyPin.boardName || '',
-		scheduled_at: readyPin.scheduledAt || '',
-		scheduled_timezone: readyPin.scheduledTimezone || '',
-	}).catch(() => null);
-
+	const updated = editorPayload;
 	// Keep Calendar in sync: scheduled jobs are the calendar source of truth.
 	const jobId = readyPin.publishJobId || updated?.publish_job_id || '';
 	if (jobId && (readyPin.status === 'scheduled' || updated?.status === 'scheduled')) {
@@ -545,5 +560,9 @@ export async function updateDraftPin({
 }
 
 export async function deleteDraftPin(pinId) {
-	await pb.collection('ai_pins').delete(pinId);
+	const response = await apiServerClient.fetch(`/ai-pins/pins/${encodeURIComponent(pinId)}`, { method: 'DELETE' });
+	if (!response.ok && response.status !== 204) {
+		const body = await response.json().catch(() => ({}));
+		throw new Error(body?.message || `Failed to delete pin (${response.status})`);
+	}
 }

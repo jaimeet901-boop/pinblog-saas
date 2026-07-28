@@ -128,7 +128,13 @@ export default function SettingsPage() {
 						return response.ok && Array.isArray(payload.items) ? payload.items : [];
 					})
 					.catch(() => []),
-				pb.collection('websites').getFullList({ sort: '-created', requestKey: 'settings-websites' }).catch(() => []),
+				apiServerClient.fetch('/websites', { method: 'GET' })
+					.then(async (response) => {
+						const payload = await response.json().catch(() => ([]));
+						if (!response.ok) return [];
+						return Array.isArray(payload) ? payload : (payload.items || []);
+					})
+					.catch(() => []),
 				apiServerClient.fetch('/pinterest/accounts?filter=active', { method: 'GET' })
 					.then(async (response) => {
 						const payload = await response.json().catch(() => ({}));
