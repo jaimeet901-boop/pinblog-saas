@@ -387,11 +387,11 @@ export default function AdminSettingsPage() {
 					<div className="admin-config-grid">
 						<TextSelect
 							label="Image Source Strategy"
-							value={settings.images?.imageSourceStrategy || 'featured_first'}
+							value={settings.images?.imageSourceStrategy || 'ai_first'}
 							onChange={(value) => patch('images', 'imageSourceStrategy', value)}
 							options={[
-								{ value: 'featured_first', label: 'Featured Image First (recommended)' },
-								{ value: 'ai_first', label: 'AI Image First' },
+								{ value: 'ai_first', label: 'AI Image First (recommended)' },
+								{ value: 'featured_first', label: 'Featured Image First' },
 								{ value: 'always_featured', label: 'Always Featured Image' },
 								{ value: 'always_ai', label: 'Always AI Image' },
 							]}
@@ -414,7 +414,7 @@ export default function AdminSettingsPage() {
 						<TextInput label="Compression" value={settings.images?.compression} onChange={(value) => patch('images', 'compression', value)} />
 					</div>
 					<p className="mt-2 text-xs text-muted-foreground">
-						Featured Image First uses the article featured image, then the first high-quality article image, then AI. If AI fails and an article image exists, the pin continues with that image and the selected template.
+						AI Image First tries the configured AI provider, then falls back to a validated article image (stored featured → parsed featured → body image) if AI fails. Stale or 404 featured URLs are skipped automatically.
 					</p>
 					<div className="mt-2">
 						<ToggleRow label="Watermark" checked={Boolean(settings.images?.watermark)} onChange={(value) => patch('images', 'watermark', value)} />

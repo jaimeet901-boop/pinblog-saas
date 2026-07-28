@@ -224,7 +224,7 @@ export default function AIPinsPage() {
 		toneOfVoice: '',
 		language: languageLabelFromConfig(config),
 		count: 3,
-		imageMode: 'use_featured',
+		imageMode: 'generate_ai',
 		style: '',
 		imageProvider: resolveDefaultImageProvider(config),
 	});
@@ -1219,6 +1219,7 @@ export default function AIPinsPage() {
 					articlePins.map((pin) => ({
 						...pin,
 						featuredImage: pin.sourceImageUrl || pin.featuredImage || '',
+						contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
 					})),
 					{ brandKit },
 				);
@@ -1233,6 +1234,7 @@ export default function AIPinsPage() {
 				aiPins.map((pin) => ({
 					...pin,
 					featuredImage: pin.sourceImageUrl || pin.featuredImage || '',
+					contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
 					imageMode: 'generate_ai',
 				})),
 				imageProviderOverride,
@@ -1271,6 +1273,7 @@ export default function AIPinsPage() {
 				return {
 					...pin,
 					featuredImage: background,
+					contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
 					_usedArticleFallback: usedArticleFallback,
 					_aiStatus: job?.status || 'failed',
 					_aiError: job?.lastError || '',
@@ -1334,6 +1337,7 @@ export default function AIPinsPage() {
 						fallbackPins.map((pin) => ({
 							...pin,
 							featuredImage: pin.sourceImageUrl || pin.featuredImage,
+							contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
 						})),
 						{ brandKit },
 					);
@@ -1670,6 +1674,7 @@ export default function AIPinsPage() {
 						author: article.author,
 						featuredImage: sourceImageUrl || article.featuredImage || '',
 						sourceImageUrl: sourceImageUrl || '',
+						contentImages: Array.isArray(article.contentImages) ? article.contentImages : [],
 						sourceUrl: articleUrl,
 						articleUrl,
 						destinationUrl: articleUrl,
@@ -1717,7 +1722,7 @@ export default function AIPinsPage() {
 			);
 			toast({
 				title: 'Preview ready',
-				description: 'Selected template is applied on the chosen image. Article images are preferred when the Admin strategy allows; AI is used when needed.',
+				description: 'AI images are preferred when the Admin strategy allows; article images are used automatically if AI fails.',
 			});
 		} catch (error) {
 			const detail = error?.message || (error?.status ? `HTTP ${error.status}` : 'Unknown error');
@@ -1760,6 +1765,7 @@ export default function AIPinsPage() {
 			const composed = await composeAndUploadFeaturedPins([{
 				...pin,
 				featuredImage: background,
+				contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
 			}], { brandKit });
 			applyTemplateComposeResults(
 				composed.map((item) => ({
@@ -1778,6 +1784,7 @@ export default function AIPinsPage() {
 					const composed = await composeAndUploadFeaturedPins([{
 						...pin,
 						featuredImage: fallback,
+						contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
 					}], { brandKit });
 					applyTemplateComposeResults(composed, { imageSource: 'featured_fallback' });
 					toast({

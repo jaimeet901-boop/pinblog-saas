@@ -112,7 +112,7 @@ export function resolveDefaultImageQualityId(config, qualities) {
 		const featured = list.find((item) => item.imageMode === 'use_featured');
 		if (featured) return featured.id;
 	}
-	if (strategy === 'always_ai' || strategy === 'ai_first' || strategy === 'ai_image_first') {
+	if (strategy === 'always_ai' || strategy === 'ai_first' || strategy === 'ai_image_first' || !strategy) {
 		const preferred = resolveDefaultImageProvider(config);
 		const match = list.find((item) => item.imageMode === 'generate_ai' && item.imageProvider === preferred);
 		return match?.id || list.find((item) => item.imageMode === 'generate_ai')?.id || list[0]?.id || 'featured';

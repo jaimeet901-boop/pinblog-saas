@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	IMAGE_SOURCE_STRATEGY,
+	listArticleImageCandidates,
 	normalizeImageSourceStrategy,
 	pickArticleImageUrl,
 	planImageSource,
@@ -10,7 +11,7 @@ describe('imageSourceStrategy', () => {
 	it('normalizes strategy aliases', () => {
 		expect(normalizeImageSourceStrategy('Featured Image First')).toBe(IMAGE_SOURCE_STRATEGY.FEATURED_FIRST);
 		expect(normalizeImageSourceStrategy('ai-first')).toBe(IMAGE_SOURCE_STRATEGY.AI_FIRST);
-		expect(normalizeImageSourceStrategy('')).toBe(IMAGE_SOURCE_STRATEGY.FEATURED_FIRST);
+		expect(normalizeImageSourceStrategy('')).toBe(IMAGE_SOURCE_STRATEGY.AI_FIRST);
 	});
 
 	it('featured_first uses article image when present', () => {
@@ -37,6 +38,16 @@ describe('imageSourceStrategy', () => {
 		expect(plan.allowArticleFallback).toBe(true);
 	});
 
+	it('default / empty strategy is AI first', () => {
+		const plan = planImageSource({
+			strategy: '',
+			articleImageUrl: 'https://cdn.example/a.jpg',
+		});
+		expect(plan.strategy).toBe(IMAGE_SOURCE_STRATEGY.AI_FIRST);
+		expect(plan.useAi).toBe(true);
+		expect(plan.allowArticleFallback).toBe(true);
+	});
+
 	it('always_ai allows article fallback when image exists', () => {
 		const withImage = planImageSource({
 			strategy: 'always_ai',
@@ -58,5 +69,17 @@ describe('imageSourceStrategy', () => {
 		expect(pickArticleImageUrl({
 			contentImages: ['https://cdn.example/body.jpg'],
 		})).toBe('https://cdn.example/body.jpg');
+	});
+
+	it('listArticleImageCandidates keeps featured before content images', () => {
+		expect(listArticleImageCandidates({
+			featuredImage: 'https://cdn.example/featured.jpg',
+			sourceImageUrl: 'https://cdn.example/featured.jpg',
+			contentImages: ['https://cdn.example/body.jpg', 'https://cdn.example/extra.jpg'],
+		})).toEqual([
+			'https://cdn.example/featured.jpg',
+			'https://cdn.example/body.jpg',
+			'https://cdn.example/extra.jpg',
+		]);
 	});
 });

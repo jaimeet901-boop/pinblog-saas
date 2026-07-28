@@ -12,12 +12,12 @@ export const IMAGE_SOURCE_STRATEGY = {
 
 export const IMAGE_SOURCE_STRATEGY_OPTIONS = [
 	{
-		value: IMAGE_SOURCE_STRATEGY.FEATURED_FIRST,
-		label: 'Featured Image First (recommended)',
+		value: IMAGE_SOURCE_STRATEGY.AI_FIRST,
+		label: 'AI Image First (recommended)',
 	},
 	{
-		value: IMAGE_SOURCE_STRATEGY.AI_FIRST,
-		label: 'AI Image First',
+		value: IMAGE_SOURCE_STRATEGY.FEATURED_FIRST,
+		label: 'Featured Image First',
 	},
 	{
 		value: IMAGE_SOURCE_STRATEGY.ALWAYS_FEATURED,
@@ -43,7 +43,7 @@ export function normalizeImageSourceStrategy(value) {
 		always_ai: IMAGE_SOURCE_STRATEGY.ALWAYS_AI,
 		always_ai_image: IMAGE_SOURCE_STRATEGY.ALWAYS_AI,
 	};
-	return aliases[raw] || IMAGE_SOURCE_STRATEGY.FEATURED_FIRST;
+	return aliases[raw] || IMAGE_SOURCE_STRATEGY.AI_FIRST;
 }
 
 /**
@@ -62,6 +62,32 @@ export function pickArticleImageUrl(article = {}) {
 		if (url) return url;
 	}
 	return String(article.contentImage || article.content_image || '').trim();
+}
+
+/**
+ * Collect unique article image candidates in fallback order.
+ */
+export function listArticleImageCandidates(article = {}) {
+	const seen = new Set();
+	const out = [];
+	const push = (value) => {
+		const url = String(value || '').trim();
+		if (!url || seen.has(url)) return;
+		seen.add(url);
+		out.push(url);
+	};
+	push(article.featuredImage || article.featured_image);
+	push(article.sourceImageUrl || article.source_image_url);
+	const content = Array.isArray(article.contentImages)
+		? article.contentImages
+		: Array.isArray(article.content_images)
+			? article.content_images
+			: [];
+	for (const item of content) {
+		push(typeof item === 'string' ? item : item?.url);
+	}
+	push(article.contentImage || article.content_image);
+	return out;
 }
 
 /**
@@ -93,16 +119,7 @@ export function planImageSource({ strategy, articleImageUrl = '' } = {}) {
 				allowArticleFallback: hasArticle,
 				imageMode: 'generate_ai',
 			};
-		case IMAGE_SOURCE_STRATEGY.AI_FIRST:
-			return {
-				strategy: normalized,
-				useAi: true,
-				requireArticleImage: false,
-				allowArticleFallback: hasArticle,
-				imageMode: 'generate_ai',
-			};
 		case IMAGE_SOURCE_STRATEGY.FEATURED_FIRST:
-		default:
 			if (hasArticle) {
 				return {
 					strategy: IMAGE_SOURCE_STRATEGY.FEATURED_FIRST,
@@ -119,6 +136,15 @@ export function planImageSource({ strategy, articleImageUrl = '' } = {}) {
 				allowArticleFallback: false,
 				imageMode: 'generate_ai',
 			};
+		case IMAGE_SOURCE_STRATEGY.AI_FIRST:
+		default:
+			return {
+				strategy: IMAGE_SOURCE_STRATEGY.AI_FIRST,
+				useAi: true,
+				requireArticleImage: false,
+				allowArticleFallback: hasArticle,
+				imageMode: 'generate_ai',
+			};
 	}
 }
 
@@ -131,10 +157,10 @@ export function resolveDefaultImageQualityIdFromStrategy(config, qualities) {
 	const featured = list.find((item) => item.imageMode === 'use_featured');
 	const ai = list.find((item) => item.imageMode === 'generate_ai');
 
-	if (
-		strategy === IMAGE_SOURCE_STRATEGY.ALWAYS_FEATURED
-		|| strategy === IMAGE_SOURCE_STRATEGY.FEATURED_FIRST
-	) {
+	if (strategy === IMAGE_SOURCE_STRATEGY.ALWAYS_FEATURED) {
+		return featured?.id || ai?.id || list[0]?.id || 'featured';
+	}
+	if (strategy === IMAGE_SOURCE_STRATEGY.FEATURED_FIRST) {
 		return featured?.id || ai?.id || list[0]?.id || 'featured';
 	}
 	return ai?.id || featured?.id || list[0]?.id || 'featured';

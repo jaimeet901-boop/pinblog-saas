@@ -474,45 +474,181 @@ function parseArticleHtml(url, html) {
 	};
 }
 
+const IMAGE_PROBE_TIMEOUT_MS = 8_000;
+
+/**
+ * Probe whether an article image URL is reachable and looks like an image.
+ * Rejects 404/non-OK and HTML/JSON error bodies so stale featured URLs are skipped.
+ */
+export async function isReachableArticleImage(url) {
+	const candidate = String(url || '').trim();
+	if (!candidate) return false;
+
+	let safeUrl;
+	try {
+		safeUrl = assertSafePublicHttpUrl(candidate, { fieldName: 'url' });
+	} catch {
+		return false;
+	}
+
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), IMAGE_PROBE_TIMEOUT_MS);
+	const headers = {
+		Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+		'User-Agent': 'ChefIA Article Discovery/1.0',
+	};
+
+	const drain = async (response) => {
+		try {
+			if (response?.body?.cancel) await response.body.cancel();
+			else await response?.arrayBuffer?.();
+		} catch {
+			// ignore
+		}
+	};
+
+	try {
+		let { response } = await safeFetch(safeUrl, {
+			method: 'HEAD',
+			headers,
+			signal: controller.signal,
+			fieldName: 'url',
+		});
+
+		if (response.status === 405 || response.status === 501 || response.status === 403) {
+			await drain(response);
+			({ response } = await safeFetch(safeUrl, {
+				method: 'GET',
+				headers: { ...headers, Range: 'bytes=0-1023' },
+				signal: controller.signal,
+				fieldName: 'url',
+			}));
+		}
+
+		if (!response.ok) {
+			await drain(response);
+			return false;
+		}
+
+		const contentType = String(response.headers.get('content-type') || '')
+			.split(';')[0]
+			.trim()
+			.toLowerCase();
+		await drain(response);
+
+		if (
+			contentType.startsWith('text/html')
+			|| contentType.startsWith('application/json')
+			|| contentType.startsWith('text/plain')
+			|| contentType.startsWith('application/xml')
+			|| contentType.startsWith('text/xml')
+		) {
+			return false;
+		}
+
+		if (!contentType || contentType.startsWith('image/') || contentType === 'application/octet-stream') {
+			return true;
+		}
+		return false;
+	} catch {
+		return false;
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
+
+function uniqueHttpUrls(urls = []) {
+	const seen = new Set();
+	const out = [];
+	for (const raw of urls) {
+		const url = String(raw || '').trim();
+		if (!url || seen.has(url)) continue;
+		seen.add(url);
+		out.push(url);
+	}
+	return out;
+}
+
+async function filterReachableArticleImages(candidates = [], limit = 8) {
+	const out = [];
+	for (const url of uniqueHttpUrls(candidates)) {
+		if (out.length >= limit) break;
+		if (await isReachableArticleImage(url)) out.push(url);
+	}
+	return out;
+}
+
 /**
  * Fetch article HTML and resolve featured + content images for pin generation.
+ * Priority: valid stored featured → valid og/twitter featured → first valid body image.
+ * Never returns a stale/404 featured URL as resolvedImage.
  */
 export async function resolveArticleImageSources({ url, existingFeaturedImage = '' } = {}) {
 	const featuredExisting = String(existingFeaturedImage || '').trim();
 	const pageUrl = String(url || '').trim();
-	if (!pageUrl && featuredExisting) {
-		return {
-			featuredImage: featuredExisting,
-			contentImages: [],
-			resolvedImage: featuredExisting,
-			source: 'stored',
-		};
-	}
+
 	if (!pageUrl) {
-		return { featuredImage: '', contentImages: [], resolvedImage: '', source: 'none' };
+		const resolvedImage = featuredExisting && (await isReachableArticleImage(featuredExisting))
+			? featuredExisting
+			: '';
+		return {
+			featuredImage: resolvedImage,
+			contentImages: [],
+			resolvedImage,
+			source: resolvedImage ? 'stored' : 'none',
+		};
 	}
 
 	const result = await fetchText(pageUrl);
 	if (!result.ok || !result.body) {
+		const resolvedImage = featuredExisting && (await isReachableArticleImage(featuredExisting))
+			? featuredExisting
+			: '';
 		return {
-			featuredImage: featuredExisting,
+			featuredImage: resolvedImage,
 			contentImages: [],
-			resolvedImage: featuredExisting,
-			source: featuredExisting ? 'stored' : 'none',
+			resolvedImage,
+			source: resolvedImage ? 'stored' : 'none',
 		};
 	}
 
 	const parsed = parseArticleHtml(pageUrl, result.body);
-	const contentImages = Array.isArray(parsed.contentImages) ? parsed.contentImages : [];
-	const featuredImage = featuredExisting || parsed.featuredImage || '';
-	const resolvedImage = featuredImage || contentImages[0] || '';
+	const scrapedContentImages = Array.isArray(parsed.contentImages) ? parsed.contentImages : [];
+	const parsedFeatured = String(parsed.featuredImage || '').trim();
+
+	const storedOk = featuredExisting ? await isReachableArticleImage(featuredExisting) : false;
+	if (storedOk) {
+		const contentImages = await filterReachableArticleImages(
+			scrapedContentImages.filter((item) => item !== featuredExisting),
+		);
+		return {
+			featuredImage: featuredExisting,
+			contentImages,
+			resolvedImage: featuredExisting,
+			source: 'stored',
+		};
+	}
+
+	const parsedOk = parsedFeatured ? await isReachableArticleImage(parsedFeatured) : false;
+	if (parsedOk) {
+		const contentImages = await filterReachableArticleImages(
+			scrapedContentImages.filter((item) => item !== parsedFeatured),
+		);
+		return {
+			featuredImage: parsedFeatured,
+			contentImages,
+			resolvedImage: parsedFeatured,
+			source: 'meta_or_body',
+		};
+	}
+
+	const contentImages = await filterReachableArticleImages(scrapedContentImages);
+	const resolvedImage = contentImages[0] || '';
 	return {
-		featuredImage,
+		featuredImage: '',
 		contentImages,
 		resolvedImage,
-		source: featuredExisting
-			? 'stored'
-			: (parsed.featuredImage ? 'meta_or_body' : (contentImages[0] ? 'body' : 'none')),
+		source: resolvedImage ? 'body' : 'none',
 	};
 }
 

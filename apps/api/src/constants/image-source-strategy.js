@@ -6,8 +6,8 @@ export const IMAGE_SOURCE_STRATEGY = {
 };
 
 export const IMAGE_SOURCE_STRATEGY_OPTIONS = [
-	{ value: IMAGE_SOURCE_STRATEGY.FEATURED_FIRST, label: 'Featured Image First (recommended)' },
-	{ value: IMAGE_SOURCE_STRATEGY.AI_FIRST, label: 'AI Image First' },
+	{ value: IMAGE_SOURCE_STRATEGY.AI_FIRST, label: 'AI Image First (recommended)' },
+	{ value: IMAGE_SOURCE_STRATEGY.FEATURED_FIRST, label: 'Featured Image First' },
 	{ value: IMAGE_SOURCE_STRATEGY.ALWAYS_FEATURED, label: 'Always Featured Image' },
 	{ value: IMAGE_SOURCE_STRATEGY.ALWAYS_AI, label: 'Always AI Image' },
 ];
@@ -26,7 +26,7 @@ export function normalizeImageSourceStrategy(value) {
 		always_ai: IMAGE_SOURCE_STRATEGY.ALWAYS_AI,
 		always_ai_image: IMAGE_SOURCE_STRATEGY.ALWAYS_AI,
 	};
-	return aliases[raw] || IMAGE_SOURCE_STRATEGY.FEATURED_FIRST;
+	return aliases[raw] || IMAGE_SOURCE_STRATEGY.AI_FIRST;
 }
 
 /** Quota / provider outages should fall back immediately when an article image exists. */

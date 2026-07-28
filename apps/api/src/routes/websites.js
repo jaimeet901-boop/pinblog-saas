@@ -839,9 +839,11 @@ router.post('/:websiteId/articles/resolve-images', async (req, res) => {
 			};
 		}
 
-		if (persist && !existingFeatured && resolved.resolvedImage) {
+		// Persist validated image (including replacement of a stale/404 stored featured URL).
+		const nextFeatured = String(resolved.resolvedImage || '').trim();
+		if (persist && nextFeatured && nextFeatured !== existingFeatured) {
 			await pocketbaseClient.collection('website_articles').update(articleId, {
-				featured_image: String(resolved.resolvedImage).slice(0, 1000),
+				featured_image: nextFeatured.slice(0, 1000),
 			}).catch(() => null);
 		}
 
