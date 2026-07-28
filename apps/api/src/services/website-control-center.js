@@ -117,6 +117,15 @@ function connectionStatusFromWp(wpSite, website) {
 
 async function articleStatsForWebsite(websiteId, schema) {
 	const websiteFilter = pocketbaseClient.filter(`${schema.websiteField} = {:websiteId}`, { websiteId });
+	const collection = await pocketbaseClient.collections.getOne('website_articles').catch(() => null);
+	const fields = new Set((collection?.fields || collection?.schema || []).map((field) => field.name));
+	const hasField = (name) => fields.size === 0 || fields.has(name);
+
+	const countIf = async (enabled, filter) => {
+		if (!enabled) return null;
+		return safeCount('website_articles', filter);
+	};
+
 	const [
 		totalArticles,
 		newArticles,
@@ -154,11 +163,12 @@ async function articleStatsForWebsite(websiteId, schema) {
 			statusField: schema.statusField,
 			status: 'imported',
 		}),
-		safeCount('website_articles', `${websiteFilter} && featured_image = ""`),
-		safeCount('website_articles', `${websiteFilter} && title = ""`),
-		safeCount('website_articles', `${websiteFilter} && meta_description = ""`),
-		safeCount('website_articles', `${websiteFilter} && category = ""`).catch(() => 0),
-		safeCount('website_articles', `${websiteFilter} && tags = ""`).catch(() => 0),
+		countIf(hasField('featured_image'), `${websiteFilter} && featured_image = ""`),
+		countIf(hasField('title'), `${websiteFilter} && title = ""`),
+		countIf(hasField('meta_description'), `${websiteFilter} && meta_description = ""`),
+		countIf(hasField('category'), `${websiteFilter} && category = ""`),
+		// tags is JSON in schema — empty-string filters are unreliable, so do not invent a count.
+		Promise.resolve(hasField('tags') ? null : null),
 	]);
 
 	return {
@@ -168,11 +178,14 @@ async function articleStatsForWebsite(websiteId, schema) {
 		draftArticles: newArticles || 0,
 		publishedArticles: publishedArticles || 0,
 		importedArticles: importedArticles || 0,
-		missingFeaturedImage: missingFeaturedImage || 0,
-		missingSeoTitle: missingSeoTitle || 0,
-		missingMetaDescription: missingMetaDescription || 0,
-		missingCategory: missingCategory || 0,
-		missingTags: missingTags || 0,
+		missingFeaturedImage,
+		missingSeoTitle,
+		missingMetaDescription,
+		missingCategory,
+		missingTags: null,
+		missingAltText: null,
+		brokenImages: null,
+		brokenLinks: null,
 		lastScan: '',
 		nextScheduledScan: '',
 	};
@@ -194,6 +207,7 @@ async function pinAndJobStatsForWebsite(ownerId, websiteId, wpSiteId) {
 		failedQueueJobs,
 		scheduledPinJobs,
 		wpJobs,
+		wpSyncCount,
 		latestPublishedJob,
 		latestGeneratedPin,
 		latestGeneratedImage,
@@ -259,6 +273,15 @@ async function pinAndJobStatsForWebsite(ownerId, websiteId, wpSiteId) {
 				requestKey: null,
 			}).catch(() => [])
 			: Promise.resolve([]),
+		wpSiteId
+			? safeCount(
+				'wordpress_sync_runs',
+				pocketbaseClient.filter('owner = {:owner} && site = {:site}', {
+					owner: ownerId,
+					site: wpSiteId,
+				}),
+			)
+			: Promise.resolve(null),
 		safeList(
 			'pinterest_publish_jobs',
 			pocketbaseClient.filter('owner = {:owner} && websiteId = {:websiteId} && status = "published"', {
@@ -329,13 +352,13 @@ async function pinAndJobStatsForWebsite(ownerId, websiteId, wpSiteId) {
 		wpJobCount: (wpJobs || []).length,
 		wpPublished,
 		wpFailed,
-		wpSyncs: (wpJobs || []).length,
+		wpSyncs: wpSyncCount,
 		lastWpPublishAt: lastWpPublish?.completed_at || lastWpPublish?.updated || lastWpPublish?.created || '',
 		lastWpPublishTitle: lastWpPublish?.title || '',
 		avgPublishTimeMs,
 		successRate,
-		lastPublishAt: lastPublishRow?.published_at || lastPublishRow?.updated || lastWpPublish?.completed_at || '',
-		lastPublishTitle: lastPublishRow?.title || lastWpPublish?.title || '',
+		lastPublishAt: lastPublishRow?.published_at || lastPublishRow?.updated || '',
+		lastPublishTitle: lastPublishRow?.title || '',
 		lastGeneratedAt: lastGeneratedPin?.created || '',
 		lastGeneratedTitle: lastGeneratedPin?.title || '',
 		lastGeneratedImageAt: lastGeneratedImageRow?.updated || lastGeneratedImageRow?.created || '',
@@ -439,11 +462,11 @@ function buildContentOverview(articleStats) {
 		totalArticles: articleStats.totalArticles || 0,
 		readyForPins: articleStats.readyArticles || 0,
 		alreadyPublished: articleStats.publishedArticles || 0,
-		missingFeaturedImage: articleStats.missingFeaturedImage || 0,
-		missingSeoTitle: articleStats.missingSeoTitle || 0,
-		missingMetaDescription: articleStats.missingMetaDescription || 0,
-		missingCategory: articleStats.missingCategory || 0,
-		missingTags: articleStats.missingTags || 0,
+		missingFeaturedImage: articleStats.missingFeaturedImage,
+		missingSeoTitle: articleStats.missingSeoTitle,
+		missingMetaDescription: articleStats.missingMetaDescription,
+		missingCategory: articleStats.missingCategory,
+		missingTags: articleStats.missingTags,
 	};
 }
 
@@ -480,7 +503,7 @@ function buildStatsBlock(articleStats, jobStats, website) {
 		publishedPins: jobStats.publishedPins || 0,
 		generatedImages: jobStats.generatedImages || 0,
 		trafficImports: articleStats.importedArticles || 0,
-		wordpressSyncs: jobStats.wpSyncs || jobStats.wpJobCount || 0,
+		wordpressSyncs: jobStats.wpSyncs,
 		failedJobs: jobStats.failedJobs || 0,
 		readyToPublish: (jobStats.draftPins || []).length,
 		pendingJobs: jobStats.pendingJobs || 0,
@@ -532,7 +555,7 @@ function buildWordpressStatus({ website, wpSite, jobStats }) {
 		},
 		lastPublishAt: jobStats.lastWpPublishAt || '',
 		lastPublishTitle: jobStats.lastWpPublishTitle || '',
-		lastSyncAt: wpSite?.lastSyncedAt || website?.updated || website?.last_scan_at || '',
+		lastSyncAt: wpSite?.lastSyncedAt || '',
 		wpVersion: wpSite?.wpVersion || wpSite?.health?.version || '',
 		needsConfiguration: !credentialsOk,
 		configureHint: !credentialsOk
@@ -543,28 +566,30 @@ function buildWordpressStatus({ website, wpSite, jobStats }) {
 
 function buildPinterestStatus({ workspaceIndicators, publishTarget, jobStats, pinterestMeta }) {
 	const connection = workspaceIndicators?.pinterestConnection || indicator('Pinterest', 'not_configured');
-	const connected = ['connected', 'configured', 'ready'].includes(String(connection.status || '').toLowerCase());
+	const connected = String(connection.status || '').toLowerCase() === 'connected';
+	const accountLabel = pinterestMeta?.accountName || connection.detail || '';
+	const boardLabel = pinterestMeta?.boardName || '';
 	return {
 		account: {
-			status: connection.status,
-			tone: connection.tone || toneFromStatus(connection.status),
-			label: connection.detail || (connected ? 'Connected Account' : 'No Account Connected'),
+			status: connected ? 'connected' : (connection.status || 'not_configured'),
+			tone: connected ? 'green' : 'red',
+			label: connected && accountLabel ? accountLabel : (connected ? 'Connected' : 'Not configured'),
 			detail: connected
-				? 'Pinterest account is available for this workspace.'
+				? 'Pinterest account is connected.'
 				: 'Connect a Pinterest account in Pinterest settings.',
 		},
 		defaultBoard: {
-			status: publishTarget?.boardId ? 'configured' : 'not_configured',
-			tone: publishTarget?.boardId ? 'green' : 'amber',
-			label: pinterestMeta?.boardName || (publishTarget?.boardId ? 'Default board set' : 'No Default Board'),
-			detail: publishTarget?.boardId
+			status: boardLabel ? 'configured' : 'not_configured',
+			tone: boardLabel ? 'green' : 'amber',
+			label: boardLabel || 'Not configured',
+			detail: boardLabel
 				? 'A default board is selected for publishing.'
 				: 'Choose a default board in Pinterest settings.',
 		},
 		api: {
 			status: connected ? 'ok' : 'not_configured',
 			tone: connected ? 'green' : 'red',
-			label: connected ? 'API Ready' : 'API Not Ready',
+			label: connected ? 'API Ready' : 'Not configured',
 			detail: connected ? 'Pinterest API access is available.' : 'Pinterest API is not ready yet.',
 		},
 		lastPublishAt: jobStats.lastPublishAt || '',
@@ -579,39 +604,42 @@ function buildPinterestStatus({ workspaceIndicators, publishTarget, jobStats, pi
 
 function buildAiConfiguration(aiDefaults) {
 	return {
-		model: aiDefaults?.model || 'Default workspace model',
-		language: aiDefaults?.language || 'English',
-		country: aiDefaults?.country || 'United States',
-		tone: aiDefaults?.tone || 'Friendly',
-		defaultPromptPreview: aiDefaults?.promptPreview || '',
-		imageProvider: aiDefaults?.imageProvider || 'Not configured',
-		textProvider: aiDefaults?.textProvider || 'Not configured',
+		model: aiDefaults?.model || null,
+		language: aiDefaults?.language || null,
+		country: aiDefaults?.country || null,
+		tone: aiDefaults?.tone || null,
+		defaultPromptPreview: aiDefaults?.promptPreview || null,
+		imageProvider: aiDefaults?.imageProvider || null,
+		textProvider: aiDefaults?.textProvider || null,
+		textReady: Boolean(aiDefaults?.textReady),
+		imageReady: Boolean(aiDefaults?.imageReady),
 		editHref: '/app/settings',
 	};
 }
 
 function buildSeoHealth(articleStats) {
 	const rows = [
-		{ key: 'missingFeaturedImages', label: 'Missing Featured Images', count: articleStats.missingFeaturedImage || 0 },
-		{ key: 'missingSeoTitles', label: 'Missing SEO Titles', count: articleStats.missingSeoTitle || 0 },
-		{ key: 'missingMetaDescriptions', label: 'Missing Meta Descriptions', count: articleStats.missingMetaDescription || 0 },
-		{ key: 'missingAltText', label: 'Missing ALT Text', count: null, tracked: false },
-		{ key: 'articlesWithoutCategories', label: 'Articles without Categories', count: articleStats.missingCategory || 0 },
-		{ key: 'articlesWithoutTags', label: 'Articles without Tags', count: articleStats.missingTags || 0 },
-		{ key: 'brokenImages', label: 'Broken Images', count: null, tracked: false },
-		{ key: 'brokenLinks', label: 'Broken Links', count: null, tracked: false },
+		{ key: 'missingFeaturedImages', label: 'Missing Featured Images', count: articleStats.missingFeaturedImage },
+		{ key: 'missingSeoTitles', label: 'Missing SEO Titles', count: articleStats.missingSeoTitle },
+		{ key: 'missingMetaDescriptions', label: 'Missing Meta Descriptions', count: articleStats.missingMetaDescription },
+		{ key: 'missingAltText', label: 'Missing ALT Text', count: articleStats.missingAltText },
+		{ key: 'articlesWithoutCategories', label: 'Articles without Categories', count: articleStats.missingCategory },
+		{ key: 'articlesWithoutTags', label: 'Articles without Tags', count: articleStats.missingTags },
+		{ key: 'brokenImages', label: 'Broken Images', count: articleStats.brokenImages },
+		{ key: 'brokenLinks', label: 'Broken Links', count: articleStats.brokenLinks },
 	];
 	return {
-		items: rows.map((row) => ({
-			...row,
-			tracked: row.tracked !== false,
-			tone: row.tracked === false
-				? 'default'
-				: (Number(row.count) > 0 ? 'amber' : 'green'),
-			status: row.tracked === false
-				? 'not_tracked'
-				: (Number(row.count) > 0 ? 'needs_attention' : 'ok'),
-		})),
+		items: rows.map((row) => {
+			const available = row.count != null && Number.isFinite(Number(row.count));
+			return {
+				...row,
+				available,
+				tracked: available,
+				tone: !available ? 'default' : (Number(row.count) > 0 ? 'amber' : 'green'),
+				status: !available ? 'not_available' : (Number(row.count) > 0 ? 'needs_attention' : 'ok'),
+				display: available ? Number(row.count) : 'Not available',
+			};
+		}),
 	};
 }
 
@@ -656,7 +684,7 @@ function buildCredentialsHealth({ website, wpSite, workspaceIndicators, aiDefaul
 		{
 			key: 'pinterestToken',
 			label: 'Pinterest Token',
-			configured: ['connected', 'configured', 'ready'].includes(String(workspaceIndicators?.pinterestConnection?.status || '').toLowerCase())
+			configured: String(workspaceIndicators?.pinterestConnection?.status || '').toLowerCase() === 'connected'
 				|| Boolean(userSettingsFlags?.has_pinterest_token),
 		},
 		{
@@ -736,86 +764,19 @@ function buildSiteInfo({ website, wpSite }) {
 	const profile = wpSite?.siteProfile || {};
 	const plugins = Array.isArray(profile.activePlugins)
 		? profile.activePlugins.length
-		: (Number(profile.activePluginsCount) || Number(profile.pluginsCount) || null);
+		: (Number.isFinite(Number(profile.activePluginsCount))
+			? Number(profile.activePluginsCount)
+			: (Number.isFinite(Number(profile.pluginsCount)) ? Number(profile.pluginsCount) : null));
 	return {
 		domain: website.domain || '',
 		created: website.created || '',
 		lastScan: website.last_scan_at || '',
-		lastSync: wpSite?.lastSyncedAt || website.updated || '',
+		lastSync: wpSite?.lastSyncedAt || '',
 		wordpressVersion: wpSite?.wpVersion || profile.wordpressVersion || profile.version || '',
 		phpVersion: profile.phpVersion || '',
 		theme: profile.theme || profile.activeTheme || '',
 		activePluginsCount: plugins,
 	};
-}
-
-function buildRecentActivityLite({ website, jobStats, wordpress }) {
-	const events = [];
-	if (website.last_scan_at) {
-		events.push({
-			id: `scan-${website.id}`,
-			type: 'scan',
-			title: 'Website scan',
-			status: website.discovery_status || 'completed',
-			at: website.last_scan_at,
-		});
-	}
-	if (wordpress.lastSyncAt) {
-		events.push({
-			id: `sync-${website.id}`,
-			type: 'sync',
-			title: 'WordPress sync',
-			status: 'completed',
-			at: wordpress.lastSyncAt,
-		});
-	}
-	if (jobStats.lastWpPublishAt) {
-		events.push({
-			id: `wp-publish-${website.id}`,
-			type: 'publish',
-			title: jobStats.lastWpPublishTitle || 'Published article',
-			status: 'published',
-			at: jobStats.lastWpPublishAt,
-		});
-	}
-	if (jobStats.lastPublishAt) {
-		events.push({
-			id: `pin-publish-${website.id}`,
-			type: 'publish',
-			title: jobStats.lastPublishTitle || 'Generated Pinterest pin',
-			status: 'published',
-			at: jobStats.lastPublishAt,
-		});
-	}
-	if (jobStats.lastGeneratedAt) {
-		events.push({
-			id: `ai-gen-${website.id}`,
-			type: 'ai_generation',
-			title: jobStats.lastGeneratedTitle || 'Generated article',
-			status: 'completed',
-			at: jobStats.lastGeneratedAt,
-		});
-	}
-	if (jobStats.lastGeneratedImageAt) {
-		events.push({
-			id: `img-${website.id}`,
-			type: 'ai_generation',
-			title: 'Image generated',
-			status: 'completed',
-			at: jobStats.lastGeneratedImageAt,
-		});
-	}
-	if ((jobStats.failedJobs || 0) > 0 && jobStats.lastPublishAt) {
-		events.push({
-			id: `fail-${website.id}`,
-			type: 'error',
-			title: 'Failed publish',
-			status: 'failed',
-			at: jobStats.lastPublishAt,
-		});
-	}
-	events.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
-	return events.slice(0, 10).map(annotateTimelineEvent);
 }
 
 function assembleControlPayload({
@@ -829,6 +790,7 @@ function assembleControlPayload({
 	aiDefaults = null,
 	userSettingsFlags = null,
 	pinterestMeta = null,
+	recentActivity = [],
 }) {
 	const health = buildHealthBlock({ website, wpSite, articleStats, jobStats });
 	const stats = buildStatsBlock(articleStats, jobStats, website);
@@ -873,7 +835,6 @@ function assembleControlPayload({
 		publishingHealth,
 	});
 	const siteInfo = buildSiteInfo({ website, wpSite });
-	const recentActivity = buildRecentActivityLite({ website, jobStats, wordpress });
 
 	if (wordpress.needsConfiguration) {
 		problems.unshift({
@@ -907,7 +868,7 @@ function assembleControlPayload({
 		credentialsHealth,
 		aiReadiness,
 		siteInfo,
-		recentActivity,
+		recentActivity: Array.isArray(recentActivity) ? recentActivity.slice(0, 10) : [],
 	};
 }
 
@@ -1024,10 +985,9 @@ async function resolveDefaultPinterestTarget(ownerId) {
 		requestKey: null,
 	}).catch(() => []);
 	const connected = (accounts || []).find((account) => account.status === 'connected' || account.connected)
-		|| (accounts || [])[0]
 		|| null;
 	if (!connected) {
-		return { accountId: '', boardId: '' };
+		return { accountId: '', boardId: '', accountName: '', boardName: '', connected: false };
 	}
 
 	const boards = await pocketbaseClient.collection('pinterest_boards').getFullList({
@@ -1041,6 +1001,9 @@ async function resolveDefaultPinterestTarget(ownerId) {
 	return {
 		accountId: connected.id || '',
 		boardId: defaultBoard?.board_id || defaultBoard?.id || '',
+		accountName: connected.username || connected.account_name || connected.label || connected.name || '',
+		boardName: defaultBoard?.name || defaultBoard?.board_name || '',
+		connected: true,
 	};
 }
 
@@ -1079,7 +1042,7 @@ async function loadWorkspaceStatusIndicators(ownerId) {
 
 	const connectedPinterest = (pinterestAccounts || []).find((account) => (
 		account.status === 'connected' || account.connected
-	)) || (pinterestAccounts || [])[0] || null;
+	)) || null;
 
 	const defaultBrandKit = (brandKits || []).find((kit) => kit.is_default) || (brandKits || [])[0] || null;
 	const queuePaused = Boolean(queuePausedRow?.paused);
@@ -1091,7 +1054,7 @@ async function loadWorkspaceStatusIndicators(ownerId) {
 			preferredImage
 				? (preferredImage.config?.hasApiKey || preferredImage.status === 'connected' ? 'connected' : preferredImage.status || 'configured')
 				: 'not_configured',
-			preferredImage?.name || 'No image provider enabled',
+			preferredImage?.name || 'Not configured',
 		),
 		pinterestConnection: indicator(
 			'Pinterest Connection',
@@ -1166,6 +1129,12 @@ export async function buildWebsiteControlSummary(website, {
 	articleStats.lastScan = website.last_scan_at || '';
 	articleStats.nextScheduledScan = website.next_scan_at || '';
 	const jobStats = await pinAndJobStatsForWebsite(ownerId, website.id, wpSite?.id || '');
+	const recentActivity = await buildActivityTimeline({
+		ownerId,
+		websiteId: website.id,
+		wpSiteId: wpSite?.id || '',
+		website,
+	}).then((events) => (events || []).slice(0, 10)).catch(() => []);
 
 	return assembleControlPayload({
 		website,
@@ -1178,6 +1147,7 @@ export async function buildWebsiteControlSummary(website, {
 		aiDefaults,
 		userSettingsFlags,
 		pinterestMeta,
+		recentActivity,
 	});
 }
 
@@ -1196,15 +1166,22 @@ async function loadAiDefaults(ownerId) {
 		|| null;
 	const prompt = String(settings?.prompts?.writerSystem || '').trim();
 	const userFlags = mapSettingsResponse(settingsRecord);
+	const languageCode = String(settings?.general?.defaultLanguage || '').trim();
+	const tone = String(settings?.content?.defaultPinTone || settings?.content?.recipeStyle || '').trim();
+	const model = textProvider?.defaultModel
+		|| textProvider?.config?.model
+		|| settings?.ai?.defaultModel
+		|| textProvider?.name
+		|| '';
 	return {
 		aiDefaults: {
-			model: textProvider?.defaultModel || textProvider?.config?.model || settings?.ai?.defaultModel || textProvider?.name || 'Default workspace model',
-			language: settings?.general?.defaultLanguage === 'en' ? 'English' : (settings?.general?.defaultLanguage || 'English'),
-			country: 'United States',
-			tone: settings?.content?.defaultPinTone || settings?.content?.recipeStyle || 'Friendly',
-			promptPreview: prompt ? `${prompt.slice(0, 120)}${prompt.length > 120 ? '…' : ''}` : 'No custom default prompt configured.',
-			imageProvider: imageProvider?.name || settings?.images?.defaultImageProvider || 'Not configured',
-			textProvider: textProvider?.name || settings?.ai?.defaultProvider || 'Not configured',
+			model: model || null,
+			language: languageCode || null,
+			country: null,
+			tone: tone || null,
+			promptPreview: prompt ? `${prompt.slice(0, 120)}${prompt.length > 120 ? '…' : ''}` : null,
+			imageProvider: imageProvider?.name || settings?.images?.defaultImageProvider || null,
+			textProvider: textProvider?.name || settings?.ai?.defaultProvider || null,
 			textReady: Boolean(textProvider?.config?.hasApiKey || textProvider?.status === 'connected' || userFlags.has_openai_key || userFlags.has_gemini_key),
 			imageReady: Boolean(imageProvider?.config?.hasApiKey || imageProvider?.status === 'connected' || userFlags.has_fal_key),
 		},
@@ -1223,8 +1200,8 @@ export async function getWebsitesControlCenter(ownerId, websites = []) {
 	]);
 	const wpSites = wpPayload.items || [];
 	const pinterestMeta = {
-		boardName: publishTarget?.boardId ? 'Default board' : '',
-		accountName: workspaceIndicators?.pinterestConnection?.detail || '',
+		boardName: publishTarget?.boardName || '',
+		accountName: publishTarget?.accountName || workspaceIndicators?.pinterestConnection?.detail || '',
 	};
 
 	const items = await Promise.all((websites || []).map(async (website) => {

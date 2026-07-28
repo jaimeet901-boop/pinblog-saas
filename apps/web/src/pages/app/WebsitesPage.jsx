@@ -63,10 +63,10 @@ function statusTone(status) {
 	return 'default';
 }
 
-function formatRelative(value) {
-	if (!value) return '—';
+function formatRelative(value, emptyLabel = 'Not available') {
+	if (!value) return emptyLabel;
 	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return '—';
+	if (Number.isNaN(date.getTime())) return emptyLabel;
 	const diffMs = Date.now() - date.getTime();
 	const mins = Math.round(diffMs / 60000);
 	if (mins < 1) return 'just now';
@@ -76,6 +76,17 @@ function formatRelative(value) {
 	const days = Math.round(hours / 24);
 	if (days < 14) return `${days} day${days === 1 ? '' : 's'} ago`;
 	return formatDateTime(value);
+}
+
+function displayValue(value, emptyLabel = 'Not available') {
+	if (value == null || value === '') return emptyLabel;
+	return value;
+}
+
+function displayCount(value, emptyLabel = 'Not available') {
+	if (value == null || value === '') return emptyLabel;
+	if (!Number.isFinite(Number(value))) return emptyLabel;
+	return Number(value);
 }
 
 function formatDuration(ms) {
@@ -495,14 +506,14 @@ export default function WebsitesPage() {
 									</div>
 									<h3 className="mt-3 truncate font-semibold">{s.name}</h3>
 									<a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-muted-foreground hover:text-primary">{s.url || '—'}</a>
-									<p className="mt-1 text-xs text-muted-foreground">Domain: {siteInfo.domain || s.domain || '—'}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Created: {formatDate(siteInfo.created || s.created)}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Last Scan: {formatRelative(siteInfo.lastScan || s.last_scan_at)}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Last Sync: {formatRelative(siteInfo.lastSync || health.lastSynchronization || s.updated)}</p>
-									<p className="mt-1 text-xs text-muted-foreground">WordPress Version: {siteInfo.wordpressVersion || health.wpVersion || '—'}</p>
-									<p className="mt-1 text-xs text-muted-foreground">PHP Version: {siteInfo.phpVersion || '—'}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Theme: {siteInfo.theme || '—'}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Active Plugins: {siteInfo.activePluginsCount ?? '—'}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Domain: {displayValue(siteInfo.domain || s.domain, 'Not available')}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Created: {s.created || siteInfo.created ? formatDate(siteInfo.created || s.created) : 'Not available'}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Last Scan: {formatRelative(siteInfo.lastScan || s.last_scan_at, 'Never synced')}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Last Sync: {formatRelative(siteInfo.lastSync, 'Never synced')}</p>
+									<p className="mt-1 text-xs text-muted-foreground">WordPress Version: {displayValue(siteInfo.wordpressVersion || health.wpVersion, 'Not available')}</p>
+									<p className="mt-1 text-xs text-muted-foreground">PHP Version: {displayValue(siteInfo.phpVersion, 'Not available')}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Theme: {displayValue(siteInfo.theme, 'Not available')}</p>
+									<p className="mt-1 text-xs text-muted-foreground">Active Plugins: {displayCount(siteInfo.activePluginsCount, 'Not available')}</p>
 
 									{score && (
 										<Section title="Website Score">
@@ -517,8 +528,8 @@ export default function WebsitesPage() {
 										<StatusLine ok={wordpress.restApi?.status === 'ok'} label="REST API" missingLabel={wordpress.restApi?.label || 'REST API Missing'} />
 										<StatusLine ok={wordpress.credentials?.status === 'configured'} label="Credentials Saved" missingLabel="Credentials Missing" />
 										<StatusLine ok={wordpress.applicationPassword?.status === 'configured'} label="Application Password" missingLabel="Application Password Missing" />
-										<p className="text-xs text-muted-foreground">Last Publish: {formatRelative(wordpress.lastPublishAt)}</p>
-										<p className="text-xs text-muted-foreground">Last Sync: {formatRelative(wordpress.lastSyncAt)}</p>
+										<p className="text-xs text-muted-foreground">Last Publish: {formatRelative(wordpress.lastPublishAt, 'Never synced')}</p>
+										<p className="text-xs text-muted-foreground">Last Sync: {formatRelative(wordpress.lastSyncAt, 'Never synced')}</p>
 										{wordpress.needsConfiguration ? (
 											<>
 												<p className="text-xs text-muted-foreground">{wordpress.configureHint || 'WordPress credentials are missing. Configure them in Website Settings.'}</p>
@@ -528,62 +539,62 @@ export default function WebsitesPage() {
 									</Section>
 
 									<Section title="Pinterest">
-										<p className="text-xs text-muted-foreground">Connected Account: {pinterest.account?.label || '—'}</p>
-										<p className="text-xs text-muted-foreground">Default Board: {pinterest.defaultBoard?.label || '—'}</p>
-										<p className="text-xs text-muted-foreground">API Status: <Badge tone={pinterest.api?.tone || statusTone(pinterest.api?.status)}>{pinterest.api?.label || '—'}</Badge></p>
-										<p className="text-xs text-muted-foreground">Last Publish: {formatRelative(pinterest.lastPublishAt)}</p>
-										<p className="text-xs text-muted-foreground">Published Pins: {pinterest.publishedPins ?? 0}</p>
-										<p className="text-xs text-muted-foreground">Failed Pins: {pinterest.failedPins ?? 0}</p>
+										<p className="text-xs text-muted-foreground">Connected Account: {displayValue(pinterest.account?.label, 'Not configured')}</p>
+										<p className="text-xs text-muted-foreground">Default Board: {displayValue(pinterest.defaultBoard?.label, 'Not configured')}</p>
+										<p className="text-xs text-muted-foreground">API Status: <Badge tone={pinterest.api?.tone || statusTone(pinterest.api?.status)}>{pinterest.api?.label || 'Not configured'}</Badge></p>
+										<p className="text-xs text-muted-foreground">Last Publish: {formatRelative(pinterest.lastPublishAt, 'Never synced')}</p>
+										<p className="text-xs text-muted-foreground">Published Pins: {displayCount(pinterest.publishedPins, '0')}</p>
+										<p className="text-xs text-muted-foreground">Failed Pins: {displayCount(pinterest.failedPins, '0')}</p>
 										{pinterest.needsConfiguration ? (
 											<p className="text-xs text-muted-foreground">{pinterest.configureHint || 'Connect a Pinterest account in Pinterest settings.'}</p>
 										) : null}
 									</Section>
 
 									<Section title="AI Configuration">
-										<p className="text-xs text-muted-foreground">AI Model: {aiConfiguration.model || '—'}</p>
-										<p className="text-xs text-muted-foreground">Language: {aiConfiguration.language || '—'}</p>
-										<p className="text-xs text-muted-foreground">Country: {aiConfiguration.country || '—'}</p>
-										<p className="text-xs text-muted-foreground">Writing Tone: {aiConfiguration.tone || '—'}</p>
-										<p className="text-xs text-muted-foreground">Default Prompt: {aiConfiguration.defaultPromptPreview || '—'}</p>
-										<p className="text-xs text-muted-foreground">Image Provider: {aiConfiguration.imageProvider || '—'}</p>
+										<p className="text-xs text-muted-foreground">AI Model: {displayValue(aiConfiguration.model, 'Not configured')}</p>
+										<p className="text-xs text-muted-foreground">Language: {displayValue(aiConfiguration.language, 'Not configured')}</p>
+										<p className="text-xs text-muted-foreground">Country: {displayValue(aiConfiguration.country, 'Not configured')}</p>
+										<p className="text-xs text-muted-foreground">Writing Tone: {displayValue(aiConfiguration.tone, 'Not configured')}</p>
+										<p className="text-xs text-muted-foreground">Default Prompt: {displayValue(aiConfiguration.defaultPromptPreview, 'Not configured')}</p>
+										<p className="text-xs text-muted-foreground">Image Provider: {displayValue(aiConfiguration.imageProvider, 'Not configured')}</p>
 										<Button size="sm" variant="outline" onClick={() => navigate(aiConfiguration.editHref || '/app/settings')}>Edit</Button>
 									</Section>
 
 									<Section title="Website Statistics">
-										<p className="text-xs text-muted-foreground">Generated Articles: {stats.generatedArticles ?? stats.totalArticles ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Published Articles: {stats.publishedArticles ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Draft Articles: {stats.draftArticles ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Generated Pins: {stats.generatedPins ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Published Pins: {stats.publishedPins ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Generated Images: {stats.generatedImages ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Traffic Imports: {stats.trafficImports ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">WordPress Syncs: {stats.wordpressSyncs ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Failed Jobs: {stats.failedJobs ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Ready to Publish: {stats.readyToPublish ?? '—'}</p>
+										<p className="text-xs text-muted-foreground">Generated Articles: {displayCount(stats.generatedArticles ?? stats.totalArticles, '0')}</p>
+										<p className="text-xs text-muted-foreground">Published Articles: {displayCount(stats.publishedArticles, '0')}</p>
+										<p className="text-xs text-muted-foreground">Draft Articles: {displayCount(stats.draftArticles, '0')}</p>
+										<p className="text-xs text-muted-foreground">Generated Pins: {displayCount(stats.generatedPins, '0')}</p>
+										<p className="text-xs text-muted-foreground">Published Pins: {displayCount(stats.publishedPins, '0')}</p>
+										<p className="text-xs text-muted-foreground">Generated Images: {displayCount(stats.generatedImages, '0')}</p>
+										<p className="text-xs text-muted-foreground">Traffic Imports: {displayCount(stats.trafficImports, '0')}</p>
+										<p className="text-xs text-muted-foreground">WordPress Syncs: {displayCount(stats.wordpressSyncs, 'Not available')}</p>
+										<p className="text-xs text-muted-foreground">Failed Jobs: {displayCount(stats.failedJobs, '0')}</p>
+										<p className="text-xs text-muted-foreground">Ready to Publish: {displayCount(stats.readyToPublish, '0')}</p>
 									</Section>
 
 									<Section title="SEO Health">
-										{(seoHealth.items || [
-											{ label: 'Missing Featured Images', count: contentOverview.missingFeaturedImage, tone: Number(contentOverview.missingFeaturedImage) > 0 ? 'amber' : 'green' },
-											{ label: 'Missing SEO Titles', count: contentOverview.missingSeoTitle, tone: Number(contentOverview.missingSeoTitle) > 0 ? 'amber' : 'green' },
-										]).map((item) => (
+										{(seoHealth.items || []).map((item) => (
 											<p key={item.key || item.label} className="text-xs text-muted-foreground">
 												{item.label}:{' '}
-												{item.tracked === false ? (
-													<Badge tone="default">Not tracked</Badge>
+												{item.available === false || item.status === 'not_available' ? (
+													<Badge tone="default">Not available</Badge>
 												) : (
-													<Badge tone={item.tone || statusTone(item.status)}>{item.count ?? 0}</Badge>
+													<Badge tone={item.tone || statusTone(item.status)}>{item.display ?? item.count ?? 0}</Badge>
 												)}
 											</p>
 										))}
+										{(seoHealth.items || []).length === 0 ? (
+											<p className="text-xs text-muted-foreground">Not available</p>
+										) : null}
 									</Section>
 
 									<Section title="Recent Activity">
 										{recentActivity.length === 0 ? (
-											<p className="text-xs text-muted-foreground">No recent activity yet.</p>
+											<p className="text-xs text-muted-foreground">Not available</p>
 										) : recentActivity.map((event) => (
 											<p key={event.id} className="text-xs text-muted-foreground">
-												{event.title || event.type} · {formatRelative(event.at)}
+												{event.title || event.type} · {formatRelative(event.at, 'Not available')}
 											</p>
 										))}
 									</Section>
@@ -598,13 +609,13 @@ export default function WebsitesPage() {
 									</Section>
 
 									<Section title="Website Performance">
-										<p className="text-xs text-muted-foreground">Total Generated Content: {performance.totalGeneratedContent ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Total Published: {performance.totalPublished ?? '—'}</p>
-										<p className="text-xs text-muted-foreground">Success Rate: {performance.successRate != null ? `${performance.successRate}%` : '—'}</p>
-										<p className="text-xs text-muted-foreground">Average Publish Time: {formatDuration(performance.avgPublishTimeMs)}</p>
-										<p className="text-xs text-muted-foreground">Last AI Generation: {formatRelative(performance.lastAiGenerationAt || performance.lastGeneratedAt)}</p>
-										<p className="text-xs text-muted-foreground">Last Pin Generation: {formatRelative(performance.lastPinGenerationAt || performance.lastGeneratedAt)}</p>
-										<p className="text-xs text-muted-foreground">Last Image Generation: {formatRelative(performance.lastImageGenerationAt || performance.lastGeneratedImageAt)}</p>
+										<p className="text-xs text-muted-foreground">Total Generated Content: {displayCount(performance.totalGeneratedContent, '0')}</p>
+										<p className="text-xs text-muted-foreground">Total Published: {displayCount(performance.totalPublished, '0')}</p>
+										<p className="text-xs text-muted-foreground">Success Rate: {performance.successRate != null ? `${performance.successRate}%` : 'Not available'}</p>
+										<p className="text-xs text-muted-foreground">Average Publish Time: {performance.avgPublishTimeMs != null ? formatDuration(performance.avgPublishTimeMs) : 'Not available'}</p>
+										<p className="text-xs text-muted-foreground">Last AI Generation: {formatRelative(performance.lastAiGenerationAt || performance.lastGeneratedAt, 'Never synced')}</p>
+										<p className="text-xs text-muted-foreground">Last Pin Generation: {formatRelative(performance.lastPinGenerationAt || performance.lastGeneratedAt, 'Never synced')}</p>
+										<p className="text-xs text-muted-foreground">Last Image Generation: {formatRelative(performance.lastImageGenerationAt || performance.lastGeneratedImageAt, 'Never synced')}</p>
 									</Section>
 
 									<Section title="Credentials Health">
