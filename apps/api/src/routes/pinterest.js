@@ -135,6 +135,21 @@ function normalizeObject(value, fieldName) {
 	return value;
 }
 
+function redactForLog(value) {
+	const sensitiveKey = /token|secret|password|authorization|cookie|apikey|api_key/i;
+	if (Array.isArray(value)) {
+		return value.map((item) => redactForLog(item));
+	}
+	if (value && typeof value === 'object') {
+		const out = {};
+		for (const [key, nested] of Object.entries(value)) {
+			out[key] = sensitiveKey.test(key) ? '[REDACTED]' : redactForLog(nested);
+		}
+		return out;
+	}
+	return value;
+}
+
 async function getOwnedAIPins({ owner, pinIds, req = null }) {
 	const pins = await Promise.all(pinIds.map((pinId) => pocketbaseClient.collection('ai_pins').getOne(pinId).catch(() => null)));
 	const filtered = pins.filter(Boolean);
@@ -335,7 +350,26 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 			}),
 		});
 
-		const job = await pocketbaseClient.collection('pinterest_publish_jobs').create(createPayload);
+		let job;
+		try {
+			job = await pocketbaseClient.collection('pinterest_publish_jobs').create(createPayload);
+		} catch (err) {
+			logger.error('Pinterest publish job create failed', {
+				context: 'pinterest:create-publish-job',
+				owner,
+				pinId: pin.id,
+				accountId: account.id,
+				boardId: board.board_id,
+				createPayload: redactForLog(createPayload),
+				errStatus: err?.status,
+				errMessage: err?.message,
+				errData: redactForLog(err?.data),
+				errResponse: redactForLog(err?.response),
+				errResponseData: redactForLog(err?.response?.data),
+				stack: err?.stack,
+			});
+			throw err;
+		}
 
 		await pocketbaseClient.collection('ai_pins').update(pin.id, {
 			status: 'scheduled',
