@@ -44,6 +44,7 @@ import {
 	normalizeImageSourceStrategy,
 	pickArticleImageUrl,
 	planImageSource,
+	listArticleImageCandidates,
 	IMAGE_SOURCE_STRATEGY,
 } from '@/lib/imageSourceStrategy';
 import {
@@ -1255,10 +1256,10 @@ export default function AIPinsPage() {
 			const composeInputs = aiPins.map((pin) => {
 				const job = finishedJobs.find((item) => item.clientToken === pin.tempId || item.id === pin.imageJobId)
 					|| jobs.find((item) => item.clientToken === pin.tempId);
+				const articleCandidates = listArticleImageCandidates(pin);
 				const background = String(
 					job?.imageUrl
-					|| pin.sourceImageUrl
-					|| pin.featuredImage
+					|| articleCandidates[0]
 					|| '',
 				).trim();
 				const usedArticleFallback = Boolean(
@@ -1268,7 +1269,7 @@ export default function AIPinsPage() {
 						|| job?.status === 'failed'
 						|| !job?.imageUrl
 					)
-					&& (pin.sourceImageUrl || pin.featuredImage),
+					&& articleCandidates.length > 0,
 				);
 				return {
 					...pin,
@@ -1277,11 +1278,16 @@ export default function AIPinsPage() {
 					_usedArticleFallback: usedArticleFallback,
 					_aiStatus: job?.status || 'failed',
 					_aiError: job?.lastError || '',
+					_hasArticleCandidates: articleCandidates.length > 0,
 				};
 			});
 
-			const withBackground = composeInputs.filter((pin) => pin.featuredImage);
-			const withoutBackground = composeInputs.filter((pin) => !pin.featuredImage);
+			const withBackground = composeInputs.filter((pin) => (
+				pin.featuredImage || pin._hasArticleCandidates
+			));
+			const withoutBackground = composeInputs.filter((pin) => (
+				!pin.featuredImage && !pin._hasArticleCandidates
+			));
 
 			if (withoutBackground.length > 0) {
 				setGeneratedPreviewPins((prev) => prev.map((pin) => {
@@ -1292,7 +1298,7 @@ export default function AIPinsPage() {
 						imageUrl: '',
 						imageGenerationStatus: 'failed',
 						imageGenerationError: missed._aiError
-							|| 'AI image generation failed and no article image was available.',
+							|| 'AI image generation failed and no usable article image was available.',
 					};
 				}));
 			}
