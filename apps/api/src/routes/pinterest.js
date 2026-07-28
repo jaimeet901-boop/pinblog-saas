@@ -47,6 +47,7 @@ import { analyzeGrantedScopes, DEFAULT_SCOPES, mergeRequiredScopes } from '../se
 import { getPinterestAppCredentials } from '../services/pinterest-app-credentials.js';
 import { listPublishProviders, setPublishProvider, getPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
 import { mirrorPinterestJob } from '../services/queue/mirrors.js';
+import { ensureAiPinsPublishFields } from '../utils/ensure-ai-pins-publish-fields.js';
 import {
 	getWorkspaceActor,
 	andWorkspaceScope,
