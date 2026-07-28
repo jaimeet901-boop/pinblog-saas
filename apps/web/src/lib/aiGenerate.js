@@ -1,9 +1,12 @@
 import { integratedAiClient } from '@/lib/integratedAiClient';
 
 // Streams a text response from the AI backend and returns the full accumulated text.
-export async function generateText(prompt, { onChunk, signal } = {}) {
+export async function generateText(prompt, { onChunk, signal, customPrompt } = {}) {
 	const response = await integratedAiClient.stream('/integrated-ai/stream', {
-		body: { message: [{ text: prompt, type: 'text' }] },
+		body: {
+			message: [{ text: prompt, type: 'text' }],
+			...(customPrompt ? { customPrompt: String(customPrompt) } : {}),
+		},
 		images: [],
 		signal,
 	});

@@ -53,6 +53,9 @@ const integratedAiClient = {
 
 		const formData = new FormData();
 		formData.append('message', JSON.stringify(body.message));
+		if (typeof body.customPrompt === 'string' && body.customPrompt.trim()) {
+			formData.append('customPrompt', body.customPrompt.trim().slice(0, 4000));
+		}
 
 		images.forEach((image) => {
 			formData.append('images', image);

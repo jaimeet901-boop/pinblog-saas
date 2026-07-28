@@ -64,6 +64,47 @@ router.post('/articles', async (req, res) => {
 });
 
 /**
+ * PATCH /content/articles/:id
+ * Merge writer metadata into the existing JSON body (published_url, images, custom_prompt).
+ * Backward compatible — no schema migration required.
+ */
+router.patch('/articles/:id', async (req, res) => {
+	requireAuth(req);
+	const record = await getWorkspaceOwnedRecord('articles', req.params.id, req, {
+		notFoundMessage: 'Article not found',
+	});
+	const input = req.body && typeof req.body === 'object' ? req.body : {};
+	const currentBody = record.body && typeof record.body === 'object' ? { ...record.body } : {};
+
+	if (typeof input.published_url === 'string') {
+		currentBody.published_url = input.published_url.trim().slice(0, 2000);
+	}
+	if (typeof input.published_at === 'string') {
+		currentBody.published_at = input.published_at.trim().slice(0, 64);
+	}
+	if (typeof input.featured_image === 'string') {
+		currentBody.featured_image = input.featured_image.trim().slice(0, 2000);
+	}
+	if (Array.isArray(input.gallery_images)) {
+		currentBody.gallery_images = input.gallery_images
+			.map((url) => String(url || '').trim().slice(0, 2000))
+			.filter(Boolean)
+			.slice(0, 40);
+	}
+	if (typeof input.custom_prompt === 'string') {
+		currentBody.custom_prompt = input.custom_prompt.trim().slice(0, 8000);
+	}
+	if (input.body && typeof input.body === 'object') {
+		Object.assign(currentBody, input.body);
+	}
+
+	const updated = await pocketbaseClient.collection('articles').update(record.id, {
+		body: currentBody,
+	});
+	res.json(updated);
+});
+
+/**
  * GET /content/pins
  */
 router.get('/pins', async (req, res) => {

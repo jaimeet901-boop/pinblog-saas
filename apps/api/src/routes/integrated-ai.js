@@ -207,9 +207,16 @@ router.post('/stream', integratedAiRateLimit, uploadImagesWithDiagnostics, async
 		});
 	}
 
+	const rawCustomPrompt = typeof req.body?.customPrompt === 'string' ? req.body.customPrompt.trim() : '';
+	const customPrompt = rawCustomPrompt.slice(0, 4000);
+	// Append only — never replace the internal SystemPrompt / JSON contract.
+	const systemPrompt = customPrompt
+		? `${SystemPrompt}\n\nAdditional writer instructions from the user (follow these without breaking the JSON response contract):\n${customPrompt}`
+		: SystemPrompt;
+
 	const sseStream = await stream({
 		userId: req.pocketbaseUserId,
-		systemPrompt: SystemPrompt,
+		systemPrompt,
 		userMessage: parsedMessage,
 	});
 

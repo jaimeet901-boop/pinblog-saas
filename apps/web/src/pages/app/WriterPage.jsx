@@ -4,9 +4,11 @@ import {
 	FileText, Settings2, ListChecks, Send, Copy, Download, RefreshCw,
 	Sparkles, Search, BookOpen, LayoutList, AlertCircle, Hash, Clock,
 	Facebook, Image as ImageIcon, Coins, History, Languages, Type,
+	Trash2, GripVertical, CheckCircle2, MessageSquareText, Replace,
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { generateText, extractJson } from '@/lib/aiGenerate';
+import { uploadImageBlob } from '@/services/ai-pins/imageLifecycle';
 import { Badge, Button, Input, Select, Textarea, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import './WriterPage.css';
@@ -24,6 +26,7 @@ const initForm = {
 	creativity: 55,
 	wpCategory: '',
 	tags: '',
+	customPrompt: '',
 };
 
 const initOptions = {
@@ -40,6 +43,8 @@ const SECTIONS = [
 	{ id: 'basics', label: 'Article Basics', icon: FileText },
 	{ id: 'content', label: 'Content Settings', icon: Settings2 },
 	{ id: 'options', label: 'Content Options', icon: ListChecks },
+	{ id: 'images', label: 'Images', icon: ImageIcon },
+	{ id: 'prompt', label: 'AI Prompt', icon: MessageSquareText },
 	{ id: 'publishing', label: 'Publishing', icon: Send },
 ];
 
@@ -116,6 +121,30 @@ function estimateCredits(length) {
 	if (String(length).startsWith('Short')) return 1.2;
 	if (String(length).startsWith('Long')) return 2.8;
 	return 1.9;
+}
+
+function normalizeGallery(value) {
+	if (!Array.isArray(value)) return [];
+	return value.map((url) => String(url || '').trim()).filter(Boolean).slice(0, 40);
+}
+
+function buildPersistableBody(article, form) {
+	if (!article || typeof article !== 'object') return null;
+	return {
+		...article,
+		featured_image: String(article.featured_image || '').trim(),
+		gallery_images: normalizeGallery(article.gallery_images),
+		custom_prompt: String(form?.customPrompt || article.custom_prompt || '').trim(),
+		published_url: String(article.published_url || '').trim(),
+		published_at: String(article.published_at || '').trim(),
+	};
+}
+
+function formatPublishedAt(value) {
+	if (!value) return '';
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return String(value);
+	return date.toLocaleString();
 }
 
 function scoreArticle(article, form) {
@@ -261,11 +290,19 @@ export default function WriterPage() {
 		basics: true,
 		content: true,
 		options: true,
+		images: true,
+		prompt: true,
 		publishing: true,
 	});
+	const [imageBusy, setImageBusy] = useState(false);
+	const [dragGalleryIndex, setDragGalleryIndex] = useState(null);
 
 	const streamRef = useRef(null);
 	const editorRef = useRef(null);
+	const featuredInputRef = useRef(null);
+	const galleryInputRef = useRef(null);
+	const replaceGalleryInputRef = useRef(null);
+	const replaceGalleryIndexRef = useRef(-1);
 
 	useEffect(() => {
 		(async () => {
@@ -372,14 +409,29 @@ Respond ONLY with the JSON object described in your instructions.`;
 			return;
 		}
 		setGenerating(true);
+		setStream('');
+		const preserved = {
+			featured_image: article?.featured_image || '',
+			gallery_images: normalizeGallery(article?.gallery_images),
+			published_url: article?.published_url || '',
+			published_at: article?.published_at || '',
+		};
 		setArticle(null);
 		setArticleBaseline(null);
-		setStream('');
 		try {
-			const { text } = await generateText(buildPrompt(), { onChunk: setStream });
+			const { text } = await generateText(buildPrompt(), {
+				onChunk: setStream,
+				customPrompt: form.customPrompt,
+			});
 			const json = extractJson(text);
 			if (!json) throw new Error('Could not parse the AI response. Try again.');
-			const next = { ...json, sections: json.sections || [], faq: json.faq || [] };
+			const next = {
+				...json,
+				sections: json.sections || [],
+				faq: json.faq || [],
+				...preserved,
+				custom_prompt: form.customPrompt || '',
+			};
 			setArticle(next);
 			setArticleBaseline(next);
 			setHistory((prev) => [
@@ -406,6 +458,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 		if (!article) return;
 		setSaving(true);
 		try {
+			const persistBody = buildPersistableBody(article, form);
 			const response = await apiServerClient.fetch('/content/articles', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -417,7 +470,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 					language: form.language,
 					country: form.country,
 					tone: form.tone,
-					body: article,
+					body: persistBody,
 					status,
 					...(status === 'scheduled' && { scheduled_at: new Date(Date.now() + 86400000).toISOString() }),
 				}),
@@ -448,6 +501,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 		}
 		setPublishing(true);
 		try {
+			const persistBody = buildPersistableBody(article, form);
 			const articleStatus = extras.scheduledAt ? 'scheduled' : (wpStatus === 'publish' ? 'published' : 'draft');
 			const createResponse = await apiServerClient.fetch('/content/articles', {
 				method: 'POST',
@@ -460,7 +514,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 					language: form.language,
 					country: form.country,
 					tone: form.tone,
-					body: article,
+					body: persistBody,
 					status: articleStatus,
 					...(extras.scheduledAt ? { scheduled_at: extras.scheduledAt } : {}),
 				}),
@@ -502,7 +556,10 @@ Respond ONLY with the JSON object described in your instructions.`;
 				throw new Error(data.message || data.error || 'Publish failed');
 			}
 
-			if (data.queued && !data.link) {
+			const publishedUrl = String(data.link || data.url || '').trim();
+			const publishedAt = new Date().toISOString();
+
+			if (data.queued && !publishedUrl) {
 				toast({
 					title: 'Publish queued',
 					description: 'WordPress job is processing in the background. Check history shortly.',
@@ -512,10 +569,35 @@ Respond ONLY with the JSON object described in your instructions.`;
 					title: extras.scheduledAt
 						? 'Scheduled on WordPress'
 						: (wpStatus === 'publish' ? 'Published to WordPress' : 'Draft sent to WordPress'),
-					description: data.link || data.url || (data.id ? `Post #${data.id} created.` : 'Job accepted.'),
+					description: publishedUrl || (data.id ? `Post #${data.id} created.` : 'Job accepted.'),
 				});
 			}
-			setArticleBaseline(article);
+
+			if (publishedUrl && wpStatus === 'publish' && !extras.scheduledAt) {
+				const nextArticle = {
+					...article,
+					published_url: publishedUrl,
+					published_at: publishedAt,
+					custom_prompt: form.customPrompt || '',
+				};
+				setArticle(nextArticle);
+				setArticleBaseline(nextArticle);
+				if (savedArticle?.id) {
+					await apiServerClient.fetch(`/content/articles/${savedArticle.id}`, {
+						method: 'PATCH',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							published_url: publishedUrl,
+							published_at: publishedAt,
+							featured_image: article.featured_image || '',
+							gallery_images: normalizeGallery(article.gallery_images),
+							custom_prompt: form.customPrompt || '',
+						}),
+					}).catch(() => null);
+				}
+			} else {
+				setArticleBaseline(article);
+			}
 			await loadRecentDrafts();
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'WordPress error', description: err?.message });
@@ -578,16 +660,164 @@ Respond ONLY with the JSON object described in your instructions.`;
 			toast({ variant: 'destructive', title: 'Draft unavailable', description: 'This draft has no editable body.' });
 			return;
 		}
-		setArticle({ ...body, sections: body.sections || [], faq: body.faq || [] });
-		setArticleBaseline({ ...body, sections: body.sections || [], faq: body.faq || [] });
+		const next = {
+			...body,
+			sections: body.sections || [],
+			faq: body.faq || [],
+			featured_image: body.featured_image || '',
+			gallery_images: normalizeGallery(body.gallery_images),
+			published_url: body.published_url || '',
+			published_at: body.published_at || '',
+			custom_prompt: body.custom_prompt || '',
+		};
+		setArticle(next);
+		setArticleBaseline(next);
 		setForm((prev) => ({
 			...prev,
 			keyword: draft.keyword || prev.keyword,
 			language: draft.language || prev.language,
 			country: draft.country || prev.country,
 			tone: draft.tone || prev.tone,
+			customPrompt: body.custom_prompt || prev.customPrompt || '',
 		}));
 		toast({ title: 'Draft loaded', description: draft.seo_title || draft.keyword });
+	};
+
+	const ensureArticleShell = () => {
+		if (article) return article;
+		const shell = {
+			seo_title: form.keyword || 'Untitled article',
+			meta_description: '',
+			slug: '',
+			introduction: '',
+			sections: [],
+			faq: [],
+			conclusion: '',
+			featured_image: '',
+			gallery_images: [],
+			published_url: '',
+			published_at: '',
+			custom_prompt: form.customPrompt || '',
+		};
+		setArticle(shell);
+		setArticleBaseline(shell);
+		return shell;
+	};
+
+	const uploadFeaturedImage = async (file) => {
+		if (!file) return;
+		setImageBusy(true);
+		try {
+			ensureArticleShell();
+			const uploaded = await uploadImageBlob(file, {
+				title: form.keyword || article?.seo_title || 'featured-image',
+				fileName: file.name || `featured-${Date.now()}.png`,
+			});
+			setArticle((prev) => ({
+				...(prev || {}),
+				featured_image: uploaded.imageUrl,
+			}));
+			toast({ title: 'Featured image uploaded' });
+		} catch (err) {
+			toast({ variant: 'destructive', title: 'Image upload failed', description: err?.message });
+		} finally {
+			setImageBusy(false);
+			if (featuredInputRef.current) featuredInputRef.current.value = '';
+		}
+	};
+
+	const removeFeaturedImage = () => {
+		setArticle((prev) => (prev ? { ...prev, featured_image: '' } : prev));
+	};
+
+	const uploadGalleryImages = async (fileList) => {
+		const files = Array.from(fileList || []).filter(Boolean);
+		if (!files.length) return;
+		setImageBusy(true);
+		try {
+			ensureArticleShell();
+			const uploadedUrls = [];
+			for (const file of files) {
+				const uploaded = await uploadImageBlob(file, {
+					title: form.keyword || article?.seo_title || 'gallery-image',
+					fileName: file.name || `gallery-${Date.now()}.png`,
+				});
+				uploadedUrls.push(uploaded.imageUrl);
+			}
+			setArticle((prev) => ({
+				...(prev || {}),
+				gallery_images: normalizeGallery([...(prev?.gallery_images || []), ...uploadedUrls]),
+			}));
+			toast({ title: 'Images uploaded', description: `${uploadedUrls.length} image(s) added.` });
+		} catch (err) {
+			toast({ variant: 'destructive', title: 'Gallery upload failed', description: err?.message });
+		} finally {
+			setImageBusy(false);
+			if (galleryInputRef.current) galleryInputRef.current.value = '';
+		}
+	};
+
+	const replaceGalleryImage = async (file) => {
+		const index = replaceGalleryIndexRef.current;
+		if (!file || index < 0) return;
+		setImageBusy(true);
+		try {
+			const uploaded = await uploadImageBlob(file, {
+				title: form.keyword || article?.seo_title || 'gallery-image',
+				fileName: file.name || `gallery-${Date.now()}.png`,
+			});
+			setArticle((prev) => {
+				const gallery = normalizeGallery(prev?.gallery_images);
+				if (!gallery[index]) return prev;
+				gallery[index] = uploaded.imageUrl;
+				return { ...prev, gallery_images: gallery };
+			});
+			toast({ title: 'Image replaced' });
+		} catch (err) {
+			toast({ variant: 'destructive', title: 'Replace failed', description: err?.message });
+		} finally {
+			setImageBusy(false);
+			replaceGalleryIndexRef.current = -1;
+			if (replaceGalleryInputRef.current) replaceGalleryInputRef.current.value = '';
+		}
+	};
+
+	const removeGalleryImage = (index) => {
+		setArticle((prev) => {
+			if (!prev) return prev;
+			const gallery = normalizeGallery(prev.gallery_images).filter((_, i) => i !== index);
+			return { ...prev, gallery_images: gallery };
+		});
+	};
+
+	const onGalleryDragStart = (index) => setDragGalleryIndex(index);
+	const onGalleryDrop = (index) => {
+		if (dragGalleryIndex == null || dragGalleryIndex === index) {
+			setDragGalleryIndex(null);
+			return;
+		}
+		setArticle((prev) => {
+			if (!prev) return prev;
+			const gallery = normalizeGallery(prev.gallery_images);
+			const [moved] = gallery.splice(dragGalleryIndex, 1);
+			gallery.splice(index, 0, moved);
+			return { ...prev, gallery_images: gallery };
+		});
+		setDragGalleryIndex(null);
+	};
+
+	const copyText = async (value, label) => {
+		const text = String(value || '').trim();
+		if (!text) {
+			toast({ variant: 'destructive', title: `Nothing to copy`, description: `${label} is empty.` });
+			return;
+		}
+		try {
+			await navigator.clipboard.writeText(text);
+			toast({ title: 'Copied', description: `${label} copied to clipboard.` });
+		} catch {
+			toast({ variant: 'destructive', title: 'Copy failed', description: 'Clipboard access was blocked.' });
+		}
 	};
 
 	useEffect(() => {
@@ -658,6 +888,38 @@ Respond ONLY with the JSON object described in your instructions.`;
 					</Button>
 				</div>
 			</div>
+
+			{article?.published_url ? (
+				<div className="wr-publish-success">
+					<div className="wr-publish-success__head">
+						<CheckCircle2 size={16} className="text-emerald-600" />
+						<span className="font-medium">Published successfully</span>
+					</div>
+					<p className="wr-publish-success__title">{article.seo_title || form.keyword || 'Untitled article'}</p>
+					{article.published_at ? (
+						<p className="text-[11px] text-muted-foreground">{formatPublishedAt(article.published_at)}</p>
+					) : null}
+					<a
+						href={article.published_url}
+						target="_blank"
+						rel="noreferrer"
+						className="wr-publish-success__url"
+					>
+						{article.published_url}
+					</a>
+					<div className="flex flex-wrap gap-2 pt-1">
+						<Button size="sm" variant="outline" onClick={() => window.open(article.published_url, '_blank', 'noopener,noreferrer')}>
+							<ExternalLink size={14} /> Open Article
+						</Button>
+						<Button size="sm" variant="ghost" onClick={() => copyText(article.published_url, 'URL')}>
+							<Copy size={14} /> Copy URL
+						</Button>
+						<Button size="sm" variant="ghost" onClick={() => copyText(article.seo_title || form.keyword, 'Title')}>
+							<Copy size={14} /> Copy Title
+						</Button>
+					</div>
+				</div>
+			) : null}
 
 			<div className="wr-atelier__shell">
 				<aside className="wr-atelier__config p-4 space-y-3">
@@ -745,6 +1007,122 @@ Respond ONLY with the JSON object described in your instructions.`;
 							<OptionToggle label="Internal Links" checked={options.internalLinks} onChange={setOption('internalLinks')} />
 							<OptionToggle label="External Links" checked={options.externalLinks} onChange={setOption('externalLinks')} />
 							<OptionToggle label="Conclusion" checked={options.conclusion} onChange={setOption('conclusion')} />
+						</Section>
+
+						<Section id="images" open={openSections.images} onToggle={toggleSection}>
+							<div className="space-y-2">
+								<p className="text-sm font-medium">Featured Image</p>
+								{article?.featured_image ? (
+									<div className="wr-image-preview">
+										<img src={article.featured_image} alt="Featured" />
+									</div>
+								) : (
+									<p className="text-[11px] text-muted-foreground">No featured image yet.</p>
+								)}
+								<div className="flex flex-wrap gap-2">
+									<input
+										ref={featuredInputRef}
+										type="file"
+										accept="image/*"
+										className="hidden"
+										onChange={(e) => uploadFeaturedImage(e.target.files?.[0])}
+									/>
+									<Button
+										type="button"
+										size="sm"
+										variant="outline"
+										disabled={imageBusy}
+										onClick={() => featuredInputRef.current?.click()}
+									>
+										{imageBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload size={14} />}
+										{article?.featured_image ? 'Replace Image' : 'Upload Featured Image'}
+									</Button>
+									{article?.featured_image ? (
+										<Button type="button" size="sm" variant="ghost" disabled={imageBusy} onClick={removeFeaturedImage}>
+											<Trash2 size={14} /> Remove Image
+										</Button>
+									) : null}
+								</div>
+							</div>
+
+							<div className="space-y-2 pt-1">
+								<p className="text-sm font-medium">Additional Images</p>
+								<p className="text-[11px] text-muted-foreground">These images can be inserted into the article later.</p>
+								<input
+									ref={galleryInputRef}
+									type="file"
+									accept="image/*"
+									multiple
+									className="hidden"
+									onChange={(e) => uploadGalleryImages(e.target.files)}
+								/>
+								<input
+									ref={replaceGalleryInputRef}
+									type="file"
+									accept="image/*"
+									className="hidden"
+									onChange={(e) => replaceGalleryImage(e.target.files?.[0])}
+								/>
+								<Button
+									type="button"
+									size="sm"
+									variant="outline"
+									disabled={imageBusy}
+									onClick={() => galleryInputRef.current?.click()}
+								>
+									{imageBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload size={14} />}
+									Upload Images
+								</Button>
+								{normalizeGallery(article?.gallery_images).length ? (
+									<ul className="wr-gallery-list">
+										{normalizeGallery(article.gallery_images).map((url, index) => (
+											<li
+												key={`${url}-${index}`}
+												className="wr-gallery-item"
+												draggable
+												onDragStart={() => onGalleryDragStart(index)}
+												onDragOver={(e) => e.preventDefault()}
+												onDrop={() => onGalleryDrop(index)}
+											>
+												<span className="wr-gallery-item__handle" title="Drag to reorder">
+													<GripVertical size={14} />
+												</span>
+												<img src={url} alt={`Gallery ${index + 1}`} />
+												<div className="wr-gallery-item__actions">
+													<button
+														type="button"
+														title="Replace"
+														onClick={() => {
+															replaceGalleryIndexRef.current = index;
+															replaceGalleryInputRef.current?.click();
+														}}
+													>
+														<Replace size={13} />
+													</button>
+													<button type="button" title="Delete" onClick={() => removeGalleryImage(index)}>
+														<Trash2 size={13} />
+													</button>
+												</div>
+											</li>
+										))}
+									</ul>
+								) : (
+									<p className="text-[11px] text-muted-foreground">No additional images yet.</p>
+								)}
+							</div>
+						</Section>
+
+						<Section id="prompt" open={openSections.prompt} onToggle={toggleSection}>
+							<Textarea
+								label="Custom AI instructions"
+								rows={5}
+								value={form.customPrompt}
+								onChange={set('customPrompt')}
+								placeholder={'Write any custom instructions for the AI...\nExamples:\nWrite like a professional food blogger.\nMake the tone friendly.\nUse short paragraphs.\nMention nutritional benefits.\nAvoid dairy.\nUse American English.'}
+							/>
+							<p className="text-[11px] text-muted-foreground -mt-1">
+								Appended to the internal system prompt on Generate — it does not replace it.
+							</p>
 						</Section>
 
 						<Section id="publishing" open={openSections.publishing} onToggle={toggleSection}>
