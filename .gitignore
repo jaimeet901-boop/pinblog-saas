@@ -16,6 +16,9 @@ deploy/nginx/certs/
 *.log
 *.tmp
 *.bak
+*.regression-report.md
+*.regression-report.json
+vault/
 .DS_Store
 Thumbs.db
 .vscode/
