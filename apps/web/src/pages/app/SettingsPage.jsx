@@ -71,6 +71,7 @@ export default function SettingsPage() {
 	const { toast } = useToast();
 	const { user, refresh, authMethods, externalAuths, connectProvider, disconnectProvider, logout } = useAuth();
 	const { theme, toggle } = useTheme();
+	const isSuperAdmin = user?.role === 'admin';
 
 	const [tab, setTab] = useState('general');
 	const [loading, setLoading] = useState(true);
@@ -574,16 +575,24 @@ export default function SettingsPage() {
 										<Button size="sm" variant="outline" onClick={() => setTab('security')}><Shield size={14} /> Security</Button>
 									</div>
 								</div>
-								<div className="set-managed">
-									<strong>This workspace uses centrally managed AI services.</strong>
-									Platform API keys (OpenAI, Gemini, Fal.ai, SMTP, and provider secrets) are managed exclusively by the Super User Admin Panel.
-									<span className="mt-2 block text-muted-foreground">This setting is managed by the platform administrator.</span>
-								</div>
+								{isSuperAdmin ? (
+									<div className="set-managed">
+										<strong>This workspace uses centrally managed AI services.</strong>
+										Platform API keys (OpenAI, Gemini, Fal.ai, SMTP, and provider secrets) are managed exclusively by the Super User Admin Panel.
+										<span className="mt-2 block text-muted-foreground">This setting is managed by the platform administrator.</span>
+									</div>
+								) : null}
 								<div className="set-card">
 									<h3>Connected login providers</h3>
-									<p className="hint">Link Google or Pinterest to sign in faster and keep external auth in sync.</p>
+									<p className="hint">
+										{isSuperAdmin
+											? 'Link Google or Pinterest to sign in faster and keep external auth in sync.'
+											: 'Link Google to sign in faster and keep external auth in sync.'}
+									</p>
 									<div className="mt-4 grid gap-3 md:grid-cols-2">
-										{Object.values(OAUTH_PROVIDERS).map((provider) => {
+										{Object.values(OAUTH_PROVIDERS)
+											.filter((provider) => isSuperAdmin || provider.name !== 'pinterest')
+											.map((provider) => {
 											const connected = connectedProviders.has(provider.name);
 											const supported = enabledProviders.size === 0 || enabledProviders.has(provider.name);
 											return (
@@ -1040,11 +1049,13 @@ export default function SettingsPage() {
 										<AlertTriangle size={14} /> Delete Workspace
 									</Button>
 								</div>
-								<div className="set-managed">
-									<strong>This workspace uses centrally managed AI services.</strong>
-									OpenAI, Gemini, Claude, Fal.ai, SMTP, email provider keys, and Pinterest access tokens are not configurable here.
-									<span className="mt-2 block text-muted-foreground">This setting is managed by the platform administrator.</span>
-								</div>
+								{isSuperAdmin ? (
+									<div className="set-managed">
+										<strong>This workspace uses centrally managed AI services.</strong>
+										OpenAI, Gemini, Claude, Fal.ai, SMTP, email provider keys, and Pinterest access tokens are not configurable here.
+										<span className="mt-2 block text-muted-foreground">This setting is managed by the platform administrator.</span>
+									</div>
+								) : null}
 							</div>
 						) : null}
 					</section>
