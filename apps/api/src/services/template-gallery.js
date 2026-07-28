@@ -143,22 +143,20 @@ function resolvePreview(record, previewMap) {
 }
 
 function buildOwnerFilter(req) {
-	const ownerId = String(req.pocketbaseUserId || '').trim();
+	const ownerId = String(req.workspaceOwnerId || req.pocketbaseUserId || '').trim();
 	const workspaceId = String(req.workspace?.id || '').trim();
-	// Shared library:
-	// - visibility = "official" (Chef IA seeded library)
-	// - visibility = "" (legacy rows created before the visibility field existed;
-	//   production admin library ~500 templates landed here after 1783981100)
-	// Plus caller-owned and workspace-scoped rows.
+	// Shared library is official only. Blank visibility is legacy private (not global).
 	const parts = [
 		'visibility = "official"',
-		'visibility = ""',
 	];
 	if (ownerId) {
 		parts.push(`owner = "${escapeFilterValue(ownerId)}"`);
+		// Legacy rows with empty workspace + blank visibility remain visible to workspace owner only.
+		parts.push(`(visibility = "" && owner = "${escapeFilterValue(ownerId)}")`);
 	}
 	if (workspaceId) {
 		parts.push(`workspace_id = "${escapeFilterValue(workspaceId)}"`);
+		parts.push(`workspace = "${escapeFilterValue(workspaceId)}"`);
 	}
 	return `(${parts.join(' || ')})`;
 }
@@ -400,12 +398,17 @@ export async function getPinTemplate(req, id) {
 		throw httpError(404, 'Template not found', 'NOT_FOUND');
 	}
 
-	const isOwner = record.owner === req.pocketbaseUserId;
-	const sameWorkspace = record.workspace_id && record.workspace_id === req.workspace?.id;
+	const isOwner = record.owner === req.workspaceOwnerId
+		|| record.owner === req.pocketbaseUserId;
+	const sameWorkspace = Boolean(
+		record.workspace_id && record.workspace_id === req.workspace?.id,
+	) || Boolean(
+		record.workspace && record.workspace === req.workspace?.id,
+	);
 	const visibility = String(record.visibility || '').trim();
 	const sharedVisibility = ['workspace', 'public', 'official', 'community'].includes(visibility);
-	// Blank visibility = legacy library rows (pre-visibility-field schema).
-	const isSharedLibrary = visibility === 'official' || visibility === '';
+	// Blank visibility is legacy private — never treat as global shared library.
+	const isSharedLibrary = visibility === 'official';
 	if (!isOwner && !isSharedLibrary && !(sameWorkspace && sharedVisibility)) {
 		throw httpError(404, 'Template not found', 'NOT_FOUND');
 	}

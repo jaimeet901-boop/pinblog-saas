@@ -139,24 +139,36 @@ async function upsertCredentials({ siteId, ownerId, username, password, authType
  */
 export async function ensureWordpressSiteFromWebsite(website, ownerId, options = {}) {
 	if (!website?.id) return null;
-	const workspaceKey = await resolveWorkspaceKey(ownerId);
+	const req = options.req || null;
+	const { stampCreateOwnership, andWorkspaceScope, getWorkspaceActor } = await import('./workspace-ownership.js');
+	const actor = req ? getWorkspaceActor(req) : null;
+	const workspaceKey = req
+		? (actor.workspaceKey || await resolveWorkspaceKey(ownerId))
+		: await resolveWorkspaceKey(ownerId);
+	const resolvedOwner = actor?.workspaceOwnerId || ownerId;
 
 	let site = null;
 	try {
-		site = await pocketbaseClient.collection('wordpress_sites').getFirstListItem(
-			pocketbaseClient.filter('website = {:website} && owner = {:owner}', {
+		const findFilter = req
+			? andWorkspaceScope(req, pocketbaseClient.filter('website = {:website}', { website: website.id }))
+			: pocketbaseClient.filter('website = {:website} && owner = {:owner}', {
 				website: website.id,
-				owner: ownerId,
-			}),
+				owner: resolvedOwner,
+			});
+		site = await pocketbaseClient.collection('wordpress_sites').getFirstListItem(
+			findFilter,
 			{ requestKey: null },
 		);
 	} catch {
 		try {
-			site = await pocketbaseClient.collection('wordpress_sites').getFirstListItem(
-				pocketbaseClient.filter('url = {:url} && owner = {:owner}', {
+			const urlFilter = req
+				? andWorkspaceScope(req, pocketbaseClient.filter('url = {:url}', { url: website.url }))
+				: pocketbaseClient.filter('url = {:url} && owner = {:owner}', {
 					url: website.url,
-					owner: ownerId,
-				}),
+					owner: resolvedOwner,
+				});
+			site = await pocketbaseClient.collection('wordpress_sites').getFirstListItem(
+				urlFilter,
 				{ requestKey: null },
 			);
 		} catch {
@@ -168,13 +180,16 @@ export async function ensureWordpressSiteFromWebsite(website, ownerId, options =
 	const authType = normalizeWpAuthType(options.authType || website.auth_type || WP_AUTH_TYPES.APPLICATION_PASSWORD);
 
 	if (!site) {
+		const defaultFilter = req
+			? andWorkspaceScope(req, 'is_default = true')
+			: pocketbaseClient.filter('owner = {:owner} && is_default = true', { owner: resolvedOwner });
 		const existingDefaults = await pocketbaseClient.collection('wordpress_sites').getList(1, 1, {
-			filter: pocketbaseClient.filter('owner = {:owner} && is_default = true', { owner: ownerId }),
+			filter: defaultFilter,
 			requestKey: null,
 		}).catch(() => ({ totalItems: 0 }));
 
-		const createPayload = {
-			owner: ownerId,
+		const createPayloadBase = {
+			owner: resolvedOwner,
 			workspace_key: workspaceKey,
 			name: website.name || domainFromUrl(website.url) || 'WordPress site',
 			url: website.url,
@@ -186,6 +201,7 @@ export async function ensureWordpressSiteFromWebsite(website, ownerId, options =
 			last_error: '',
 			auth_type: authType,
 		};
+		const createPayload = req ? stampCreateOwnership(req, createPayloadBase) : createPayloadBase;
 		site = await pocketbaseClient.collection('wordpress_sites').create(createPayload).catch(async () => {
 			const legacy = { ...createPayload };
 			delete legacy.auth_type;
@@ -215,7 +231,7 @@ export async function ensureWordpressSiteFromWebsite(website, ownerId, options =
 		if (plain) {
 			await upsertCredentials({
 				siteId: site.id,
-				ownerId,
+				ownerId: resolvedOwner,
 				username: website.wp_username,
 				password: plain,
 				authType,
@@ -226,24 +242,26 @@ export async function ensureWordpressSiteFromWebsite(website, ownerId, options =
 	return site;
 }
 
-export async function syncWordpressSitesForOwner(ownerId) {
+export async function syncWordpressSitesForOwner(ownerId, req = null) {
+	const { andWorkspaceScope } = await import('./workspace-ownership.js');
 	const websites = await pocketbaseClient.collection('websites').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
+		filter: req ? andWorkspaceScope(req) : pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
 		requestKey: null,
 	}).catch(() => []);
 
 	const sites = [];
 	for (const website of websites) {
-		const site = await ensureWordpressSiteFromWebsite(website, ownerId);
+		const site = await ensureWordpressSiteFromWebsite(website, ownerId, { req });
 		if (site) sites.push(site);
 	}
 	return sites;
 }
 
-export async function listWordpressSites(ownerId) {
-	await syncWordpressSitesForOwner(ownerId);
+export async function listWordpressSites(ownerId, req = null) {
+	await syncWordpressSitesForOwner(ownerId, req);
+	const { andWorkspaceScope } = await import('./workspace-ownership.js');
 	const records = await pocketbaseClient.collection('wordpress_sites').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
+		filter: req ? andWorkspaceScope(req) : pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
 		sort: '-is_default,-updated',
 		requestKey: null,
 	}).catch(() => []);
@@ -264,30 +282,41 @@ export async function listWordpressSites(ownerId) {
 	};
 }
 
-export async function resolvePublishSite({ ownerId, siteId, websiteId }) {
+export async function resolvePublishSite({ ownerId, siteId, websiteId, req = null }) {
 	const id = siteId || websiteId;
 	if (!id) throw httpError(422, 'siteId is required', 'VALIDATION_ERROR');
+	const { recordBelongsToWorkspace, getWorkspaceActor } = await import('./workspace-ownership.js');
+	const resolvedOwner = req ? (getWorkspaceActor(req).workspaceOwnerId || ownerId) : ownerId;
 
 	let site = await pocketbaseClient.collection('wordpress_sites').getOne(id).catch(() => null);
-	if (site && site.owner === ownerId) {
-		return getSiteCredentialsPlain(site.id, ownerId);
+	if (site) {
+		const owned = req ? recordBelongsToWorkspace(site, req) : site.owner === resolvedOwner;
+		if (owned) {
+			return getSiteCredentialsPlain(site.id, resolvedOwner);
+		}
 	}
 
 	const website = await pocketbaseClient.collection('websites').getOne(id).catch(() => null);
-	if (!website || website.owner !== ownerId) {
+	const websiteOwned = website && (req
+		? recordBelongsToWorkspace(website, req)
+		: website.owner === resolvedOwner);
+	if (!websiteOwned) {
 		throw httpError(404, 'Website not found', 'NOT_FOUND');
 	}
-	site = await ensureWordpressSiteFromWebsite(website, ownerId);
-	return getSiteCredentialsPlain(site.id, ownerId);
+	site = await ensureWordpressSiteFromWebsite(website, resolvedOwner, { req });
+	return getSiteCredentialsPlain(site.id, resolvedOwner);
 }
 
-export async function setDefaultWordpressSite(ownerId, siteId) {
+export async function setDefaultWordpressSite(ownerId, siteId, req = null) {
+	const { recordBelongsToWorkspace, andWorkspaceScope, getWorkspaceActor } = await import('./workspace-ownership.js');
+	const resolvedOwner = req ? (getWorkspaceActor(req).workspaceOwnerId || ownerId) : ownerId;
 	const site = await pocketbaseClient.collection('wordpress_sites').getOne(siteId).catch(() => null);
-	if (!site || site.owner !== ownerId) {
+	const owned = site && (req ? recordBelongsToWorkspace(site, req) : site.owner === resolvedOwner);
+	if (!owned) {
 		throw httpError(404, 'WordPress site not found', 'NOT_FOUND');
 	}
 	const others = await pocketbaseClient.collection('wordpress_sites').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
+		filter: req ? andWorkspaceScope(req) : pocketbaseClient.filter('owner = {:owner}', { owner: resolvedOwner }),
 		requestKey: null,
 	});
 	await Promise.all(others.map((item) => (
@@ -296,8 +325,8 @@ export async function setDefaultWordpressSite(ownerId, siteId) {
 	return mapWordpressSite({ ...site, is_default: true }, { hasCredentials: true });
 }
 
-export async function testOwnedWordpressSite(ownerId, siteId) {
-	const { site, username, appPassword, authType } = await resolvePublishSite({ ownerId, siteId });
+export async function testOwnedWordpressSite(ownerId, siteId, req = null) {
+	const { site, username, appPassword, authType } = await resolvePublishSite({ ownerId, siteId, req });
 	try {
 		const result = await testWordpressConnection({
 			url: site.url,
@@ -359,8 +388,8 @@ export async function testOwnedWordpressSite(ownerId, siteId) {
 	}
 }
 
-async function withSiteClient(ownerId, siteId, fn) {
-	const creds = await resolvePublishSite({ ownerId, siteId });
+async function withSiteClient(ownerId, siteId, fn, req = null) {
+	const creds = await resolvePublishSite({ ownerId, siteId, req });
 	return fn({
 		url: creds.site.url,
 		username: creds.username,
@@ -371,9 +400,9 @@ async function withSiteClient(ownerId, siteId, fn) {
 	});
 }
 
-export async function getSiteTaxonomy(ownerId, siteId, kind) {
+export async function getSiteTaxonomy(ownerId, siteId, kind, req = null) {
 	if (kind === 'health') {
-		const tested = await testOwnedWordpressSite(ownerId, siteId);
+		const tested = await testOwnedWordpressSite(ownerId, siteId, req);
 		return tested.health;
 	}
 	return withSiteClient(ownerId, siteId, async (client) => {
@@ -381,10 +410,10 @@ export async function getSiteTaxonomy(ownerId, siteId, kind) {
 		if (kind === 'tags') return { items: await fetchWordpressTags(client) };
 		if (kind === 'authors') return { items: await fetchWordpressAuthors(client) };
 		throw httpError(404, 'Unknown taxonomy', 'NOT_FOUND');
-	});
+	}, req);
 }
 
-export async function getSiteContent(ownerId, siteId, kind, query = {}) {
+export async function getSiteContent(ownerId, siteId, kind, query = {}, req = null) {
 	return withSiteClient(ownerId, siteId, async (client) => {
 		if (kind === 'posts') {
 			if (query.id) return { item: await getWordpressPost({ ...client, postId: query.id }) };
@@ -399,7 +428,7 @@ export async function getSiteContent(ownerId, siteId, kind, query = {}) {
 			return { items: await listWordpressMedia({ ...client, ...query }) };
 		}
 		throw httpError(404, 'Unknown content type', 'NOT_FOUND');
-	});
+	}, req);
 }
 
 export { listWordpressAuthProviders, WP_AUTH_TYPES };

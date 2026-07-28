@@ -25,14 +25,14 @@ export function getPlanCreditLimits(plan) {
 	return PLAN_CREDITS[key] || PLAN_CREDITS.free;
 }
 
-export async function getUserCreditUsage(pocketbaseClient, userId) {
+export async function getUserCreditUsage(pocketbaseClient, userId, workspaceKeyOverride = '') {
 	const user = await pocketbaseClient.collection('users').getOne(userId).catch(() => null);
 	const plan = user?.plan || 'free';
 	const limits = getPlanCreditLimits(plan);
 	const aiUsed = Number(user?.ai_credits_used || 0);
 	const imageUsed = Number(user?.image_credits_used || 0);
 
-	const workspaceKey = workspaceKeyForUser(userId);
+	const workspaceKey = workspaceKeyOverride || workspaceKeyForUser(userId);
 	await ensureWorkspaceWallet(workspaceKey, {
 		workspaceName: user?.name || user?.email || workspaceKey,
 		ownerEmail: user?.email || '',

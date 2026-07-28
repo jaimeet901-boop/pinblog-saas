@@ -17,16 +17,23 @@ function httpError(status, message, errorCode) {
 	return error;
 }
 
+function workspaceLogOptions(req) {
+	return {
+		workspaceKey: req.workspaceKey || req.workspace?.workspace_key || '',
+		ownerId: req.workspaceKey ? null : req.pocketbaseUserId,
+	};
+}
+
 router.get('/', asyncHandler(async (req, res) => {
 	assertCapability(req, 'workspace.read');
-	const list = await listAuditLogs(req.query || {}, { ownerId: req.pocketbaseUserId });
+	const list = await listAuditLogs(req.query || {}, workspaceLogOptions(req));
 	res.json(list);
 }));
 
 router.get('/export', asyncHandler(async (req, res) => {
 	assertCapability(req, 'workspace.read');
 	const format = String(req.query.format || 'json').toLowerCase() === 'csv' ? 'csv' : 'json';
-	const list = await listAuditLogs({ ...(req.query || {}), page: 1, perPage: 500 }, { ownerId: req.pocketbaseUserId });
+	const list = await listAuditLogs({ ...(req.query || {}), page: 1, perPage: 500 }, workspaceLogOptions(req));
 	if (format === 'csv') {
 		const headers = ['id', 'timestamp', 'category', 'severity', 'action', 'result', 'service'];
 		const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
@@ -47,7 +54,10 @@ router.get('/export', asyncHandler(async (req, res) => {
 router.get('/:id', asyncHandler(async (req, res) => {
 	assertCapability(req, 'workspace.read');
 	const event = await getAuditLog(req.params.id);
-	if (!event || event.actorUserId !== req.pocketbaseUserId) {
+	const workspaceKey = req.workspaceKey || req.workspace?.workspace_key || '';
+	const matchesWorkspace = workspaceKey && event?.workspaceKey === workspaceKey;
+	const matchesActor = !workspaceKey && event?.actorUserId === req.pocketbaseUserId;
+	if (!event || (!matchesWorkspace && !matchesActor)) {
 		throw httpError(404, 'Log event not found', 'NOT_FOUND');
 	}
 	res.json(event);

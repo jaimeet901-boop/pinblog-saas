@@ -1,7 +1,16 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { decryptSecret, encryptSecret, isEncryptedSecret } from '../utils/secretCrypto.js';
+import { getWorkspaceActor, stampCreateOwnership, andWorkspaceScope } from './workspace-ownership.js';
 
-export async function getOwnedUserSettings(owner) {
+export async function getOwnedUserSettings(owner, req = null) {
+	if (req?.workspace?.id) {
+		const workspaceScoped = await pocketbaseClient.collection('user_settings').getFirstListItem(
+			andWorkspaceScope(req),
+		).catch(() => null);
+		if (workspaceScoped) {
+			return workspaceScoped;
+		}
+	}
 	return pocketbaseClient.collection('user_settings').getFirstListItem(
 		pocketbaseClient.filter('owner = {:owner}', { owner }),
 	).catch(() => null);
@@ -64,8 +73,8 @@ async function readDecryptedField(settings, field) {
 	return key;
 }
 
-export async function upsertOwnedUserSettings({ owner, payload }) {
-	const existing = await getOwnedUserSettings(owner);
+export async function upsertOwnedUserSettings({ owner, payload, req = null }) {
+	const existing = await getOwnedUserSettings(owner, req);
 	const updates = {};
 
 	if ('email_from' in payload) {
@@ -89,14 +98,18 @@ export async function upsertOwnedUserSettings({ owner, payload }) {
 		return pocketbaseClient.collection('user_settings').update(existing.id, updates);
 	}
 
-	return pocketbaseClient.collection('user_settings').create({
-		owner,
+	const actor = req ? getWorkspaceActor(req) : null;
+	const createPayload = {
+		owner: actor?.workspaceOwnerId || owner,
 		openai_key: updates.openai_key || '',
 		gemini_key: updates.gemini_key || '',
 		fal_key: updates.fal_key || '',
 		pinterest_token: updates.pinterest_token || '',
 		email_from: updates.email_from || '',
-	});
+	};
+	return pocketbaseClient.collection('user_settings').create(
+		req ? stampCreateOwnership(req, createPayload) : createPayload,
+	);
 }
 
 export async function getDecryptedOpenAIKey(owner) {

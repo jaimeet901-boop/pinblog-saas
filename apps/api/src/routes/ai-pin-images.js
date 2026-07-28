@@ -18,6 +18,13 @@ import {
 	sendFeaturedImageProxyError,
 	streamFeaturedImageToResponse,
 } from '../services/featured-image-proxy.js';
+import {
+	getWorkspaceActor,
+	stampCreateOwnership,
+	workspaceScopeFilter,
+	assertWorkspaceOwnedRecord,
+	recordBelongsToWorkspace,
+} from '../services/workspace-ownership.js';
 
 const router = Router();
 
@@ -84,22 +91,33 @@ function normalizeKeywords(value) {
 	return value.map((item) => normalizeString(item, 'keywords', { max: 40 })).filter(Boolean).slice(0, 12);
 }
 
-async function ensureOwnedArticle({ owner, articleId }) {
+async function ensureOwnedArticle({ req, articleId }) {
 	const article = await pocketbaseClient.collection('website_articles').getOne(articleId).catch(() => null);
-	if (!article || article.owner !== owner) {
+	if (!article) {
 		throw httpError(404, 'Article not found');
 	}
+	const websiteId = typeof article.websiteId === 'string'
+		? article.websiteId
+		: (article.websiteId?.id || article.website || article.website_id || '');
+	if (websiteId) {
+		const site = await pocketbaseClient.collection('websites').getOne(websiteId).catch(() => null);
+		if (site && recordBelongsToWorkspace(site, req)) {
+			return article;
+		}
+	}
+	assertWorkspaceOwnedRecord(article, req, { notFoundMessage: 'Article not found' });
 	return article;
 }
 
-async function ensureOwnedPin({ owner, pinId }) {
+async function ensureOwnedPin({ req, pinId }) {
 	if (!pinId) {
 		return null;
 	}
 	const pin = await pocketbaseClient.collection('ai_pins').getOne(pinId).catch(() => null);
-	if (!pin || pin.owner !== owner) {
+	if (!pin) {
 		throw httpError(404, 'Pin not found');
 	}
+	assertWorkspaceOwnedRecord(pin, req, { notFoundMessage: 'Pin not found' });
 	return pin;
 }
 
@@ -234,7 +252,8 @@ router.post('/composed', (req, res, next) => {
 });
 
 router.post('/jobs', integratedAiRateLimit, async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const actor = getWorkspaceActor(req);
+	const owner = actor.workspaceOwnerId || req.pocketbaseUserId;
 	const items = Array.isArray(req.body?.items) ? req.body.items : [];
 	if (items.length === 0) {
 		throw httpError(422, 'items must be a non-empty array');
@@ -250,8 +269,8 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			throw httpError(422, 'imageMode must be generate_ai or use_featured');
 		}
 
-		const article = await ensureOwnedArticle({ owner, articleId });
-		const pin = await ensureOwnedPin({ owner, pinId });
+		const article = await ensureOwnedArticle({ req, articleId });
+		const pin = await ensureOwnedPin({ req, pinId });
 
 		const existingActiveJob = pin
 			? await (async () => {
@@ -259,7 +278,7 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 					collection: 'ai_pin_image_jobs',
 					context: 'ai-pin-images:create:existing-active-job',
 					parts: [
-						{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+						{ field: 'owner', expression: workspaceScopeFilter(req) },
 						{ field: 'ai_pin', expression: pocketbaseClient.filter('ai_pin = {:pinId}', { pinId: pin.id }) },
 						{ field: 'status', expression: '(status = "queued" || status = "processing")' },
 					],
@@ -336,7 +355,7 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		const createPayload = await sanitizeCollectionPayload({
 			collection: 'ai_pin_image_jobs',
 			context: 'ai-pin-images:create-job',
-			payload: {
+			payload: stampCreateOwnership(req, {
 			owner,
 			ai_pin: pin?.id || '',
 			websiteId: article.websiteId || '',
@@ -353,7 +372,7 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			max_attempts: 3,
 			next_retry_at: '',
 			last_error: '',
-			},
+			}),
 		});
 
 		dumpProviderTrace('[ai-pin-images] createPayload before PocketBase create', {
@@ -411,7 +430,6 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 });
 
 router.get('/jobs', async (req, res) => {
-	const owner = req.pocketbaseUserId;
 	const ids = normalizeString(req.query.ids, 'ids', { max: 4000 })
 		.split(',')
 		.map((item) => item.trim())
@@ -423,21 +441,22 @@ router.get('/jobs', async (req, res) => {
 	}
 
 	const jobs = await Promise.all(ids.map((id) => pocketbaseClient.collection('ai_pin_image_jobs').getOne(id).catch(() => null)));
-	const owned = jobs.filter((job) => job && job.owner === owner);
+	const owned = jobs.filter((job) => job && recordBelongsToWorkspace(job, req));
 	res.json({ items: owned.map(mapJob) });
 });
 
 router.post('/jobs/:jobId/regenerate', integratedAiRateLimit, async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const actor = getWorkspaceActor(req);
+	const owner = actor.workspaceOwnerId || req.pocketbaseUserId;
 	const sourceJob = await pocketbaseClient.collection('ai_pin_image_jobs').getOne(req.params.jobId).catch(() => null);
-	if (!sourceJob || sourceJob.owner !== owner) {
+	if (!sourceJob || !recordBelongsToWorkspace(sourceJob, req)) {
 		throw httpError(404, 'Job not found');
 	}
 
 	const clonePayload = await sanitizeCollectionPayload({
 		collection: 'ai_pin_image_jobs',
 		context: 'ai-pin-images:regenerate-job',
-		payload: {
+		payload: stampCreateOwnership(req, {
 		owner,
 		ai_pin: sourceJob.ai_pin || '',
 		websiteId: sourceJob.websiteId || '',
@@ -456,7 +475,7 @@ router.post('/jobs/:jobId/regenerate', integratedAiRateLimit, async (req, res) =
 		max_attempts: sourceJob.max_attempts || 3,
 		next_retry_at: '',
 		last_error: '',
-		},
+		}),
 	});
 
 	const cloned = await pocketbaseClient.collection('ai_pin_image_jobs').create(clonePayload);

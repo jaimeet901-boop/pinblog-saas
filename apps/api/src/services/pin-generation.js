@@ -79,9 +79,10 @@ export function mapGenerationRun(record, options = {}) {
 	};
 }
 
-async function getOwnedRun(owner, id) {
+async function getOwnedRun(req, id) {
+	const { recordBelongsToWorkspace } = await import('./workspace-ownership.js');
 	const record = await pocketbaseClient.collection('ai_pin_generation_runs').getOne(id).catch(() => null);
-	if (!record || record.owner !== owner || record.deleted_at) {
+	if (!record || record.deleted_at || !recordBelongsToWorkspace(record, req)) {
 		throw httpError(404, 'Generation run not found', 'NOT_FOUND');
 	}
 	return record;
@@ -89,14 +90,34 @@ async function getOwnedRun(owner, id) {
 
 /**
  * Load template configuration read-only. Never updates the template record.
+ * Enforces visibility: official/shared library OR owner/workspace match (fixes IDOR).
  */
-export async function loadTemplateSnapshotReadOnly(owner, templateId) {
+export async function loadTemplateSnapshotReadOnly(req, templateId) {
 	if (!templateId) return null;
 	const template = await pocketbaseClient.collection('ai_pin_templates').getOne(templateId).catch(() => null);
 	if (!template) {
 		throw httpError(404, 'Template not found', 'TEMPLATE_NOT_FOUND');
 	}
-	// Workspace templates may be shared; official/public allowed; private must match owner or workspace later.
+
+	const { getWorkspaceActor, recordBelongsToWorkspace } = await import('./workspace-ownership.js');
+	const actor = getWorkspaceActor(req);
+	const visibility = String(template.visibility || '').trim();
+	const sharedVisibility = ['workspace', 'public', 'official', 'community'].includes(visibility);
+	// Blank visibility is legacy private — never treat as global shared library.
+	const isSharedLibrary = visibility === 'official';
+	const isOwner = template.owner === actor.workspaceOwnerId
+		|| template.owner === actor.creatorId
+		|| recordBelongsToWorkspace(template, req);
+	const sameWorkspace = Boolean(
+		template.workspace_id && actor.workspaceId && String(template.workspace_id) === String(actor.workspaceId),
+	) || Boolean(
+		template.workspace && actor.workspaceId && String(template.workspace) === String(actor.workspaceId),
+	);
+
+	if (!isOwner && !isSharedLibrary && !(sameWorkspace && sharedVisibility)) {
+		throw httpError(404, 'Template not found', 'TEMPLATE_NOT_FOUND');
+	}
+
 	const configuration = deepClone(template.configuration || {});
 	return {
 		templateId: template.id,
@@ -128,7 +149,7 @@ export async function createGenerationRun(req, body = {}) {
 	let templateMeta = null;
 	let templateSnapshot = body.templateSnapshot || body.templateConfiguration || null;
 	if (body.templateId) {
-		templateMeta = await loadTemplateSnapshotReadOnly(owner, body.templateId);
+		templateMeta = await loadTemplateSnapshotReadOnly(req, body.templateId);
 		if (!templateSnapshot) {
 			templateSnapshot = templateMeta.configuration;
 		}
@@ -264,23 +285,23 @@ async function recordGenerationHistoryEvent(owner, payload) {
 }
 
 export async function getGenerationRun(req, id) {
-	const record = await getOwnedRun(req.pocketbaseUserId, id);
+	const record = await getOwnedRun(req, id);
 	const includeSnapshot = req.query?.includeSnapshot === '1' || req.query?.includeSnapshot === 'true';
 	return mapGenerationRun(record, { includeSnapshot: includeSnapshot || true });
 }
 
 export async function listGenerationRuns(req, query = {}) {
-	const owner = req.pocketbaseUserId;
+	const { andWorkspaceScope } = await import('./workspace-ownership.js');
 	const page = Math.max(1, Number(query.page) || 1);
 	const perPage = Math.min(50, Math.max(1, Number(query.perPage) || 20));
 	const status = query.status ? String(query.status) : '';
-	const parts = [`owner = "${owner}"`, 'deleted_at = ""'];
-	if (status) parts.push(`status = "${status}"`);
-	if (query.correlationId) parts.push(`correlation_id = "${String(query.correlationId)}"`);
-	if (query.batchId) parts.push(`correlation_id = "${String(query.batchId)}"`);
+	const extras = ['deleted_at = ""'];
+	if (status) extras.push(`status = "${status}"`);
+	if (query.correlationId) extras.push(`correlation_id = "${String(query.correlationId)}"`);
+	if (query.batchId) extras.push(`correlation_id = "${String(query.batchId)}"`);
 
 	const list = await pocketbaseClient.collection('ai_pin_generation_runs').getList(page, perPage, {
-		filter: parts.join(' && '),
+		filter: andWorkspaceScope(req, extras.join(' && ')),
 		sort: '-created',
 	});
 	return {
@@ -293,7 +314,7 @@ export async function listGenerationRuns(req, query = {}) {
 }
 
 export async function appendGenerationStep(req, id, body = {}) {
-	const record = await getOwnedRun(req.pocketbaseUserId, id);
+	const record = await getOwnedRun(req, id);
 	if (isTerminalGenerationStage(record.status) && body.force !== true) {
 		throw httpError(409, 'Run already terminal', 'RUN_TERMINAL');
 	}
@@ -329,7 +350,7 @@ export async function advanceGenerationRun(req, id, body = {}) {
 }
 
 export async function completeGenerationRun(req, id, body = {}) {
-	const record = await getOwnedRun(req.pocketbaseUserId, id);
+	const record = await getOwnedRun(req, id);
 	const steps = Array.isArray(record.steps) ? [...record.steps] : [];
 	steps.push(createStep('completed', 'completed', {
 		imageUrl: body.imageUrl || null,
@@ -359,7 +380,9 @@ export async function completeGenerationRun(req, id, body = {}) {
 		next_retry_at: null,
 	});
 
-	await recordGenerationHistoryEvent(req.pocketbaseUserId, {
+	const { getWorkspaceActor } = await import('./workspace-ownership.js');
+	const actor = getWorkspaceActor(req);
+	await recordGenerationHistoryEvent(actor.workspaceOwnerId || req.pocketbaseUserId, {
 		event_type: 'image',
 		title: 'Pin generation completed',
 		metadata: {
@@ -374,7 +397,7 @@ export async function completeGenerationRun(req, id, body = {}) {
 }
 
 export async function failGenerationRun(req, id, body = {}) {
-	const record = await getOwnedRun(req.pocketbaseUserId, id);
+	const record = await getOwnedRun(req, id);
 	const code = String(body.errorCode || body.code || 'GENERATION_ERROR');
 	const recoverable = body.recoverable != null
 		? Boolean(body.recoverable)
@@ -422,7 +445,9 @@ export async function failGenerationRun(req, id, body = {}) {
 		next_retry_at: null,
 	});
 
-	await recordGenerationHistoryEvent(req.pocketbaseUserId, {
+	const { getWorkspaceActor } = await import('./workspace-ownership.js');
+	const actor = getWorkspaceActor(req);
+	await recordGenerationHistoryEvent(actor.workspaceOwnerId || req.pocketbaseUserId, {
 		event_type: 'image',
 		title: 'Pin generation failed',
 		metadata: {
@@ -436,7 +461,7 @@ export async function failGenerationRun(req, id, body = {}) {
 }
 
 export async function cancelGenerationRun(req, id) {
-	const record = await getOwnedRun(req.pocketbaseUserId, id);
+	const record = await getOwnedRun(req, id);
 	if (isTerminalGenerationStage(record.status)) {
 		return mapGenerationRun(record);
 	}
@@ -457,7 +482,7 @@ export async function cancelGenerationRun(req, id) {
 }
 
 export async function retryGenerationRun(req, id) {
-	const record = await getOwnedRun(req.pocketbaseUserId, id);
+	const record = await getOwnedRun(req, id);
 	const steps = Array.isArray(record.steps) ? [...record.steps] : [];
 	steps.push(createStep('queued', 'retry', {
 		previousStatus: record.status,

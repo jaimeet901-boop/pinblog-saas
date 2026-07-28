@@ -31,7 +31,7 @@ router.use(requireWorkspaceRead);
 
 router.get('/', async (req, res) => {
 	const owner = req.pocketbaseUserId;
-	const record = await getOwnedUserSettings(owner);
+	const record = await getOwnedUserSettings(owner, req);
 	res.json(mapSettingsResponse(record));
 });
 
@@ -54,7 +54,7 @@ router.put('/', requireWorkspaceCapability('workspace.api_keys.manage'), async (
 		payload.pinterest_token = normalizeOptionalString(body.pinterest_token, 'pinterest_token', 500);
 	}
 
-	const updated = await upsertOwnedUserSettings({ owner, payload });
+	const updated = await upsertOwnedUserSettings({ owner, payload, req });
 	res.json(mapSettingsResponse(updated));
 });
 

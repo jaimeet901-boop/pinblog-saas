@@ -8,6 +8,10 @@ import {
 	normalizeJobType,
 	retryQueueJob,
 } from '../../services/queue/index.js';
+import {
+	andWorkspaceScope,
+	assertWorkspaceOwnedRecord,
+} from '../../services/workspace-ownership.js';
 
 const router = Router();
 
@@ -31,18 +35,17 @@ function normalizePositiveInt(value, fallback, max = 100) {
 }
 
 router.get('/jobs', asyncHandler(async (req, res) => {
-	const owner = req.pocketbaseUserId;
 	const page = normalizePositiveInt(req.query.page, 1);
 	const perPage = normalizePositiveInt(req.query.perPage, 20, 100);
 	const status = String(req.query.status || '').trim();
 	const type = normalizeJobType(req.query.type || '');
 
-	const parts = [pocketbaseClient.filter('owner = {:owner}', { owner })];
-	if (status) parts.push(pocketbaseClient.filter('status = {:status}', { status }));
-	if (type) parts.push(pocketbaseClient.filter('type = {:type}', { type }));
+	const extras = [];
+	if (status) extras.push(pocketbaseClient.filter('status = {:status}', { status }));
+	if (type) extras.push(pocketbaseClient.filter('type = {:type}', { type }));
 
 	const result = await pocketbaseClient.collection('queue_jobs').getList(page, perPage, {
-		filter: parts.join(' && '),
+		filter: andWorkspaceScope(req, extras.join(' && ')),
 		sort: '-created',
 		expand: 'owner,workspace',
 		requestKey: null,
@@ -59,26 +62,20 @@ router.get('/jobs', asyncHandler(async (req, res) => {
 
 router.get('/jobs/:id', asyncHandler(async (req, res) => {
 	const job = await getQueueJob(req.params.id);
-	if (!job || job.owner !== req.pocketbaseUserId) {
-		throw httpError(404, 'Job not found', 'NOT_FOUND');
-	}
+	assertWorkspaceOwnedRecord(job, req, { notFoundMessage: 'Job not found' });
 	res.json(await mapQueueJobDetail(job));
 }));
 
 router.post('/jobs/:id/cancel', asyncHandler(async (req, res) => {
 	const job = await getQueueJob(req.params.id);
-	if (!job || job.owner !== req.pocketbaseUserId) {
-		throw httpError(404, 'Job not found', 'NOT_FOUND');
-	}
+	assertWorkspaceOwnedRecord(job, req, { notFoundMessage: 'Job not found' });
 	const updated = await cancelQueueJob(job.id, { actorId: req.pocketbaseUserId });
 	res.json(await mapQueueJobDetail(updated));
 }));
 
 router.post('/jobs/:id/retry', asyncHandler(async (req, res) => {
 	const job = await getQueueJob(req.params.id);
-	if (!job || job.owner !== req.pocketbaseUserId) {
-		throw httpError(404, 'Job not found', 'NOT_FOUND');
-	}
+	assertWorkspaceOwnedRecord(job, req, { notFoundMessage: 'Job not found' });
 	const updated = await retryQueueJob(job.id);
 	res.json(await mapQueueJobDetail(updated));
 }));

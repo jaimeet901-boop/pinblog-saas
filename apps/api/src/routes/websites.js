@@ -470,62 +470,50 @@ function getOwnerId(site, ownerField = 'owner') {
 	return String(rawOwner).trim();
 }
 
-async function getOwnedWebsite({ websiteId, userId }) {
+async function getOwnedWebsite({ websiteId, req }) {
 	const websitesSchema = await resolveWebsitesSchema();
-	const ownershipFilter = pocketbaseClient.filter(`id = {:websiteId} && ${websitesSchema.ownerField} = {:owner}`, {
-		websiteId,
-		owner: userId,
-	});
+	const userId = req?.pocketbaseUserId || '';
 
 	logger.info('Website access check started', {
 		websiteId,
 		authenticatedUserId: userId,
-		finalQuery: ownershipFilter,
+		workspaceId: req?.workspace?.id || '',
 	});
-
-	const ownedSite = await pocketbaseClient
-		.collection('websites')
-		.getFirstListItem(ownershipFilter)
-		.catch(() => null);
-
-	if (ownedSite) {
-		logger.info('Website access granted', {
-			websiteId,
-			authenticatedUserId: userId,
-			storedOwnerId: getOwnerId(ownedSite, websitesSchema.ownerField),
-		});
-		return ownedSite;
-	}
 
 	const siteById = await pocketbaseClient.collection('websites').getOne(websiteId).catch(() => null);
 	if (!siteById) {
 		logger.warn('Website access denied - record not found', {
 			websiteId,
 			authenticatedUserId: userId,
-			finalQuery: ownershipFilter,
 		});
 		throw httpError(404, 'Website not found');
 	}
 
 	const storedOwnerId = getOwnerId(siteById, websitesSchema.ownerField);
-	logger.warn('Website access fallback check', {
+	// Never claim orphan websites by ID — ownership is assigned only by admin/onboarding.
+	if (!storedOwnerId) {
+		throw httpError(403, 'Website has no owner and cannot be claimed via this endpoint');
+	}
+
+	const { assertWorkspaceOwnedRecord } = await import('../services/workspace-ownership.js');
+	try {
+		assertWorkspaceOwnedRecord(siteById, req, {
+			ownerField: websitesSchema.ownerField || 'owner',
+			notFoundMessage: 'Website not found',
+		});
+	} catch (error) {
+		if (error?.status === 404) {
+			throw httpError(403, 'You do not have access to this website');
+		}
+		throw error;
+	}
+
+	logger.info('Website access granted', {
 		websiteId,
 		authenticatedUserId: userId,
 		storedOwnerId,
-		finalQuery: ownershipFilter,
 	});
-
-	if (storedOwnerId === userId) {
-		logger.info('Website access granted via fallback owner comparison', {
-			websiteId,
-			authenticatedUserId: userId,
-			storedOwnerId,
-			finalQuery: ownershipFilter,
-		});
-		return siteById;
-	}
-
-	throw httpError(403, 'You do not have access to this website');
+	return siteById;
 }
 
 async function getWebsiteStats(site) {
@@ -584,10 +572,12 @@ router.post('/metadata', async (req, res) => {
 	res.json(metadata);
 });
 
-async function listOwnedWebsites({ userId }) {
+async function listOwnedWebsites({ req }) {
 	const websitesSchema = await resolveWebsitesSchema();
 	const ownerField = websitesSchema.ownerField || 'owner';
-	const listFilter = pocketbaseClient.filter(`${ownerField} = {:owner}`, { owner: userId });
+	const { workspaceScopeFilter, getWorkspaceActor } = await import('../services/workspace-ownership.js');
+	const listFilter = workspaceScopeFilter(req, { ownerField });
+	const actor = getWorkspaceActor(req);
 
 	let records = await safeGetFullList({
 		collection: 'websites',
@@ -596,7 +586,14 @@ async function listOwnedWebsites({ userId }) {
 		sort: '-created',
 	});
 
-	let owned = (records || []).filter((site) => getOwnerId(site, ownerField) === userId);
+	let owned = (records || []).filter((site) => {
+		const siteOwner = getOwnerId(site, ownerField);
+		const siteWs = typeof site.workspace === 'string' ? site.workspace : (site.workspace?.id || '');
+		if (actor.workspaceId && siteWs && siteWs === actor.workspaceId) return true;
+		if (actor.workspaceId && !siteWs && siteOwner === actor.workspaceOwnerId) return true;
+		if (!actor.workspaceId && siteOwner === (actor.workspaceOwnerId || actor.creatorId)) return true;
+		return false;
+	});
 
 	return owned.map(mapWebsite);
 }
@@ -607,7 +604,7 @@ router.get('/', async (req, res) => {
 	}
 
 	try {
-		const websites = await listOwnedWebsites({ userId: req.pocketbaseUserId });
+		const websites = await listOwnedWebsites({ req });
 		res.json(websites);
 	} catch (error) {
 		logger.error('Websites list failed', {
@@ -633,7 +630,7 @@ router.get('/control-center', async (req, res) => {
 	}
 
 	try {
-		const websites = await listOwnedWebsites({ userId: req.pocketbaseUserId });
+		const websites = await listOwnedWebsites({ req });
 		const payload = await getWebsitesControlCenter(req.pocketbaseUserId, websites);
 		res.json(payload);
 	} catch (error) {
@@ -652,7 +649,7 @@ router.get('/control-center', async (req, res) => {
 
 router.get('/:websiteId', async (req, res) => {
 	const websitesSchema = await resolveWebsitesSchema();
-	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, req });
 	const normalizedUrl = getFieldValue(site, [websitesSchema.urlField, ...WEBSITE_URL_FIELD_CANDIDATES]);
 	const normalizedSite = {
 		...site,
@@ -681,7 +678,7 @@ router.get('/:websiteId', async (req, res) => {
 
 router.get('/:websiteId/dashboard', async (req, res) => {
 	const websitesSchema = await resolveWebsitesSchema();
-	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, req });
 	const normalizedUrl = getFieldValue(site, [websitesSchema.urlField, ...WEBSITE_URL_FIELD_CANDIDATES]);
 	const mapped = mapWebsite({
 		...site,
@@ -711,14 +708,14 @@ router.get('/:websiteId/dashboard', async (req, res) => {
 });
 
 router.get('/:websiteId/stats', async (req, res) => {
-	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, req });
 	res.json(await getWebsiteStats(site));
 });
 
 router.use('/:websiteId/articles/:articleId/lifecycle', articleLifecycleRouter);
 
 router.get('/:websiteId/articles', async (req, res) => {
-	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, req });
 	const articleSchema = await resolveWebsiteArticlesSchema();
 	const page = normalizePositiveInt(req.query.page, DEFAULT_PAGE);
 	const perPage = Math.min(normalizePositiveInt(req.query.perPage, DEFAULT_PER_PAGE), 100);
@@ -799,7 +796,7 @@ router.get('/:websiteId/articles', async (req, res) => {
  * Optionally persists a missing featured_image when a body image is found.
  */
 router.post('/:websiteId/articles/resolve-images', async (req, res) => {
-	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, req });
 	const ids = Array.isArray(req.body?.articleIds)
 		? req.body.articleIds.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 40)
 		: [];
@@ -921,7 +918,6 @@ router.post('/', async (req, res) => {
 	});
 
 	const createPayload = {
-		[websitesSchema.ownerField]: req.pocketbaseUserId,
 		name,
 		[websitesSchema.urlField]: normalizedWebsiteUrl,
 		[websitesSchema.domainField]: domain,
@@ -932,13 +928,16 @@ router.post('/', async (req, res) => {
 		[websitesSchema.discoveryStatusField]: 'pending',
 	};
 
+	const { getWorkspaceActor } = await import('../services/workspace-ownership.js');
+	const actor = getWorkspaceActor(req);
+
 	logger.info('Website create payload to PocketBase', {
 		authenticatedUserId: req.pocketbaseUserId,
 		collection: 'websites',
 		urlField: websitesSchema.urlField,
 		domainField: websitesSchema.domainField,
 		payload: {
-			[websitesSchema.ownerField]: createPayload[websitesSchema.ownerField],
+			[websitesSchema.ownerField]: actor.workspaceOwnerId || actor.creatorId,
 			name: createPayload.name,
 			[websitesSchema.urlField]: createPayload[websitesSchema.urlField],
 			[websitesSchema.domainField]: createPayload[websitesSchema.domainField],
@@ -968,28 +967,7 @@ router.post('/', async (req, res) => {
 		storedRecordHasUrlFieldAfterCreate: Object.prototype.hasOwnProperty.call(persistedAfterCreate || {}, websitesSchema.urlField),
 	});
 
-	const needsOwnerFix = getOwnerId(record) !== req.pocketbaseUserId;
-	const savedRecord = needsOwnerFix
-		? await updateWebsiteRecord({
-			id: record.id,
-			payload: { [websitesSchema.ownerField]: req.pocketbaseUserId },
-			urlField: websitesSchema.urlField,
-			context: 'websites:post:owner-fix',
-		}).catch(() => record)
-		: record;
-
-	if (needsOwnerFix) {
-		const persistedAfterOwnerFix = await pocketbaseClient.collection('websites').getOne(savedRecord.id).catch(() => null);
-		logger.warn('Website owner correction executed after create', {
-			websiteId: savedRecord.id,
-			urlField: websitesSchema.urlField,
-			payloadUrl: createPayload[websitesSchema.urlField],
-			storedUrlAfterOwnerFix: persistedAfterOwnerFix?.[websitesSchema.urlField],
-			storedRecordHasUrlFieldAfterOwnerFix: Object.prototype.hasOwnProperty.call(persistedAfterOwnerFix || {}, websitesSchema.urlField),
-		});
-	}
-
-	const persistedRecord = await pocketbaseClient.collection('websites').getOne(savedRecord.id).catch(() => savedRecord);
+	const persistedRecord = await pocketbaseClient.collection('websites').getOne(record.id).catch(() => record);
 
 	const storedUrl = getFieldValue(persistedRecord, [websitesSchema.urlField, ...WEBSITE_URL_FIELD_CANDIDATES]);
 	const storedDomain = getFieldValue(persistedRecord, WEBSITE_DOMAIN_FIELD_CANDIDATES);
@@ -1020,12 +998,13 @@ router.post('/', async (req, res) => {
 	res.status(201).json(mapWebsite(persistedRecord));
 	ensureWordpressSiteFromWebsite(persistedRecord, req.pocketbaseUserId, {
 		authType: req.body?.authType || req.body?.auth_type || 'application_password',
+		req,
 	}).catch(() => null);
 });
 
 router.post('/:websiteId/scan', async (req, res) => {
 	const websitesSchema = await resolveWebsitesSchema();
-	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, req });
 	const fallbackUrlFields = WEBSITE_URL_FIELD_CANDIDATES.filter((field) => field !== websitesSchema.urlField);
 	const storedUrlRaw = getFieldValue(site, [websitesSchema.urlField, ...fallbackUrlFields]);
 	const fallbackDomainFields = WEBSITE_DOMAIN_FIELD_CANDIDATES.filter((field) => field !== websitesSchema.domainField);
@@ -1184,7 +1163,7 @@ router.post('/:websiteId/scan', async (req, res) => {
 
 router.patch('/:websiteId', async (req, res) => {
 	const websitesSchema = await resolveWebsitesSchema();
-	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, req });
 
 	const updates = {};
 
@@ -1269,17 +1248,16 @@ router.patch('/:websiteId', async (req, res) => {
 
 	ensureWordpressSiteFromWebsite(updated, req.pocketbaseUserId, {
 		authType: req.body?.authType || req.body?.auth_type || 'application_password',
+		req,
 	}).catch(() => null);
 	res.json(mapWebsite(updated));
 });
 
 router.delete('/:websiteId', async (req, res) => {
-	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, userId: req.pocketbaseUserId });
+	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, req });
+	const { andWorkspaceScope: andWsScope } = await import('../services/workspace-ownership.js');
 	const linked = await pocketbaseClient.collection('wordpress_sites').getFullList({
-		filter: pocketbaseClient.filter('website = {:website} && owner = {:owner}', {
-			website: site.id,
-			owner: req.pocketbaseUserId,
-		}),
+		filter: andWsScope(req, pocketbaseClient.filter('website = {:website}', { website: site.id })),
 		requestKey: null,
 	}).catch(() => []);
 	await Promise.all(linked.map((item) => pocketbaseClient.collection('wordpress_sites').delete(item.id).catch(() => null)));

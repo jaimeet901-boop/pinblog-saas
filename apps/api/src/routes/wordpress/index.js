@@ -86,56 +86,56 @@ router.get('/auth-providers', async (_req, res) => {
 });
 
 router.get('/sites', async (req, res) => {
-	res.json(await listWordpressSites(req.pocketbaseUserId));
+	res.json(await listWordpressSites(req.pocketbaseUserId, req));
 });
 
 router.post('/sites/:id/default', async (req, res) => {
-	res.json(await setDefaultWordpressSite(req.pocketbaseUserId, req.params.id));
+	res.json(await setDefaultWordpressSite(req.pocketbaseUserId, req.params.id, req));
 });
 
 router.get('/sites/:id/categories', async (req, res) => {
-	res.json(await getSiteTaxonomy(req.pocketbaseUserId, req.params.id, 'categories'));
+	res.json(await getSiteTaxonomy(req.pocketbaseUserId, req.params.id, 'categories', req));
 });
 
 router.get('/sites/:id/tags', async (req, res) => {
-	res.json(await getSiteTaxonomy(req.pocketbaseUserId, req.params.id, 'tags'));
+	res.json(await getSiteTaxonomy(req.pocketbaseUserId, req.params.id, 'tags', req));
 });
 
 router.get('/sites/:id/authors', async (req, res) => {
-	res.json(await getSiteTaxonomy(req.pocketbaseUserId, req.params.id, 'authors'));
+	res.json(await getSiteTaxonomy(req.pocketbaseUserId, req.params.id, 'authors', req));
 });
 
 router.get('/sites/:id/posts', async (req, res) => {
-	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'posts', req.query));
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'posts', req.query, req));
 });
 
 router.get('/sites/:id/posts/:postId', async (req, res) => {
-	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'posts', { id: req.params.postId }));
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'posts', { id: req.params.postId }, req));
 });
 
 router.get('/sites/:id/pages', async (req, res) => {
-	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'pages', req.query));
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'pages', req.query, req));
 });
 
 router.get('/sites/:id/pages/:pageId', async (req, res) => {
-	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'pages', { id: req.params.pageId }));
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'pages', { id: req.params.pageId }, req));
 });
 
 router.get('/sites/:id/media', async (req, res) => {
-	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'media', req.query));
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'media', req.query, req));
 });
 
 router.get('/sites/:id/media/:mediaId', async (req, res) => {
-	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'media', { id: req.params.mediaId }));
+	res.json(await getSiteContent(req.pocketbaseUserId, req.params.id, 'media', { id: req.params.mediaId }, req));
 });
 
 router.get('/sites/:id/health', async (req, res) => {
-	res.json(await getSiteTaxonomy(req.pocketbaseUserId, req.params.id, 'health'));
+	res.json(await getSiteTaxonomy(req.pocketbaseUserId, req.params.id, 'health', req));
 });
 
 router.post('/test', async (req, res) => {
 	const siteId = req.body?.siteId || req.body?.websiteId;
-	const result = await testOwnedWordpressSite(req.pocketbaseUserId, siteId);
+	const result = await testOwnedWordpressSite(req.pocketbaseUserId, siteId, req);
 	res.json(result);
 });
 
@@ -144,7 +144,7 @@ router.post('/test', async (req, res) => {
  * Existing /test remains for Website Manager "Test" button compatibility.
  */
 router.post('/sites/:id/connect', async (req, res) => {
-	const result = await testOwnedWordpressSite(req.pocketbaseUserId, req.params.id);
+	const result = await testOwnedWordpressSite(req.pocketbaseUserId, req.params.id, req);
 	res.json(result);
 });
 
@@ -157,7 +157,7 @@ router.post('/sites/:id/discover', async (req, res) => {
 
 router.get('/sites/:id/profile', async (req, res) => {
 	await ensureWordpressIntegrationSchema(pocketbaseClient);
-	const sites = await listWordpressSites(req.pocketbaseUserId);
+	const sites = await listWordpressSites(req.pocketbaseUserId, req);
 	const site = (sites.items || []).find((item) => (
 		item.id === req.params.id || item.websiteId === req.params.id
 	));
@@ -187,7 +187,7 @@ router.post('/sites/:id/sync', async (req, res) => {
 
 router.get('/sites/:id/sync/status', async (req, res) => {
 	await ensureWordpressIntegrationSchema(pocketbaseClient);
-	const sites = await listWordpressSites(req.pocketbaseUserId);
+	const sites = await listWordpressSites(req.pocketbaseUserId, req);
 	const site = (sites.items || []).find((item) => (
 		item.id === req.params.id || item.websiteId === req.params.id
 	));
@@ -196,10 +196,10 @@ router.get('/sites/:id/sync/status', async (req, res) => {
 	}
 
 	const runs = await pocketbaseClient.collection('wordpress_sync_runs').getList(1, 10, {
-		filter: pocketbaseClient.filter('owner = {:owner} && site = {:site}', {
-			owner: req.pocketbaseUserId,
-			site: site.id,
-		}),
+		filter: (await import('../../services/workspace-ownership.js')).andWorkspaceScope(
+			req,
+			pocketbaseClient.filter('site = {:site}', { site: site.id }),
+		),
 		sort: '-started_at',
 		requestKey: null,
 	}).catch(() => ({ items: [], totalItems: 0 }));

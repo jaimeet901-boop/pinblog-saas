@@ -47,7 +47,16 @@ import { analyzeGrantedScopes, DEFAULT_SCOPES, mergeRequiredScopes } from '../se
 import { getPinterestAppCredentials } from '../services/pinterest-app-credentials.js';
 import { listPublishProviders, setPublishProvider, getPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
 import { mirrorPinterestJob } from '../services/queue/mirrors.js';
+import {
+	getWorkspaceActor,
+	andWorkspaceScope,
+	recordBelongsToWorkspace,
+	stampCreateOwnership,
+} from '../services/workspace-ownership.js';
 
+function workspaceOwner(req) {
+	return getWorkspaceActor(req).workspaceOwnerId || req.pocketbaseUserId;
+}
 const router = Router();
 const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 20;
@@ -126,7 +135,7 @@ function normalizeObject(value, fieldName) {
 	return value;
 }
 
-async function getOwnedAIPins({ owner, pinIds }) {
+async function getOwnedAIPins({ owner, pinIds, req = null }) {
 	const pins = await Promise.all(pinIds.map((pinId) => pocketbaseClient.collection('ai_pins').getOne(pinId).catch(() => null)));
 	const filtered = pins.filter(Boolean);
 	if (filtered.length !== pinIds.length) {
@@ -134,7 +143,10 @@ async function getOwnedAIPins({ owner, pinIds }) {
 	}
 
 	for (const pin of filtered) {
-		if (pin.owner !== owner) {
+		const allowed = req
+			? recordBelongsToWorkspace(pin, req)
+			: pin.owner === owner;
+		if (!allowed) {
 			throw httpError(403, 'You do not have access to one or more selected pins');
 		}
 	}
@@ -185,10 +197,10 @@ function mapJob(record, pinRecord = null) {
 	};
 }
 
-async function assertPinterestConnected(owner, accountId = '') {
+async function assertPinterestConnected(owner, accountId = '', req = null) {
 	const account = accountId
-		? await getOwnedPinterestAccountById({ owner, accountId })
-		: await getOwnedPinterestAccount(owner);
+		? await getOwnedPinterestAccountById({ owner, accountId, req })
+		: await getOwnedPinterestAccount(owner, req);
 
 	if (!account) {
 		throw httpError(422, 'Pinterest account is not connected');
@@ -201,7 +213,7 @@ async function assertPinterestConnected(owner, accountId = '') {
 	return account;
 }
 
-async function resolveTargetForPin({ owner, pin, defaultTarget, perPinTargets }) {
+async function resolveTargetForPin({ owner, pin, defaultTarget, perPinTargets, req = null }) {
 	const override = perPinTargets?.[pin.id] || {};
 	const targetBoardId = normalizeString(override.boardId || defaultTarget.boardId || '', 'boardId', { required: true, max: 120 });
 	const requestedAccountId = normalizeString(override.accountId || defaultTarget.accountId || '', 'accountId', { max: 80 });
@@ -210,11 +222,11 @@ async function resolveTargetForPin({ owner, pin, defaultTarget, perPinTargets })
 	let board;
 
 	if (requestedAccountId) {
-		account = await assertPinterestConnected(owner, requestedAccountId);
-		board = await getOwnedPinterestBoard({ owner, boardId: targetBoardId, accountId: account.id });
+		account = await assertPinterestConnected(owner, requestedAccountId, req);
+		board = await getOwnedPinterestBoard({ owner, boardId: targetBoardId, accountId: account.id, req });
 	} else {
-		board = await getOwnedPinterestBoard({ owner, boardId: targetBoardId });
-		account = await assertPinterestConnected(owner, board.account);
+		board = await getOwnedPinterestBoard({ owner, boardId: targetBoardId, req });
+		account = await assertPinterestConnected(owner, board.account, req);
 	}
 
 	return {
@@ -223,10 +235,10 @@ async function resolveTargetForPin({ owner, pin, defaultTarget, perPinTargets })
 	};
 }
 
-async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, scheduledAt, timezone }) {
+async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, scheduledAt, timezone, req = null }) {
 	await ensureAiPinsPublishFields(pocketbaseClient);
 
-	const pins = await getOwnedAIPins({ owner, pinIds });
+	const pins = await getOwnedAIPins({ owner, pinIds, req });
 	const prepared = [];
 
 	// Validate all pins first so we never create partial job batches.
@@ -235,7 +247,12 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 			collection: 'pinterest_publish_jobs',
 			context: 'pinterest:create-publish-jobs:existing-active',
 			parts: [
-				{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+				{
+					field: 'owner',
+					expression: req
+						? andWorkspaceScope(req)
+						: pocketbaseClient.filter('owner = {:owner}', { owner }),
+				},
 				{ field: 'ai_pin', expression: pocketbaseClient.filter('ai_pin = {:pinId}', { pinId: pin.id }) },
 				{ field: 'status', expression: '(status = "scheduled" || status = "publishing")' },
 			],
@@ -285,6 +302,7 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 			pin,
 			defaultTarget,
 			perPinTargets,
+			req,
 		});
 
 		prepared.push({ pin, account, board, destinationUrl: publishCheck.destinationUrl });
@@ -296,7 +314,7 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 		const createPayload = await sanitizeCollectionPayload({
 			collection: 'pinterest_publish_jobs',
 			context: 'pinterest:create-publish-job',
-			payload: {
+			payload: stampCreateOwnership(req || { pocketbaseUserId: owner }, {
 				owner,
 				account: account.id,
 				account_label: account.label || account.account_name || account.username || '',
@@ -314,7 +332,7 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 				max_attempts: 3,
 				next_retry_at: '',
 				last_error: '',
-			},
+			}),
 		});
 
 		const job = await pocketbaseClient.collection('pinterest_publish_jobs').create(createPayload);
@@ -368,20 +386,25 @@ setPublishProvider(new PinterestPublishProvider({
 	},
 }));
 
-async function buildAccountStats(owner) {
+async function buildAccountStats(owner, req = null) {
 	const ownerPublishedFilter = await buildSchemaSafeFilter({
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest:account-stats:published',
 		parts: [
-			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{
+				field: 'owner',
+				expression: req
+					? andWorkspaceScope(req)
+					: pocketbaseClient.filter('owner = {:owner}', { owner }),
+			},
 			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'published' }) },
 		],
 	});
 
 	const [accounts, boards, publishedJobsCount] = await Promise.all([
-		getOwnedPinterestAccounts(owner),
+		getOwnedPinterestAccounts(owner, req),
 		pocketbaseClient.collection('pinterest_boards').getFullList({
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner }),
+			filter: req ? andWorkspaceScope(req) : pocketbaseClient.filter('owner = {:owner}', { owner }),
 		}),
 		safeGetList({
 			collection: 'pinterest_publish_jobs',
@@ -639,22 +662,23 @@ router.use(requireWorkspaceMutation(['workspace.pinterest.manage', 'workspace.pi
 
 router.get('/account', async (req, res) => {
 	// Legacy alias: returns the default (or first connected) account.
-	const account = await getOwnedPinterestAccount(req.pocketbaseUserId);
+	const owner = workspaceOwner(req);
+	const account = await getOwnedPinterestAccount(owner, req);
 	const mapped = mapAccount(account);
 	if (account?.id) {
-		const defaultBoard = await getDefaultPinterestBoard({ owner: req.pocketbaseUserId, accountId: account.id });
+		const defaultBoard = await getDefaultPinterestBoard({ owner, accountId: account.id, req });
 		mapped.defaultBoard = defaultBoard ? mapBoard(defaultBoard) : null;
 	}
 	res.json(mapped);
 });
 
 router.get('/defaults', async (req, res) => {
-	const owner = req.pocketbaseUserId;
-	const account = await getOwnedPinterestAccount(owner);
+	const owner = workspaceOwner(req);
+	const account = await getOwnedPinterestAccount(owner, req);
 	if (!account) {
 		return res.json({ account: null, board: null });
 	}
-	const board = await getDefaultPinterestBoard({ owner, accountId: account.id });
+	const board = await getDefaultPinterestBoard({ owner, accountId: account.id, req });
 	res.json({
 		account: mapAccount(account),
 		board: board ? mapBoard(board) : null,
@@ -662,9 +686,9 @@ router.get('/defaults', async (req, res) => {
 });
 
 router.post('/accounts/:accountId/default', async (req, res) => {
-	const owner = req.pocketbaseUserId;
-	const updated = await setDefaultPinterestAccount({ owner, accountId: req.params.accountId });
-	const board = await getDefaultPinterestBoard({ owner, accountId: updated.id });
+	const owner = workspaceOwner(req);
+	const updated = await setDefaultPinterestAccount({ owner, accountId: req.params.accountId, req });
+	const board = await getDefaultPinterestBoard({ owner, accountId: updated.id, req });
 	res.json({
 		account: mapAccount(updated),
 		board: board ? mapBoard(board) : null,
@@ -672,20 +696,21 @@ router.post('/accounts/:accountId/default', async (req, res) => {
 });
 
 router.post('/accounts/:accountId/boards/:boardRecordId/default', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const board = await setDefaultPinterestBoard({
 		owner,
 		accountId: req.params.accountId,
 		boardRecordId: req.params.boardRecordId,
+		req,
 	});
 	res.json(mapBoard(board));
 });
 
 router.get('/accounts', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const filterBy = normalizeString(req.query.filter, 'filter', { max: 40 }).toLowerCase();
 
-	const payload = await buildAccountStats(owner);
+	const payload = await buildAccountStats(owner, req);
 	let filtered = payload.items;
 
 	if (filterBy === 'connected') {
@@ -708,38 +733,48 @@ router.get('/accounts', async (req, res) => {
 });
 
 router.post('/oauth/start', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const accountId = normalizeString(req.body?.accountId, 'accountId', { max: 80 });
 	if (accountId) {
-		const account = await getOwnedPinterestAccountById({ owner, accountId });
+		const account = await getOwnedPinterestAccountById({ owner, accountId, req });
 		if (!account) {
 			throw httpError(404, 'Pinterest account not found for reconnect');
 		}
 	}
 
 	const requestedLabel = normalizeString(req.body?.label, 'label', { max: 255 });
-	const { authUrl } = await createPinterestOAuthState({ owner, accountId, requestedLabel });
+	const actor = getWorkspaceActor(req);
+	const { authUrl } = await createPinterestOAuthState({
+		owner,
+		accountId,
+		requestedLabel,
+		workspaceId: actor.workspaceId || req.workspace?.id || '',
+		workspaceKey: actor.workspaceKey || req.workspaceKey || '',
+	});
 	res.json({ authUrl });
 });
 
 router.post('/accounts/:accountId/reconnect', async (req, res) => {
-	const owner = req.pocketbaseUserId;
-	const account = await getOwnedPinterestAccountById({ owner, accountId: req.params.accountId });
+	const owner = workspaceOwner(req);
+	const account = await getOwnedPinterestAccountById({ owner, accountId: req.params.accountId, req });
 	if (!account) {
 		throw httpError(404, 'Pinterest account not found');
 	}
 
+	const actor = getWorkspaceActor(req);
 	const { authUrl } = await createPinterestOAuthState({
 		owner,
 		accountId: account.id,
 		requestedLabel: normalizeString(req.body?.label, 'label', { max: 255 }) || account.label || '',
+		workspaceId: actor.workspaceId || req.workspace?.id || '',
+		workspaceKey: actor.workspaceKey || req.workspaceKey || '',
 	});
 	res.json({ authUrl });
 });
 
 router.patch('/accounts/:accountId', async (req, res) => {
-	const owner = req.pocketbaseUserId;
-	const account = await getOwnedPinterestAccountById({ owner, accountId: req.params.accountId });
+	const owner = workspaceOwner(req);
+	const account = await getOwnedPinterestAccountById({ owner, accountId: req.params.accountId, req });
 	if (!account) {
 		throw httpError(404, 'Pinterest account not found');
 	}
@@ -772,12 +807,17 @@ router.patch('/accounts/:accountId', async (req, res) => {
 	res.json(mapAccount(updated));
 });
 
-async function disconnectOwnedAccount({ owner, account }) {
+async function disconnectOwnedAccount({ owner, account, req = null }) {
 	const openJobsFilter = await buildSchemaSafeFilter({
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest:disconnect:open-jobs',
 		parts: [
-			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{
+				field: 'owner',
+				expression: req
+					? andWorkspaceScope(req)
+					: pocketbaseClient.filter('owner = {:owner}', { owner }),
+			},
 			{ field: 'account', expression: pocketbaseClient.filter('account = {:account}', { account: account.id }) },
 			{ field: 'status', expression: '(status = "scheduled" || status = "publishing")' },
 		],
@@ -815,7 +855,9 @@ async function disconnectOwnedAccount({ owner, account }) {
 	}));
 
 	await pocketbaseClient.collection('pinterest_boards').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
+		filter: req
+			? andWorkspaceScope(req, pocketbaseClient.filter('account = {:account}', { account: account.id }))
+			: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
 	}).then((boards) => Promise.all(boards.map((board) => pocketbaseClient.collection('pinterest_boards').delete(board.id).catch(() => {}))));
 
 	const wasDefault = Boolean(account.is_default);
@@ -827,7 +869,7 @@ async function disconnectOwnedAccount({ owner, account }) {
 	}
 
 	if (wasDefault) {
-		const remaining = await getOwnedPinterestAccounts(owner);
+		const remaining = await getOwnedPinterestAccounts(owner, req);
 		const next = remaining.find((item) => item.connected && item.status === 'connected') || remaining[0];
 		if (next) {
 			await setDefaultPinterestAccount({ owner, accountId: next.id }).catch(() => null);
@@ -836,35 +878,35 @@ async function disconnectOwnedAccount({ owner, account }) {
 }
 
 router.post('/accounts/:accountId/disconnect', async (req, res) => {
-	const owner = req.pocketbaseUserId;
-	const account = await getOwnedPinterestAccountById({ owner, accountId: req.params.accountId });
+	const owner = workspaceOwner(req);
+	const account = await getOwnedPinterestAccountById({ owner, accountId: req.params.accountId, req });
 	if (!account) {
 		throw httpError(404, 'Pinterest account not found');
 	}
 
-	await disconnectOwnedAccount({ owner, account });
+	await disconnectOwnedAccount({ owner, account, req });
 	res.status(204).send();
 });
 
 router.post('/disconnect', async (req, res) => {
 	// Legacy alias: disconnect one account only (default or explicit accountId).
 	// Never wipe all connected accounts.
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const accountId = normalizeString(req.body?.accountId, 'accountId', { max: 80 });
 	const account = accountId
-		? await getOwnedPinterestAccountById({ owner, accountId })
-		: await getOwnedPinterestAccount(owner);
+		? await getOwnedPinterestAccountById({ owner, accountId, req })
+		: await getOwnedPinterestAccount(owner, req);
 
 	if (!account) {
 		return res.status(204).send();
 	}
 
-	await disconnectOwnedAccount({ owner, account });
+	await disconnectOwnedAccount({ owner, account, req });
 	res.status(204).send();
 });
 
 router.get('/boards', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const accountId = normalizeString(req.query.accountId, 'accountId', { max: 80 });
 
 	const forceSync = String(req.query.sync || '').toLowerCase() === '1';
@@ -880,7 +922,7 @@ router.get('/boards', async (req, res) => {
 
 		const allBoards = await pocketbaseClient.collection('pinterest_boards').getFullList({
 			sort: 'name',
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner }),
+			filter: andWorkspaceScope(req),
 		});
 
 		return res.json(allBoards
@@ -888,7 +930,7 @@ router.get('/boards', async (req, res) => {
 			.map(mapBoard));
 	}
 
-	const account = await assertPinterestConnected(owner, accountId);
+	const account = await assertPinterestConnected(owner, accountId, req);
 
 	if (forceSync) {
 		const boards = await syncPinterestBoardsForOwner({ owner, account });
@@ -897,7 +939,7 @@ router.get('/boards', async (req, res) => {
 
 	const boards = await pocketbaseClient.collection('pinterest_boards').getFullList({
 		sort: 'name',
-		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
+		filter: andWorkspaceScope(req, pocketbaseClient.filter('account = {:account}', { account: account.id })),
 	});
 
 	res.json(boards
@@ -906,11 +948,11 @@ router.get('/boards', async (req, res) => {
 });
 
 router.post('/boards/sync', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const accountId = normalizeString(req.body?.accountId, 'accountId', { max: 80 });
 
 	if (accountId) {
-		const account = await assertPinterestConnected(owner, accountId);
+		const account = await assertPinterestConnected(owner, accountId, req);
 		const boards = await syncPinterestBoardsForOwner({ owner, account });
 		return res.json({ items: boards });
 	}
@@ -928,7 +970,7 @@ router.post('/boards/sync', async (req, res) => {
 });
 
 router.post('/publish', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 
 	const pinIds = normalizePinIds(req.body?.pinIds);
 	const scheduledAt = new Date().toISOString();
@@ -956,7 +998,7 @@ router.post('/publish', async (req, res) => {
 });
 
 router.post('/schedule', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 
 	const pinIds = normalizePinIds(req.body?.pinIds);
 	const timezone = normalizeString(req.body?.timezone, 'timezone', { required: true, max: 80 });
@@ -990,7 +1032,7 @@ router.post('/schedule', async (req, res) => {
 });
 
 router.patch('/jobs/:jobId', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const job = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null);
 	if (!job) {
 		throw httpError(404, 'Scheduled job not found');
@@ -1075,7 +1117,7 @@ router.patch('/jobs/:jobId', async (req, res) => {
 });
 
 router.post('/jobs/:jobId/cancel', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const job = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null);
 	if (!job) {
 		throw httpError(404, 'Scheduled job not found');
@@ -1122,7 +1164,7 @@ router.post('/jobs/:jobId/cancel', async (req, res) => {
 });
 
 router.post('/jobs/:jobId/retry', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 
 	const job = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null);
 	if (!job) {
@@ -1169,14 +1211,14 @@ router.post('/jobs/:jobId/retry', async (req, res) => {
 });
 
 router.get('/jobs', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const page = normalizePositiveInt(req.query.page, DEFAULT_PAGE);
 	const perPage = normalizePositiveInt(req.query.perPage, DEFAULT_PER_PAGE, 200);
 	const status = normalizeString(req.query.status, 'status', { max: 60 });
 	const dateFrom = normalizeString(req.query.dateFrom, 'dateFrom', { max: 80 });
 	const dateTo = normalizeString(req.query.dateTo, 'dateTo', { max: 80 });
 
-	const filters = [pocketbaseClient.filter('owner = {:owner}', { owner })];
+	const filters = [];
 	if (status) {
 		filters.push(pocketbaseClient.filter('status = {:status}', { status }));
 	}
@@ -1193,7 +1235,7 @@ router.get('/jobs', async (req, res) => {
 		page,
 		perPage,
 		sort: '-scheduled_at,-created',
-		filter: filters.join(' && '),
+		filter: andWorkspaceScope(req, filters.join(' && ')),
 		expand: 'ai_pin,account',
 	});
 
@@ -1207,7 +1249,7 @@ router.get('/jobs', async (req, res) => {
 });
 
 router.get('/calendar', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const month = normalizeString(req.query.month, 'month', { max: 20 });
 	const reference = month ? new Date(`${month}-01T00:00:00.000Z`) : new Date();
 	if (Number.isNaN(reference.getTime())) {
@@ -1221,7 +1263,7 @@ router.get('/calendar', async (req, res) => {
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest:calendar',
 		parts: [
-			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'owner', expression: andWorkspaceScope(req) },
 			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'scheduled' }) },
 			{ field: 'scheduled_at', expression: pocketbaseClient.filter('scheduled_at >= {:start}', { start: start.toISOString() }) },
 			{ field: 'scheduled_at', expression: pocketbaseClient.filter('scheduled_at < {:end}', { end: end.toISOString() }) },
@@ -1240,7 +1282,7 @@ router.get('/calendar', async (req, res) => {
 });
 
 router.get('/history', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const page = normalizePositiveInt(req.query.page, DEFAULT_PAGE);
 	const perPage = normalizePositiveInt(req.query.perPage, DEFAULT_PER_PAGE, 100);
 	const requestedStatus = normalizeString(req.query.status, 'status', { max: 60 });
@@ -1253,7 +1295,7 @@ router.get('/history', async (req, res) => {
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest:history',
 		parts: [
-			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'owner', expression: andWorkspaceScope(req) },
 			{ field: 'status', expression: `(${statuses.map((item) => pocketbaseClient.filter('status = {:status}', { status: item })).join(' || ')})` },
 		],
 	});
@@ -1278,7 +1320,7 @@ router.get('/history', async (req, res) => {
 });
 
 router.post('/jobs/:jobId/publish-now', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const job = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null);
 	if (!job) {
 		throw httpError(404, 'Scheduled job not found');
@@ -1309,12 +1351,12 @@ router.post('/jobs/:jobId/publish-now', async (req, res) => {
 });
 
 router.get('/analytics', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const publishedFilter = await buildSchemaSafeFilter({
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest:analytics:published',
 		parts: [
-			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'owner', expression: andWorkspaceScope(req) },
 			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'published' }) },
 		],
 	});
@@ -1322,7 +1364,7 @@ router.get('/analytics', async (req, res) => {
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest:analytics:failed',
 		parts: [
-			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'owner', expression: andWorkspaceScope(req) },
 			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'failed' }) },
 		],
 	});
@@ -1330,7 +1372,7 @@ router.get('/analytics', async (req, res) => {
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest:analytics:scheduled',
 		parts: [
-			{ field: 'owner', expression: pocketbaseClient.filter('owner = {:owner}', { owner }) },
+			{ field: 'owner', expression: andWorkspaceScope(req) },
 			{ field: 'status', expression: pocketbaseClient.filter('status = {:status}', { status: 'scheduled' }) },
 		],
 	});
@@ -1374,7 +1416,7 @@ router.get('/analytics', async (req, res) => {
 });
 
 router.post('/token/refresh', async (req, res) => {
-	const owner = req.pocketbaseUserId;
+	const owner = workspaceOwner(req);
 	const account = await assertPinterestConnected(owner, normalizeString(req.body?.accountId, 'accountId', { max: 80 }));
 
 	try {

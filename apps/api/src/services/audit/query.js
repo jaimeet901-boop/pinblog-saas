@@ -51,9 +51,11 @@ function severityCodeFromLabel(label) {
 	return value;
 }
 
-export async function buildLogsFilter(query = {}, { ownerId = null } = {}) {
+export async function buildLogsFilter(query = {}, { ownerId = null, workspaceKey = null } = {}) {
 	const parts = [];
-	if (ownerId) {
+	if (workspaceKey) {
+		parts.push(pocketbaseClient.filter('workspace_key = {:workspaceKey}', { workspaceKey }));
+	} else if (ownerId) {
 		parts.push(pocketbaseClient.filter('actor_user = {:owner}', { owner: ownerId }));
 	}
 	if (query.date === 'today' || query.dateRange === 'today') {

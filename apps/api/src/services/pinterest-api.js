@@ -219,18 +219,21 @@ export function mapAccount(record) {
 	};
 }
 
-export async function getOwnedPinterestAccounts(owner) {
+export async function getOwnedPinterestAccounts(owner, req = null) {
+	const filter = req
+		? (await import('./workspace-ownership.js')).andWorkspaceScope(req)
+		: pocketbaseClient.filter('owner = {:owner}', { owner });
 	const accounts = await pocketbaseClient.collection('pinterest_accounts').getFullList({
 		sort: '-created',
-		filter: pocketbaseClient.filter('owner = {:owner}', { owner }),
+		filter,
 	});
 
 	// Prefer defaults in-memory so missing is_default schema never breaks the API.
 	return accounts.sort((a, b) => Number(Boolean(b.is_default)) - Number(Boolean(a.is_default)));
 }
 
-export async function getOwnedPinterestAccount(owner) {
-	const accounts = await getOwnedPinterestAccounts(owner);
+export async function getOwnedPinterestAccount(owner, req = null) {
+	const accounts = await getOwnedPinterestAccounts(owner, req);
 	const isUsable = (account) => {
 		if (!account?.connected) {
 			return false;
@@ -248,26 +251,31 @@ export async function getOwnedPinterestAccount(owner) {
 	return selected ? hydratePinterestAccountSecrets(selected) : null;
 }
 
-export async function getDefaultPinterestBoard({ owner, accountId }) {
+export async function getDefaultPinterestBoard({ owner, accountId, req = null }) {
 	if (!accountId) {
 		return null;
 	}
 
+	const { andWorkspaceScope } = await import('./workspace-ownership.js');
+	const filter = req
+		? andWorkspaceScope(req, pocketbaseClient.filter('account = {:account}', { account: accountId }))
+		: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: accountId });
+
 	const boards = await pocketbaseClient.collection('pinterest_boards').getFullList({
 		sort: 'name',
-		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: accountId }),
+		filter,
 	});
 
 	return boards.find((board) => board.is_default) || boards[0] || null;
 }
 
-export async function setDefaultPinterestAccount({ owner, accountId }) {
-	const account = await getOwnedPinterestAccountById({ owner, accountId });
+export async function setDefaultPinterestAccount({ owner, accountId, req = null }) {
+	const account = await getOwnedPinterestAccountById({ owner, accountId, req });
 	if (!account) {
 		throw httpError(404, 'Pinterest account not found');
 	}
 
-	const accounts = await getOwnedPinterestAccounts(owner);
+	const accounts = await getOwnedPinterestAccounts(owner, req);
 	await Promise.all(accounts.map((item) => (
 		pocketbaseClient.collection('pinterest_accounts').update(item.id, {
 			is_default: item.id === accountId,
@@ -277,19 +285,28 @@ export async function setDefaultPinterestAccount({ owner, accountId }) {
 	return pocketbaseClient.collection('pinterest_accounts').getOne(accountId);
 }
 
-export async function setDefaultPinterestBoard({ owner, accountId, boardRecordId }) {
-	const account = await getOwnedPinterestAccountById({ owner, accountId });
+export async function setDefaultPinterestBoard({ owner, accountId, boardRecordId, req = null }) {
+	const account = await getOwnedPinterestAccountById({ owner, accountId, req });
 	if (!account) {
 		throw httpError(404, 'Pinterest account not found');
 	}
 
 	const board = await pocketbaseClient.collection('pinterest_boards').getOne(boardRecordId).catch(() => null);
-	if (!board || board.owner !== owner || board.account !== accountId) {
+	const { recordBelongsToWorkspace } = await import('./workspace-ownership.js');
+	const boardOwned = req
+		? board && recordBelongsToWorkspace(board, req) && board.account === accountId
+		: board && board.owner === owner && board.account === accountId;
+	if (!boardOwned) {
 		throw httpError(404, 'Pinterest board not found for this account');
 	}
 
+	const { andWorkspaceScope } = await import('./workspace-ownership.js');
+	const boardsFilter = req
+		? andWorkspaceScope(req, pocketbaseClient.filter('account = {:account}', { account: accountId }))
+		: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: accountId });
+
 	const boards = await pocketbaseClient.collection('pinterest_boards').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: accountId }),
+		filter: boardsFilter,
 	});
 
 	await Promise.all(boards.map((item) => (
@@ -301,7 +318,7 @@ export async function setDefaultPinterestBoard({ owner, accountId, boardRecordId
 	return pocketbaseClient.collection('pinterest_boards').getOne(boardRecordId);
 }
 
-export async function getOwnedPinterestAccountById({ owner, accountId }) {
+export async function getOwnedPinterestAccountById({ owner, accountId, req = null }) {
 	const id = relationId(accountId);
 	if (!id) {
 		return null;
@@ -311,30 +328,43 @@ export async function getOwnedPinterestAccountById({ owner, accountId }) {
 	if (!record) {
 		return null;
 	}
-	if (record.owner !== owner) {
+	if (req) {
+		const { recordBelongsToWorkspace } = await import('./workspace-ownership.js');
+		if (!recordBelongsToWorkspace(record, req)) {
+			return null;
+		}
+	} else if (record.owner !== owner) {
 		return null;
 	}
 	return hydratePinterestAccountSecrets(record);
 }
 
-export async function getOwnedPinterestAccountByPinterestUserId({ owner, pinterestUserId }) {
+export async function getOwnedPinterestAccountByPinterestUserId({ owner, pinterestUserId, req = null }) {
 	if (!pinterestUserId) {
 		return null;
 	}
 
-	const record = await pocketbaseClient.collection('pinterest_accounts').getFirstListItem(
-		pocketbaseClient.filter('owner = {:owner} && pinterest_user_id = {:pinterestUserId}', { owner, pinterestUserId }),
-	).catch(() => null);
+	const { andWorkspaceScope } = await import('./workspace-ownership.js');
+	const filter = req
+		? andWorkspaceScope(req, pocketbaseClient.filter('pinterest_user_id = {:pinterestUserId}', { pinterestUserId }))
+		: pocketbaseClient.filter('owner = {:owner} && pinterest_user_id = {:pinterestUserId}', { owner, pinterestUserId });
+
+	const record = await pocketbaseClient.collection('pinterest_accounts').getFirstListItem(filter).catch(() => null);
 
 	return record ? hydratePinterestAccountSecrets(record) : null;
 }
 
-export async function getOwnedPinterestBoard({ owner, boardId, accountId = '' }) {
-	const board = await pocketbaseClient.collection('pinterest_boards').getFirstListItem(
-		accountId
+export async function getOwnedPinterestBoard({ owner, boardId, accountId = '', req = null }) {
+	const { andWorkspaceScope } = await import('./workspace-ownership.js');
+	const boardExpr = accountId
+		? pocketbaseClient.filter('board_id = {:boardId} && account = {:accountId}', { boardId, accountId })
+		: pocketbaseClient.filter('board_id = {:boardId}', { boardId });
+	const filter = req
+		? andWorkspaceScope(req, boardExpr)
+		: (accountId
 			? pocketbaseClient.filter('owner = {:owner} && board_id = {:boardId} && account = {:accountId}', { owner, boardId, accountId })
-			: pocketbaseClient.filter('owner = {:owner} && board_id = {:boardId}', { owner, boardId }),
-	).catch(() => null);
+			: pocketbaseClient.filter('owner = {:owner} && board_id = {:boardId}', { owner, boardId }));
+	const board = await pocketbaseClient.collection('pinterest_boards').getFirstListItem(filter).catch(() => null);
 
 	if (!board) {
 		throw httpError(404, 'Pinterest board not found');
