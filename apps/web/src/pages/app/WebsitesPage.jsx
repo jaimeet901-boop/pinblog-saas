@@ -89,16 +89,6 @@ function displayCount(value, emptyLabel = 'Not available') {
 	return Number(value);
 }
 
-function formatDuration(ms) {
-	if (ms == null || !Number.isFinite(Number(ms))) return '—';
-	const value = Number(ms);
-	if (value < 1000) return `${value} ms`;
-	const seconds = Math.round(value / 1000);
-	if (seconds < 60) return `${seconds}s`;
-	const minutes = Math.round(seconds / 60);
-	return `${minutes} min`;
-}
-
 function StatusLine({ ok, label, missingLabel }) {
 	const ready = Boolean(ok);
 	return (
@@ -108,9 +98,9 @@ function StatusLine({ ok, label, missingLabel }) {
 	);
 }
 
-function Section({ title, children }) {
+function Section({ title, children, className = '' }) {
 	return (
-		<div className="mt-3 space-y-1 border-t border-border pt-3">
+		<div className={`space-y-1 border-t border-border pt-3 ${className}`.trim()}>
 			<p className="text-xs font-medium text-muted-foreground">{title}</p>
 			{children}
 		</div>
@@ -472,21 +462,12 @@ export default function WebsitesPage() {
 						</div>
 					)}
 
-					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+					<div className="grid gap-4 md:grid-cols-2">
 						{sites.map((s) => {
 							const health = s.control?.health || {};
-							const stats = s.control?.stats || {};
-							const score = s.control?.score || null;
-							const performance = s.control?.performance || {};
-							const contentOverview = s.control?.contentOverview || {};
-							const problems = Array.isArray(s.control?.problems) ? s.control.problems : [];
 							const wordpress = s.control?.wordpress || {};
-							const pinterest = s.control?.pinterest || {};
-							const aiConfiguration = s.control?.aiConfiguration || {};
-							const seoHealth = s.control?.seoHealth || {};
 							const publishingHealth = s.control?.publishingHealth || {};
 							const credentialsHealth = s.control?.credentialsHealth || {};
-							const aiReadiness = s.control?.aiReadiness || {};
 							const siteInfo = s.control?.siteInfo || {};
 							const recentActivity = Array.isArray(s.control?.recentActivity) ? s.control.recentActivity : [];
 							const openSettings = () => {
@@ -495,163 +476,85 @@ export default function WebsitesPage() {
 								setLastMetadataUrl('');
 							};
 							return (
-								<Card key={s.id}>
-									<div className="flex items-start justify-between">
-										{s.favicon ? (
-											<img src={s.favicon} alt={`${s.name} favicon`} loading="lazy" decoding="async" className="h-10 w-10 rounded-xl border border-border object-cover" />
-										) : (
-											<span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><Globe size={19} /></span>
-										)}
+								<Card key={s.id} className="flex h-full flex-col">
+									<div className="flex items-start justify-between gap-3">
+										<div className="flex min-w-0 items-start gap-3">
+											{s.favicon ? (
+												<img src={s.favicon} alt={`${s.name} favicon`} loading="lazy" decoding="async" className="h-10 w-10 shrink-0 rounded-xl border border-border object-cover" />
+											) : (
+												<span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Globe size={19} /></span>
+											)}
+											<div className="min-w-0">
+												<h3 className="truncate font-semibold">{s.name}</h3>
+												<a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-muted-foreground hover:text-primary">{s.url || '—'}</a>
+											</div>
+										</div>
 										<Badge tone={s.status === 'active' || s.status === 'connected' ? 'green' : s.status === 'failed' ? 'red' : 'default'}>{s.status || 'active'}</Badge>
 									</div>
-									<h3 className="mt-3 truncate font-semibold">{s.name}</h3>
-									<a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-muted-foreground hover:text-primary">{s.url || '—'}</a>
-									<p className="mt-1 text-xs text-muted-foreground">Domain: {displayValue(siteInfo.domain || s.domain, 'Not available')}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Created: {s.created || siteInfo.created ? formatDate(siteInfo.created || s.created) : 'Not available'}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Last Scan: {formatRelative(siteInfo.lastScan || s.last_scan_at, 'Never synced')}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Last Sync: {formatRelative(siteInfo.lastSync, 'Never synced')}</p>
-									<p className="mt-1 text-xs text-muted-foreground">WordPress Version: {displayValue(siteInfo.wordpressVersion || health.wpVersion, 'Not available')}</p>
-									<p className="mt-1 text-xs text-muted-foreground">PHP Version: {displayValue(siteInfo.phpVersion, 'Not available')}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Theme: {displayValue(siteInfo.theme, 'Not available')}</p>
-									<p className="mt-1 text-xs text-muted-foreground">Active Plugins: {displayCount(siteInfo.activePluginsCount, 'Not available')}</p>
 
-									{score && (
-										<Section title="Website Score">
+									<div className="mt-3 grid gap-3 sm:grid-cols-2">
+										<Section title="Website Information">
+											<p className="text-xs text-muted-foreground">Domain: {displayValue(siteInfo.domain || s.domain, 'Not available')}</p>
+											<p className="text-xs text-muted-foreground">Created: {s.created || siteInfo.created ? formatDate(siteInfo.created || s.created) : 'Not available'}</p>
+											<p className="text-xs text-muted-foreground">Last Scan: {formatRelative(siteInfo.lastScan || s.last_scan_at, 'Never synced')}</p>
+											<p className="text-xs text-muted-foreground">Last Sync: {formatRelative(siteInfo.lastSync, 'Never synced')}</p>
+											<p className="text-xs text-muted-foreground">WordPress Version: {displayValue(siteInfo.wordpressVersion || health.wpVersion, 'Not available')}</p>
+											<p className="text-xs text-muted-foreground">PHP Version: {displayValue(siteInfo.phpVersion, 'Not available')}</p>
+											<p className="text-xs text-muted-foreground">Theme: {displayValue(siteInfo.theme, 'Not available')}</p>
+											<p className="text-xs text-muted-foreground">Active Plugins: {displayCount(siteInfo.activePluginsCount, 'Not available')}</p>
+										</Section>
+
+										<Section title="WordPress Status">
+											<StatusLine ok={wordpress.connection?.status === 'connected'} label="Connected" missingLabel={wordpress.connection?.label || 'Not Connected'} />
+											<StatusLine ok={wordpress.restApi?.status === 'ok'} label="REST API" missingLabel={wordpress.restApi?.label || 'REST API Missing'} />
+											<StatusLine ok={wordpress.credentials?.status === 'configured'} label="Credentials Saved" missingLabel="Credentials Missing" />
+											<StatusLine ok={wordpress.applicationPassword?.status === 'configured'} label="Application Password" missingLabel="Application Password Missing" />
+											<p className="text-xs text-muted-foreground">Last Publish: {formatRelative(wordpress.lastPublishAt, 'Never synced')}</p>
+											<p className="text-xs text-muted-foreground">Last Sync: {formatRelative(wordpress.lastSyncAt, 'Never synced')}</p>
+											{wordpress.needsConfiguration ? (
+												<>
+													<p className="text-xs text-muted-foreground">{wordpress.configureHint || 'WordPress credentials are missing. Configure them in Website Settings.'}</p>
+													<Button size="sm" variant="outline" onClick={openSettings}>Configure WordPress</Button>
+												</>
+											) : null}
+										</Section>
+
+										<Section title="Credentials Status">
+											{(credentialsHealth.items || []).map((item) => (
+												<p key={item.key} className="text-xs text-muted-foreground">
+													{item.label}: <Badge tone={item.tone || statusTone(item.status)}>{item.labelStatus || (item.configured ? 'Configured' : 'Missing')}</Badge>
+												</p>
+											))}
+											{(credentialsHealth.items || []).length === 0 ? (
+												<p className="text-xs text-muted-foreground">Not available</p>
+											) : null}
+										</Section>
+
+										<Section title="Publishing Health">
+											{(publishingHealth.items || []).map((item) => (
+												<StatusLine key={item.key} ok={item.ok} label={item.label} missingLabel={`${item.label} Missing`} />
+											))}
 											<p className="text-xs text-muted-foreground">
-												{score.score}/100 <Badge tone={score.tone || statusTone(score.label)}>{score.label}</Badge>
+												Overall Score: {publishingHealth.overallScore != null ? `${publishingHealth.overallScore}%` : 'Not available'}
 											</p>
 										</Section>
-									)}
-
-									<Section title="WordPress">
-										<StatusLine ok={wordpress.connection?.status === 'connected'} label="Connected" missingLabel={wordpress.connection?.label || 'Not Connected'} />
-										<StatusLine ok={wordpress.restApi?.status === 'ok'} label="REST API" missingLabel={wordpress.restApi?.label || 'REST API Missing'} />
-										<StatusLine ok={wordpress.credentials?.status === 'configured'} label="Credentials Saved" missingLabel="Credentials Missing" />
-										<StatusLine ok={wordpress.applicationPassword?.status === 'configured'} label="Application Password" missingLabel="Application Password Missing" />
-										<p className="text-xs text-muted-foreground">Last Publish: {formatRelative(wordpress.lastPublishAt, 'Never synced')}</p>
-										<p className="text-xs text-muted-foreground">Last Sync: {formatRelative(wordpress.lastSyncAt, 'Never synced')}</p>
-										{wordpress.needsConfiguration ? (
-											<>
-												<p className="text-xs text-muted-foreground">{wordpress.configureHint || 'WordPress credentials are missing. Configure them in Website Settings.'}</p>
-												<Button size="sm" variant="outline" onClick={openSettings}>Configure WordPress</Button>
-											</>
-										) : null}
-									</Section>
-
-									<Section title="Pinterest">
-										<p className="text-xs text-muted-foreground">Connected Account: {displayValue(pinterest.account?.label, 'Not configured')}</p>
-										<p className="text-xs text-muted-foreground">Default Board: {displayValue(pinterest.defaultBoard?.label, 'Not configured')}</p>
-										<p className="text-xs text-muted-foreground">API Status: <Badge tone={pinterest.api?.tone || statusTone(pinterest.api?.status)}>{pinterest.api?.label || 'Not configured'}</Badge></p>
-										<p className="text-xs text-muted-foreground">Last Publish: {formatRelative(pinterest.lastPublishAt, 'Never synced')}</p>
-										<p className="text-xs text-muted-foreground">Published Pins: {displayCount(pinterest.publishedPins, '0')}</p>
-										<p className="text-xs text-muted-foreground">Failed Pins: {displayCount(pinterest.failedPins, '0')}</p>
-										{pinterest.needsConfiguration ? (
-											<p className="text-xs text-muted-foreground">{pinterest.configureHint || 'Connect a Pinterest account in Pinterest settings.'}</p>
-										) : null}
-									</Section>
-
-									<Section title="AI Configuration">
-										<p className="text-xs text-muted-foreground">AI Model: {displayValue(aiConfiguration.model, 'Not configured')}</p>
-										<p className="text-xs text-muted-foreground">Language: {displayValue(aiConfiguration.language, 'Not configured')}</p>
-										<p className="text-xs text-muted-foreground">Country: {displayValue(aiConfiguration.country, 'Not configured')}</p>
-										<p className="text-xs text-muted-foreground">Writing Tone: {displayValue(aiConfiguration.tone, 'Not configured')}</p>
-										<p className="text-xs text-muted-foreground">Default Prompt: {displayValue(aiConfiguration.defaultPromptPreview, 'Not configured')}</p>
-										<p className="text-xs text-muted-foreground">Image Provider: {displayValue(aiConfiguration.imageProvider, 'Not configured')}</p>
-										<Button size="sm" variant="outline" onClick={() => navigate(aiConfiguration.editHref || '/app/settings')}>Edit</Button>
-									</Section>
-
-									<Section title="Website Statistics">
-										<p className="text-xs text-muted-foreground">Generated Articles: {displayCount(stats.generatedArticles ?? stats.totalArticles, '0')}</p>
-										<p className="text-xs text-muted-foreground">Published Articles: {displayCount(stats.publishedArticles, '0')}</p>
-										<p className="text-xs text-muted-foreground">Draft Articles: {displayCount(stats.draftArticles, '0')}</p>
-										<p className="text-xs text-muted-foreground">Generated Pins: {displayCount(stats.generatedPins, '0')}</p>
-										<p className="text-xs text-muted-foreground">Published Pins: {displayCount(stats.publishedPins, '0')}</p>
-										<p className="text-xs text-muted-foreground">Generated Images: {displayCount(stats.generatedImages, '0')}</p>
-										<p className="text-xs text-muted-foreground">Traffic Imports: {displayCount(stats.trafficImports, '0')}</p>
-										<p className="text-xs text-muted-foreground">WordPress Syncs: {displayCount(stats.wordpressSyncs, 'Not available')}</p>
-										<p className="text-xs text-muted-foreground">Failed Jobs: {displayCount(stats.failedJobs, '0')}</p>
-										<p className="text-xs text-muted-foreground">Ready to Publish: {displayCount(stats.readyToPublish, '0')}</p>
-									</Section>
-
-									<Section title="SEO Health">
-										{(seoHealth.items || []).map((item) => (
-											<p key={item.key || item.label} className="text-xs text-muted-foreground">
-												{item.label}:{' '}
-												{item.available === false || item.status === 'not_available' ? (
-													<Badge tone="default">Not available</Badge>
-												) : (
-													<Badge tone={item.tone || statusTone(item.status)}>{item.display ?? item.count ?? 0}</Badge>
-												)}
-											</p>
-										))}
-										{(seoHealth.items || []).length === 0 ? (
-											<p className="text-xs text-muted-foreground">Not available</p>
-										) : null}
-									</Section>
+									</div>
 
 									<Section title="Recent Activity">
 										{recentActivity.length === 0 ? (
 											<p className="text-xs text-muted-foreground">Not available</p>
-										) : recentActivity.map((event) => (
-											<p key={event.id} className="text-xs text-muted-foreground">
-												{event.title || event.type} · {formatRelative(event.at, 'Not available')}
-											</p>
-										))}
-									</Section>
-
-									<Section title="Publishing Health">
-										{(publishingHealth.items || []).map((item) => (
-											<StatusLine key={item.key} ok={item.ok} label={item.label} missingLabel={`${item.label} Missing`} />
-										))}
-										<p className="text-xs text-muted-foreground">
-											Overall Score: {publishingHealth.overallScore != null ? `${publishingHealth.overallScore}%` : '—'}
-										</p>
-									</Section>
-
-									<Section title="Website Performance">
-										<p className="text-xs text-muted-foreground">Total Generated Content: {displayCount(performance.totalGeneratedContent, '0')}</p>
-										<p className="text-xs text-muted-foreground">Total Published: {displayCount(performance.totalPublished, '0')}</p>
-										<p className="text-xs text-muted-foreground">Success Rate: {performance.successRate != null ? `${performance.successRate}%` : 'Not available'}</p>
-										<p className="text-xs text-muted-foreground">Average Publish Time: {performance.avgPublishTimeMs != null ? formatDuration(performance.avgPublishTimeMs) : 'Not available'}</p>
-										<p className="text-xs text-muted-foreground">Last AI Generation: {formatRelative(performance.lastAiGenerationAt || performance.lastGeneratedAt, 'Never synced')}</p>
-										<p className="text-xs text-muted-foreground">Last Pin Generation: {formatRelative(performance.lastPinGenerationAt || performance.lastGeneratedAt, 'Never synced')}</p>
-										<p className="text-xs text-muted-foreground">Last Image Generation: {formatRelative(performance.lastImageGenerationAt || performance.lastGeneratedImageAt, 'Never synced')}</p>
-									</Section>
-
-									<Section title="Credentials Health">
-										{(credentialsHealth.items || []).map((item) => (
-											<p key={item.key} className="text-xs text-muted-foreground">
-												{item.label}: <Badge tone={item.tone || statusTone(item.status)}>{item.labelStatus || (item.configured ? 'Configured' : 'Missing')}</Badge>
-											</p>
-										))}
-									</Section>
-
-									<Section title="AI Readiness">
-										{(aiReadiness.items || []).map((item) => (
-											<div key={item.key}>
-												<StatusLine ok={item.ok} label={item.label} missingLabel={item.label} />
-												{!item.ok && item.hint ? (
-													<p className="text-xs text-muted-foreground pl-4">{item.hint}</p>
-												) : null}
+										) : (
+											<div className="grid gap-1 sm:grid-cols-2">
+												{recentActivity.map((event) => (
+													<p key={event.id} className="text-xs text-muted-foreground">
+														{event.title || event.type} · {formatRelative(event.at, 'Not available')}
+													</p>
+												))}
 											</div>
-										))}
-										<p className="text-xs text-muted-foreground">
-											Overall Ready: <Badge tone={aiReadiness.overallTone || statusTone(aiReadiness.overallLabel)}>{aiReadiness.overallLabel || '—'}</Badge>
-										</p>
+										)}
 									</Section>
 
-									{problems.length > 0 && (
-										<Section title="Quick Problems">
-											{problems.map((problem) => (
-												<p key={problem.id} className="text-xs text-muted-foreground">
-													<Badge tone={problem.tone || 'amber'}>{problem.label}</Badge>
-													{problem.detail ? ` ${problem.detail}` : ''}
-												</p>
-											))}
-										</Section>
-									)}
-
-									<div className="mt-4 flex flex-wrap gap-2">
+									<div className="mt-auto flex flex-wrap gap-2 pt-4">
 										<Button size="sm" onClick={() => navigate(`/app/websites/${s.id}`)}>Dashboard</Button>
 										<Button size="sm" variant="outline" onClick={() => navigate(`/app/websites/${s.id}/articles`)}>Articles</Button>
 										<Button size="sm" variant="outline" onClick={() => navigate(`/app/writer?websiteId=${s.id}`)}>AI Writer</Button>
