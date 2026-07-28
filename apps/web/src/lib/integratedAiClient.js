@@ -56,6 +56,9 @@ const integratedAiClient = {
 		if (typeof body.customPrompt === 'string' && body.customPrompt.trim()) {
 			formData.append('customPrompt', body.customPrompt.trim().slice(0, 4000));
 		}
+		if (body.singleShot === true || body.singleShot === 1 || body.singleShot === '1') {
+			formData.append('singleShot', '1');
+		}
 
 		images.forEach((image) => {
 			formData.append('images', image);

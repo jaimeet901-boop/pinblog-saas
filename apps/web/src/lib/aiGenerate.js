@@ -1,11 +1,13 @@
 import { integratedAiClient } from '@/lib/integratedAiClient';
 
 // Streams a text response from the AI backend and returns the full accumulated text.
-export async function generateText(prompt, { onChunk, signal, customPrompt } = {}) {
+// Pass singleShot: true for one-off generation (Writer) — skips shared chat history.
+export async function generateText(prompt, { onChunk, signal, customPrompt, singleShot } = {}) {
 	const response = await integratedAiClient.stream('/integrated-ai/stream', {
 		body: {
 			message: [{ text: prompt, type: 'text' }],
 			...(customPrompt ? { customPrompt: String(customPrompt) } : {}),
+			...(singleShot ? { singleShot: true } : {}),
 		},
 		images: [],
 		signal,

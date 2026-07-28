@@ -266,11 +266,15 @@ router.post('/stream', integratedAiRateLimit, uploadImagesWithDiagnostics, async
 		customPrompt,
 	);
 
+	const singleShotRaw = String(req.body?.singleShot ?? '').trim().toLowerCase();
+	const singleShot = singleShotRaw === '1' || singleShotRaw === 'true' || singleShotRaw === 'yes';
+
 	if (process.env.NODE_ENV !== 'production') {
 		logger.info('[integrated-ai/stream] prompt debug', {
 			systemPromptLength: SystemPrompt.length,
 			userPromptLength: userPromptText.length,
 			customPromptIncluded,
+			singleShot,
 			userPromptPreview: String(userPromptText || '').slice(0, 300),
 		});
 	}
@@ -279,6 +283,7 @@ router.post('/stream', integratedAiRateLimit, uploadImagesWithDiagnostics, async
 		userId: req.pocketbaseUserId,
 		systemPrompt: SystemPrompt,
 		userMessage,
+		singleShot,
 	});
 
 	res.setHeader('Content-Type', 'text/event-stream');

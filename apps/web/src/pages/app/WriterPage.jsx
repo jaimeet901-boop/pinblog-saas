@@ -422,6 +422,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 			const { text } = await generateText(buildPrompt(), {
 				onChunk: setStream,
 				customPrompt: form.customPrompt,
+				singleShot: true,
 			});
 			const json = extractJson(text);
 			if (!json) throw new Error('Could not parse the AI response. Try again.');

@@ -227,31 +227,68 @@ export async function uploadImagesToPocketBase({ images }) {
 }
 
 /**
+ * Rough token estimate when the provider does not return usage (chars/4).
+ * @param {number} characterCount
+ */
+function estimateInputTokens(characterCount) {
+	const chars = Math.max(0, Number(characterCount) || 0);
+	return Math.ceil(chars / 4);
+}
+
+/**
  * Sends a message through the Admin Provider Registry text adapter (Gemini first)
  * and pipes SSE events to the client in the existing frontend contract.
- * Assistant message is saved to PocketBase when the stream ends.
+ * Assistant message is saved to PocketBase when the stream ends (unless singleShot).
  * Does not use INTEGRATED_AI_API_URL.
  *
- * @param {{ userId: string, systemPrompt: string, userMessage: ContentBlock[] }} params
+ * @param {{
+ *   userId: string,
+ *   systemPrompt: string,
+ *   userMessage: ContentBlock[],
+ *   singleShot?: boolean,
+ * }} params
  * @returns {Promise<import('node:stream').Readable>}
  */
-export async function stream({ userId, systemPrompt, userMessage }) {
-	const history = await getHistory({ userId });
+export async function stream({ userId, systemPrompt, userMessage, singleShot = false }) {
+	// Single-shot (Writer / one-off generate): system + current user turn only.
+	// Conversational callers keep shared _integratedAiMessages history.
+	const history = singleShot ? [] : await getHistory({ userId });
 	const currentUser = mapUserMessage({ message: userMessage });
 	const messages = [...history, currentUser];
 
+	const systemChars = String(systemPrompt || '').length;
+	const messagesChars = messages.reduce((sum, message) => (
+		sum + String(message?.content || '').length
+	), 0);
+	const promptCharacterCount = systemChars + messagesChars;
+	const inputTokenEstimate = estimateInputTokens(promptCharacterCount);
+
+	logger.info('[integrated-ai/stream] request size', {
+		singleShot: Boolean(singleShot),
+		historyMessagesSent: history.length,
+		promptCharacterCount,
+		inputTokenEstimate,
+		systemPromptLength: systemChars,
+		userMessageLength: String(currentUser?.content || '').length,
+	});
+
 	const passThrough = new PassThrough();
+	const startedAt = Date.now();
 
 	(async () => {
 		/** @type {SSEEventHistory[]} */
 		const contentEvents = [];
 		let providerLabel = 'text-provider';
+		let firstTokenAt = null;
 
 		try {
 			for await (const chunk of streamTextWithRegistry({
 				systemPrompt,
 				messages,
 			})) {
+				if (firstTokenAt == null) {
+					firstTokenAt = Date.now();
+				}
 				if (chunk.provider?.name || chunk.provider?.code) {
 					providerLabel = chunk.provider.name || chunk.provider.code;
 				}
@@ -265,22 +302,24 @@ export async function stream({ userId, systemPrompt, userMessage }) {
 				passThrough.write(`data: ${JSON.stringify(event)}\n\n`);
 			}
 
-			const squashedHistoryEvents = squashSSEEvents({ events: contentEvents });
-			await saveMessages({
-				userId,
-				messages: [
-					{
-						role: MessageRole.User,
-						content: userMessage,
-					},
-					{
-						role: MessageRole.Assistant,
-						content: squashedHistoryEvents,
-					},
-				],
-			}).catch((error) => {
-				logger.error('Failed to persist integrated-ai history', error);
-			});
+			if (!singleShot) {
+				const squashedHistoryEvents = squashSSEEvents({ events: contentEvents });
+				await saveMessages({
+					userId,
+					messages: [
+						{
+							role: MessageRole.User,
+							content: userMessage,
+						},
+						{
+							role: MessageRole.Assistant,
+							content: squashedHistoryEvents,
+						},
+					],
+				}).catch((error) => {
+					logger.error('Failed to persist integrated-ai history', error);
+				});
+			}
 		} catch (error) {
 			logger.error('Text provider stream failed', error);
 			const message = error?.message || 'Text generation failed';
@@ -289,6 +328,20 @@ export async function stream({ userId, systemPrompt, userMessage }) {
 				data: { content: message },
 			})}\n\n`);
 		} finally {
+			const finishedAt = Date.now();
+			logger.info('[integrated-ai/stream] generation timing', {
+				singleShot: Boolean(singleShot),
+				historyMessagesSent: history.length,
+				promptCharacterCount,
+				inputTokenEstimate,
+				requestStartedAt: new Date(startedAt).toISOString(),
+				firstTokenReceivedAt: firstTokenAt ? new Date(firstTokenAt).toISOString() : null,
+				generationFinishedAt: new Date(finishedAt).toISOString(),
+				timeToFirstTokenMs: firstTokenAt == null ? null : firstTokenAt - startedAt,
+				totalDurationMs: finishedAt - startedAt,
+				receivedContentEvents: contentEvents.length,
+			});
+
 			passThrough.end(`data: ${JSON.stringify({
 				type: SSEEventType.Completed,
 				data: { content: '[COMPLETED]' },
