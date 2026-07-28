@@ -11,6 +11,7 @@
  * Only writes changed content (sync_hash comparison).
  */
 import crypto from 'crypto';
+import { randomBytes } from 'node:crypto';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
 import { ensureWordpressIntegrationSchema } from '../utils/ensure-wordpress-integration-schema.js';
@@ -26,6 +27,7 @@ import logger from '../utils/logger.js';
 
 const DEFAULT_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const MAX_PAGES = 50;
+const SYNC_LEASE_STALE_MS = Number.parseInt(process.env.WORDPRESS_SYNC_LEASE_STALE_MS || String(30 * 60 * 1000), 10);
 
 function httpError(status, message, errorCode) {
 	const error = new Error(message);
@@ -220,23 +222,86 @@ async function listLocalWpArticles(websiteId, websiteField) {
 	return items;
 }
 
+const SYNC_CLAIMABLE_STATUSES = new Set(['', 'idle', 'success', 'partial', 'failed']);
+
+/**
+ * CAS lease for WordPress site sync — prevents concurrent duplicate syncs.
+ * Re-fetch must still hold this worker's sync_claim_token.
+ */
+export async function claimWordpressSyncLease(siteId, {
+	allowStealOlderThanMs = SYNC_LEASE_STALE_MS,
+} = {}) {
+	const current = await pocketbaseClient.collection('wordpress_sites').getOne(siteId).catch(() => null);
+	if (!current) return null;
+
+	const status = String(current.sync_status || '');
+	let canClaim = SYNC_CLAIMABLE_STATUSES.has(status);
+	if (!canClaim && status === 'running' && allowStealOlderThanMs > 0) {
+		const updatedMs = new Date(current.updated || current.last_synced_at || 0).getTime();
+		if (Number.isFinite(updatedMs) && (Date.now() - updatedMs) >= allowStealOlderThanMs) {
+			canClaim = true;
+		}
+	}
+	if (!canClaim) return null;
+
+	const claimToken = randomBytes(16).toString('hex');
+	const nextVersion = Number(current.sync_claim_version || 0) + 1;
+	const locked = await pocketbaseClient.collection('wordpress_sites').update(siteId, {
+		sync_status: 'running',
+		sync_claim_token: claimToken,
+		sync_claim_version: nextVersion,
+		last_sync_error: '',
+	}).catch(() => null);
+
+	if (!locked || String(locked.sync_status || '') !== 'running') {
+		return null;
+	}
+
+	const verified = await pocketbaseClient.collection('wordpress_sites').getOne(siteId).catch(() => null);
+	if (
+		!verified
+		|| String(verified.sync_status || '') !== 'running'
+		|| String(verified.sync_claim_token || '') !== claimToken
+	) {
+		return null;
+	}
+
+	return verified;
+}
+
 /**
  * Synchronize WordPress posts into website_articles.
  */
 export async function syncOwnedWordpressSite(ownerId, siteId, {
 	mode: rawMode = 'manual',
 	maxPages = MAX_PAGES,
+	alreadyClaimed = false,
 } = {}) {
 	await ensureWordpressIntegrationSchema(pocketbaseClient);
 	const articlesSchema = await ensureWebsiteArticlesSchema(pocketbaseClient);
 	const websiteField = articlesSchema.websiteField;
 	const statusField = articlesSchema.statusField;
 
-	const { site, username, appPassword, authType } = await resolvePublishSite({ ownerId, siteId });
-	assertWordpressHttps(site.url);
+	const { site: resolvedSite, username, appPassword, authType } = await resolvePublishSite({ ownerId, siteId });
+	assertWordpressHttps(resolvedSite.url);
+
+	let site = resolvedSite;
+	if (!alreadyClaimed) {
+		const claimed = await claimWordpressSyncLease(site.id);
+		if (!claimed) {
+			throw httpError(409, 'WordPress sync already running for this site', 'WP_SYNC_IN_PROGRESS');
+		}
+		site = claimed;
+	}
 
 	const websiteId = site.website || site.website_id || '';
 	if (!websiteId) {
+		await pocketbaseClient.collection('wordpress_sites').update(site.id, {
+			sync_status: 'failed',
+			sync_claim_token: '',
+			last_sync_error: 'WordPress site is not linked to a website record',
+			next_sync_at: nextSyncAt(),
+		}).catch(() => null);
 		throw httpError(422, 'WordPress site is not linked to a website record', 'WP_WEBSITE_MISSING');
 	}
 
@@ -259,11 +324,6 @@ export async function syncOwnedWordpressSite(ownerId, siteId, {
 	};
 
 	const run = await createSyncRun({ ownerId, site, websiteId, mode });
-
-	await pocketbaseClient.collection('wordpress_sites').update(site.id, {
-		sync_status: 'running',
-		last_sync_error: '',
-	}).catch(() => null);
 
 	const stats = {
 		fetched: 0,
@@ -399,6 +459,7 @@ export async function syncOwnedWordpressSite(ownerId, siteId, {
 			next_sync_at: nextSyncAt(new Date(finishedAt)),
 			sync_cursor: syncCursor,
 			last_sync_error: stats.errors[0] || '',
+			sync_claim_token: '',
 		}).catch(() => null);
 
 		if (websiteId) {
@@ -447,6 +508,7 @@ export async function syncOwnedWordpressSite(ownerId, siteId, {
 			sync_status: 'failed',
 			last_sync_error: error.message || String(error),
 			next_sync_at: nextSyncAt(),
+			sync_claim_token: '',
 		}).catch(() => null);
 
 		await finishSyncRun(run, {
@@ -466,6 +528,7 @@ export async function syncOwnedWordpressSite(ownerId, siteId, {
 
 /**
  * Process due scheduled WordPress syncs (next_sync_at <= now).
+ * Each site is lease-claimed before sync so concurrent ticks cannot double-run.
  */
 export async function processDueWordpressSyncs({ limit = 5 } = {}) {
 	await ensureWordpressIntegrationSchema(pocketbaseClient);
@@ -481,8 +544,16 @@ export async function processDueWordpressSyncs({ limit = 5 } = {}) {
 
 	const results = [];
 	for (const site of due.items || []) {
+		const claimed = await claimWordpressSyncLease(site.id);
+		if (!claimed) {
+			results.push({ siteId: site.id, ok: false, skipped: true, reason: 'lease_lost' });
+			continue;
+		}
 		try {
-			const result = await syncOwnedWordpressSite(site.owner, site.id, { mode: 'scheduled' });
+			const result = await syncOwnedWordpressSite(claimed.owner, claimed.id, {
+				mode: 'scheduled',
+				alreadyClaimed: true,
+			});
 			results.push({ siteId: site.id, ok: true, stats: result.stats });
 		} catch (error) {
 			results.push({ siteId: site.id, ok: false, error: error.message });

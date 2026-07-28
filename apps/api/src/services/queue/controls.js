@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import logger from '../../utils/logger.js';
 import { appendQueueEvent, httpError, updateQueueJob } from './jobs.js';
@@ -6,6 +5,8 @@ import { NATIVE_JOB_TYPES, PRIORITY_WEIGHT, nextRetryAt } from './types.js';
 import { assertSafePublicHttpUrl, safeFetch } from '../../utils/ssrf-guard.js';
 import { isQueuePaused } from './metrics.js';
 import { writeQueueAudit } from '../audit/write.js';
+import { claimJobByCas } from './claim.js';
+import { resolveTrustedNativeJobOwnership } from './job-ownership.js';
 
 async function syncSourceStatus(job, status, extra = {}) {
 	if (!job.source_collection || !job.source_id) return;
@@ -204,20 +205,23 @@ export async function claimNativeJob(jobId, workerId) {
 	if (current.source_collection) return null;
 	if (!NATIVE_JOB_TYPES.includes(current.type)) return null;
 
-	const claimToken = randomBytes(16).toString('hex');
-	const locked = await pocketbaseClient.collection('queue_jobs').update(jobId, {
-		status: 'running',
-		worker_id: workerId,
-		claim_token: claimToken,
-		claim_version: (Number(current.claim_version) || 0) + 1,
-		started_at: current.started_at || new Date().toISOString(),
-		progress: Math.max(5, Number(current.progress) || 0),
-		next_retry_at: '',
-	}).catch(() => null);
+	// CAS claim: re-fetch must still hold this worker's claim_token (multi-instance safe).
+	const verified = await claimJobByCas({
+		collection: 'queue_jobs',
+		jobId,
+		claimableStatuses: ['pending', 'queued', 'retrying'],
+		claimedStatus: 'running',
+		extraUpdate: {
+			worker_id: workerId,
+			started_at: current.started_at || new Date().toISOString(),
+			progress: Math.max(5, Number(current.progress) || 0),
+			next_retry_at: '',
+		},
+	});
 
-	if (!locked || locked.claim_token !== claimToken) return null;
-	await appendQueueEvent({ jobId, owner: locked.owner, message: `Worker ${workerId} claimed job` });
-	return locked;
+	if (!verified) return null;
+	await appendQueueEvent({ jobId, owner: verified.owner, message: `Worker ${workerId} claimed job` });
+	return verified;
 }
 
 export async function loadClaimableNativeJobs(limit = 10) {
@@ -306,6 +310,9 @@ export async function failNativeJob(job, error) {
 }
 
 export async function processNativeJob(job) {
+	// Ownership always from trusted job record + workspace DB — never payload alone.
+	const trusted = await resolveTrustedNativeJobOwnership(job);
+
 	await updateQueueJob(job.id, { progress: 35 }, `Processing ${job.type}`);
 
 	switch (job.type) {
@@ -343,6 +350,8 @@ export async function processNativeJob(job) {
 				return completeNativeJob(job, {
 					statusCode: response.status,
 					ok: response.ok,
+					owner: trusted.owner,
+					workspaceKey: trusted.workspaceKey,
 				});
 			} catch (error) {
 				throw new Error(`Webhook failed: ${error.message}`);
@@ -352,7 +361,10 @@ export async function processNativeJob(job) {
 		}
 		case 'analytics_refresh': {
 			const { refreshAnalyticsCaches } = await import('../analytics/refresh.js');
-			const result = await refreshAnalyticsCaches({ ownerId: job.owner });
+			const result = await refreshAnalyticsCaches({
+				ownerId: trusted.owner,
+				workspaceKey: trusted.workspaceKey,
+			});
 			await updateQueueJob(job.id, { progress: 90, outputs: result });
 			return completeNativeJob(job, result);
 		}

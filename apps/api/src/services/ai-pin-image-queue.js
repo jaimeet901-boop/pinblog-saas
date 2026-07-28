@@ -6,11 +6,15 @@ import { generateImagesWithProvider } from './image-providers/index.js';
 import { consumeCredits, recordGenerationHistory } from './ai-pin-credits.js';
 import {
 	buildSchemaSafeFilter,
+	clearCollectionSchemaCache,
+	extractCollectionFieldNames,
 	safeGetFullList,
 	sanitizeCollectionPayload,
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
 import { mirrorImageJob } from './queue/mirrors.js';
+import { claimJobByCas } from './queue/claim.js';
+import { assertJobPinOwnership } from './queue/job-ownership.js';
 import { isImmediateImageFallbackError } from '../constants/image-source-strategy.js';
 import { safeTransitionArticleLifecycle } from './article-lifecycle.js';
 
@@ -78,7 +82,23 @@ async function generateOpenAIImage({ apiKey, prompt }) {
 	return images[0];
 }
 
-async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' }) {
+/**
+ * Load the job's pin and assert owner + workspace match the executing job.
+ * Throws on mismatch so workers never mutate another workspace's pin.
+ */
+async function assertAndGetJobPin(job) {
+	if (!job?.ai_pin) return null;
+	const pin = await pocketbaseClient.collection('ai_pins').getOne(job.ai_pin).catch(() => null);
+	return assertJobPinOwnership(job, pin);
+}
+
+async function setJobTerminalState({
+	job,
+	status,
+	imageUrl = '',
+	lastError = '',
+	skipPinUpdate = false,
+}) {
 	const completedAt = new Date().toISOString();
 	const payload = await sanitizeCollectionPayload({
 		collection: 'ai_pin_image_jobs',
@@ -89,6 +109,7 @@ async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' 
 			last_error: lastError,
 			completed_at: completedAt,
 			next_retry_at: null,
+			claim_token: '',
 		},
 	});
 
@@ -102,14 +123,19 @@ async function setJobTerminalState({ job, status, imageUrl = '', lastError = '' 
 		completed_at: completedAt,
 	}, status === 'failed' ? 'Image generation failed' : 'Image generation completed').catch(() => null);
 
-	if (job.ai_pin) {
-		await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
-			image_url: imageUrl,
-			image_source: status === 'fallback' ? 'featured_fallback' : 'ai_generated',
-			image_generation_status: status,
-			image_generation_error: lastError,
-			image_job_id: job.id,
-		}).catch(() => null);
+	if (job.ai_pin && !skipPinUpdate) {
+		try {
+			await assertAndGetJobPin(job);
+			await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
+				image_url: imageUrl,
+				image_source: status === 'fallback' ? 'featured_fallback' : 'ai_generated',
+				image_generation_status: status,
+				image_generation_error: lastError,
+				image_job_id: job.id,
+			}).catch(() => null);
+		} catch (error) {
+			logger.error(`Refusing pin update for image job ${job.id}: ${error.message}`);
+		}
 	}
 
 	if (job.articleId) {
@@ -213,6 +239,10 @@ function readJobImageProvider(job) {
 }
 
 async function processJob(job) {
+	if (job.ai_pin) {
+		await assertAndGetJobPin(job);
+	}
+
 	const fallbackImage = normalizeText(job.featured_image_url, 1000);
 
 	if (job.image_mode === 'use_featured') {
@@ -482,6 +512,28 @@ function withTimeout(promise, ms, label) {
 	]);
 }
 
+async function claimImageJob(jobId) {
+	const current = await pocketbaseClient.collection('ai_pin_image_jobs').getOne(jobId).catch(() => null);
+	if (!current || current.status !== 'queued') {
+		return null;
+	}
+	if (current.next_retry_at && new Date(current.next_retry_at).getTime() > Date.now()) {
+		return null;
+	}
+
+	return claimJobByCas({
+		collection: 'ai_pin_image_jobs',
+		jobId,
+		claimableStatuses: ['queued'],
+		claimedStatus: 'processing',
+		sanitize: async (payload) => sanitizeCollectionPayload({
+			collection: 'ai_pin_image_jobs',
+			context: 'ai-image-queue:lock-job',
+			payload,
+		}),
+	});
+}
+
 async function processDueJobs() {
 	if (running) {
 		return;
@@ -499,24 +551,37 @@ async function processDueJobs() {
 		const dueJobs = await getDueImageJobs(now);
 
 		for (const job of dueJobs.slice(0, MAX_JOBS_PER_TICK)) {
-			const lockPayload = await sanitizeCollectionPayload({
-				collection: 'ai_pin_image_jobs',
-				context: 'ai-image-queue:lock-job',
-				payload: {
-					status: 'processing',
-				},
-			});
-
-			const locked = await pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, lockPayload).catch(() => null);
-
-			if (!locked || locked.status !== 'processing') {
+			const claimed = await claimImageJob(job.id);
+			if (!claimed) {
 				continue;
 			}
 
 			// Re-fetch full record so prompt_payload.provider is never dropped by a partial update response.
-			const fullJob = await pocketbaseClient.collection('ai_pin_image_jobs').getOne(locked.id).catch(() => locked);
+			const fullJob = await pocketbaseClient.collection('ai_pin_image_jobs').getOne(claimed.id).catch(() => claimed);
+
+			// Re-confirm CAS ownership before side effects (another instance may have overwritten the claim).
+			if (String(fullJob.claim_token || '') !== String(claimed.claim_token || '')) {
+				continue;
+			}
 
 			await mirrorImageJob(fullJob, 'Image worker claimed job').catch(() => null);
+
+			if (fullJob.ai_pin) {
+				try {
+					await assertAndGetJobPin(fullJob);
+				} catch (ownershipError) {
+					await setJobTerminalState({
+						job: fullJob,
+						status: 'failed',
+						lastError: ownershipError?.message || 'Pin ownership does not match job workspace',
+						skipPinUpdate: true,
+					});
+					failedTotal += 1;
+					lastErrorMessage = ownershipError?.message || 'Pin ownership mismatch';
+					logger.error(`AI pin image job ownership rejected: ${fullJob.id}`, ownershipError);
+					continue;
+				}
+			}
 
 			if (fullJob.articleId) {
 				const ownerId = typeof fullJob.owner === 'string' ? fullJob.owner : (fullJob.owner?.id || '');
@@ -542,6 +607,25 @@ async function processDueJobs() {
 				lastSuccessAt = new Date().toISOString();
 				logger.info(`AI pin image job completed: ${fullJob.id}`);
 			} catch (error) {
+				const ownershipCode = error?.errorCode || '';
+				if (
+					ownershipCode === 'PIN_OWNERSHIP_MISMATCH'
+					|| ownershipCode === 'PIN_WORKSPACE_MISMATCH'
+					|| ownershipCode === 'JOB_WORKSPACE_MISSING'
+					|| ownershipCode === 'PIN_NOT_FOUND'
+				) {
+					await setJobTerminalState({
+						job: fullJob,
+						status: 'failed',
+						lastError: error.message || 'Pin ownership does not match job workspace',
+						skipPinUpdate: true,
+					});
+					failedTotal += 1;
+					lastErrorMessage = error.message || 'Pin ownership mismatch';
+					logger.error(`AI pin image job ownership rejected: ${fullJob.id}`, error);
+					continue;
+				}
+
 				const nextAttempts = (fullJob.attempt_count || 0) + 1;
 				const maxAttempts = fullJob.max_attempts || 3;
 				const fallbackImage = normalizeText(fullJob.featured_image_url, 1000);
@@ -571,17 +655,23 @@ async function processDueJobs() {
 						attempt_count: nextAttempts,
 						last_error: error?.message || 'Image generation failed',
 						next_retry_at: shouldRetry ? nextRetryDate(nextAttempts) : null,
+						claim_token: '',
 					},
 				});
 
 				await pocketbaseClient.collection('ai_pin_image_jobs').update(fullJob.id, retryPayload).catch(() => null);
 
 				if (fullJob.ai_pin) {
-					await pocketbaseClient.collection('ai_pins').update(fullJob.ai_pin, {
-						image_generation_status: shouldRetry ? 'queued' : 'failed',
-						image_generation_error: error?.message || 'Image generation failed',
-						image_job_id: fullJob.id,
-					}).catch(() => null);
+					try {
+						await assertAndGetJobPin(fullJob);
+						await pocketbaseClient.collection('ai_pins').update(fullJob.ai_pin, {
+							image_generation_status: shouldRetry ? 'queued' : 'failed',
+							image_generation_error: error?.message || 'Image generation failed',
+							image_job_id: fullJob.id,
+						}).catch(() => null);
+					} catch (ownershipError) {
+						logger.error(`Refusing pin status update for image job ${fullJob.id}: ${ownershipError.message}`);
+					}
 				}
 
 				if (!shouldRetry && fullJob.articleId) {
@@ -642,6 +732,7 @@ async function recoverStuckProcessingJobs({ onlyOlderThanMs = 0 } = {}) {
 			payload: {
 				status: 'queued',
 				next_retry_at: now,
+				claim_token: '',
 				last_error: onlyOlderThanMs > 0
 					? `Recovered stuck processing job (>${Math.round(onlyOlderThanMs / 60000)}m)`
 					: 'Recovered after worker restart',
@@ -668,6 +759,31 @@ export function getAIPinImageQueueStatus() {
 	};
 }
 
+async function ensureImageJobClaimFields() {
+	try {
+		const collection = await pocketbaseClient.collections.getOne('ai_pin_image_jobs');
+		const names = extractCollectionFieldNames(collection);
+		const missing = [];
+		if (!names.has('claim_token')) {
+			missing.push({ name: 'claim_token', type: 'text', max: 120 });
+		}
+		if (!names.has('claim_version')) {
+			missing.push({ name: 'claim_version', type: 'number', min: 0 });
+		}
+		if (missing.length === 0) return;
+		const fields = Array.isArray(collection.fields)
+			? collection.fields
+			: (Array.isArray(collection.schema) ? collection.schema : []);
+		await pocketbaseClient.collections.update(collection.id, {
+			fields: [...fields, ...missing],
+		});
+		clearCollectionSchemaCache('ai_pin_image_jobs');
+		logger.info('[ai-image-queue] ensured claim_token/claim_version fields');
+	} catch (error) {
+		logger.warn('[ai-image-queue] claim field ensure skipped', { message: error?.message });
+	}
+}
+
 export function startAIPinImageQueue() {
 	if (workerTimer) {
 		return;
@@ -677,11 +793,13 @@ export function startAIPinImageQueue() {
 		processDueJobs();
 	}, POLL_INTERVAL_MS);
 
-	verifyCollectionFields({
-		collection: 'ai_pin_image_jobs',
-		requiredFields: ['status', 'created', 'next_retry_at', 'attempt_count', 'max_attempts', 'last_error'],
-		context: 'ai-image-queue:start-schema-check',
-	}).catch(() => null);
+	ensureImageJobClaimFields()
+		.then(() => verifyCollectionFields({
+			collection: 'ai_pin_image_jobs',
+			requiredFields: ['status', 'created', 'next_retry_at', 'attempt_count', 'max_attempts', 'last_error'],
+			context: 'ai-image-queue:start-schema-check',
+		}))
+		.catch(() => null);
 
 	verifyCollectionFields({
 		collection: 'websites',

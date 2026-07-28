@@ -24,6 +24,8 @@ const FALLBACK_SCHEMA_FIELDS = {
 		'next_retry_at',
 		'last_error',
 		'completed_at',
+		'claim_token',
+		'claim_version',
 		'created',
 		'updated',
 	]),

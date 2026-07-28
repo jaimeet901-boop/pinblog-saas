@@ -118,9 +118,18 @@ async function syncJobAnalytics(job) {
 	await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, payload);
 
 	if (job.ai_pin) {
-		await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
-			performance,
-		}).catch(() => null);
+		const pin = await pocketbaseClient.collection('ai_pins').getOne(job.ai_pin).catch(() => null);
+		try {
+			const { assertJobPinOwnership } = await import('./queue/job-ownership.js');
+			assertJobPinOwnership(job, pin);
+			await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
+				performance,
+			}).catch(() => null);
+		} catch (ownershipError) {
+			logger.warn(
+				`Pinterest analytics skipped pin update for job ${job.id}: ${ownershipError.message}`,
+			);
+		}
 	}
 }
 

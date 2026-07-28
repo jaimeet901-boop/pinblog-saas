@@ -29,6 +29,8 @@ function shouldEnqueuePinterest(job) {
 
 async function ensureWebsiteCatalogArticle({
 	ownerId,
+	workspaceId = '',
+	workspaceKey = '',
 	websiteId,
 	title,
 	url,
@@ -49,6 +51,8 @@ async function ensureWebsiteCatalogArticle({
 	const payload = {
 		websiteId,
 		owner: ownerId,
+		workspace: workspaceId || undefined,
+		workspace_key: workspaceKey || '',
 		url,
 		slug: String(slug || '').slice(0, 255),
 		title: String(title || '').slice(0, 500),
@@ -66,6 +70,8 @@ async function ensureWebsiteCatalogArticle({
 
 async function createWorkflowPin({
 	ownerId,
+	workspaceId = '',
+	workspaceKey = '',
 	websiteId,
 	articleId,
 	title,
@@ -79,6 +85,8 @@ async function createWorkflowPin({
 		context: 'publish-pipeline:create-pin',
 		payload: {
 			owner: ownerId,
+			workspace: workspaceId || undefined,
+			workspace_key: workspaceKey || '',
 			websiteId,
 			articleId,
 			title: String(title || 'Untitled pin').slice(0, 300),
@@ -109,6 +117,8 @@ export async function continueChefIaPublishWorkflow({
 	const workflowId = workflowIdFor(job);
 	const publishedUrl = result?.link || job.wp_post_url || '';
 	const isRetrySuccess = Number(job.attempt_count || 0) > 0;
+	const workspaceId = typeof job.workspace === 'string' ? job.workspace : (job.workspace?.id || '');
+	const workspaceKey = String(job.workspace_key || job.workspaceKey || '').trim();
 
 	await logWorkflowStep({
 		ownerId,
@@ -144,7 +154,7 @@ export async function continueChefIaPublishWorkflow({
 		},
 	});
 
-	await enqueueAnalyticsRefresh(ownerId).catch(() => null);
+	await enqueueAnalyticsRefresh(ownerId, { workspaceKey }).catch(() => null);
 
 	if (historyResult === 'published' || historyResult === 'scheduled') {
 		const { consumeFeatureCredits } = await import('./ai-pin-credits.js');
@@ -218,6 +228,8 @@ export async function continueChefIaPublishWorkflow({
 
 	const catalogArticle = await ensureWebsiteCatalogArticle({
 		ownerId,
+		workspaceId,
+		workspaceKey,
 		websiteId,
 		title: job.title,
 		url: publishedUrl || `https://pending.local/${job.id}`,
@@ -254,6 +266,8 @@ export async function continueChefIaPublishWorkflow({
 	try {
 		pin = await createWorkflowPin({
 			ownerId,
+			workspaceId,
+			workspaceKey,
 			websiteId,
 			articleId: catalogArticle.id,
 			title: job.title,
@@ -281,6 +295,8 @@ export async function continueChefIaPublishWorkflow({
 		context: 'publish-pipeline:create-pinterest-job',
 		payload: {
 			owner: ownerId,
+			workspace: workspaceId || undefined,
+			workspace_key: workspaceKey,
 			account: account.id,
 			account_label: account.label || account.account_name || account.username || '',
 			account_username: account.username || '',

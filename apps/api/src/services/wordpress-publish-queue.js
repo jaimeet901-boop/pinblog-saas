@@ -218,7 +218,8 @@ async function processJob(job) {
 
 	await writePublishHistory({
 		ownerId,
-		workspaceKey: job.workspace_key,
+		workspaceKey: job.workspace_key || '',
+		workspaceId: typeof job.workspace === 'string' ? job.workspace : (job.workspace?.id || ''),
 		siteId: site.id,
 		jobId: job.id,
 		title: job.title,
@@ -315,7 +316,8 @@ async function failOrRetry(job, error) {
 
 	await writePublishHistory({
 		ownerId: job.owner,
-		workspaceKey: job.workspace_key,
+		workspaceKey: job.workspace_key || '',
+		workspaceId: typeof job.workspace === 'string' ? job.workspace : (job.workspace?.id || ''),
 		siteId: job.site,
 		jobId: job.id,
 		title: job.title,
@@ -327,7 +329,9 @@ async function failOrRetry(job, error) {
 	});
 
 	await notifyWordpressPublishFailure({ job, error, retrying: false }).catch(() => null);
-	await enqueueAnalyticsRefresh(job.owner).catch(() => null);
+	await enqueueAnalyticsRefresh(job.owner, {
+		workspaceKey: job.workspace_key || '',
+	}).catch(() => null);
 }
 
 async function recoverStuckJobs() {

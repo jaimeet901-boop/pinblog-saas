@@ -21,6 +21,7 @@ import {
 	retryQueueJob,
 	setQueuePaused,
 } from '../../services/queue/index.js';
+import { resolveTrustedEnqueueOwnership } from '../../services/queue/job-ownership.js';
 
 const router = Router();
 
@@ -141,11 +142,20 @@ router.get('/jobs/:id/events', asyncHandler(async (req, res) => {
 
 router.post('/jobs', asyncHandler(async (req, res) => {
 	const body = req.body || {};
-	const owner = body.owner || req.adminUser?.id;
-	if (!owner) throw httpError(422, 'owner is required', 'VALIDATION_ERROR');
-	const job = await enqueueJob({
-		owner,
+	// Ownership is derived from trusted workspace records / authenticated admin — never body.owner.
+	const ownership = await resolveTrustedEnqueueOwnership({
+		adminUserId: req.adminUser?.id || '',
+		workspaceId: body.workspaceId || '',
 		workspaceKey: body.workspaceKey || body.workspace || '',
+	});
+	const forgedOwner = body.owner != null && String(body.owner).trim() !== ''
+		&& String(body.owner).trim() !== String(ownership.owner);
+	if (forgedOwner) {
+		throw httpError(422, 'Forged owner is not allowed', 'FORGED_OWNERSHIP');
+	}
+	const job = await enqueueJob({
+		owner: ownership.owner,
+		workspaceKey: ownership.workspaceKey,
 		type: body.type,
 		priority: body.priority || 'normal',
 		payload: body.payload || body.inputs || {},

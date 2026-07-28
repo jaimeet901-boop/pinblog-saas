@@ -363,7 +363,9 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 	}
 
 	const { enqueueAnalyticsRefresh } = await import('../services/analytics/refresh.js');
-	await enqueueAnalyticsRefresh(owner).catch(() => null);
+	await enqueueAnalyticsRefresh(owner, {
+		workspaceKey: req?.workspaceKey || req?.workspace?.workspace_key || '',
+	}).catch(() => null);
 
 	return jobs;
 }
@@ -1111,7 +1113,9 @@ router.patch('/jobs/:jobId', async (req, res) => {
 	});
 
 	const { enqueueAnalyticsRefresh } = await import('../services/analytics/refresh.js');
-	await enqueueAnalyticsRefresh(owner).catch(() => null);
+	await enqueueAnalyticsRefresh(owner, {
+		workspaceKey: req.workspaceKey || req.workspace?.workspace_key || job.workspace_key || '',
+	}).catch(() => null);
 
 	res.json(mapJob(updated));
 });

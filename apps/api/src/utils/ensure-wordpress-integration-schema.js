@@ -115,6 +115,8 @@ export async function ensureWordpressIntegrationSchema(pocketbaseClient) {
 			buildJsonField('sync_cursor', 100000),
 			buildSelectField('sync_status', ['idle', 'running', 'success', 'failed', 'partial']),
 			buildTextField('last_sync_error', { max: 3000 }),
+			buildTextField('sync_claim_token', { max: 80 }),
+			buildNumberField('sync_claim_version'),
 		]);
 	}
 

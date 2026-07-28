@@ -7,10 +7,7 @@ import { mirrorWordpressJob } from './queue/mirrors.js';
 import { newWorkflowId } from './publish-pipeline.js';
 import { logWorkflowStep } from './workspace-notify.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
-
-function workspaceKeyFor(userId) {
-	return String(userId || '').trim();
-}
+import { resolveJobCreateStamps } from './queue/job-ownership.js';
 
 function asStringArray(value) {
 	if (!value) return [];
@@ -70,12 +67,29 @@ export function mapPublishHistory(row) {
 	};
 }
 
-export async function enqueueWordpressPublish(ownerId, payload = {}) {
+export async function enqueueWordpressPublish(ownerOrCtx, payload = {}) {
+	const ctx = typeof ownerOrCtx === 'string'
+		? { ownerId: ownerOrCtx, workspaceId: '', workspaceKey: '' }
+		: {
+			ownerId: ownerOrCtx?.ownerId || '',
+			workspaceId: ownerOrCtx?.workspaceId || '',
+			workspaceKey: ownerOrCtx?.workspaceKey || '',
+		};
+	const ownerId = String(ctx.ownerId || '').trim();
+	if (!ownerId) throw httpError(422, 'owner is required', 'VALIDATION_ERROR');
+
 	const siteId = payload.siteId || payload.websiteId;
 	const { site } = await resolvePublishSite({
 		ownerId,
 		siteId,
 		websiteId: payload.websiteId,
+	});
+
+	const stamps = await resolveJobCreateStamps({
+		ownerId,
+		workspaceId: ctx.workspaceId,
+		workspaceKey: ctx.workspaceKey,
+		site,
 	});
 
 	const title = String(payload.title || '').trim();
@@ -111,8 +125,9 @@ export async function enqueueWordpressPublish(ownerId, payload = {}) {
 		context: 'wordpress:enqueue-publish',
 		requiredKeys: ['owner', 'site', 'title', 'content', 'wp_status', 'status'],
 		payload: {
-			owner: ownerId,
-			workspace_key: workspaceKeyFor(ownerId),
+			owner: stamps.owner || ownerId,
+			workspace: stamps.workspace || undefined,
+			workspace_key: stamps.workspace_key || '',
 			site: site.id,
 			article_id: payload.articleId || payload.article_id || '',
 			title,
@@ -259,6 +274,7 @@ export async function listPublishHistory(ownerId, query = {}) {
 export async function writePublishHistory({
 	ownerId,
 	workspaceKey,
+	workspaceId,
 	siteId,
 	jobId,
 	title,
@@ -273,7 +289,8 @@ export async function writePublishHistory({
 }) {
 	return pocketbaseClient.collection('publish_history').create({
 		owner: ownerId,
-		workspace_key: workspaceKey,
+		workspace: workspaceId || undefined,
+		workspace_key: workspaceKey || '',
 		site: siteId,
 		job: jobId,
 		title,

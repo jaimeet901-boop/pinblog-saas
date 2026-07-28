@@ -223,7 +223,11 @@ router.post('/sync/process-due', requireAdmin, async (req, res) => {
 });
 
 router.post('/publish', async (req, res) => {
-	const job = await enqueueWordpressPublish(req.pocketbaseUserId, {
+	const job = await enqueueWordpressPublish({
+		ownerId: req.workspaceOwnerId || req.pocketbaseUserId,
+		workspaceId: req.workspace?.id || '',
+		workspaceKey: req.workspaceKey || '',
+	}, {
 		...(req.body || {}),
 		status: req.body?.status || 'publish',
 	});
@@ -245,7 +249,11 @@ router.post('/schedule', async (req, res) => {
 	if (!scheduledAt) {
 		return res.status(422).json({ message: 'scheduledAt is required', errorCode: 'VALIDATION_ERROR' });
 	}
-	const job = await enqueueWordpressPublish(req.pocketbaseUserId, {
+	const job = await enqueueWordpressPublish({
+		ownerId: req.workspaceOwnerId || req.pocketbaseUserId,
+		workspaceId: req.workspace?.id || '',
+		workspaceKey: req.workspaceKey || '',
+	}, {
 		...(req.body || {}),
 		status: 'future',
 		scheduledAt,

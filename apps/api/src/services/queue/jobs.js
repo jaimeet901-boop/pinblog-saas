@@ -39,36 +39,41 @@ export async function appendQueueEvent({ jobId, owner, level = 'info', message, 
 }
 
 export async function resolveWorkspaceMeta(ownerId, workspaceKey = '') {
-	const key = String(workspaceKey || ownerId || '').trim();
-	if (!key) {
-		return { workspace: null, workspace_key: '', workspace_label: '—' };
+	const key = String(workspaceKey || '').trim();
+	if (key) {
+		const byKey = await pocketbaseClient.collection('workspaces').getFirstListItem(
+			pocketbaseClient.filter('workspace_key = {:key}', { key }),
+			{ requestKey: null },
+		).catch(() => null);
+		if (byKey) {
+			return {
+				workspace: byKey.id,
+				workspace_key: byKey.workspace_key || key,
+				workspace_label: byKey.name || byKey.slug || key,
+			};
+		}
 	}
-	const byKey = await pocketbaseClient.collection('workspaces').getFirstListItem(
-		pocketbaseClient.filter('workspace_key = {:key}', { key }),
-		{ requestKey: null },
-	).catch(() => null);
-	if (byKey) {
-		return {
-			workspace: byKey.id,
-			workspace_key: byKey.workspace_key || key,
-			workspace_label: byKey.name || byKey.slug || key,
-		};
+
+	const owner = String(ownerId || '').trim();
+	if (owner) {
+		const byOwner = await pocketbaseClient.collection('workspaces').getFirstListItem(
+			pocketbaseClient.filter('owner = {:owner}', { owner }),
+			{ requestKey: null },
+		).catch(() => null);
+		if (byOwner) {
+			return {
+				workspace: byOwner.id,
+				workspace_key: String(byOwner.workspace_key || '').trim(),
+				workspace_label: byOwner.name || byOwner.slug || byOwner.workspace_key || '—',
+			};
+		}
 	}
-	const byOwner = await pocketbaseClient.collection('workspaces').getFirstListItem(
-		pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
-		{ requestKey: null },
-	).catch(() => null);
-	if (byOwner) {
-		return {
-			workspace: byOwner.id,
-			workspace_key: byOwner.workspace_key || key,
-			workspace_label: byOwner.name || byOwner.slug || key,
-		};
-	}
+
+	// Do not forge workspace_key from owner id.
 	return {
 		workspace: null,
 		workspace_key: key,
-		workspace_label: key,
+		workspace_label: key || '—',
 	};
 }
 

@@ -421,7 +421,9 @@ async function processJob(job) {
 		metadata: { pinterestPinId, pinterestPinUrl, workflowId: job.workflow_id || '' },
 	}).catch(() => null);
 
-	await enqueueAnalyticsRefresh(owner).catch(() => null);
+	await enqueueAnalyticsRefresh(owner, {
+		workspaceKey: job.workspace_key || '',
+	}).catch(() => null);
 }
 
 function isRetryDue(job, nowMs) {
@@ -621,7 +623,9 @@ async function processDueJobs() {
 							force: true,
 						});
 					}
-					await enqueueAnalyticsRefresh(locked.owner).catch(() => null);
+					await enqueueAnalyticsRefresh(locked.owner, {
+						workspaceKey: locked.workspace_key || '',
+					}).catch(() => null);
 				}
 			}
 		}
