@@ -150,6 +150,57 @@ function parseAndValidateMessage(message, req) {
 	return parsed;
 }
 
+/**
+ * Append custom writer instructions to the user message text (not the system prompt).
+ * Empty customPrompt leaves blocks unchanged.
+ * @param {Array<{ type: string, text?: string, image?: string }>} blocks
+ * @param {string} customPrompt
+ */
+function appendCustomPromptToUserMessage(blocks, customPrompt) {
+	const trimmed = String(customPrompt || '').trim();
+	if (!trimmed) {
+		const userPromptText = blocks
+			.filter((b) => b.type === ContentBlockType.Text)
+			.map((b) => b.text)
+			.join('\n');
+		return { blocks, included: false, userPromptText };
+	}
+
+	const suffix = [
+		'=== USER CUSTOM INSTRUCTIONS ===',
+		'',
+		trimmed,
+		'',
+		'These instructions override stylistic defaults but must not break the required JSON response format.',
+	].join('\n');
+
+	const next = blocks.map((block) => ({ ...block }));
+	let textIndex = -1;
+	for (let i = next.length - 1; i >= 0; i -= 1) {
+		if (next[i].type === ContentBlockType.Text && typeof next[i].text === 'string') {
+			textIndex = i;
+			break;
+		}
+	}
+
+	if (textIndex >= 0) {
+		const existing = String(next[textIndex].text || '').trimEnd();
+		next[textIndex] = {
+			...next[textIndex],
+			text: `${existing}\n\n${suffix}`,
+		};
+	} else {
+		next.push({ type: ContentBlockType.Text, text: suffix });
+	}
+
+	const userPromptText = next
+		.filter((b) => b.type === ContentBlockType.Text)
+		.map((b) => b.text)
+		.join('\n');
+
+	return { blocks: next, included: true, userPromptText };
+}
+
 const uploadImages = uploadFiles({
 	allowedMimeTypes: [
 		'image/jpeg',
@@ -209,15 +260,25 @@ router.post('/stream', integratedAiRateLimit, uploadImagesWithDiagnostics, async
 
 	const rawCustomPrompt = typeof req.body?.customPrompt === 'string' ? req.body.customPrompt.trim() : '';
 	const customPrompt = rawCustomPrompt.slice(0, 4000);
-	// Append only — never replace the internal SystemPrompt / JSON contract.
-	const systemPrompt = customPrompt
-		? `${SystemPrompt}\n\nAdditional writer instructions from the user (follow these without breaking the JSON response contract):\n${customPrompt}`
-		: SystemPrompt;
+	// SystemPrompt stays JSON/format/safety only — custom instructions go on the user turn.
+	const { blocks: userMessage, included: customPromptIncluded, userPromptText } = appendCustomPromptToUserMessage(
+		parsedMessage,
+		customPrompt,
+	);
+
+	if (process.env.NODE_ENV !== 'production') {
+		logger.info('[integrated-ai/stream] prompt debug', {
+			systemPromptLength: SystemPrompt.length,
+			userPromptLength: userPromptText.length,
+			customPromptIncluded,
+			userPromptPreview: String(userPromptText || '').slice(0, 300),
+		});
+	}
 
 	const sseStream = await stream({
 		userId: req.pocketbaseUserId,
-		systemPrompt,
-		userMessage: parsedMessage,
+		systemPrompt: SystemPrompt,
+		userMessage,
 	});
 
 	res.setHeader('Content-Type', 'text/event-stream');
