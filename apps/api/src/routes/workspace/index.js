@@ -28,8 +28,6 @@ import {
 } from '../../services/workspace-templates.js';
 import {
 	listGalleryTemplates,
-	listPinTemplateLibrary,
-	listPinTemplateLibraryAllPages,
 	getPinTemplate,
 	touchPinTemplate,
 	setPinTemplateStatus,
