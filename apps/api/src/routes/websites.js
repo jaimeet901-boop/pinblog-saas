@@ -7,7 +7,18 @@ import { scanWebsiteArticles, countWebsiteArticles, listWebsiteArticles, repairO
 import { getCache, setCache } from '../utils/cache.js';
 import { safeGetFullList, extractCollectionFieldNames } from '../utils/pocketbase-safe-query.js';
 import { ensureWebsiteArticlesSchema } from '../utils/ensure-website-articles-schema.js';
+import { ensureWebsiteLifecycleSchema } from '../utils/ensure-website-lifecycle-schema.js';
 import { getWebsitesControlCenter, getWebsiteDashboard } from '../services/website-control-center.js';
+import {
+	assertDomainAvailableInWorkspace,
+	disconnectWebsite,
+	isWebsiteActive,
+	mapWebsiteLifecycleFields,
+	permanentlyDeleteWebsite,
+	reconnectWebsite,
+	resetWebsite,
+} from '../services/website-lifecycle.js';
+import { writeAuditLog } from '../services/audit/write.js';
 import articleLifecycleRouter from './article-lifecycle.js';
 import { assertSafePublicHttpUrl, safeFetch } from '../utils/ssrf-guard.js';
 
@@ -41,9 +52,11 @@ function sanitizeUrlInput(value) {
 		.trim();
 }
 
-function httpError(status, message) {
+function httpError(status, message, errorCode = null, details = null) {
 	const error = new Error(message);
 	error.status = status;
+	if (errorCode) error.errorCode = errorCode;
+	if (details) error.details = details;
 	return error;
 }
 
@@ -441,6 +454,7 @@ function mapWebsite(site) {
 		updated: site.updated,
 		has_wp_app_password: hasPassword,
 		is_password_encrypted: isEncryptedSecret(site.wp_app_password),
+		...mapWebsiteLifecycleFields(site),
 	};
 }
 
@@ -508,6 +522,10 @@ async function getOwnedWebsite({ websiteId, req }) {
 		throw error;
 	}
 
+	if (!isWebsiteActive(siteById)) {
+		throw httpError(404, 'Website not found', 'WEBSITE_REMOVED');
+	}
+
 	logger.info('Website access granted', {
 		websiteId,
 		authenticatedUserId: userId,
@@ -572,7 +590,8 @@ router.post('/metadata', async (req, res) => {
 	res.json(metadata);
 });
 
-async function listOwnedWebsites({ req }) {
+async function listOwnedWebsites({ req, includeRemoved = false }) {
+	await ensureWebsiteLifecycleSchema(pocketbaseClient).catch(() => null);
 	const websitesSchema = await resolveWebsitesSchema();
 	const ownerField = websitesSchema.ownerField || 'owner';
 	const { workspaceScopeFilter, getWorkspaceActor } = await import('../services/workspace-ownership.js');
@@ -594,6 +613,10 @@ async function listOwnedWebsites({ req }) {
 		if (!actor.workspaceId && siteOwner === (actor.workspaceOwnerId || actor.creatorId)) return true;
 		return false;
 	});
+
+	if (!includeRemoved) {
+		owned = owned.filter((site) => isWebsiteActive(site));
+	}
 
 	return owned.map(mapWebsite);
 }
@@ -908,6 +931,29 @@ router.post('/', async (req, res) => {
 	const username = normalizeOptionalString(req.body?.wp_username, 'wp_username', 120);
 	const password = normalizeOptionalString(req.body?.wp_app_password, 'wp_app_password', 500);
 
+	await ensureWebsiteLifecycleSchema(pocketbaseClient).catch(() => null);
+
+	try {
+		await assertDomainAvailableInWorkspace({
+			req,
+			domain,
+			url: normalizedWebsiteUrl,
+		});
+	} catch (error) {
+		if (error?.errorCode === 'WEBSITE_DOMAIN_DISCONNECTED' && error?.details?.websiteId) {
+			const reconnected = await reconnectWebsite({ req, websiteId: error.details.websiteId });
+			ensureWordpressSiteFromWebsite(reconnected.website, req.pocketbaseUserId, {
+				authType: req.body?.authType || req.body?.auth_type || 'application_password',
+				req,
+			}).catch(() => null);
+			return res.status(200).json({
+				...mapWebsite(reconnected.website),
+				reconnected: true,
+			});
+		}
+		throw error;
+	}
+
 	logger.info('Website create normalized fields', {
 		authenticatedUserId: req.pocketbaseUserId,
 		requestedUrl,
@@ -928,6 +974,7 @@ router.post('/', async (req, res) => {
 		...(password ? { wp_app_password: encryptSecret(password) } : {}),
 		[websitesSchema.statusField]: 'active',
 		[websitesSchema.discoveryStatusField]: 'pending',
+		lifecycle_state: 'active',
 	};
 
 	const { getWorkspaceActor } = await import('../services/workspace-ownership.js');
@@ -998,6 +1045,22 @@ router.post('/', async (req, res) => {
 	});
 
 	res.status(201).json(mapWebsite(persistedRecord));
+	await writeAuditLog({
+		category: 'workspace',
+		uiCategory: 'System',
+		severity: 'success',
+		action: 'create',
+		message: 'Website created',
+		actorUserId: req.pocketbaseUserId,
+		actorLabel: req.pocketbaseUserId || 'user',
+		workspaceId: actor.workspaceId,
+		workspaceKey: actor.workspaceKey || actor.workspaceId,
+		service: 'Website Lifecycle',
+		resourceType: 'website',
+		resourceId: persistedRecord.id,
+		result: 'success',
+		metadata: { domain },
+	});
 	ensureWordpressSiteFromWebsite(persistedRecord, req.pocketbaseUserId, {
 		authType: req.body?.authType || req.body?.auth_type || 'application_password',
 		req,
@@ -1255,15 +1318,63 @@ router.patch('/:websiteId', async (req, res) => {
 	res.json(mapWebsite(updated));
 });
 
+router.post('/:websiteId/disconnect', async (req, res) => {
+	const result = await disconnectWebsite({ req, websiteId: req.params.websiteId });
+	res.json({
+		ok: true,
+		mode: 'disconnect',
+		alreadyDisconnected: Boolean(result.alreadyDisconnected),
+		website: mapWebsite(result.website),
+	});
+});
+
+router.post('/:websiteId/reconnect', async (req, res) => {
+	const result = await reconnectWebsite({ req, websiteId: req.params.websiteId });
+	ensureWordpressSiteFromWebsite(result.website, req.pocketbaseUserId, {
+		authType: req.body?.authType || req.body?.auth_type || 'application_password',
+		req,
+	}).catch(() => null);
+	res.json({
+		ok: true,
+		mode: 'reconnect',
+		website: mapWebsite(result.website),
+	});
+});
+
+/**
+ * Reset Website:
+ * - re-activates identity
+ * - marks discovery_status=pending
+ * - cancels unfinished queue work (keeps history)
+ */
+router.post('/:websiteId/reset', async (req, res) => {
+	const result = await resetWebsite({ req, websiteId: req.params.websiteId });
+	res.json({
+		ok: true,
+		mode: 'reset',
+		website: mapWebsite(result.website),
+	});
+});
+
+/**
+ * Permanent delete only.
+ * Existing UI confirms via its dialog; it does not send confirmDomain.
+ * For safety, confirmDomain is enforced when provided by the caller.
+ */
 router.delete('/:websiteId', async (req, res) => {
-	const site = await getOwnedWebsite({ websiteId: req.params.websiteId, req });
-	const { andWorkspaceScope: andWsScope } = await import('../services/workspace-ownership.js');
-	const linked = await pocketbaseClient.collection('wordpress_sites').getFullList({
-		filter: andWsScope(req, pocketbaseClient.filter('website = {:website}', { website: site.id })),
-		requestKey: null,
-	}).catch(() => []);
-	await Promise.all(linked.map((item) => pocketbaseClient.collection('wordpress_sites').delete(item.id).catch(() => null)));
-	await pocketbaseClient.collection('websites').delete(site.id);
+	const confirmDomain = String(
+		req.body?.confirmDomain
+		|| req.query?.confirmDomain
+		|| req.headers['x-confirm-domain']
+		|| '',
+	).trim();
+
+	await permanentlyDeleteWebsite({
+		req,
+		websiteId: req.params.websiteId,
+		confirmDomain,
+	});
+
 	res.status(204).send();
 });
 

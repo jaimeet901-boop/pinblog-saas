@@ -358,10 +358,17 @@ export default function WebsitesPage() {
 		}
 	};
 
-	const remove = async (id) => {
+	const remove = async (site) => {
+		const id = site?.id;
+		const confirmDomain = String(site?.domain || site?.url || site?.name || '').trim();
 		if (!confirm('Delete this website?')) return;
+		if (!id) return;
 		try {
-			const res = await apiServerClient.fetch(`/websites/${id}`, { method: 'DELETE' });
+			const res = await apiServerClient.fetch(`/websites/${id}`, {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ confirmDomain }),
+			});
 
 			if (!res.ok) {
 				throw new Error(await readErrorMessage(res, `Failed to delete website (${res.status})`));
@@ -564,7 +571,7 @@ export default function WebsitesPage() {
 											{testing === s.id ? <Spinner className="h-3.5 w-3.5" /> : <Plug size={14} />} Test Connection
 										</Button>
 										<Button size="sm" variant="ghost" onClick={openSettings}>Settings</Button>
-										<Button size="sm" variant="ghost" onClick={() => remove(s.id)}><Trash2 size={14} className="text-destructive" /></Button>
+										<Button size="sm" variant="ghost" onClick={() => remove(s)}><Trash2 size={14} className="text-destructive" /></Button>
 									</div>
 								</Card>
 							);
