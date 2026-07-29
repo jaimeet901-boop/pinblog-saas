@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Globe, Plus, Trash2, Plug, X } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
+import { notifyWebsitesChanged } from '@/lib/websites/websitesChanged';
 import { Card, PageHeader, Button, Input, Badge, Empty, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 
@@ -333,12 +334,18 @@ export default function WebsitesPage() {
 			}
 
 			const savedSite = await res.json();
+			if (!savedSite?.id) {
+				throw new Error('Website save succeeded but returned an invalid record.');
+			}
 
 			if (mode === 'edit') {
 				setSites((prev) => prev.map((site) => (site.id === savedSite.id ? savedSite : site)));
 			} else {
 				setSites((prev) => [savedSite, ...prev]);
 			}
+
+			// Success-only: never emit on failed/cancelled create/update/reconnect.
+			notifyWebsitesChanged({ reason: mode === 'edit' ? 'update' : 'create', websiteId: savedSite.id });
 
 			setModal(null);
 			setUrlError('');
@@ -375,6 +382,8 @@ export default function WebsitesPage() {
 			}
 
 			setSites((prev) => prev.filter((site) => site.id !== id));
+			// Success-only: never emit on failed/cancelled delete.
+			notifyWebsitesChanged({ reason: 'delete', websiteId: id });
 			toast({ title: 'Deleted', description: 'Website removed.' });
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Error', description: err?.message || 'Failed to delete website.' });

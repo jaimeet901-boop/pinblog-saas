@@ -9,6 +9,7 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import { generateText, extractJson } from '@/lib/aiGenerate';
 import { uploadImageBlob } from '@/services/ai-pins/imageLifecycle';
+import { useWorkspaceWebsites } from '@/hooks/useWorkspaceWebsites';
 import { Badge, Button, Input, Select, Textarea, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import './WriterPage.css';
@@ -281,8 +282,11 @@ export default function WriterPage() {
 	const [articleBaseline, setArticleBaseline] = useState(null);
 	const [saving, setSaving] = useState(false);
 	const [publishing, setPublishing] = useState(false);
-	const [sites, setSites] = useState([]);
-	const [siteId, setSiteId] = useState('');
+	const {
+		websites: sites,
+		websiteId: siteId,
+		setWebsiteId: setSiteId,
+	} = useWorkspaceWebsites();
 	const [recentDrafts, setRecentDrafts] = useState([]);
 	const [history, setHistory] = useState([]);
 	const [genStep, setGenStep] = useState(0);
@@ -303,21 +307,6 @@ export default function WriterPage() {
 	const galleryInputRef = useRef(null);
 	const replaceGalleryInputRef = useRef(null);
 	const replaceGalleryIndexRef = useRef(-1);
-
-	useEffect(() => {
-		(async () => {
-			try {
-				const response = await apiServerClient.fetch('/websites', { method: 'GET' });
-				const payload = await response.json().catch(() => ([]));
-				const rows = Array.isArray(payload) ? payload : (payload.items || []);
-				setSites(rows);
-				const connected = rows.find((r) => r.status === 'connected' || r.status === 'active') || rows[0];
-				if (connected) setSiteId(connected.id);
-			} catch {
-				setSites([]);
-			}
-		})();
-	}, []);
 
 	const loadRecentDrafts = async () => {
 		try {

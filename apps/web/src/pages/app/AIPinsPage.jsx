@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
 	Wand2, Sparkles, RefreshCw, Trash2, Pencil, Search, Globe, Send, CalendarClock,
 	CheckSquare, Square, Download, Image as ImageIcon, Images, Layers, Shuffle,
@@ -40,6 +40,7 @@ import {
 	resolveDefaultTextProvider,
 	resolvePublishingConfig,
 } from '@/lib/aiPinsWorkspaceConfig';
+import { useWorkspaceWebsites } from '@/hooks/useWorkspaceWebsites';
 import {
 	normalizeImageSourceStrategy,
 	pickArticleImageUrl,
@@ -136,31 +137,6 @@ function parsePinsFromText(text) {
 	return [];
 }
 
-/** Normalize GET /websites payload into unique website records (never article rows). */
-function normalizeWebsiteList(payload) {
-	const rows = Array.isArray(payload)
-		? payload
-		: (Array.isArray(payload?.items) ? payload.items : []);
-	const seen = new Set();
-	const websites = [];
-
-	for (const row of rows) {
-		if (!row || typeof row !== 'object') continue;
-		const id = String(row.id || '').trim();
-		if (!id || seen.has(id)) continue;
-
-		// Article-shaped rows have title + websiteId and no website domain/url name fields.
-		const looksLikeArticle = Boolean(row.title) && Boolean(row.websiteId)
-			&& !row.domain && !row.url && !row.name;
-		if (looksLikeArticle) continue;
-
-		seen.add(id);
-		websites.push(row);
-	}
-
-	return websites;
-}
-
 /** Prefer domain/URL — website.name is often the scraped HTML page title. */
 function websiteOptionLabel(website) {
 	const domain = String(website?.domain || '').trim();
@@ -212,8 +188,16 @@ export default function AIPinsPage() {
 
 	const previousStatusesRef = useRef(new Map());
 	const defaultsAppliedRef = useRef(false);
-	const [websites, setWebsites] = useState([]);
-	const [websiteId, setWebsiteId] = useState('');
+	const [searchParams] = useSearchParams();
+	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
+	const {
+		websites,
+		websiteId,
+		setWebsiteId,
+		loading: loadingWebsites,
+		error: websitesError,
+		isSelectionValid,
+	} = useWorkspaceWebsites({ preferredId: preferredWebsiteId });
 	const [articles, setArticles] = useState([]);
 	const [articleCategories, setArticleCategories] = useState([]);
 	const [articleSearch, setArticleSearch] = useState('');
@@ -226,7 +210,6 @@ export default function AIPinsPage() {
 	const [savingManual, setSavingManual] = useState(false);
 	const [activeArticleId, setActiveArticleId] = useState('');
 	const [selectedArticleIds, setSelectedArticleIds] = useState(new Set());
-	const [loadingWebsites, setLoadingWebsites] = useState(true);
 	const [loadingArticles, setLoadingArticles] = useState(false);
 	const [loadingPins, setLoadingPins] = useState(false);
 	const [generating, setGenerating] = useState(false);
@@ -565,31 +548,8 @@ export default function AIPinsPage() {
 		[websites, websiteId],
 	);
 
-	const loadWebsites = async () => {
-		setLoadingWebsites(true);
-		try {
-			const response = await apiServerClient.fetch('/websites', { method: 'GET' });
-			const payload = await response.json().catch(() => []);
-			if (!response.ok) {
-				throw new Error(payload?.message || `Failed to load websites (${response.status})`);
-			}
-			const next = normalizeWebsiteList(payload);
-			setWebsites(next);
-			if (next.length > 0) {
-				setWebsiteId((prev) => {
-					if (prev && next.some((site) => site.id === prev)) return prev;
-					return next[0].id;
-				});
-			}
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Error', description: error.message });
-		} finally {
-			setLoadingWebsites(false);
-		}
-	};
-
 	const loadArticles = async () => {
-		if (!websiteId) {
+		if (!isSelectionValid) {
 			setArticles([]);
 			setArticleCategories([]);
 			setArticleTotalPages(1);
@@ -666,7 +626,7 @@ export default function AIPinsPage() {
 	};
 
 	const loadPins = async () => {
-		if (!websiteId) {
+		if (!isSelectionValid) {
 			setSavedPins([]);
 			return;
 		}
@@ -842,20 +802,25 @@ export default function AIPinsPage() {
 	};
 
 	useEffect(() => {
-		loadWebsites();
 		loadAccounts();
 		loadReferenceImages();
 	}, []);
+
+	useEffect(() => {
+		if (!websitesError) return;
+		toast({ variant: 'destructive', title: 'Error', description: websitesError });
+	}, [websitesError]);
 
 	useEffect(() => {
 		loadBoards();
 	}, [selectedAccountId]);
 
 	useEffect(() => {
+		if (loadingWebsites) return;
 		setArticlePage(1);
 		loadArticles();
 		loadPins();
-	}, [websiteId]);
+	}, [websiteId, isSelectionValid, loadingWebsites]);
 
 	useEffect(() => {
 		if (!hasValidConfig) return;
@@ -864,7 +829,7 @@ export default function AIPinsPage() {
 	}, [hasValidConfig, publishingConfig.timezone, configVersion]);
 
 	useEffect(() => {
-		if (!websiteId) {
+		if (!isSelectionValid) {
 			return;
 		}
 
@@ -873,20 +838,22 @@ export default function AIPinsPage() {
 		}, 20000);
 
 		return () => clearInterval(interval);
-	}, [websiteId]);
+	}, [websiteId, isSelectionValid]);
 
 	useEffect(() => {
+		if (!isSelectionValid || loadingWebsites) return;
 		loadArticles();
-	}, [articlePage, articleStatus, articleCategory]);
+	}, [articlePage, articleStatus, articleCategory, isSelectionValid, loadingWebsites]);
 
 	useEffect(() => {
+		if (!isSelectionValid || loadingWebsites) return;
 		const timeout = setTimeout(() => {
 			setArticlePage(1);
 			loadArticles();
 		}, 250);
 
 		return () => clearTimeout(timeout);
-	}, [articleSearch]);
+	}, [articleSearch, isSelectionValid, loadingWebsites]);
 
 	useEffect(() => {
 		if (!activeArticle) {
