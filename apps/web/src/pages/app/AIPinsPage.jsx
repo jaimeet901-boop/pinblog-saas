@@ -17,7 +17,11 @@ import SchedulePinModal from '@/components/ai-pins/SchedulePinModal';
 import PreviewPinModal from '@/components/ai-pins/PreviewPinModal';
 import PublishProgressModal from '@/components/ai-pins/PublishProgressModal';
 import PinTemplateChooser from '@/components/ai-pins/PinTemplateChooser';
-import { buildLocalPinsFromArticle } from '@/lib/featuredPinLocal';
+import {
+	PIN_COPY_SOURCE,
+	resolveStudioPinCopy,
+	withUpdatedImageSourceMeta,
+} from '@/lib/aiPinsPinCopy';
 import {
 	assignIntelligentPinDesigns,
 	applyIntelligentTemplateConfig,
@@ -1123,6 +1127,15 @@ export default function AIPinsPage() {
 						: job.status === 'fallback'
 							? 'featured_fallback'
 							: pin.imageSource,
+					generationMeta: (job.status === 'completed' || job.status === 'fallback')
+						? withUpdatedImageSourceMeta(
+							pin.generationMeta || {
+								copySource: pin.copySource,
+								fallbackReason: pin.fallbackReason,
+							},
+							job.status === 'completed' ? 'ai_generated' : 'featured_fallback',
+						)
+						: pin.generationMeta,
 				};
 			}));
 
@@ -1205,6 +1218,14 @@ export default function AIPinsPage() {
 				...pin,
 				imageUrl: result.imageUrl,
 				imageSource: result.imageSource || imageSource,
+				generationMeta: withUpdatedImageSourceMeta(
+					pin.generationMeta || {
+						copySource: pin.copySource,
+						imageSource: pin.generationMeta?.imageSource,
+						fallbackReason: pin.fallbackReason,
+					},
+					result.imageSource || imageSource,
+				),
 				imageGenerationStatus: 'completed',
 				imageGenerationError: result.hosted === false ? (result.error || '') : '',
 			};
@@ -1338,6 +1359,15 @@ export default function AIPinsPage() {
 						imageOrigin: input._usedArticleFallback || input._aiStatus === 'fallback'
 							? (input.fallbackImageOrigin || 'featured')
 							: 'ai',
+						generationMeta: withUpdatedImageSourceMeta(
+							pin.generationMeta || {
+								copySource: pin.copySource,
+								fallbackReason: pin.fallbackReason,
+							},
+							input._usedArticleFallback || input._aiStatus === 'fallback'
+								? 'featured_fallback'
+								: 'ai_generated',
+						),
 						imageGenerationStatus: 'completed',
 						imageGenerationError: input._usedArticleFallback
 							? (input._aiError || 'AI unavailable — used article image with selected template.')
@@ -1425,32 +1455,21 @@ export default function AIPinsPage() {
 	};
 
 	const generatePinsForArticle = async (article, count, panelOverride = panel) => {
-		// Featured mode must stay offline from AI text providers (Gemini, etc.).
-		if (panelOverride?.imageMode === 'use_featured') {
-			return buildLocalPinsFromArticle({
+		return resolveStudioPinCopy({
+			imageMode: panelOverride?.imageMode,
+			article,
+			count,
+			panel: panelOverride,
+			analysis,
+			generateText,
+			buildPrompt: () => buildPinPromptFromConfig({
+				config,
 				article,
 				count,
 				panel: panelOverride,
-				analysis,
-			});
-		}
-
-		const prompt = buildPinPromptFromConfig({ config, article, count, panel: panelOverride });
-		const { text } = await generateText(prompt);
-		let pins = parsePinsFromText(text);
-
-		if (!Array.isArray(pins) || pins.length === 0) {
-			pins = Array.from({ length: count }).map((_, index) => ({
-				title: `${article.title} | Pinterest Pin ${index + 1}`,
-				description: article.metaDescription || `Discover insights from ${article.title}`,
-				overlayText: truncate(panelOverride.textOverlay || article.title || article.slug || 'Read now', 48),
-				suggestedKeywords: [article.category || 'content strategy', 'pinterest seo', 'blog traffic'],
-				suggestedHashtags: ['#pinteresttips', '#blogstrategy', '#contentmarketing'],
-				imagePrompt: `Pinterest vertical pin, high-contrast composition, focus on ${article.title}, category ${article.category || 'blog'}, audience ${panelOverride.targetAudience}, tone ${panelOverride.toneOfVoice}, language ${panelOverride.language}`,
-			}));
-		}
-
-		return pins.slice(0, count);
+			}),
+			parsePins: parsePinsFromText,
+		});
 	};
 
 	const handleGenerate = async () => {
@@ -1567,6 +1586,8 @@ export default function AIPinsPage() {
 			}
 
 			const generatedRecords = [];
+			let usedLocalTextFallback = false;
+			let localTextFallbackReason = '';
 			const activeAccount = accounts.find((account) => account.id === selectedAccountId);
 			const activeBoard = boards.find((board) => board.boardId === selectedBoardId);
 			const resolvedTemplate = resolveGenerateTemplate({
@@ -1629,7 +1650,17 @@ export default function AIPinsPage() {
 					total: targets.length,
 					message: `Generating pins for ${article.title || article.slug || 'article'}...`,
 				});
-				const generatedPins = await generatePinsForArticle(article, workingPanel.count, articlePanel);
+				const copyResult = await generatePinsForArticle(article, workingPanel.count, articlePanel);
+				const generatedPins = Array.isArray(copyResult?.pins) ? copyResult.pins : [];
+				const copyMeta = copyResult?.meta || {
+					copySource: copyResult?.copySource || '',
+					imageSource: copyResult?.imageSource || (imagePlan.useAi ? 'ai' : 'featured'),
+					fallbackReason: copyResult?.fallbackReason ?? null,
+				};
+				if (copyMeta.copySource === PIN_COPY_SOURCE.LOCAL_TEXT_FALLBACK) {
+					usedLocalTextFallback = true;
+					localTextFallbackReason = copyMeta.fallbackReason || localTextFallbackReason;
+				}
 				const siteMeta = websites.find((site) => site.id === article.websiteId);
 				const websiteLabelForPin = selectedBrand?.websiteUrl
 					|| siteMeta?.domain
@@ -1698,7 +1729,15 @@ export default function AIPinsPage() {
 						destinationUrl: articleUrl,
 						imageOrigin,
 						fallbackImageOrigin,
+						// Operational persistence value (draft/API). Analytics kind lives on generationMeta.imageSource.
 						imageSource: imagePlan.useAi ? 'ai_generated' : 'featured',
+						copySource: copyMeta.copySource,
+						fallbackReason: copyMeta.fallbackReason,
+						generationMeta: {
+							copySource: copyMeta.copySource,
+							imageSource: copyMeta.imageSource,
+							fallbackReason: copyMeta.fallbackReason,
+						},
 						imageGenerationStatus: 'processing',
 						imageGenerationError: '',
 						imageJobId: '',
@@ -1738,10 +1777,19 @@ export default function AIPinsPage() {
 				imageProviderCode,
 				selectedBrand,
 			);
-			toast({
-				title: 'Preview ready',
-				description: 'AI images are preferred when the Admin strategy allows; article images are used automatically if AI fails.',
-			});
+			if (usedLocalTextFallback) {
+				toast({
+					title: 'Using local pin copy',
+					description: localTextFallbackReason
+						? `The text AI provider was temporarily unavailable (${localTextFallbackReason}). Pin copy was generated from the article; image generation continues with the Admin strategy.`
+						: 'The text AI provider was temporarily unavailable. Pin copy was generated from the article; image generation continues with the Admin strategy.',
+				});
+			} else {
+				toast({
+					title: 'Preview ready',
+					description: 'AI images are preferred when the Admin strategy allows; article images are used automatically if AI fails.',
+				});
+			}
 		} catch (error) {
 			const detail = error?.message || (error?.status ? `HTTP ${error.status}` : 'Unknown error');
 			toast({ variant: 'destructive', title: 'Generation failed', description: detail });
@@ -2146,10 +2194,14 @@ export default function AIPinsPage() {
 
 		setGenerating(true);
 		try {
-			const [regenerated] = await generatePinsForArticle(article, 1, {
+			const copyResult = await generatePinsForArticle(article, 1, {
 				...panel,
 				imageMode: panel.imageMode === 'use_featured' ? 'use_featured' : panel.imageMode,
 			});
+			const regenerated = Array.isArray(copyResult?.pins) ? copyResult.pins[0] : null;
+			if (!regenerated) {
+				throw new Error('Failed to regenerate pin copy');
+			}
 			const response = await apiServerClient.fetch(`/ai-pins/pins/${encodeURIComponent(pin.id)}`, {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
@@ -2171,11 +2223,14 @@ export default function AIPinsPage() {
 				throw new Error(updated?.message || `Failed to regenerate pin (${response.status})`);
 			}
 			setSavedPins((prev) => prev.map((item) => (item.id === pin.id ? mapSavedPin(updated) : item)));
+			const usedTextFallback = copyResult?.copySource === PIN_COPY_SOURCE.LOCAL_TEXT_FALLBACK;
 			toast({
-				title: 'Regenerated',
-				description: panel.imageMode === 'use_featured'
-					? 'Pin copy refreshed from article (no AI).'
-					: 'Pin draft regenerated with AI.',
+				title: usedTextFallback ? 'Regenerated with local copy' : 'Regenerated',
+				description: usedTextFallback
+					? `Text AI was temporarily unavailable (${copyResult.fallbackReason || 'temporary'}). Pin copy refreshed from the article.`
+					: (panel.imageMode === 'use_featured'
+						? 'Pin copy refreshed from article (no AI).'
+						: 'Pin draft regenerated with AI.'),
 			});
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Error', description: error.message });
