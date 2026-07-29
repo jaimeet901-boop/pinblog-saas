@@ -70,6 +70,7 @@ import {
 import queueRouter from './queue.js';
 import analyticsRouter from './analytics.js';
 import logsRouter from './logs.js';
+import productEventsRouter from './product-events.js';
 
 const router = Router();
 
@@ -83,6 +84,7 @@ router.use(pocketbaseAuth, resolveWorkspace);
 router.use('/queue', queueRouter);
 router.use('/analytics', analyticsRouter);
 router.use('/logs', logsRouter);
+router.use('/product-events', productEventsRouter);
 
 /**
  * Additive Workspace Config API (Phase 1).

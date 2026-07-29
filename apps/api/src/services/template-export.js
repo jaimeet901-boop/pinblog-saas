@@ -13,6 +13,8 @@ import {
 } from './template-gallery.js';
 import { createPinTemplate } from './workspace-templates.js';
 import { createTemplateUuid } from '../utils/pin-template-identity.js';
+import { assertTemplateUseAccess } from './plan-access-guard.js';
+import pocketbaseClient from '../utils/pocketbaseClient.js';
 
 export const EXPORT_PROFILES = Object.freeze({
 	pinterest_standard: { id: 'pinterest_standard', label: 'Pinterest Standard', width: 1000, height: 1500, defaultFormat: 'png' },
@@ -60,8 +62,13 @@ export async function planTemplateExport(req, body = {}) {
 	let document = body.document || body.configuration || null;
 	let template = null;
 	if (body.templateId) {
+		const record = await pocketbaseClient.collection('ai_pin_templates').getOne(body.templateId).catch(() => null);
+		if (!record || record.deleted_at) {
+			throw httpError(404, 'Template not found', 'NOT_FOUND');
+		}
+		await assertTemplateUseAccess(req, record);
 		template = await getPinTemplate(req, body.templateId);
-		document = document || template.configuration;
+		document = template.configuration;
 	}
 	if (!document) {
 		issues.push({ field: 'document', reason: 'document_or_templateId_required' });

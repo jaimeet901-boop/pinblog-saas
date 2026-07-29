@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { renderGalleryTemplatePreview } from '@/services/ai-pins/galleryLivePreview';
 import { resolveGalleryPreviewContent } from '@/lib/pinGalleryDemoContent';
 import { getCachedPreview } from '@/services/templates/previewCache';
+import { isTemplateAccessLocked } from '@/lib/templateAccess';
 
 function liveChecksum(template, contentKey) {
 	const base = String(template?.configChecksum || template?.config_checksum || 'nocfg').trim().toLowerCase() || 'nocfg';
@@ -27,6 +28,7 @@ export default function PinTemplateChooserLiveCard({
 	const [status, setStatus] = useState('idle'); // idle | loading | ready | error
 	const name = template.name || 'Untitled template';
 	const isOfficial = template.visibility === 'official';
+	const locked = isTemplateAccessLocked(template);
 	const content = resolveGalleryPreviewContent({
 		article,
 		templateIndex: index,
@@ -84,11 +86,11 @@ export default function PinTemplateChooserLiveCard({
 	return (
 		<button
 			type="button"
-			className={`pin-tpl-library-card ${selected ? 'is-selected' : ''} ${busy ? 'is-busy' : ''} ${status === 'loading' ? 'is-rendering' : ''}`}
+			className={`pin-tpl-library-card ${selected ? 'is-selected' : ''} ${busy ? 'is-busy' : ''} ${status === 'loading' ? 'is-rendering' : ''} ${locked ? 'is-locked' : ''}`}
 			onClick={() => onSelect?.(template)}
 			disabled={disabled}
 			aria-pressed={selected}
-			aria-label={selected ? `Selected ${name}` : `Select ${name}`}
+			aria-label={locked ? `${name} — upgrade required` : (selected ? `Selected ${name}` : `Select ${name}`)}
 		>
 			<span className="pin-tpl-library-card__media" ref={mediaRef} aria-hidden="true">
 				{previewUrl ? (
@@ -99,6 +101,7 @@ export default function PinTemplateChooserLiveCard({
 					</span>
 				)}
 				{isOfficial ? <span className="pin-tpl-library-card__badge">Chef IA</span> : null}
+				{locked ? <span className="pin-tpl-library-card__locked">Upgrade</span> : null}
 				{content.source === 'demo' ? (
 					<span className="pin-tpl-library-card__demo">Demo recipe</span>
 				) : (
@@ -109,6 +112,7 @@ export default function PinTemplateChooserLiveCard({
 				<span className="pin-tpl-library-card__name">{name}</span>
 				<span className="pin-tpl-library-card__category">
 					{template.category || 'general'}
+					{locked ? ' · Locked' : ''}
 					{selected ? ' · Selected' : ''}
 					{busy ? ' · Loading…' : ''}
 				</span>

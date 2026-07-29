@@ -11,6 +11,13 @@ import {
 	resetEditorStore,
 } from '@/services/templates';
 import TemplateEditorShell from '@/components/templates/editor/TemplateEditorShell';
+import UpgradeModal from '@/components/billing/UpgradeModal';
+import { getTemplateAccess, isTemplateAccessLocked } from '@/lib/templateAccess';
+import {
+	PRODUCT_EVENTS,
+	buildTemplateEventProps,
+	trackProductEvent,
+} from '@/lib/productAnalytics';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/kit';
 import './TemplateEditorPage.css';
@@ -22,6 +29,7 @@ function mapRecord(record) {
 		name: record.name || 'Untitled template',
 		revision: record.revision || 1,
 		configuration: record.configuration || {},
+		access: record.access || null,
 	};
 }
 
@@ -32,6 +40,8 @@ export default function TemplateEditorPage() {
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState('');
+	const [upgradePayload, setUpgradePayload] = useState(null);
+	const [upgradeOpen, setUpgradeOpen] = useState(false);
 	const saveRef = useRef(null);
 
 	useEffect(() => {
@@ -40,6 +50,8 @@ export default function TemplateEditorPage() {
 		async function boot() {
 			setLoading(true);
 			setError('');
+			setUpgradePayload(null);
+			setUpgradeOpen(false);
 			try {
 				if (!id || id === 'new') {
 					loadEditorSession({
@@ -56,6 +68,23 @@ export default function TemplateEditorPage() {
 				}
 				const record = mapRecord(payload.item || payload);
 				if (cancelled) return;
+				if (isTemplateAccessLocked(record)) {
+					const next = {
+						templateId: record.id,
+						templateName: record.name,
+						access: getTemplateAccess(record),
+						sourcePage: 'template_editor',
+					};
+					trackProductEvent(
+						PRODUCT_EVENTS.TEMPLATE_LOCKED_CLICK,
+						buildTemplateEventProps(record, { sourcePage: 'template_editor' }),
+						{ dedupeKey: `template_locked_click:template_editor:${record.id}` },
+					);
+					setUpgradePayload(next);
+					setUpgradeOpen(true);
+					setError('This template requires a plan upgrade to edit.');
+					return;
+				}
 				loadEditorSession({
 					templateId: record.id,
 					templateUuid: record.templateUuid,
@@ -168,7 +197,20 @@ export default function TemplateEditorPage() {
 				<div className="tpl-editor-error-actions">
 					<button type="button" onClick={() => window.location.reload()}>Retry</button>
 					<Link to="/app/ai-pins/templates">Back to gallery</Link>
+					{upgradePayload ? (
+						<button type="button" onClick={() => setUpgradeOpen(true)}>
+							View upgrade options
+						</button>
+					) : null}
 				</div>
+				<UpgradeModal
+					open={upgradeOpen}
+					onClose={() => setUpgradeOpen(false)}
+					templateId={upgradePayload?.templateId || ''}
+					templateName={upgradePayload?.templateName || ''}
+					access={upgradePayload?.access || null}
+					sourcePage={upgradePayload?.sourcePage || 'template_editor'}
+				/>
 			</div>
 		);
 	}

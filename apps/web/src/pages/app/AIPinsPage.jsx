@@ -17,6 +17,16 @@ import SchedulePinModal from '@/components/ai-pins/SchedulePinModal';
 import PreviewPinModal from '@/components/ai-pins/PreviewPinModal';
 import PublishProgressModal from '@/components/ai-pins/PublishProgressModal';
 import PinTemplateChooser from '@/components/ai-pins/PinTemplateChooser';
+import UpgradeModal from '@/components/billing/UpgradeModal';
+import {
+	getTemplateAccess,
+	isTemplateAccessLocked,
+} from '@/lib/templateAccess';
+import {
+	PRODUCT_EVENTS,
+	buildTemplateEventProps,
+	trackProductEvent,
+} from '@/lib/productAnalytics';
 import {
 	PIN_COPY_SOURCE,
 	resolveStudioPinCopy,
@@ -232,6 +242,7 @@ export default function AIPinsPage() {
 	const [templateHydrationError, setTemplateHydrationError] = useState('');
 	const [templateHydrating, setTemplateHydrating] = useState(false);
 	const [templateChooserOpen, setTemplateChooserOpen] = useState(false);
+	const [upgradeModal, setUpgradeModal] = useState(null);
 	const [originalTemplateUnavailable, setOriginalTemplateUnavailable] = useState(false);
 	const [generatedPreviewPins, setGeneratedPreviewPins] = useState([]);
 	const [savingGenerated, setSavingGenerated] = useState(false);
@@ -999,6 +1010,24 @@ export default function AIPinsPage() {
 		const id = String(summary?.id || '').trim();
 		if (!id) return;
 
+		// Backend access object is the only lock authority — never infer from premium/tier.
+		if (isTemplateAccessLocked(summary)) {
+			trackProductEvent(
+				PRODUCT_EVENTS.TEMPLATE_LOCKED_CLICK,
+				buildTemplateEventProps(summary, { sourcePage: 'ai_pins_chooser' }),
+				{ dedupeKey: `template_locked_click:ai_pins_chooser:${id}` },
+			);
+			setTemplateChooserOpen(false);
+			setUpgradeModal({
+				templateId: id,
+				templateName: summary?.name || 'Template',
+				access: getTemplateAccess(summary),
+				requiredFeatureKeys: summary?.requiredFeatureKeys,
+				sourcePage: 'ai_pins_chooser',
+			});
+			return;
+		}
+
 		// Keep prior selection until success/failure settles — never wipe articles/pins.
 		setTemplateChooserOpen(false);
 		setGallerySelectionActive(true);
@@ -1010,10 +1039,31 @@ export default function AIPinsPage() {
 
 		try {
 			const full = await fetchTemplateCached(id);
+			if (isTemplateAccessLocked(full)) {
+				trackProductEvent(
+					PRODUCT_EVENTS.TEMPLATE_LOCKED_CLICK,
+					buildTemplateEventProps(full, { sourcePage: 'ai_pins_chooser' }),
+					{ dedupeKey: `template_locked_click:ai_pins_chooser:${id}` },
+				);
+				setUpgradeModal({
+					templateId: id,
+					templateName: full?.name || summary?.name || 'Template',
+					access: getTemplateAccess(full),
+					requiredFeatureKeys: full?.requiredFeatureKeys,
+					sourcePage: 'ai_pins_chooser',
+				});
+				setTemplateHydrationError('');
+				return;
+			}
 			if (!full?.configuration) {
 				throw new Error('Template configuration is missing.');
 			}
 			setHydratedTemplate(full);
+			trackProductEvent(
+				PRODUCT_EVENTS.TEMPLATE_USED,
+				buildTemplateEventProps(full, { sourcePage: 'ai_pins_chooser' }),
+				{ dedupeKey: `template_used:ai_pins_chooser:${id}` },
+			);
 			toast({
 				title: 'Template selected',
 				description: full.name || summary?.name || 'Gallery template ready for generation.',
@@ -1771,6 +1821,17 @@ export default function AIPinsPage() {
 					? 'generate_ai'
 					: 'use_featured',
 			}));
+			if (gallerySelectionActive || selectedTemplateId) {
+				trackProductEvent(
+					PRODUCT_EVENTS.TEMPLATE_GENERATED,
+					buildTemplateEventProps(hydratedTemplate || { id: selectedTemplateId }, {
+						sourcePage: 'ai_pins',
+						templateId: selectedTemplateId || hydratedTemplate?.id,
+						templateName: hydratedTemplate?.name,
+					}),
+					{ dedupe: false },
+				);
+			}
 			await startPreviewImageGeneration(
 				generatedRecords,
 				generatedRecords.some((pin) => pin.imageMode === 'generate_ai') ? 'generate_ai' : 'use_featured',
@@ -3370,6 +3431,15 @@ export default function AIPinsPage() {
 				onSelect={(template) => {
 					void selectGalleryTemplate(template);
 				}}
+			/>
+			<UpgradeModal
+				open={Boolean(upgradeModal)}
+				onClose={() => setUpgradeModal(null)}
+				templateId={upgradeModal?.templateId || ''}
+				templateName={upgradeModal?.templateName || ''}
+				access={upgradeModal?.access || null}
+				sourcePage={upgradeModal?.sourcePage || 'ai_pins_chooser'}
+				requiredFeatureKeys={upgradeModal?.requiredFeatureKeys}
 			/>
 		</div>
 	);

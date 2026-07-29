@@ -198,6 +198,30 @@
 	padding: 0.15rem 0.45rem;
 }
 
+.tpl-gallery-card__premium,
+.tpl-gallery-card__free {
+	position: absolute;
+	top: 0.5rem;
+	right: 0.5rem;
+	font-size: 0.65rem;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	border-radius: 0.35rem;
+	padding: 0.15rem 0.45rem;
+}
+
+.tpl-gallery-card__premium {
+	background: hsl(var(--background) / 0.94);
+	color: hsl(var(--foreground));
+	border: 1px solid hsl(var(--border));
+}
+
+.tpl-gallery-card__free {
+	background: hsl(var(--primary) / 0.12);
+	color: hsl(var(--primary));
+}
+
 .tpl-gallery-card__body {
 	padding: 0.75rem 0.8rem 0.4rem;
 }

@@ -1,10 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createEmptyLayerDocument } from '@/lib/pinLayerSchema';
 import { createTemplateUuid, hashTemplateConfiguration } from '@/lib/pinTemplateIdentity';
 import { createTemplateThumbnail } from '@/lib/pinTemplates';
 import { useToast } from '@/hooks/use-toast';
 import TemplateGallery from '@/components/templates/gallery/TemplateGallery';
+import UpgradeModal from '@/components/billing/UpgradeModal';
+import { getTemplateAccess, isTemplateAccessLocked } from '@/lib/templateAccess';
+import {
+	PRODUCT_EVENTS,
+	buildTemplateEventProps,
+	trackProductEvent,
+} from '@/lib/productAnalytics';
 import {
 	galleryApi,
 	loadGalleryFirstPage,
@@ -27,11 +34,29 @@ function downloadJson(filename, data) {
 export default function TemplatesPage() {
 	const navigate = useNavigate();
 	const { toast } = useToast();
+	const [upgradeModal, setUpgradeModal] = useState(null);
 
 	useEffect(() => {
 		loadGalleryFirstPage();
 		return () => resetGalleryStore();
 	}, []);
+
+	function openUpgradeModal(template) {
+		if (isTemplateAccessLocked(template)) {
+			trackProductEvent(
+				PRODUCT_EVENTS.TEMPLATE_LOCKED_CLICK,
+				buildTemplateEventProps(template, { sourcePage: 'templates_gallery' }),
+				{ dedupeKey: `template_locked_click:templates_gallery:${template?.id || ''}` },
+			);
+		}
+		setUpgradeModal({
+			templateId: template?.id || '',
+			templateName: template?.name || 'Template',
+			access: getTemplateAccess(template),
+			requiredFeatureKeys: template?.requiredFeatureKeys,
+			sourcePage: 'templates_gallery',
+		});
+	}
 
 	async function handleCreate() {
 		try {
@@ -73,6 +98,13 @@ export default function TemplatesPage() {
 			toast({ title: 'Duplicated' });
 			loadGalleryFirstPage();
 		} catch (error) {
+			if (error?.errorCode === 'FEATURE_LOCKED' || error?.access) {
+				openUpgradeModal({
+					...template,
+					access: error.access || getTemplateAccess(template),
+				});
+				return;
+			}
 			toast({ title: 'Duplicate failed', description: error.message, variant: 'destructive' });
 		}
 	}
@@ -105,6 +137,13 @@ export default function TemplatesPage() {
 			downloadJson(`${template.name || 'template'}.pinblog.json`, pack);
 			toast({ title: 'Exported' });
 		} catch (error) {
+			if (error?.errorCode === 'FEATURE_LOCKED' || error?.access) {
+				openUpgradeModal({
+					...template,
+					access: error.access || getTemplateAccess(template),
+				});
+				return;
+			}
 			toast({ title: 'Export failed', description: error.message, variant: 'destructive' });
 		}
 	}
@@ -171,6 +210,16 @@ export default function TemplatesPage() {
 				onRename={handleRename}
 				onTouch={handleTouch}
 				onBulk={handleBulk}
+				onUpgradeRequest={openUpgradeModal}
+			/>
+			<UpgradeModal
+				open={Boolean(upgradeModal)}
+				onClose={() => setUpgradeModal(null)}
+				templateId={upgradeModal?.templateId || ''}
+				templateName={upgradeModal?.templateName || ''}
+				access={upgradeModal?.access || null}
+				sourcePage={upgradeModal?.sourcePage || 'templates_gallery'}
+				requiredFeatureKeys={upgradeModal?.requiredFeatureKeys}
 			/>
 		</div>
 	);

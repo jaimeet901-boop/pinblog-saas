@@ -13,6 +13,10 @@ import {
 import { useGalleryStore } from '@/services/templates/useGalleryStore';
 import { revokeGalleryLivePreviewUrls } from '@/services/ai-pins/galleryLivePreview';
 import { TEMPLATE_CATEGORIES } from '@/lib/pinEngineConstants';
+import {
+	PRODUCT_EVENTS,
+	trackProductEvent,
+} from '@/lib/productAnalytics';
 import '@/pages/app/TemplatesPage.css';
 import './PinTemplateChooser.css';
 
@@ -73,6 +77,11 @@ export default function PinTemplateChooser({
 	useEffect(() => {
 		if (!open) return undefined;
 		setQuery('');
+		trackProductEvent(
+			PRODUCT_EVENTS.TEMPLATE_GALLERY_VIEW,
+			{ sourcePage: 'ai_pins_chooser' },
+			{ dedupeKey: 'template_gallery_view:ai_pins_chooser' },
+		);
 		// Load first; only reset when the chooser actually closes (avoid dropping in-flight results).
 		void loadGalleryFirstPage({ ...SELECT_FILTERS });
 		return () => {
@@ -210,6 +219,7 @@ export default function PinTemplateChooser({
 				<TemplatePreviewModal
 					template={previewTemplate}
 					onClose={() => setPreviewTemplateId(null)}
+					sourcePage="ai_pins_chooser"
 				/>
 			</div>
 		</div>

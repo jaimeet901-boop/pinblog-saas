@@ -1,8 +1,14 @@
 import { useEffect, useId, useRef } from 'react';
+import {
+	PRODUCT_EVENTS,
+	buildTemplateEventProps,
+	trackProductEvent,
+} from '@/lib/productAnalytics';
 
-export default function TemplatePreviewModal({ template, onClose }) {
+export default function TemplatePreviewModal({ template, onClose, sourcePage = 'template_gallery' }) {
 	const titleId = useId();
 	const closeRef = useRef(null);
+	const trackedIdRef = useRef('');
 
 	useEffect(() => {
 		if (!template) return undefined;
@@ -20,6 +26,20 @@ export default function TemplatePreviewModal({ template, onClose }) {
 			if (previous && typeof previous.focus === 'function') previous.focus();
 		};
 	}, [template, onClose]);
+
+	useEffect(() => {
+		if (!template?.id) {
+			trackedIdRef.current = '';
+			return;
+		}
+		if (trackedIdRef.current === template.id) return;
+		trackedIdRef.current = template.id;
+		trackProductEvent(
+			PRODUCT_EVENTS.TEMPLATE_PREVIEW_OPEN,
+			buildTemplateEventProps(template, { sourcePage }),
+			{ dedupeKey: `template_preview_open:${sourcePage}:${template.id}` },
+		);
+	}, [template, sourcePage]);
 
 	if (!template) return null;
 	const url = template.previewUrl || template.thumbnail || '';

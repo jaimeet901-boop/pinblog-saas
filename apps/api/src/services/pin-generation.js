@@ -15,6 +15,7 @@ import {
 	stageProgress,
 	isRecoverableGenerationError,
 } from '../constants/pin-generation.js';
+import { assertTemplateUseAccess } from './plan-access-guard.js';
 
 function deepClone(value) {
 	return JSON.parse(JSON.stringify(value ?? null));
@@ -118,6 +119,8 @@ export async function loadTemplateSnapshotReadOnly(req, templateId) {
 		throw httpError(404, 'Template not found', 'TEMPLATE_NOT_FOUND');
 	}
 
+	await assertTemplateUseAccess(req, template);
+
 	const configuration = deepClone(template.configuration || {});
 	return {
 		templateId: template.id,
@@ -147,12 +150,13 @@ export async function createGenerationRun(req, body = {}) {
 	const maxAttempts = Math.min(8, Math.max(1, Number(body.maxAttempts) || 3));
 
 	let templateMeta = null;
-	let templateSnapshot = body.templateSnapshot || body.templateConfiguration || null;
+	let templateSnapshot = null;
 	if (body.templateId) {
+		// Always load server snapshot — do not accept client config as a premium bypass.
 		templateMeta = await loadTemplateSnapshotReadOnly(req, body.templateId);
-		if (!templateSnapshot) {
-			templateSnapshot = templateMeta.configuration;
-		}
+		templateSnapshot = templateMeta.configuration;
+	} else {
+		templateSnapshot = body.templateSnapshot || body.templateConfiguration || null;
 	}
 	if (!templateSnapshot || typeof templateSnapshot !== 'object') {
 		throw httpError(422, 'templateId or templateConfiguration required', 'VALIDATION_ERROR');

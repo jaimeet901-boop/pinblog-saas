@@ -14,6 +14,14 @@ import {
 } from '../constants/pin-engine.js';
 import { createTemplateUuid, hashTemplateConfigurationSync } from '../utils/pin-template-identity.js';
 import { ensureOfficialPinTemplatesSeeded, resolvePlatformLibraryOwnerId } from './official-pin-templates-seed.js';
+import {
+	assertTemplateUseAccess,
+	attachAllowedAccess,
+	attachTemplateAccess,
+	evaluateTemplateAccess,
+	featureLockedError,
+	resolveAccessContext,
+} from './plan-access-guard.js';
 
 function escapeFilterValue(value) {
 	return String(value || '').replace(/"/g, '\\"');
@@ -442,34 +450,40 @@ export async function listGalleryTemplates(req, query = {}) {
 	}
 
 	const previewMap = await loadPreviewUrls(items);
-	let mapped = items.map((record) => {
+	const accessContext = await resolveAccessContext(req);
+	const mapped = [];
+	for (const record of items) {
 		const preview = resolvePreview(record, previewMap);
-		return mapGalleryTemplate(record, {
+		const access = await evaluateTemplateAccess(req, record, { context: accessContext });
+		const wantConfig = query.includeConfiguration === '1'
+			|| query.includeConfiguration === 'true'
+			|| query.includeConfiguration === true;
+		const item = mapGalleryTemplate(record, {
 			isFavorite: favoriteIds.has(record.id),
 			previewUrl: preview.previewUrl,
 			previewCached: preview.previewCached,
-			includeConfiguration: query.includeConfiguration === '1'
-				|| query.includeConfiguration === 'true'
-				|| query.includeConfiguration === true,
+			includeConfiguration: wantConfig && access.enabled,
 		});
-	});
+		mapped.push(attachTemplateAccess(item, access));
+	}
+	let filtered = mapped;
 
 	if (q) {
-		mapped = mapped.filter((item) => matchesSearch(item, q));
+		filtered = filtered.filter((item) => matchesSearch(item, q));
 	}
 
 	// Tag exact filter
 	const tag = String(query.tag || '').trim().toLowerCase();
 	if (tag) {
-		mapped = mapped.filter((item) => item.tags.some((t) => t.toLowerCase() === tag));
+		filtered = filtered.filter((item) => item.tags.some((t) => t.toLowerCase() === tag));
 	}
 
 	const totalItems = favoriteOnly || q || tag
-		? mapped.length + (page - 1) * perPage // approximate when post-filtered
+		? filtered.length + (page - 1) * perPage // approximate when post-filtered
 		: pbCountBeforeTransform;
 
 	return {
-		items: mapped,
+		items: filtered,
 		page: result.page || page,
 		perPage: result.perPage || perPage,
 		totalItems,
@@ -539,12 +553,14 @@ export async function getPinTemplate(req, id) {
 	const favoriteIds = await listFavoriteTemplateIds(req);
 	const previewMap = await loadPreviewUrls([record]);
 	const preview = resolvePreview(record, previewMap);
-	return mapGalleryTemplate(record, {
-		includeConfiguration: true,
+	const access = await evaluateTemplateAccess(req, record);
+	const item = mapGalleryTemplate(record, {
+		includeConfiguration: access.enabled,
 		isFavorite: favoriteIds.has(record.id),
 		previewUrl: preview.previewUrl,
 		previewCached: preview.previewCached,
 	});
+	return attachTemplateAccess(item, access);
 }
 
 export async function touchPinTemplate(req, id) {
@@ -557,7 +573,7 @@ export async function touchPinTemplate(req, id) {
 		last_used_at: new Date().toISOString(),
 		use_count: (Number(existing.use_count) || 0) + 1,
 	});
-	return mapGalleryTemplate(updated, { includeConfiguration: false });
+	return attachAllowedAccess(mapGalleryTemplate(updated, { includeConfiguration: false }));
 }
 
 export async function setPinTemplateStatus(req, id, status) {
@@ -570,7 +586,7 @@ export async function setPinTemplateStatus(req, id, status) {
 		throw httpError(404, 'Template not found', 'NOT_FOUND');
 	}
 	const updated = await pocketbaseClient.collection('ai_pin_templates').update(id, { status });
-	return mapGalleryTemplate(updated);
+	return attachAllowedAccess(mapGalleryTemplate(updated));
 }
 
 export async function togglePinTemplateFavorite(req, id) {
@@ -623,7 +639,24 @@ export async function togglePinTemplateFavorite(req, id) {
 
 export async function exportPinTemplate(req, id) {
 	assertCapability(req, 'workspace.read');
+	const record = await pocketbaseClient.collection('ai_pin_templates').getOne(id, {
+		expand: 'owner,created_by',
+	}).catch(() => null);
+	if (!record || record.deleted_at) {
+		throw httpError(404, 'Template not found', 'NOT_FOUND');
+	}
+	await assertTemplateUseAccess(req, record);
 	const item = await getPinTemplate(req, id);
+	if (!item?.configuration) {
+		const access = item?.access || await evaluateTemplateAccess(req, record);
+		throw featureLockedError(
+			{ ...access, requiredKeys: access.requiredKeys || item?.requiredFeatureKeys || [] },
+			{
+				featureKey: access.requiredKeys?.[0] || item?.requiredFeatureKeys?.[0],
+				message: 'This template requires a plan upgrade to use.',
+			},
+		);
+	}
 	return {
 		format: 'pinblog-template-package',
 		version: 1,
@@ -671,6 +704,7 @@ export async function bulkPinTemplateAction(req, payload = {}) {
 				results.push({ id, ok: true, action });
 			} else if (action === 'duplicate') {
 				const existing = await pocketbaseClient.collection('ai_pin_templates').getOne(id);
+				await assertTemplateUseAccess(req, existing);
 				const created = await pocketbaseClient.collection('ai_pin_templates').create({
 					owner: req.pocketbaseUserId,
 					workspace_id: existing.workspace_id || req.workspace?.id || null,

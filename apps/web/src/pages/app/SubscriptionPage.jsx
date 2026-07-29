@@ -10,6 +10,8 @@ import {
 	XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 import apiServerClient from '@/lib/apiServerClient';
+import { isPlanFeatureEnabled } from '@/lib/planFeatures';
+import { PRODUCT_EVENTS, trackProductEvent } from '@/lib/productAnalytics';
 import { Badge, Button, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -282,6 +284,11 @@ export default function SubscriptionPage() {
 	};
 
 	useEffect(() => {
+		trackProductEvent(
+			PRODUCT_EVENTS.SUBSCRIPTION_PAGE_OPEN,
+			{ sourcePage: 'subscription' },
+			{ dedupeKey: 'subscription_page_open:subscription' },
+		);
 		loadUsage();
 	}, []);
 
@@ -336,13 +343,13 @@ export default function SubscriptionPage() {
 		const features = planDto?.features || {};
 		const limits = planDto?.limits || {};
 		return {
-			writer: features.aiWriter ? 'Included' : 'Unavailable',
-			images: features.aiImages ? 'Included' : (currentPlanId === 'free' ? 'Limited' : 'Included'),
-			pins: features.pinterest ? 'Full' : (currentPlanId === 'free' || currentPlanId === 'starter' ? 'Basic' : 'Full'),
-			templates: features.templates ? 'Included' : 'Included',
-			brand: features.brandKit ? 'Included' : (currentPlanId === 'free' ? 'Basic' : 'Included'),
-			analytics: features.analytics ? 'Included' : (currentPlanId === 'free' ? 'Basic' : 'Included'),
-			pinterest: usage.pinterestAccounts ? `${usage.pinterestAccounts} linked` : (features.calendar ? 'Scheduler ready' : 'Connect in Hub'),
+			writer: isPlanFeatureEnabled(features, 'aiWriter') ? 'Included' : 'Unavailable',
+			images: isPlanFeatureEnabled(features, 'aiImages') ? 'Included' : (currentPlanId === 'free' ? 'Limited' : 'Included'),
+			pins: isPlanFeatureEnabled(features, 'pinterest') ? 'Full' : (currentPlanId === 'free' || currentPlanId === 'starter' ? 'Basic' : 'Full'),
+			templates: isPlanFeatureEnabled(features, 'templates') ? 'Included' : 'Included',
+			brand: isPlanFeatureEnabled(features, 'brandKit') ? 'Included' : (currentPlanId === 'free' ? 'Basic' : 'Included'),
+			analytics: isPlanFeatureEnabled(features, 'analytics') ? 'Included' : (currentPlanId === 'free' ? 'Basic' : 'Included'),
+			pinterest: usage.pinterestAccounts ? `${usage.pinterestAccounts} linked` : (isPlanFeatureEnabled(features, 'calendar') ? 'Scheduler ready' : 'Connect in Hub'),
 			websites: `${usage.websites} connected`,
 			storage: limits.storageGb ? `${limits.storageGb} GB` : 'Workspace ready',
 			credits: `${quota}/mo`,

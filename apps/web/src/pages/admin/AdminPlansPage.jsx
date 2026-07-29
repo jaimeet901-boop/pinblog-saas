@@ -6,6 +6,11 @@ import {
 	AdminHero, StatusPill, AdminSkeleton, AdminEmptyState, AdminErrorState,
 } from '@/components/admin/AdminUi';
 import apiServerClient from '@/lib/apiServerClient';
+import {
+	flattenPlanFeaturesForForm,
+	isPlanFeatureEnabled,
+	serializePlanFeaturesForApi,
+} from '@/lib/planFeatures';
 import { useToast } from '@/hooks/use-toast';
 
 function yesNo(value) {
@@ -26,7 +31,21 @@ async function readApiError(response) {
 	}
 }
 
-const EMPTY_FORM = {
+const EMPTY_LIMITS = {
+	articlesPerMonth: 0,
+	imagesPerMonth: 0,
+	aiRequests: 0,
+	pinterestAccounts: 0,
+	wordpressSites: 0,
+	teamMembers: 1,
+	storageGb: 1,
+	queueJobs: 0,
+	exports: 0,
+	apiRequests: 0,
+	maxWorkspaces: 1,
+};
+
+const EMPTY_FORM_BASE = {
 	name: '',
 	slug: '',
 	description: '',
@@ -46,32 +65,8 @@ const EMPTY_FORM = {
 	highlight: false,
 	active: true,
 	displayOrder: '100',
-	limits: {
-		articlesPerMonth: 0,
-		imagesPerMonth: 0,
-		aiRequests: 0,
-		pinterestAccounts: 0,
-		wordpressSites: 0,
-		teamMembers: 1,
-		storageGb: 1,
-		queueJobs: 0,
-		exports: 0,
-		apiRequests: 0,
-		maxWorkspaces: 1,
-	},
-	features: {
-		aiWriter: false,
-		aiImages: false,
-		templates: false,
-		brandKit: false,
-		analytics: false,
-		calendar: false,
-		pinterest: false,
-		wordpress: false,
-		history: false,
-		apiAccess: false,
-		priorityQueue: false,
-	},
+	limits: { ...EMPTY_LIMITS },
+	features: {},
 	creditCosts: {
 		ai_analyze: 1,
 		ai_prompt: 1,
@@ -99,9 +94,22 @@ const EMPTY_FORM = {
 	topupPacksText: '',
 };
 
-function planToForm(plan) {
+function buildEmptyForm(featureKeys = []) {
 	return {
-		...EMPTY_FORM,
+		...EMPTY_FORM_BASE,
+		limits: { ...EMPTY_LIMITS },
+		features: flattenPlanFeaturesForForm({}, featureKeys),
+		creditCosts: { ...EMPTY_FORM_BASE.creditCosts },
+		trialConfig: { ...EMPTY_FORM_BASE.trialConfig },
+		upgradeRules: { ...EMPTY_FORM_BASE.upgradeRules },
+		downgradeRules: { ...EMPTY_FORM_BASE.downgradeRules },
+	};
+}
+
+function planToForm(plan, featureKeys = []) {
+	const empty = buildEmptyForm(featureKeys);
+	return {
+		...empty,
 		name: plan.name || '',
 		slug: plan.slug || '',
 		description: plan.description || '',
@@ -121,12 +129,12 @@ function planToForm(plan) {
 		highlight: Boolean(plan.highlight),
 		active: plan.status === 'active',
 		displayOrder: String(plan.displayOrder ?? 100),
-		limits: { ...EMPTY_FORM.limits, ...(plan.limits || {}) },
-		features: { ...EMPTY_FORM.features, ...(plan.features || {}) },
-		creditCosts: { ...EMPTY_FORM.creditCosts, ...(plan.creditCosts || {}) },
-		trialConfig: { ...EMPTY_FORM.trialConfig, ...(plan.trialConfig || {}) },
-		upgradeRules: { ...EMPTY_FORM.upgradeRules, ...(plan.upgradeRules || {}) },
-		downgradeRules: { ...EMPTY_FORM.downgradeRules, ...(plan.downgradeRules || {}) },
+		limits: { ...empty.limits, ...(plan.limits || {}) },
+		features: flattenPlanFeaturesForForm(plan.features || {}, featureKeys),
+		creditCosts: { ...empty.creditCosts, ...(plan.creditCosts || {}) },
+		trialConfig: { ...empty.trialConfig, ...(plan.trialConfig || {}) },
+		upgradeRules: { ...empty.upgradeRules, ...(plan.upgradeRules || {}) },
+		downgradeRules: { ...empty.downgradeRules, ...(plan.downgradeRules || {}) },
 		topupPacksText: Array.isArray(plan.topupPacks)
 			? plan.topupPacks.map((pack) => `${pack.name || pack.id}:${pack.credits}:${pack.price}`).join('\n')
 			: '',
@@ -136,14 +144,16 @@ function planToForm(plan) {
 export default function AdminPlansPage() {
 	const { toast } = useToast();
 	const [plans, setPlans] = useState([]);
+	const [featureCatalog, setFeatureCatalog] = useState({ groups: [], keys: [] });
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [selectedId, setSelectedId] = useState('');
 	const [drawerMode, setDrawerMode] = useState('view');
-	const [form, setForm] = useState(EMPTY_FORM);
+	const [form, setForm] = useState(() => buildEmptyForm());
 	const [assignForm, setAssignForm] = useState({ workspaceName: '', ownerEmail: '', planId: '' });
 
+	const featureKeys = featureCatalog.keys || [];
 	const selected = plans.find((plan) => plan.id === selectedId) || null;
 
 	const stats = useMemo(() => {
@@ -161,10 +171,19 @@ export default function AdminPlansPage() {
 		setLoading(true);
 		setError('');
 		try {
-			const response = await apiServerClient.fetch('/admin/v1/plans');
-			if (!response.ok) throw new Error(await readApiError(response));
-			const data = await response.json();
+			const [plansRes, catalogRes] = await Promise.all([
+				apiServerClient.fetch('/admin/v1/plans'),
+				apiServerClient.fetch('/admin/v1/plans/feature-catalog'),
+			]);
+			if (!plansRes.ok) throw new Error(await readApiError(plansRes));
+			if (!catalogRes.ok) throw new Error(await readApiError(catalogRes));
+			const data = await plansRes.json();
+			const catalog = await catalogRes.json();
 			setPlans(Array.isArray(data.items) ? data.items : []);
+			setFeatureCatalog({
+				groups: Array.isArray(catalog.groups) ? catalog.groups : [],
+				keys: Array.isArray(catalog.keys) ? catalog.keys : [],
+			});
 		} catch (err) {
 			setError(err?.message || 'Failed to load plans');
 			setPlans([]);
@@ -208,13 +227,13 @@ export default function AdminPlansPage() {
 		const plan = plans.find((item) => item.id === id);
 		if (!plan) return;
 		setSelectedId(id);
-		setForm(planToForm(plan));
+		setForm(planToForm(plan, featureKeys));
 		setDrawerMode('edit');
 	};
 
 	const openCreate = () => {
 		setSelectedId('');
-		setForm(EMPTY_FORM);
+		setForm(buildEmptyForm(featureKeys));
 		setDrawerMode('create');
 	};
 
@@ -297,7 +316,7 @@ export default function AdminPlansPage() {
 				limits: Object.fromEntries(
 					Object.entries(form.limits).map(([key, value]) => [key, Number(value) || 0]),
 				),
-				features: form.features,
+				features: serializePlanFeaturesForApi(form.features),
 				creditCosts: Object.fromEntries(
 					Object.entries(form.creditCosts || {}).map(([key, value]) => [key, Number(value) || 0]),
 				),
@@ -612,14 +631,27 @@ export default function AdminPlansPage() {
 									<div className="admin-meta-row"><span>Clamp to new quota</span><span>{yesNo(selected.downgradeRules?.clampToNewQuota)}</span></div>
 								</section>
 								<section className="admin-user-drawer__section">
-									<h3>Feature Access</h3>
-									<div className="flex flex-wrap gap-2">
-										{Object.entries(selected.features || {}).map(([key, enabled]) => (
-											<span key={key} className={`admin-pill ${enabled ? 'admin-pill--green' : ''}`} style={enabled ? undefined : { opacity: 0.45 }}>
-												{key}
-											</span>
-										))}
-									</div>
+									<h3>Features & Entitlements</h3>
+									{(featureCatalog.groups || []).map((group) => (
+										<div key={group.id} className="mt-3">
+											<p className="admin-note mb-2">{group.label}</p>
+											<div className="flex flex-wrap gap-2">
+												{(group.features || []).map((feature) => {
+													const enabled = isPlanFeatureEnabled(selected.features, feature.key);
+													return (
+														<span
+															key={feature.key}
+															className={`admin-pill ${enabled ? 'admin-pill--green' : ''}`}
+															style={enabled ? undefined : { opacity: 0.45 }}
+															title={feature.description || feature.key}
+														>
+															{feature.label}
+														</span>
+													);
+												})}
+											</div>
+										</div>
+									))}
 								</section>
 								<section className="admin-user-drawer__section">
 									<h3>Publishing Limits</h3>
@@ -781,22 +813,50 @@ export default function AdminPlansPage() {
 										placeholder={'Starter Pack:500:9\nGrowth Pack:2000:29'}
 									/>
 								</div>
-								<p className="admin-note mt-3 mb-2">Features</p>
-								<div className="flex flex-wrap gap-3">
-									{Object.keys(form.features).map((key) => (
-										<label key={key} className="admin-check">
-											<input
-												type="checkbox"
-												checked={Boolean(form.features[key])}
-												onChange={(e) => setForm((prev) => ({
-													...prev,
-													features: { ...prev.features, [key]: e.target.checked },
-												}))}
-											/>
-											{key}
-										</label>
-									))}
-								</div>
+								<p className="admin-note mt-3 mb-2">Features & Entitlements</p>
+								{(featureCatalog.groups || []).length === 0 ? (
+									<p className="text-sm" style={{ color: 'var(--admin-muted)' }}>
+										Feature catalog unavailable. Reload plans to edit entitlements.
+									</p>
+								) : (
+									(featureCatalog.groups || []).map((group) => (
+										<div key={group.id} className="mt-3">
+											<p className="admin-note mb-2">{group.label}</p>
+											<div className="flex flex-col gap-2">
+												{(group.features || []).map((feature) => (
+													<label key={feature.key} className="admin-check" style={{ alignItems: 'flex-start' }}>
+														<input
+															type="checkbox"
+															checked={Boolean(form.features[feature.key])}
+															onChange={(e) => setForm((prev) => ({
+																...prev,
+																features: { ...prev.features, [feature.key]: e.target.checked },
+															}))}
+														/>
+														<span>
+															<span style={{ display: 'block' }}>
+																{feature.label}
+																{feature.stage === 'reserved' ? (
+																	<span className="admin-pill" style={{ marginLeft: 6, opacity: 0.7 }}>reserved</span>
+																) : null}
+															</span>
+															{feature.description ? (
+																<span className="text-sm" style={{ display: 'block', color: 'var(--admin-muted)', fontWeight: 400 }}>
+																	{feature.description}
+																</span>
+															) : null}
+															{(feature.dependencies || []).length ? (
+																<span className="text-sm" style={{ display: 'block', color: 'var(--admin-muted)', fontWeight: 400 }}>
+																	Depends on: {(feature.dependencies || []).join(', ')}
+																</span>
+															) : null}
+														</span>
+													</label>
+												))}
+											</div>
+										</div>
+									))
+								)}
 								<div className="mt-4 flex flex-wrap gap-2">
 									<button type="button" className="admin-btn admin-btn--primary" onClick={savePlan} disabled={saving}>
 										{saving ? <Loader2 size={13} className="animate-spin" /> : null}

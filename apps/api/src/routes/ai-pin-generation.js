@@ -94,7 +94,7 @@ router.post('/runs/:id/link-image-job', async (req, res) => {
 });
 
 router.get('/templates/:id/snapshot', async (req, res) => {
-	const snapshot = await loadTemplateSnapshotReadOnly(req.pocketbaseUserId, req.params.id);
+	const snapshot = await loadTemplateSnapshotReadOnly(req, req.params.id);
 	res.json({ snapshot, readOnly: true });
 });
 

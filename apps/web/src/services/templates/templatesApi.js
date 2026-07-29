@@ -14,6 +14,15 @@ function toQuery(params = {}) {
 	return search.toString();
 }
 
+function apiError(payload, fallback) {
+	const error = new Error(payload?.message || fallback);
+	if (payload?.errorCode) error.errorCode = payload.errorCode;
+	if (payload?.access) error.access = payload.access;
+	if (Array.isArray(payload?.requiredKeys)) error.requiredKeys = payload.requiredKeys;
+	if (payload?.featureKey) error.featureKey = payload.featureKey;
+	return error;
+}
+
 export async function fetchGalleryPage(filters = {}) {
 	const query = toQuery({
 		view: 'gallery',
@@ -33,7 +42,7 @@ export async function fetchGalleryPage(filters = {}) {
 	const response = await apiServerClient.fetch(`/workspace/v1/templates?${query}`, { method: 'GET' });
 	const payload = await response.json().catch(() => ({}));
 	if (!response.ok) {
-		throw new Error(payload.message || 'Failed to load gallery');
+		throw apiError(payload, 'Failed to load gallery');
 	}
 	return payload;
 }
@@ -41,21 +50,21 @@ export async function fetchGalleryPage(filters = {}) {
 export async function fetchTemplate(id) {
 	const response = await apiServerClient.fetch(`/workspace/v1/templates/${id}`, { method: 'GET' });
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.message || 'Template not found');
+	if (!response.ok) throw apiError(payload, 'Template not found');
 	return payload.item || payload;
 }
 
 export async function duplicateTemplate(id) {
 	const response = await apiServerClient.fetch(`/workspace/v1/templates/${id}/duplicate`, { method: 'POST' });
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.message || 'Duplicate failed');
+	if (!response.ok) throw apiError(payload, 'Duplicate failed');
 	return payload;
 }
 
 export async function deleteTemplate(id) {
 	const response = await apiServerClient.fetch(`/workspace/v1/templates/${id}`, { method: 'DELETE' });
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.message || 'Delete failed');
+	if (!response.ok) throw apiError(payload, 'Delete failed');
 	return payload;
 }
 
@@ -66,14 +75,14 @@ export async function renameTemplate(id, name) {
 		body: JSON.stringify({ name }),
 	});
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.message || 'Rename failed');
+	if (!response.ok) throw apiError(payload, 'Rename failed');
 	return payload;
 }
 
 export async function favoriteTemplate(id) {
 	const response = await apiServerClient.fetch(`/workspace/v1/templates/${id}/favorite`, { method: 'POST' });
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.message || 'Favorite failed');
+	if (!response.ok) throw apiError(payload, 'Favorite failed');
 	return payload;
 }
 
@@ -84,21 +93,21 @@ export async function setTemplateStatus(id, status) {
 		body: JSON.stringify({ status }),
 	});
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.message || 'Status update failed');
+	if (!response.ok) throw apiError(payload, 'Status update failed');
 	return payload;
 }
 
 export async function touchTemplate(id) {
 	const response = await apiServerClient.fetch(`/workspace/v1/templates/${id}/touch`, { method: 'POST' });
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.message || 'Touch failed');
+	if (!response.ok) throw apiError(payload, 'Touch failed');
 	return payload;
 }
 
 export async function exportTemplate(id) {
 	const response = await apiServerClient.fetch(`/workspace/v1/templates/${id}/export`, { method: 'GET' });
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.message || 'Export failed');
+	if (!response.ok) throw apiError(payload, 'Export failed');
 	return payload;
 }
 
@@ -109,7 +118,7 @@ export async function bulkTemplateAction(action, ids) {
 		body: JSON.stringify({ action, ids }),
 	});
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.message || 'Bulk action failed');
+	if (!response.ok) throw apiError(payload, 'Bulk action failed');
 	return payload;
 }
 
@@ -120,7 +129,7 @@ export async function createGalleryTemplate(body) {
 		body: JSON.stringify(body),
 	});
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.message || 'Create failed');
+	if (!response.ok) throw apiError(payload, 'Create failed');
 	return payload;
 }
 

@@ -3,12 +3,18 @@ import { httpError } from '../middleware/require-admin.js';
 import { isProduction } from '../utils/env.js';
 import { DEFAULT_FEATURES, DEFAULT_LIMITS, PLAN_SEED_CATALOG } from './plan-catalog.js';
 import {
+	isFeatureEnabled,
+	normalizeFeatures,
+} from './plan-features.js';
+import {
 	DEFAULT_CREDIT_COSTS,
 	DEFAULT_DOWNGRADE_RULES,
 	DEFAULT_TRIAL_CONFIG,
 	DEFAULT_UPGRADE_RULES,
 	writeBillingEvent,
 } from './credits-engine.js';
+
+export { isFeatureEnabled, normalizeFeatures, normalizeFeatureValue, validateFeaturesPayload } from './plan-features.js';
 
 function slugify(value) {
 	return String(value || '')
@@ -39,15 +45,6 @@ function normalizeLimits(input) {
 		}
 	}
 	return limits;
-}
-
-function normalizeFeatures(input) {
-	const source = input && typeof input === 'object' ? input : {};
-	const features = { ...DEFAULT_FEATURES };
-	for (const key of Object.keys(DEFAULT_FEATURES)) {
-		if (source[key] != null) features[key] = Boolean(source[key]);
-	}
-	return features;
 }
 
 function normalizeCreditCosts(input) {
@@ -109,7 +106,12 @@ function formatLimit(value) {
 
 export function mapPlanDto(record, stats = {}) {
 	const limits = record.limits && typeof record.limits === 'object' ? record.limits : DEFAULT_LIMITS;
-	const features = record.features && typeof record.features === 'object' ? record.features : DEFAULT_FEATURES;
+	const features = normalizeFeatures(
+		record.features && typeof record.features === 'object' && !Array.isArray(record.features)
+			? record.features
+			: DEFAULT_FEATURES,
+		{ validate: false },
+	);
 	const active = record.active !== false && record.status !== 'hidden' && record.status !== 'deprecated';
 	const creditCosts = record.credit_costs && typeof record.credit_costs === 'object'
 		? { ...DEFAULT_CREDIT_COSTS, ...record.credit_costs }
@@ -149,9 +151,9 @@ export function mapPlanDto(record, stats = {}) {
 		maxPinterest: formatLimit(limits.pinterestAccounts),
 		storageGb: formatLimit(limits.storageGb),
 		aiModels: record.ai_models || '',
-		priorityQueue: Boolean(features.priorityQueue),
-		priorityProcessing: Boolean(features.priorityQueue),
-		apiAccess: Boolean(features.apiAccess),
+		priorityQueue: isFeatureEnabled(features, 'priorityQueue'),
+		priorityProcessing: isFeatureEnabled(features, 'priorityQueue'),
+		apiAccess: isFeatureEnabled(features, 'apiAccess'),
 		support: record.support || '',
 		refillPolicy: record.refill_policy || '',
 		publishingLimits: record.publishing_limits || '',
@@ -232,7 +234,7 @@ export async function ensurePlansSeeded() {
 				rollover: seed.rollover,
 				topup_allowed: seed.topup_allowed,
 				limits: seed.limits,
-				features: seed.features,
+				features: normalizeFeatures(seed.features || DEFAULT_FEATURES, { validate: false }),
 				support: seed.support,
 				refill_policy: seed.refill_policy,
 				publishing_limits: seed.publishing_limits,
@@ -358,11 +360,13 @@ function buildPlanPayload(payload, { partial = false, existing = null } = {}) {
 
 	if (!partial) {
 		normalizeLimits(payload.limits);
-		normalizeFeatures(payload.features);
+		normalizeFeatures(payload.features, { validate: true });
 	}
 
 	const limits = payload.limits != null ? normalizeLimits(payload.limits) : (existing?.limits || DEFAULT_LIMITS);
-	const features = payload.features != null ? normalizeFeatures(payload.features) : (existing?.features || DEFAULT_FEATURES);
+	const features = payload.features != null
+		? normalizeFeatures(payload.features, { validate: true })
+		: normalizeFeatures(existing?.features || DEFAULT_FEATURES, { validate: false });
 
 	const active = payload.active != null
 		? Boolean(payload.active)
@@ -412,10 +416,10 @@ function buildPlanPayload(payload, { partial = false, existing = null } = {}) {
 }
 
 export async function createPlan(payload = {}) {
-	if (!payload.limits || typeof payload.limits !== 'object') {
+	if (!payload.limits || typeof payload.limits !== 'object' || Array.isArray(payload.limits)) {
 		throw httpError(422, 'limits are required', 'VALIDATION_ERROR');
 	}
-	if (!payload.features || typeof payload.features !== 'object') {
+	if (!payload.features || typeof payload.features !== 'object' || Array.isArray(payload.features)) {
 		throw httpError(422, 'features are required', 'VALIDATION_ERROR');
 	}
 	const data = buildPlanPayload(payload, { partial: false });

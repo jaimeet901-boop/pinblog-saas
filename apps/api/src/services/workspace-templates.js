@@ -7,6 +7,10 @@ import {
 	sanitizeTemplateName,
 	validateTemplateConfiguration,
 } from '../utils/template-config-validation.js';
+import {
+	assertTemplateUseAccess,
+	attachAllowedAccess,
+} from './plan-access-guard.js';
 
 function assertValidConfiguration(configuration) {
 	const result = validateTemplateConfiguration(configuration);
@@ -134,7 +138,7 @@ export async function createPinTemplate(req, payload = {}) {
 		...(marketplaceMeta ? { marketplace_meta: marketplaceMeta } : {}),
 	});
 
-	return mapPinTemplate(created);
+	return attachAllowedAccess(mapPinTemplate(created));
 }
 
 export async function updatePinTemplate(req, id, payload = {}) {
@@ -187,7 +191,7 @@ export async function updatePinTemplate(req, id, payload = {}) {
 	if (payload.deleted_at !== undefined) updates.deleted_at = payload.deleted_at;
 
 	const updated = await pocketbaseClient.collection('ai_pin_templates').update(id, updates);
-	return mapPinTemplate(updated);
+	return attachAllowedAccess(mapPinTemplate(updated));
 }
 
 export async function deletePinTemplate(req, id) {
@@ -213,6 +217,7 @@ export async function duplicatePinTemplate(req, id) {
 	if (!existing || existing.owner !== req.pocketbaseUserId) {
 		throw httpError(404, 'Template not found', 'NOT_FOUND');
 	}
+	await assertTemplateUseAccess(req, existing);
 	const { createTemplateUuid } = await import('../utils/pin-template-identity.js');
 	const created = await pocketbaseClient.collection('ai_pin_templates').create({
 		owner: req.pocketbaseUserId,
@@ -232,7 +237,7 @@ export async function duplicatePinTemplate(req, id) {
 		revision: 1,
 		marketplace_meta: existing.marketplace_meta || null,
 	});
-	return mapPinTemplate(created);
+	return attachAllowedAccess(mapPinTemplate(created));
 }
 
 export async function createCatalogTemplate(req, payload = {}) {

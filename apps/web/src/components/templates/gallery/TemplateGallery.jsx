@@ -12,6 +12,10 @@ import {
 	toggleGallerySelection,
 } from '@/services/templates/galleryStore';
 import { useGalleryStore } from '@/services/templates/useGalleryStore';
+import {
+	PRODUCT_EVENTS,
+	trackProductEvent,
+} from '@/lib/productAnalytics';
 
 export default function TemplateGallery({
 	onCreate,
@@ -23,6 +27,7 @@ export default function TemplateGallery({
 	onRename,
 	onTouch,
 	onBulk,
+	onUpgradeRequest,
 }) {
 	const items = useGalleryStore((s) => s.items);
 	const loading = useGalleryStore((s) => s.loading);
@@ -34,6 +39,7 @@ export default function TemplateGallery({
 	const totalItems = useGalleryStore((s) => s.totalItems);
 	const previewTemplateId = useGalleryStore((s) => s.previewTemplateId);
 	const sentinelRef = useRef(null);
+	const viewedRef = useRef(false);
 
 	const previewTemplate = items.find((item) => item.id === previewTemplateId) || null;
 
@@ -48,6 +54,16 @@ export default function TemplateGallery({
 		|| filters.tag
 		|| filters.includeArchived,
 	), [filters]);
+
+	useEffect(() => {
+		if (viewedRef.current) return;
+		viewedRef.current = true;
+		trackProductEvent(
+			PRODUCT_EVENTS.TEMPLATE_GALLERY_VIEW,
+			{ sourcePage: 'templates_gallery' },
+			{ dedupeKey: 'template_gallery_view:templates_gallery' },
+		);
+	}, []);
 
 	useEffect(() => {
 		const node = sentinelRef.current;
@@ -121,6 +137,7 @@ export default function TemplateGallery({
 							onRename={onRename}
 							onPreview={(item) => setPreviewTemplateId(item.id)}
 							onTouch={onTouch}
+							onUpgradeRequest={onUpgradeRequest}
 						/>
 					))}
 				</div>
@@ -133,6 +150,7 @@ export default function TemplateGallery({
 			<TemplatePreviewModal
 				template={previewTemplate}
 				onClose={() => setPreviewTemplateId(null)}
+				sourcePage="templates_gallery"
 			/>
 		</div>
 	);

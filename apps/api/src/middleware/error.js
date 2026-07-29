@@ -19,6 +19,12 @@ const errorMiddleware = (err, req, res, next) => {
 	res.status(status).json({
 		message,
 		errorCode: err.errorCode || (status === 401 ? 'UNAUTHENTICATED' : status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : status === 400 || status === 422 ? 'VALIDATION_ERROR' : 'INTERNAL_ERROR'),
+		...(err.access && typeof err.access === 'object' ? { access: err.access } : {}),
+		...(Array.isArray(err.missingKeys) ? { missingKeys: err.missingKeys } : {}),
+		...(Array.isArray(err.dependencyChain) ? { dependencyChain: err.dependencyChain } : {}),
+		...(err.featureKey ? { featureKey: err.featureKey } : {}),
+		...(Array.isArray(err.requiredKeys) ? { requiredKeys: err.requiredKeys } : {}),
+		...(err.details && typeof err.details === 'object' ? { details: err.details } : {}),
 		...(process.env.NODE_ENV !== NodeEnv.Production && {
 			error: {
 				status,

@@ -11,6 +11,7 @@ import {
 	setPlanEnabled,
 	updatePlan,
 } from '../../services/plans.js';
+import { getFeatureCatalogDto } from '../../services/feature-catalog.js';
 
 const router = Router();
 
@@ -29,6 +30,11 @@ function notFound(error) {
 
 router.get('/', asyncHandler(async (req, res) => {
 	res.json(await listPlans());
+}));
+
+/** Feature Catalog registry (read-only). Must be registered before /:id. */
+router.get('/feature-catalog', asyncHandler(async (_req, res) => {
+	res.json(getFeatureCatalogDto());
 }));
 
 router.post('/', asyncHandler(async (req, res) => {

@@ -1,5 +1,7 @@
 /** Default plan catalog for Admin Plans & Credits. */
 
+import { FEATURE_CATALOG } from './feature-catalog.js';
+
 export const DEFAULT_LIMITS = {
 	articlesPerMonth: 0,
 	imagesPerMonth: 0,
@@ -14,19 +16,13 @@ export const DEFAULT_LIMITS = {
 	maxWorkspaces: 1,
 };
 
-export const DEFAULT_FEATURES = {
-	aiWriter: false,
-	aiImages: false,
-	templates: false,
-	brandKit: false,
-	analytics: false,
-	calendar: false,
-	pinterest: false,
-	wordpress: false,
-	history: false,
-	apiAccess: false,
-	priorityQueue: false,
-};
+/**
+ * Default plan.features — every Feature Catalog key as `{ enabled: false }`.
+ * Writes/reads go through `normalizeFeatures` in plans.js (booleans still accepted on input).
+ */
+export const DEFAULT_FEATURES = Object.freeze(
+	Object.fromEntries(FEATURE_CATALOG.map((entry) => [entry.key, Object.freeze({ enabled: false })])),
+);
 
 export const PLAN_SEED_CATALOG = [
 	{
