@@ -15,6 +15,7 @@ import workspaceRouter from './workspace/index.js';
 import legalRouter from './legal.js';
 import billingRouter from './billing.js';
 import tenantContentRouter from './tenant-content.js';
+import publishingRouter from './publishing.js';
 
 const router = Router();
 
@@ -31,6 +32,7 @@ export default () => {
     router.use('/websites', pocketbaseAuth, attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation('workspace.websites.manage'), websitesRouter);
     router.use('/wordpress', wordpressRouter);
     router.use('/pinterest', pinterestRouter);
+    router.use('/publishing', pocketbaseAuth, attachWorkspace, requireWorkspaceRead, publishingRouter);
     router.use('/settings', settingsRouter);
     router.use('/ai-pin-images', pocketbaseAuth, attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation('workspace.ai.generate'), aiPinImagesRouter);
     router.use('/ai-pin-images/generation', pocketbaseAuth, attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation('workspace.ai.generate'), aiPinGenerationRouter);
