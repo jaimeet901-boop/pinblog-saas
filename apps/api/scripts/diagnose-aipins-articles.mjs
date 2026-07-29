@@ -1,12 +1,42 @@
 /**
  * READ-ONLY production diagnostic: website → website_articles → AI Pins articles query.
  *
- * Usage (inside API container):
- *   node /tmp/diagnose-aipins-articles.mjs <domain>
+ * Resolves `pocketbase` from the API image layout (Dockerfile.api):
+ *   WORKDIR /app/apps/api  →  dependencies hoisted under /app/node_modules
  *
  * Does not create, update, or delete any records.
  */
-import PocketBase from 'pocketbase';
+import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
+function loadPocketBase() {
+	// Match Dockerfile.api: npm ci --workspace apps/api from /app, WORKDIR /app/apps/api
+	const packageJsonCandidates = [
+		'/app/apps/api/package.json',
+		'/app/package.json',
+		path.join(process.cwd(), 'package.json'),
+		path.join(process.cwd(), 'apps/api/package.json'),
+	];
+
+	const errors = [];
+	for (const packageJsonPath of packageJsonCandidates) {
+		if (!existsSync(packageJsonPath)) continue;
+		try {
+			const require = createRequire(packageJsonPath);
+			const mod = require('pocketbase');
+			return mod?.default || mod;
+		} catch (error) {
+			errors.push(`${packageJsonPath}: ${error?.message || error}`);
+		}
+	}
+
+	throw new Error(
+		`Cannot resolve package "pocketbase" from API image layout. Tried:\n${errors.join('\n') || '(no package.json candidates found)'}`,
+	);
+}
+
+const PocketBase = loadPocketBase();
 
 const domainArg = String(process.argv[2] || '')
 	.trim()
@@ -76,6 +106,7 @@ async function main() {
 		pbBaseUrl: PB_BASE_URL,
 		websiteField,
 		matchedWebsiteCount: matched.length,
+		cwd: process.cwd(),
 	}, null, 2));
 
 	if (matched.length === 0) {
