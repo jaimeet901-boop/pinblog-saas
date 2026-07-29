@@ -7,6 +7,10 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import {
+	adaptPublishingHistoryResponse,
+	buildPublishingHistoryFetchQuery,
+} from '@/services/publishing-history';
 import './PublishingHistoryPage.css';
 
 const QUICK_FILTERS = [
@@ -105,16 +109,22 @@ export default function PublishingHistoryPage() {
 	const load = async () => {
 		setLoading(true);
 		try {
-			const query = new URLSearchParams({ page: '1', perPage: '100' });
-			if (statusFilter) {
-				query.set('status', statusFilter);
-			}
-			const response = await apiServerClient.fetch(`/pinterest/history?${query.toString()}`, { method: 'GET' });
+			const query = buildPublishingHistoryFetchQuery({
+				page: 1,
+				perPage: 100,
+				statusFilter,
+				channel: 'pinterest',
+			});
+			const response = await apiServerClient.fetch(`/publishing/history?${query.toString()}`, { method: 'GET' });
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to load publishing history (${response.status})`);
 			}
-			const next = Array.isArray(payload.items) ? payload.items : [];
+			const adapted = adaptPublishingHistoryResponse(payload, {
+				// When no status chip is selected, match legacy /pinterest/history default status set.
+				applyDefaultStatusFilter: !String(statusFilter || '').trim(),
+			});
+			const next = Array.isArray(adapted.items) ? adapted.items : [];
 			setItems(next);
 			setSelectedId((prev) => (next.some((item) => item.id === prev) ? prev : next[0]?.id || ''));
 		} catch (error) {
