@@ -7,6 +7,7 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Input, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import './BrandKitPage.css';
 
 const blank = {
@@ -85,6 +86,7 @@ function ColorField({ label, value, onChange }) {
 
 export default function BrandKitPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const [items, setItems] = useState([]);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
@@ -311,7 +313,7 @@ export default function BrandKitPage() {
 		<div className="bk-atelier">
 			<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
-					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
+					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">Brand Kit</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 						Define logo, colors, type, and watermark once — then apply them across AI Pins.

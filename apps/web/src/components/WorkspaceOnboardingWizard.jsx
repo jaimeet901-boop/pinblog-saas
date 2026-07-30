@@ -4,12 +4,14 @@ import { CheckCircle2, Loader2, Sparkles, X } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { Button } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 
 /**
  * First-login onboarding overlay rendered on the Dashboard (not a separate page).
  */
 export default function WorkspaceOnboardingWizard() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const [open, setOpen] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
@@ -70,7 +72,7 @@ export default function WorkspaceOnboardingWizard() {
 					<p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
 						<Sparkles size={12} /> Workspace setup
 					</p>
-					<h3 className="font-display text-lg font-semibold">Get Chef IA ready for your team</h3>
+					<h3 className="font-display text-lg font-semibold">Get {platformName} ready for your team</h3>
 					<p className="text-sm text-muted-foreground">{percent}% complete — you can skip any step.</p>
 				</div>
 				<button

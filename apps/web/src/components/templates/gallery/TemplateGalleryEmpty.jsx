@@ -1,4 +1,8 @@
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+
 export default function TemplateGalleryEmpty({ hasFilters, onCreate, onClear }) {
+	const { platformName } = usePlatformIdentity();
+
 	return (
 		<div className="tpl-gallery-empty">
 			<h2>{hasFilters ? 'No templates match' : 'No templates yet'}</h2>
@@ -7,7 +11,7 @@ export default function TemplateGalleryEmpty({ hasFilters, onCreate, onClear }) 
 					? 'Try clearing filters or searching a different term.'
 					: onCreate
 						? 'Create a layer template to start your gallery.'
-						: 'The Chef IA template library will appear here once available.'}
+						: `The ${platformName} template library will appear here once available.`}
 			</p>
 			<div className="tpl-gallery-empty__actions">
 				{hasFilters ? (

@@ -3,15 +3,33 @@ import { httpError } from '../middleware/require-admin.js';
 import { writeAuditLog } from './audit/write.js';
 import {
 	getLegalPageTemplate,
+	getLegalPageTemplates,
 	LEGAL_PAGE_TEMPLATES,
 	listLegalPageTemplateMeta,
+	resolveLegalBrandContext,
+	SITE_URL as FALLBACK_SITE_URL,
 } from './legal-page-templates.js';
 import { ensureLegalPagesSchema } from '../utils/ensure-legal-pages-schema.js';
+import { getPublicPlatformIdentity } from './platform-settings.js';
 
 export const LEGAL_PAGE_SLUGS = Object.freeze(LEGAL_PAGE_TEMPLATES.map((item) => item.slug));
 
-const SITE_URL = 'https://tbuy.store';
-
+async function loadLegalBrandContext() {
+	try {
+		const identity = await getPublicPlatformIdentity();
+		return resolveLegalBrandContext({
+			platformName: identity.platformName,
+			siteUrl: identity.appUrl || identity.canonicalUrl || '',
+			appUrl: identity.appUrl,
+			supportEmail: identity.supportEmail,
+			// Privacy email: contact.contactEmail (legacy SoT; privacyEmail alias accepted by resolver)
+			privacyEmail: identity.contactEmail,
+			contactEmail: identity.contactEmail,
+		});
+	} catch {
+		return resolveLegalBrandContext();
+	}
+}
 async function ready() {
 	await ensureLegalPagesSchema(pocketbaseClient);
 }
@@ -60,7 +78,7 @@ export function mapLegalPage(record) {
 		createdAt: record.created || '',
 		updatedAt: record.updated || '',
 		canonicalPath: `/${record.slug}`,
-		canonicalUrl: `${SITE_URL}/${record.slug}`,
+		canonicalUrl: `${FALLBACK_SITE_URL}/${record.slug}`,
 	};
 }
 
@@ -125,8 +143,10 @@ export async function ensureDefaultLegalPages(adminUser = null) {
 		return [];
 	}
 
+	const brand = await loadLegalBrandContext();
+	const templates = getLegalPageTemplates(brand);
 	const created = [];
-	for (const item of LEGAL_PAGE_TEMPLATES) {
+	for (const item of templates) {
 		const existing = await getBySlugRecord(item.slug);
 		if (existing) continue;
 		const record = await pocketbaseClient.collection('legal_pages').create({
@@ -170,8 +190,9 @@ export async function getQuickStartCatalog() {
 	await ready();
 	const { items } = await listLegalPages({ seed: false });
 	const existing = new Set(items.map((item) => item.slug));
+	const brand = await loadLegalBrandContext();
 	return {
-		items: listLegalPageTemplateMeta().map((template) => ({
+		items: listLegalPageTemplateMeta(brand).map((template) => ({
 			...template,
 			created: existing.has(template.slug),
 			creationStatus: existing.has(template.slug) ? 'Created' : 'Not Created',
@@ -184,7 +205,8 @@ export async function getQuickStartCatalog() {
 export async function createLegalPageFromTemplate(slug, adminUser = null) {
 	await ready();
 	const normalized = assertSlug(slug);
-	const template = getLegalPageTemplate(normalized);
+	const brand = await loadLegalBrandContext();
+	const template = getLegalPageTemplate(normalized, brand);
 	if (!template) {
 		throw httpError(404, 'Legal page template not found.', 'LEGAL_PAGE_TEMPLATE_NOT_FOUND');
 	}

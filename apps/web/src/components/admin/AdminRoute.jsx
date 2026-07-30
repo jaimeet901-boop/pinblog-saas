@@ -2,6 +2,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { canAccessAdminConsole } from '@/lib/adminRbac';
 import { AdminSkeleton } from '@/components/admin/AdminUi';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import './AdminLayout.css';
 
 /**
@@ -10,6 +11,7 @@ import './AdminLayout.css';
  */
 export default function AdminRoute({ children }) {
 	const { isAuthed, user } = useAuth();
+	const { platformName } = usePlatformIdentity();
 
 	if (!isAuthed) {
 		return <Navigate to="/login" replace />;
@@ -19,7 +21,7 @@ export default function AdminRoute({ children }) {
 		return (
 			<div className="admin-denied">
 				<div>
-					<p className="mb-2 text-xs font-bold uppercase tracking-[0.16em]" style={{ color: '#e8a87c' }}>Chef IA Admin Console</p>
+					<p className="mb-2 text-xs font-bold uppercase tracking-[0.16em]" style={{ color: '#e8a87c' }}>{platformName} Admin Console</p>
 					<h1 className="font-display text-2xl font-semibold">Access restricted</h1>
 					<p className="mx-auto mt-2 max-w-md text-sm" style={{ color: '#9aa3b5' }}>
 						This area is reserved for platform administrators. Your workspace remains available at /app.

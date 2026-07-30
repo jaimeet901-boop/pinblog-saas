@@ -1,4 +1,5 @@
 import { PROVIDER_CATALOG } from './ai-provider-catalog.js';
+import { getPlatformSettings } from './platform-settings.js';
 
 function joinUrl(base, path) {
 	const normalizedBase = String(base || '').replace(/\/+$/, '');
@@ -81,8 +82,11 @@ export async function probeProviderConnection({
 					headers['OpenAI-Organization'] = organizationId;
 				}
 				if (code === 'openrouter') {
-					headers['HTTP-Referer'] = 'https://chef-ia.app';
-					headers['X-Title'] = 'Chef IA Admin';
+					const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
+					const platformName = String(settings?.general?.platformName || 'Chef IA').trim() || 'Chef IA';
+					const appUrl = String(settings?.domains?.appUrl || '').trim() || 'https://tbuy.store';
+					headers['HTTP-Referer'] = appUrl;
+					headers['X-Title'] = `${platformName} Admin`;
 				}
 				const { response, latencyMs, text } = await fetchWithTimeout(
 					joinUrl(endpoint, 'models'),

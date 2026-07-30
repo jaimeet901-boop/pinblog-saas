@@ -4,6 +4,7 @@ import { Button } from '@/components/kit';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import { consumeSetupReturnPath } from '@/lib/websites/websiteLifecycle';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 
 /**
  * Facebook Hub scaffold — mirrors Pinterest connect entry for Active Website return paths.
@@ -11,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
  */
 export default function FacebookPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const websiteId = String(searchParams.get('websiteId') || '').trim();
@@ -37,7 +39,7 @@ export default function FacebookPage() {
 		<div className="ai-pins-atelier">
 			<div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
-					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
+					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">Facebook Hub</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 						{setupMode

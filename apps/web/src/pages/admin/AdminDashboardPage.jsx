@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { AdminHero, StatusPill } from '@/components/admin/AdminUi';
 import apiServerClient from '@/lib/apiServerClient';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 
 const EMPTY = {
 	stats: {
@@ -34,6 +35,7 @@ async function readApiError(response) {
 
 export default function AdminDashboardPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const [data, setData] = useState(EMPTY);
 	const [loading, setLoading] = useState(true);
 
@@ -77,7 +79,7 @@ export default function AdminDashboardPage() {
 		<div>
 			<AdminHero
 				title="Platform Command Center"
-				description="Premium overview of Chef IA platform health from live PocketBase and queue telemetry."
+				description={`Premium overview of ${platformName} platform health from live PocketBase and queue telemetry.`}
 				action={loading ? <Loader2 size={16} className="animate-spin" /> : null}
 			/>
 

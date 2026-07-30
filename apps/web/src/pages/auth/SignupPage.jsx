@@ -5,6 +5,7 @@ import AuthShell from './AuthShell';
 import { Button, Input, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { OAUTH_PROVIDERS, normalizePocketBaseError, validateSignupForm } from '@/lib/auth';
 
 function OAuthButton({ provider, disabled, loading, onClick }) {
@@ -32,6 +33,7 @@ function OAuthButton({ provider, disabled, loading, onClick }) {
 
 export default function SignupPage() {
 	const { signup, loginWithOAuth, authMethods } = useAuth();
+	const { platformName } = usePlatformIdentity();
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const { toast } = useToast();
@@ -109,7 +111,7 @@ export default function SignupPage() {
 					/* claimPendingInvites still runs on first workspace resolve */
 				}
 			}
-			toast({ title: 'Welcome to Chef IA!', description: 'Your account is ready. Check your inbox to verify your email.' });
+			toast({ title: `Welcome to ${platformName}!`, description: 'Your account is ready. Check your inbox to verify your email.' });
 			navigate('/app');
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Signup failed', description: normalizePocketBaseError(err, 'Could not create your account.') });

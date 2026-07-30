@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import AuthShell from './AuthShell';
 import { Button, Input, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { useToast } from '@/hooks/use-toast';
 import { OAUTH_PROVIDERS, isValidEmail, normalizePocketBaseError } from '@/lib/auth';
 
@@ -34,6 +35,7 @@ function OAuthButton({ provider, disabled, loading, onClick }) {
 
 export default function LoginPage() {
 	const { login, loginWithOAuth, authMethods } = useAuth();
+	const { platformName } = usePlatformIdentity();
 	const navigate = useNavigate();
 	const { toast } = useToast();
 	const [email, setEmail] = useState('');
@@ -108,7 +110,7 @@ export default function LoginPage() {
 	return (
 		<AuthShell
 			title="Welcome back"
-			subtitle="Sign in to your Chef IA workspace."
+			subtitle={`Sign in to your ${platformName} workspace.`}
 			footer={<>No account? <Link to="/signup" className="font-medium text-primary hover:underline">Create one</Link></>}
 		>
 			<div className="space-y-4">

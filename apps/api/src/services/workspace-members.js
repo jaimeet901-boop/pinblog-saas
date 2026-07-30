@@ -12,6 +12,7 @@ import {
 import { recordTypedWorkspaceActivity } from './workspace-activity.js';
 import { notifyWorkspaceById } from './workspace-notify.js';
 import { auditFromRequest, writeWorkspaceAudit } from './workspace-audit.js';
+import { getPlatformSettings } from './platform-settings.js';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -221,12 +222,15 @@ async function afterInvite(req, membership, email, { pendingAccount = false } = 
 		meta: { event: 'invitation', email, role: membership.role, membershipId: membership.id, pendingAccount },
 	});
 
+	const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
+	const platformName = String(settings?.general?.platformName || 'Chef IA').trim() || 'Chef IA';
+
 	await notifyWorkspaceById({
 		workspaceId: req.workspace.id,
 		userId: req.workspace.owner,
 		title: 'Workspace invitation sent',
 		body: pendingAccount
-			? `${email} was invited. They will join automatically after creating a Chef IA account.`
+			? `${email} was invited. They will join automatically after creating a ${platformName} account.`
 			: `${email} was invited to ${req.workspace.name || 'the workspace'} as ${membership.role}.`,
 		priority: 'normal',
 		meta: { type: 'invitation', event: 'invitation', membershipId: membership.id },

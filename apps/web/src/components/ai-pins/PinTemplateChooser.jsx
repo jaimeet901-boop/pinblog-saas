@@ -17,6 +17,7 @@ import {
 	PRODUCT_EVENTS,
 	trackProductEvent,
 } from '@/lib/productAnalytics';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import '@/pages/app/TemplatesPage.css';
 import './PinTemplateChooser.css';
 
@@ -47,6 +48,7 @@ export default function PinTemplateChooser({
 	selectingId = '',
 	previewArticle = null,
 }) {
+	const { platformName } = usePlatformIdentity();
 	const items = useGalleryStore((s) => s.items);
 	const loading = useGalleryStore((s) => s.loading);
 	const loadingMore = useGalleryStore((s) => s.loadingMore);
@@ -130,7 +132,7 @@ export default function PinTemplateChooser({
 				<header className="pin-tpl-chooser__header">
 					<div className="pin-tpl-chooser__brand">
 						<span className="pin-tpl-chooser__eyebrow">
-							<Library size={14} aria-hidden="true" /> Chef IA Library
+							<Library size={14} aria-hidden="true" /> {platformName} Library
 						</span>
 						<h2>Choose Template</h2>
 						<p>

@@ -13,6 +13,8 @@ import { useToast } from '@/hooks/use-toast';
 import { OAUTH_PROVIDERS, getEnabledProviderNames, normalizePocketBaseError } from '@/lib/auth';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import { mailtoHref } from '@/lib/platformIdentity';
 import './SettingsPage.css';
 
 const TABS = [
@@ -71,6 +73,7 @@ export default function SettingsPage() {
 	const { toast } = useToast();
 	const { user, refresh, authMethods, externalAuths, connectProvider, disconnectProvider, logout } = useAuth();
 	const { theme, toggle } = useTheme();
+	const { supportEmail, contactEmail, platformName } = usePlatformIdentity();
 	const isSuperAdmin = user?.role === 'admin';
 
 	const [tab, setTab] = useState('general');
@@ -151,7 +154,7 @@ export default function SettingsPage() {
 			const nextPrefs = {
 				...defaultPrefs,
 				...(settingsRes.prefs || {}),
-				workspaceName: settingsRes.prefs?.workspaceName || settingsRes.workspace?.name || user?.name || 'Chef IA Workspace',
+				workspaceName: settingsRes.prefs?.workspaceName || settingsRes.workspace?.name || user?.name || `${platformName} Workspace`,
 			};
 			setPrefs(nextPrefs);
 			setBaseline({ name: user?.name || '', prefs: nextPrefs });
@@ -459,7 +462,7 @@ export default function SettingsPage() {
 	const resetPreferences = async () => {
 		const next = {
 			...defaultPrefs,
-			workspaceName: user?.name || 'Chef IA Workspace',
+			workspaceName: user?.name || `${platformName} Workspace`,
 		};
 		setPrefs(next);
 		try {
@@ -495,7 +498,7 @@ export default function SettingsPage() {
 			<section className="set-hero">
 				<div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
 					<div>
-						<p className="set-hero__eyebrow">Chef IA Workspace Settings</p>
+						<p className="set-hero__eyebrow">{platformName} Workspace Settings</p>
 						<h1 className="set-hero__title">{prefs.workspaceName || user?.name || 'Workspace'}</h1>
 						<div className="set-hero__meta">
 							<span className="set-avatar">{initials}</span>
@@ -787,7 +790,7 @@ export default function SettingsPage() {
 										<div className="set-empty">
 											<div className="set-empty__art" aria-hidden="true" />
 											<p className="font-semibold">No websites connected</p>
-											<p className="mt-1 text-sm text-muted-foreground">Add a WordPress site to publish articles from Chef IA.</p>
+											<p className="mt-1 text-sm text-muted-foreground">Add a WordPress site to publish articles from {platformName}.</p>
 											<Link to="/app/websites" className="mt-4 inline-block"><Button size="sm">Open Websites</Button></Link>
 										</div>
 									) : (
@@ -993,7 +996,7 @@ export default function SettingsPage() {
 										</div>
 									</div>
 									<Select label="Accent color" value={prefs.accentColor} onChange={(e) => updatePref('accentColor', e.target.value)}>
-										<option value="coral">Warm coral (Chef IA)</option>
+										<option value="coral">Warm coral ({platformName})</option>
 										<option value="amber">Amber</option>
 										<option value="olive">Olive</option>
 									</Select>
@@ -1079,8 +1082,8 @@ export default function SettingsPage() {
 								<Link to="/app/websites"><Globe size={14} /> Websites</Link>
 								<Link to="/app/pinterest"><Pin size={14} /> Pinterest Hub</Link>
 								<a href="https://docs.pocketbase.io" target="_blank" rel="noreferrer"><BookOpen size={14} /> Documentation</a>
-								<a href="mailto:support@example.com"><LifeBuoy size={14} /> Support</a>
-								<a href="mailto:hello@example.com"><Mail size={14} /> Contact</a>
+								<a href={mailtoHref(supportEmail)}><LifeBuoy size={14} /> Support</a>
+								<a href={mailtoHref(contactEmail)}><Mail size={14} /> Contact</a>
 							</div>
 						</div>
 					</aside>

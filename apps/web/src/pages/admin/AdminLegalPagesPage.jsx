@@ -6,6 +6,8 @@ import { AdminHero, StatusPill } from '@/components/admin/AdminUi';
 import apiServerClient from '@/lib/apiServerClient';
 import { renderMarkdownToHtml } from '@/lib/markdown';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import { DEFAULT_PLATFORM_NAME } from '@/lib/platformIdentity';
 import './AdminLegalPagesPage.css';
 
 const SLUG_OPTIONS = [
@@ -28,12 +30,12 @@ async function readApiError(response) {
 	}
 }
 
-function emptyDraft(slug = 'privacy') {
+function emptyDraft(slug = 'privacy', platformName = DEFAULT_PLATFORM_NAME) {
 	const option = SLUG_OPTIONS.find((item) => item.value === slug) || SLUG_OPTIONS[0];
 	return {
 		slug: option.value,
 		title: option.label,
-		seoTitle: `${option.label} | Chef IA`,
+		seoTitle: `${option.label} | ${platformName}`,
 		metaDescription: '',
 		content: `# ${option.label}\n\n`,
 		status: 'draft',
@@ -59,6 +61,7 @@ function applyPageToForm(page) {
 
 export default function AdminLegalPagesPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const [items, setItems] = useState([]);
 	const [quickStart, setQuickStart] = useState([]);
 	const [loading, setLoading] = useState(true);
@@ -66,7 +69,7 @@ export default function AdminLegalPagesPage() {
 	const [creatingSlug, setCreatingSlug] = useState('');
 	const [query, setQuery] = useState('');
 	const [selectedSlug, setSelectedSlug] = useState('');
-	const [form, setForm] = useState(emptyDraft());
+	const [form, setForm] = useState(() => emptyDraft('privacy', DEFAULT_PLATFORM_NAME));
 	const [isNew, setIsNew] = useState(false);
 	const [showPreview, setShowPreview] = useState(true);
 	const [versions, setVersions] = useState([]);
@@ -101,7 +104,7 @@ export default function AdminLegalPagesPage() {
 			} else if (!list.length) {
 				setSelectedSlug('');
 				setIsNew(false);
-				setForm(emptyDraft());
+				setForm(emptyDraft('privacy', platformName));
 				setVersions([]);
 			}
 		} catch (error) {
@@ -109,7 +112,7 @@ export default function AdminLegalPagesPage() {
 		} finally {
 			setLoading(false);
 		}
-	}, [loadQuickStart, query, selectedSlug, toast]);
+	}, [loadQuickStart, platformName, query, selectedSlug, toast]);
 
 	useEffect(() => {
 		load();
@@ -223,7 +226,7 @@ export default function AdminLegalPagesPage() {
 			if (!response.ok) throw new Error(await readApiError(response));
 			toast({ title: 'Legal page deleted' });
 			setSelectedSlug('');
-			setForm(emptyDraft());
+			setForm(emptyDraft('privacy', platformName));
 			setIsNew(false);
 			await load();
 		} catch (error) {
@@ -432,7 +435,7 @@ export default function AdminLegalPagesPage() {
 										value={form.slug}
 										disabled={!isNew}
 										onChange={(event) => {
-											const next = emptyDraft(event.target.value);
+											const next = emptyDraft(event.target.value, platformName);
 											setSelectedSlug(next.slug);
 											setForm((prev) => ({
 												...next,

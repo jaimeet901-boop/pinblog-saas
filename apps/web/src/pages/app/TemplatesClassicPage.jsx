@@ -8,6 +8,7 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Input, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import TemplatePreviewCard from '@/components/ai-pins/TemplatePreviewCard';
 import {
 	createDefaultTemplateConfig,
@@ -73,6 +74,7 @@ function FieldHint({ children }) {
 
 export default function TemplatesClassicPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [templates, setTemplates] = useState([]);
@@ -291,7 +293,7 @@ export default function TemplatesClassicPage() {
 	return (
 		<div className="tpl-atelier">
 			<div className="mb-4">
-				<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
+				<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 				<h1 className="font-display text-3xl font-semibold tracking-tight">Pin Templates</h1>
 				<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 					Organize reusable pin layouts for AI Pins — edit once, apply everywhere, preview as you go.
@@ -739,7 +741,7 @@ export default function TemplatesClassicPage() {
 										description: 'Fast, comforting dinner ideas for busy evenings.',
 										category: 'Recipes',
 										website: 'chefia.studio',
-										author: 'Chef IA',
+										author: platformName,
 										overlayText: 'Save Recipe',
 									}}
 								/>

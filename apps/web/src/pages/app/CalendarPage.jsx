@@ -11,6 +11,7 @@ import { useWorkspaceConfig } from '@/context/WorkspaceConfigContext';
 import { resolvePublishingConfig } from '@/services/ai-pins/publishingConfig.js';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import './CalendarPage.css';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -79,6 +80,7 @@ function boardLabel(job) {
 
 export default function CalendarPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const [searchParams] = useSearchParams();
 	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
 	usePersistWebsiteQuery(preferredWebsiteId);
@@ -446,7 +448,7 @@ export default function CalendarPage() {
 		<div className="cal-atelier">
 			<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
-					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
+					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">Content Calendar</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 						Plan, drag, and refine scheduled Pinterest pins across month, week, and day views.
@@ -597,7 +599,7 @@ export default function CalendarPage() {
 							<div className="cal-empty__art" aria-hidden="true" />
 							<p className="font-display text-xl font-semibold">No scheduled content yet.</p>
 							<p className="mt-2 max-w-md text-sm text-muted-foreground">
-								Your Chef IA calendar will fill as you schedule Pinterest pins. Drag items between days to reschedule.
+								Your {platformName} calendar will fill as you schedule Pinterest pins. Drag items between days to reschedule.
 							</p>
 							<Link to={pinsHref} className="mt-5">
 								<Button size="sm"><Pin size={14} /> Schedule your first Pinterest Pin</Button>

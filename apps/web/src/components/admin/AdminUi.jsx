@@ -1,11 +1,14 @@
 import { Inbox, AlertTriangle } from 'lucide-react';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 
-export function AdminHero({ eyebrow = 'Chef IA Admin', title, description, action }) {
+export function AdminHero({ eyebrow, title, description, action }) {
+	const { platformName } = usePlatformIdentity();
+	const resolvedEyebrow = eyebrow ?? `${platformName} Admin`;
 	return (
 		<section className="admin-page-hero">
 			<div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
-					<p className="admin-page-hero__eyebrow">{eyebrow}</p>
+					<p className="admin-page-hero__eyebrow">{resolvedEyebrow}</p>
 					<h1 className="admin-page-hero__title">{title}</h1>
 					{description ? <p className="admin-page-hero__desc">{description}</p> : null}
 				</div>

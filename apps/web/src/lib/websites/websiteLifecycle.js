@@ -3,6 +3,8 @@
  * Constitution: Setup Mode until first publish; progressive disclosure.
  */
 
+import { DEFAULT_PLATFORM_NAME } from '@/lib/platformIdentity';
+
 export const SETUP_STAGES = [
 	{ id: 'website', label: 'Website Created' },
 	{ id: 'wordpress', label: 'Configure WordPress' },
@@ -235,12 +237,12 @@ export function deriveWebsiteLifecycle(site = {}, options = {}) {
 	};
 }
 
-export function setupStepMessage(step) {
+export function setupStepMessage(step, platformName = DEFAULT_PLATFORM_NAME) {
 	switch (step) {
 		case 'create':
 			return 'Add your first website to begin.';
 		case 'wordpress':
-			return 'Connect WordPress so Chef IA can sync content and publish back to your site. You can skip and scan public pages first.';
+			return `Connect WordPress so ${platformName} can sync content and publish back to your site. You can skip and scan public pages first.`;
 		case 'scan':
 			return 'Scan your website to discover articles for AI Pins.';
 		case 'articles':
@@ -260,12 +262,12 @@ export function setupStepMessage(step) {
 	}
 }
 
-export function setupStepWhy(step) {
+export function setupStepWhy(step, platformName = DEFAULT_PLATFORM_NAME) {
 	switch (step) {
 		case 'wordpress':
 			return 'WordPress unlocks reliable sync and optional publishing back to your blog. Scanning without it still works for public URLs.';
 		case 'scan':
-			return 'A scan finds the articles Chef IA will turn into Pinterest pins.';
+			return `A scan finds the articles ${platformName} will turn into Pinterest pins.`;
 		case 'articles':
 			return 'Pins need a source article. Generate your first pin from one of these.';
 		case 'pinterest':

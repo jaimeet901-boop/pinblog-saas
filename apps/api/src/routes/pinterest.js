@@ -489,7 +489,7 @@ router.get('/oauth/callback', async (req, res) => {
 
 	if (callbackError) {
 		const reason = normalizeString(req.query.error_description, 'error_description', { max: 1000 }) || callbackError;
-		return res.redirect(buildPinterestOAuthAppRedirect({ pinterest_error: reason }));
+		return res.redirect(await buildPinterestOAuthAppRedirect({ pinterest_error: reason }));
 	}
 
 	const code = normalizeString(req.query.code, 'code', { required: true, max: 400 });
@@ -671,7 +671,7 @@ router.get('/oauth/callback', async (req, res) => {
 			// Account is connected; boards can be synced later from the UI.
 			const { promoteWaitingProviderPinterestJobs } = await import('../services/publish-pipeline.js');
 			await promoteWaitingProviderPinterestJobs({ limit: 50 }).catch(() => null);
-			return res.redirect(buildPinterestOAuthAppRedirect({
+			return res.redirect(await buildPinterestOAuthAppRedirect({
 				pinterest_connected: '1',
 				account_id: account.id,
 				boards_sync_warning: '1',
@@ -681,12 +681,12 @@ router.get('/oauth/callback', async (req, res) => {
 		const { promoteWaitingProviderPinterestJobs } = await import('../services/publish-pipeline.js');
 		await promoteWaitingProviderPinterestJobs({ limit: 50 }).catch(() => null);
 
-		return res.redirect(buildPinterestOAuthAppRedirect({
+		return res.redirect(await buildPinterestOAuthAppRedirect({
 			pinterest_connected: '1',
 			account_id: account.id,
 		}));
 	} catch (error) {
-		return res.redirect(buildPinterestOAuthAppRedirect({
+		return res.redirect(await buildPinterestOAuthAppRedirect({
 			pinterest_error: error?.message || 'Pinterest OAuth callback failed',
 		}));
 	}

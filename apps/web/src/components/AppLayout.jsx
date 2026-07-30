@@ -3,12 +3,14 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
 	LayoutDashboard, Globe, PenLine, Image, CalendarDays, BarChart3,
-	CreditCard, Settings, Shield, User, LogOut, Menu, X, Moon, Sun, Sparkles, Pin, ChevronDown, Bell, Wand2, History, Facebook,
+	CreditCard, Settings, Shield, User, LogOut, Menu, X, Moon, Sun, Pin, ChevronDown, Bell, Wand2, History, Facebook,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useActiveWebsite } from '@/context/ActiveWebsiteContext';
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher';
+import PlatformBrandMark from '@/components/PlatformBrandMark';
+import { usePlatformDocumentTitle, usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import {
 	DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 	DropdownMenuSeparator, DropdownMenuTrigger,
@@ -44,6 +46,7 @@ export default function AppLayout({ children }) {
 	const { user, logout } = useAuth();
 	const { theme, toggle } = useTheme();
 	const { websites, activeWebsiteId, activeWebsite, setActiveWebsiteId, loading: websitesLoading } = useActiveWebsite();
+	usePlatformDocumentTitle();
 	const navigate = useNavigate();
 	const location = useLocation();
 
@@ -305,12 +308,17 @@ function ActiveWebsiteSwitcher({ websites, activeWebsiteId, loading, onChange, p
 }
 
 function Brand() {
+	const { platformName, sidebarLogoUrl, platformLogoUrl } = usePlatformIdentity();
+	const logoUrl = sidebarLogoUrl || platformLogoUrl;
+
 	return (
 		<Link to="/app" className="flex items-center gap-2">
-			<span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/25">
-				<Sparkles size={18} />
-			</span>
-			<span className="font-display text-xl font-semibold tracking-tight">Chef IA</span>
+			<PlatformBrandMark
+				logoUrl={logoUrl}
+				size={18}
+				className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/25"
+			/>
+			<span className="font-display text-xl font-semibold tracking-tight">{platformName}</span>
 		</Link>
 	);
 }

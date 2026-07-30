@@ -1,0 +1,150 @@
+.admin-identity-page {
+	display: grid;
+	gap: 1rem;
+}
+
+.admin-identity-intro {
+	display: flex;
+	gap: 0.85rem;
+	align-items: flex-start;
+}
+
+.admin-identity-intro__icon {
+	display: grid;
+	place-items: center;
+	width: 2.25rem;
+	height: 2.25rem;
+	border-radius: 0.7rem;
+	background: rgba(232, 168, 124, 0.16);
+	color: #e8a87c;
+	flex-shrink: 0;
+}
+
+.admin-identity-loading {
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
+	color: var(--admin-muted, #9aa3b5);
+}
+
+.admin-identity-section__header {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	text-align: left;
+}
+
+.admin-identity-section__header strong {
+	display: block;
+	font-size: 0.98rem;
+}
+
+.admin-identity-section__subtitle {
+	display: block;
+	margin-top: 0.2rem;
+	font-size: 0.78rem;
+	font-weight: 400;
+	color: var(--admin-muted, #9aa3b5);
+}
+
+.admin-identity-section__header svg {
+	transition: transform 160ms ease;
+	opacity: 0.8;
+}
+
+.admin-identity-section.is-open .admin-identity-section__header svg {
+	transform: rotate(180deg);
+}
+
+.admin-identity-section__body {
+	margin-top: 1rem;
+	padding-top: 1rem;
+	border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.admin-identity-field {
+	display: grid;
+	gap: 0.35rem;
+}
+
+.admin-identity-field label {
+	font-size: 0.78rem;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.admin-identity-field__hint {
+	margin: 0;
+	font-size: 0.72rem;
+	line-height: 1.4;
+	color: var(--admin-muted, #9aa3b5);
+}
+
+.admin-identity-field input,
+.admin-identity-field textarea {
+	width: 100%;
+	border-radius: 0.7rem;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	background: rgba(10, 12, 18, 0.55);
+	color: inherit;
+	padding: 0.65rem 0.75rem;
+	font: inherit;
+}
+
+.admin-identity-field textarea {
+	resize: vertical;
+	min-height: 5rem;
+}
+
+.admin-identity-field.has-error input,
+.admin-identity-field.has-error textarea {
+	border-color: rgba(239, 68, 68, 0.55);
+}
+
+.admin-identity-field__error {
+	margin: 0;
+	font-size: 0.72rem;
+	color: #f87171;
+}
+
+.admin-identity-subgroup {
+	display: grid;
+	gap: 0.85rem;
+}
+
+.admin-identity-subgroup + .admin-identity-subgroup {
+	margin-top: 1.25rem;
+	padding-top: 1.15rem;
+	border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.admin-identity-subgroup__title {
+	margin: 0;
+	font-size: 0.82rem;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: #e8a87c;
+}
+
+.admin-identity-field select {
+	width: 100%;
+	border-radius: 0.7rem;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	background: rgba(10, 12, 18, 0.55);
+	color: inherit;
+	padding: 0.65rem 0.75rem;
+	font: inherit;
+}
+
+.admin-identity-assets {
+	display: grid;
+	gap: 0.85rem;
+}

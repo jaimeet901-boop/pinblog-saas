@@ -10,6 +10,7 @@ import apiServerClient from '@/lib/apiServerClient';
 import { generateText, extractJson } from '@/lib/aiGenerate';
 import { Badge, Button, Card, Empty, Input, Select, Spinner, Textarea } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import TemplatePreviewCard from '@/components/ai-pins/TemplatePreviewCard';
 import ArticlePreviewDrawer from '@/components/ai-pins/ArticlePreviewDrawer';
 import ManualArticleForm from '@/components/ai-pins/ManualArticleForm';
@@ -189,6 +190,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const routes = product.routes;
 	const destination = getDestinationAdapter(product.destinationId);
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const navigate = useNavigate();
 	const {
 		config,
@@ -304,7 +306,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const referenceInputRef = useRef(null);
 	const publishAbortRef = useRef(null);
 
-	const platformName = config?.general?.platformName || 'Chef IA';
 	const publishingConfig = useMemo(() => resolvePublishingConfig(config), [config]);
 	const templates = useMemo(() => mapStudioTemplates(config), [config]);
 	const brandKits = useMemo(() => mapStudioBrandKits(config), [config]);
@@ -2770,7 +2771,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 										</span>
 										<p className="ai-pins-template-step__empty-title">Choose a Template</p>
 										<p className="ai-pins-template-step__empty-copy">
-											Browse the Chef IA library and pick a ready-made pin design.
+											Browse the {platformName} library and pick a ready-made pin design.
 										</p>
 									</div>
 								)}

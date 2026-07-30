@@ -5,6 +5,7 @@ import {
 import { AdminHero, StatusPill, AdminPagination, AdminProgressBar } from '@/components/admin/AdminUi';
 import apiServerClient from '@/lib/apiServerClient';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 
 const PAGE_SIZE = 8;
 
@@ -55,6 +56,7 @@ async function readApiError(response) {
 
 export default function AdminQueuePage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const [search, setSearch] = useState('');
 	const [jobType, setJobType] = useState('');
 	const [status, setStatus] = useState('');
@@ -208,7 +210,7 @@ export default function AdminQueuePage() {
 		<div>
 			<AdminHero
 				title="Queue & Jobs Monitor"
-				description="Monitor all background jobs running across the Chef IA platform."
+				description={`Monitor all background jobs running across the ${platformName} platform.`}
 				action={(
 					<div className="admin-analytics-controls">
 						<label className="admin-check" style={{ color: 'var(--admin-muted)', marginBottom: '0.35rem' }}>

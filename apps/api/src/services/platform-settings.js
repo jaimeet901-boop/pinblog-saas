@@ -18,6 +18,52 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		allowRegistration: true,
 		defaultWorkspacePlan: 'free',
 	},
+	/** Platform Identity — logo/media URLs. Display name SoT is general.platformName. */
+	branding: {
+		platformLogoUrl: '',
+		sidebarLogoUrl: '',
+		loginLogoUrl: '',
+		faviconUrl: '',
+		/** Uploaded brand asset metadata keyed by AssetUploader assetKey. */
+		assets: {},
+	},
+	domains: {
+		primaryDomain: '',
+		appUrl: '',
+		apiUrl: '',
+		documentationUrl: '',
+	},
+	/** contactEmail only; supportEmail SoT is general.supportEmail. */
+	contact: {
+		contactEmail: '',
+	},
+	/** SEO Identity — public browser / search / social metadata. */
+	seo: {
+		browserTitle: '',
+		metaTitle: '',
+		metaDescription: '',
+		metaKeywords: '',
+		canonicalUrl: '',
+		ogTitle: '',
+		ogDescription: '',
+		ogImageUrl: '',
+		twitterCardType: 'summary_large_image',
+		twitterTitle: '',
+		twitterDescription: '',
+		twitterImageUrl: '',
+		googleSiteVerification: '',
+		bingSiteVerification: '',
+		pinterestSiteVerification: '',
+		facebookDomainVerification: '',
+	},
+	social: {
+		facebook: '',
+		twitter: '',
+		linkedin: '',
+		youtube: '',
+		discord: '',
+		github: '',
+	},
 	ai: {
 		defaultProvider: 'Google Gemini',
 		defaultModel: 'gemini-3.5-flash',
@@ -281,6 +327,30 @@ async function getSettingsRow() {
 	).catch(() => null);
 }
 
+function normalizeSeoIdentity(seo = {}, raw = {}) {
+	const next = { ...(seo && typeof seo === 'object' ? seo : {}) };
+	const rawSeo = raw?.seo && typeof raw.seo === 'object' ? raw.seo : {};
+	const rawBranding = raw?.branding && typeof raw.branding === 'object' ? raw.branding : {};
+
+	// Legacy Phase 1 keys → SEO Identity SoT.
+	if (!String(next.metaTitle || '').trim() && String(rawSeo.defaultMetaTitle || next.defaultMetaTitle || '').trim()) {
+		next.metaTitle = String(rawSeo.defaultMetaTitle || next.defaultMetaTitle).trim();
+	}
+	if (!String(next.metaKeywords || '').trim() && String(rawSeo.defaultKeywords || next.defaultKeywords || '').trim()) {
+		next.metaKeywords = String(rawSeo.defaultKeywords || next.defaultKeywords).trim();
+	}
+	if (!String(next.ogImageUrl || '').trim() && String(rawBranding.openGraphImageUrl || '').trim()) {
+		next.ogImageUrl = String(rawBranding.openGraphImageUrl).trim();
+	}
+
+	const card = String(next.twitterCardType || '').trim().toLowerCase();
+	next.twitterCardType = card === 'summary' ? 'summary' : 'summary_large_image';
+
+	delete next.defaultMetaTitle;
+	delete next.defaultKeywords;
+	return next;
+}
+
 function normalizePayload(raw = {}) {
 	const merged = deepMerge(DEFAULT_PLATFORM_SETTINGS, raw || {});
 	merged.email = {
@@ -292,6 +362,29 @@ function normalizePayload(raw = {}) {
 	delete merged.email.smtpPasswordCipher;
 	delete merged.email.smtpPassword;
 	merged.billing = sanitizeBillingForPublic(merged.billing || {});
+
+	// Single source of truth: general.platformName + general.supportEmail.
+	// Migrate any legacy independent copies once, then drop them so sections cannot diverge.
+	const legacyBrandName = String(raw?.branding?.platformName || '').trim();
+	const legacySupport = String(raw?.contact?.supportEmail || '').trim();
+	if (!String(merged.general?.platformName || '').trim() && legacyBrandName) {
+		merged.general.platformName = legacyBrandName;
+	}
+	if (!String(merged.general?.supportEmail || '').trim() && legacySupport) {
+		merged.general.supportEmail = legacySupport;
+	}
+	if (merged.branding && Object.prototype.hasOwnProperty.call(merged.branding, 'platformName')) {
+		delete merged.branding.platformName;
+	}
+	if (merged.contact && Object.prototype.hasOwnProperty.call(merged.contact, 'supportEmail')) {
+		delete merged.contact.supportEmail;
+	}
+	if (merged.branding && Object.prototype.hasOwnProperty.call(merged.branding, 'openGraphImageUrl')) {
+		delete merged.branding.openGraphImageUrl;
+	}
+
+	merged.seo = normalizeSeoIdentity(merged.seo, raw);
+
 	return merged;
 }
 
@@ -320,6 +413,58 @@ export async function getPlatformSettings() {
 			pinterestConfigured: Boolean(pinterest?.configured),
 			pinterestTrialAccessPending: Boolean(pinterest?.trialAccessPending),
 			providersConfigured: providers.filter((item) => item.enabled).length,
+		},
+	};
+}
+
+/**
+ * Public, non-secret identity slice for auth/shell/public consumers.
+ * Does not change GET/PUT /admin/v1/settings.
+ */
+export async function getPublicPlatformIdentity() {
+	const { settings, meta } = await getPlatformSettings();
+	const branding = settings.branding || {};
+	const domains = settings.domains || {};
+	const contact = settings.contact || {};
+	const seo = settings.seo || {};
+
+	const platformName = String(settings.general?.platformName || 'Chef IA').trim() || 'Chef IA';
+	const supportEmail = String(settings.general?.supportEmail || '').trim();
+	const contactEmail = String(contact.contactEmail || '').trim();
+
+	return {
+		platformName,
+		platformLogoUrl: String(branding.platformLogoUrl || '').trim(),
+		sidebarLogoUrl: String(branding.sidebarLogoUrl || '').trim(),
+		loginLogoUrl: String(branding.loginLogoUrl || '').trim(),
+		faviconUrl: String(branding.faviconUrl || '').trim(),
+		supportEmail,
+		contactEmail,
+		primaryDomain: String(domains.primaryDomain || '').trim(),
+		appUrl: String(domains.appUrl || '').trim(),
+		documentationUrl: String(domains.documentationUrl || '').trim(),
+		canonicalUrl: String(seo.canonicalUrl || '').trim(),
+		seo: {
+			browserTitle: String(seo.browserTitle || '').trim(),
+			metaTitle: String(seo.metaTitle || '').trim(),
+			metaDescription: String(seo.metaDescription || '').trim(),
+			metaKeywords: String(seo.metaKeywords || '').trim(),
+			canonicalUrl: String(seo.canonicalUrl || '').trim(),
+			ogTitle: String(seo.ogTitle || '').trim(),
+			ogDescription: String(seo.ogDescription || '').trim(),
+			ogImageUrl: String(seo.ogImageUrl || '').trim(),
+			twitterCardType: seo.twitterCardType === 'summary' ? 'summary' : 'summary_large_image',
+			twitterTitle: String(seo.twitterTitle || '').trim(),
+			twitterDescription: String(seo.twitterDescription || '').trim(),
+			twitterImageUrl: String(seo.twitterImageUrl || '').trim(),
+			googleSiteVerification: String(seo.googleSiteVerification || '').trim(),
+			bingSiteVerification: String(seo.bingSiteVerification || '').trim(),
+			pinterestSiteVerification: String(seo.pinterestSiteVerification || '').trim(),
+			facebookDomainVerification: String(seo.facebookDomainVerification || '').trim(),
+		},
+		meta: {
+			updatedAt: meta?.updatedAt || null,
+			source: meta?.source || 'defaults',
 		},
 	};
 }
@@ -357,6 +502,21 @@ export async function upsertPlatformSettings(nextSettings = {}, actor = {}) {
 
 	merged.email.smtpStatus = deriveSmtpStatus(merged.email);
 	delete merged.email.smtpPassword;
+
+	// Enforce identity SoT on write (general.* only).
+	if (merged.branding && Object.prototype.hasOwnProperty.call(merged.branding, 'platformName')) {
+		delete merged.branding.platformName;
+	}
+	if (merged.contact && Object.prototype.hasOwnProperty.call(merged.contact, 'supportEmail')) {
+		delete merged.contact.supportEmail;
+	}
+	if (merged.branding && Object.prototype.hasOwnProperty.call(merged.branding, 'openGraphImageUrl')) {
+		delete merged.branding.openGraphImageUrl;
+	}
+	merged.seo = normalizeSeoIdentity(merged.seo, {
+		seo: merged.seo,
+		branding: merged.branding,
+	});
 
 	const body = {
 		config_key: CONFIG_KEY,

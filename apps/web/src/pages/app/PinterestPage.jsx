@@ -8,6 +8,7 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Input, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { consumeSetupReturnPath, peekSetupReturnPath, setSetupReturnPath } from '@/lib/websites/websiteLifecycle';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import './PinterestPage.css';
@@ -55,6 +56,7 @@ function displayAccountStatus(account, processingAccountId) {
 
 export default function PinterestPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const navigate = useNavigate();
 	const location = useLocation();
 	const [searchParams] = useSearchParams();
@@ -539,7 +541,7 @@ export default function PinterestPage() {
 		<div className="pin-hub">
 			<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
-					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
+					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">Pinterest Hub</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 						{setupMode

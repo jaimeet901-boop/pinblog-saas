@@ -7,6 +7,7 @@ import {
 import { AdminHero, StatusPill, AdminChartCard } from '@/components/admin/AdminUi';
 import apiServerClient from '@/lib/apiServerClient';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 
 const RANGES = [
 	{ id: 'today', label: 'Today' },
@@ -65,6 +66,7 @@ async function readApiError(response) {
 
 export default function AdminAnalyticsPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const [range, setRange] = useState('30d');
 	const [data, setData] = useState(EMPTY);
 	const [loading, setLoading] = useState(true);
@@ -165,7 +167,7 @@ export default function AdminAnalyticsPage() {
 		<div className="admin-analytics">
 			<AdminHero
 				title="Platform Analytics"
-				description="Real-time overview of the Chef IA platform from live queue, publishing, credits, and subscription data."
+				description={`Real-time overview of the ${platformName} platform from live queue, publishing, credits, and subscription data.`}
 				action={(
 					<div className="admin-analytics-controls">
 						<label>

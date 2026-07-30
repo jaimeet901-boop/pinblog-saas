@@ -15,6 +15,7 @@ import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import { Badge, Button, Input, Select, Textarea, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import './WriterPage.css';
 const initForm = {
 	keyword: '',
@@ -276,6 +277,7 @@ function OptionToggle({ label, checked, onChange }) {
 
 export default function WriterPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const [searchParams] = useSearchParams();
 	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
 	usePersistWebsiteQuery(preferredWebsiteId);
@@ -843,7 +845,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 		<div className="wr-atelier">
 			<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
-					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
+					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">AI Writer</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 						{activeSite

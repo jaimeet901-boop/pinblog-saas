@@ -28,7 +28,7 @@ export const PLAN_SEED_CATALOG = [
 	{
 		name: 'Free',
 		slug: 'free',
-		description: 'Get started with Chef IA basics.',
+		description: 'Get started with the basics.',
 		monthly_price: 0,
 		yearly_price: 0,
 		currency: 'USD',

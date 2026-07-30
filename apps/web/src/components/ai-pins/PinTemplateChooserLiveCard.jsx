@@ -3,6 +3,7 @@ import { renderGalleryTemplatePreview } from '@/services/ai-pins/galleryLivePrev
 import { resolveGalleryPreviewContent } from '@/lib/pinGalleryDemoContent';
 import { getCachedPreview } from '@/services/templates/previewCache';
 import { isTemplateAccessLocked } from '@/lib/templateAccess';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 
 function liveChecksum(template, contentKey) {
 	const base = String(template?.configChecksum || template?.config_checksum || 'nocfg').trim().toLowerCase() || 'nocfg';
@@ -22,6 +23,7 @@ export default function PinTemplateChooserLiveCard({
 	disabled = false,
 	onSelect,
 }) {
+	const { platformName } = usePlatformIdentity();
 	const mediaRef = useRef(null);
 	const [visible, setVisible] = useState(false);
 	const [previewUrl, setPreviewUrl] = useState('');
@@ -100,7 +102,7 @@ export default function PinTemplateChooserLiveCard({
 						{status === 'error' ? 'Preview unavailable' : 'Rendering pin…'}
 					</span>
 				)}
-				{isOfficial ? <span className="pin-tpl-library-card__badge">Chef IA</span> : null}
+				{isOfficial ? <span className="pin-tpl-library-card__badge">{platformName}</span> : null}
 				{locked ? <span className="pin-tpl-library-card__locked">Upgrade</span> : null}
 				{content.source === 'demo' ? (
 					<span className="pin-tpl-library-card__demo">Demo recipe</span>

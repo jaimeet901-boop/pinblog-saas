@@ -4,9 +4,11 @@ import {
 	LayoutDashboard, Users, Building2, CreditCard, Coins, Cpu, Boxes, Globe, Pin,
 	BarChart3, ListOrdered, Briefcase, ScrollText, Bell, Settings, Activity,
 	Menu, X, LogOut, ArrowLeftRight, ArrowRightLeft, Shield, ChevronRight, Palette, Scale,
-	Wallet, HeartPulse, Map, Receipt, Webhook, LineChart, Archive,
+	Wallet, HeartPulse, Map, Receipt, Webhook, LineChart, Archive, IdCard,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import PlatformBrandMark from '@/components/PlatformBrandMark';
 import { ADMIN_NAV } from '@/lib/adminRbac';
 import './AdminLayout.css';
 
@@ -36,6 +38,7 @@ const ICONS = {
 	'/admin/logs': ScrollText,
 	'/admin/notifications': Bell,
 	'/admin/legal-pages': Scale,
+	'/admin/platform-identity': IdCard,
 	'/admin/settings': Settings,
 	'/admin/system': Activity,
 	'/app/ai-pins/templates': Boxes,
@@ -67,6 +70,7 @@ function NavItems({ onNavigate }) {
 export default function AdminLayout() {
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const { user, logout } = useAuth();
+	const { platformName, sidebarLogoUrl, platformLogoUrl } = usePlatformIdentity();
 	const navigate = useNavigate();
 	const location = useLocation();
 
@@ -84,10 +88,16 @@ export default function AdminLayout() {
 
 	const brand = (
 		<Link to="/admin/dashboard" className="admin-sidebar__brand" onClick={() => setMobileOpen(false)}>
-			<span className="admin-sidebar__mark"><Shield size={16} aria-hidden="true" /></span>
+			<span className="admin-sidebar__mark">
+				<PlatformBrandMark
+					logoUrl={sidebarLogoUrl || platformLogoUrl}
+					size={16}
+					className="h-full w-full"
+				/>
+			</span>
 			<span>
 				<span className="admin-sidebar__tag">Super User</span>
-				<span className="admin-sidebar__name">Admin Console</span>
+				<span className="admin-sidebar__name">{platformName}</span>
 			</span>
 		</Link>
 	);
@@ -138,7 +148,7 @@ export default function AdminLayout() {
 								<span aria-current="page">{current.label}</span>
 							</nav>
 							<p className="admin-header__title">{current.label}</p>
-							<p className="admin-header__meta">Chef IA platform · {user?.email || 'administrator'}</p>
+							<p className="admin-header__meta">{platformName} platform · {user?.email || 'administrator'}</p>
 						</div>
 					</div>
 					<div className="admin-header__actions">
@@ -157,7 +167,7 @@ export default function AdminLayout() {
 				</main>
 
 				<footer className="admin-footer">
-					<span>Chef IA Admin Console · frontend architecture only</span>
+					<span>{platformName} Admin Console · frontend architecture only</span>
 					<span>Version 0.0.0 · Mock data · No API wiring</span>
 				</footer>
 			</div>

@@ -17,6 +17,7 @@ import dashboardRouter from './dashboard.js';
 import notificationsRouter from './notifications.js';
 import pinterestRouter from './pinterest.js';
 import settingsRouter from './settings.js';
+import brandAssetsRouter from './brand-assets.js';
 import legalPagesRouter from './legal-pages.js';
 import billingRouter from './billing.js';
 
@@ -48,6 +49,7 @@ router.use('/inventory', inventoryRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/notifications', notificationsRouter);
 router.use('/pinterest', pinterestRouter);
+router.use('/settings/brand-assets', brandAssetsRouter);
 router.use('/settings', settingsRouter);
 router.use('/legal-pages', legalPagesRouter);
 router.use('/billing', billingRouter);

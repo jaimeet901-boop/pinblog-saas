@@ -12,6 +12,7 @@ import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Select, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { markAnalyticsSeen } from '@/lib/websites/websiteLifecycle';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
@@ -78,6 +79,7 @@ function dayKey(date) {
 export default function AnalyticsPage() {
 	const { toast } = useToast();
 	const { user } = useAuth();
+	const { platformName } = usePlatformIdentity();
 	const [searchParams] = useSearchParams();
 	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
 	usePersistWebsiteQuery(preferredWebsiteId);
@@ -455,13 +457,13 @@ export default function AnalyticsPage() {
 	return (
 		<div className="an-atelier">
 			<section className="an-hero">
-				<p className="an-hero__eyebrow">Chef IA Analytics Center</p>
+				<p className="an-hero__eyebrow">{platformName} Analytics Center</p>
 				<h1 className="an-hero__title">Publishing performance</h1>
 				<p className="mt-2 max-w-2xl text-sm text-muted-foreground">
 					Track outcomes across pins, boards, and websites — with charts, tables, and exportable reports.
 				</p>
 				<div className="an-hero__meta">
-					<span className="an-pill"><Sparkles size={12} /> {user?.name || 'Chef IA'} workspace</span>
+					<span className="an-pill"><Sparkles size={12} /> {user?.name || platformName} workspace</span>
 					<span className="an-pill"><Globe size={12} /> {websiteFilter || (websiteOptions[0] || 'All websites')}</span>
 					<span className="an-pill"><CalendarClock size={12} /> {dateRange === '7d' ? 'Last 7 days' : dateRange === '30d' ? 'Last 30 days' : dateRange === '90d' ? 'Last 90 days' : dateRange === 'month' ? 'This month' : 'All time'}</span>
 				</div>

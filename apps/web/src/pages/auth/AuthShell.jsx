@@ -1,8 +1,13 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
 	Sparkles, PenLine, Image as ImageIcon, Pin, Send, CalendarDays, BarChart3,
 	Palette, Share2, Shield, Zap, Globe, Search, CheckCircle2,
 } from 'lucide-react';
+import PlatformBrandMark from '@/components/PlatformBrandMark';
+import PublicSeoHead from '@/components/PublicSeoHead';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import { buildPublicFooterLinks } from '@/lib/platformIdentity';
 import './AuthShell.css';
 
 const FEATURE_CARDS = [
@@ -39,31 +44,41 @@ const ONBOARD_STEPS = [
 	'Ready to Start',
 ];
 
-const FOOTER_LINKS = [
-	{ label: 'Privacy Policy', to: '/privacy' },
-	{ label: 'Terms', to: '/terms' },
-	{ label: 'Cookies', to: '/cookies' },
-	{ label: 'Disclaimer', to: '/disclaimer' },
-	{ label: 'Refunds', to: '/refund' },
-	{ label: 'Support', href: 'mailto:support@tbuy.store' },
-	{ label: 'Contact', href: 'mailto:privacy@tbuy.store' },
-];
-
 export default function AuthShell({ title, subtitle, children, footer }) {
+	const {
+		platformName,
+		loginLogoUrl,
+		platformLogoUrl,
+		supportEmail,
+		contactEmail,
+		documentationUrl,
+	} = usePlatformIdentity();
+	const logoUrl = loginLogoUrl || platformLogoUrl;
+	const footerLinks = useMemo(() => buildPublicFooterLinks({
+		supportEmail,
+		contactEmail,
+		documentationUrl,
+	}), [supportEmail, contactEmail, documentationUrl]);
+
 	return (
 		<div className="auth-atelier">
-			<aside className="auth-hero" aria-label="Chef IA product story">
+			<PublicSeoHead />
+			<aside className="auth-hero" aria-label={`${platformName} product story`}>
 				<span className="auth-hero__glow auth-hero__glow--a" aria-hidden="true" />
 				<span className="auth-hero__glow auth-hero__glow--b" aria-hidden="true" />
 				<span className="auth-hero__glow auth-hero__glow--c" aria-hidden="true" />
 
 				<Link to="/" className="auth-brand">
-					<span className="auth-brand__mark"><Sparkles size={18} /></span>
-					<span className="auth-brand__name">Chef IA</span>
+					<PlatformBrandMark
+						logoUrl={logoUrl}
+						size={18}
+						className="auth-brand__mark"
+					/>
+					<span className="auth-brand__name">{platformName}</span>
 				</Link>
 
 				<div className="auth-hero__copy">
-					<p className="auth-hero__eyebrow">Chef IA Atelier</p>
+					<p className="auth-hero__eyebrow">{platformName} Atelier</p>
 					<h2 className="auth-hero__title">Create, Design & Publish Pinterest Content with AI</h2>
 					<p className="auth-hero__desc">
 						One warm workspace for SEO writing, pin design, brand kits, and multi-site publishing — built for creators who ship every day.
@@ -147,10 +162,18 @@ export default function AuthShell({ title, subtitle, children, footer }) {
 
 				<footer className="auth-footer">
 					<div className="auth-footer__links">
-						{FOOTER_LINKS.map((link) => (
+						{footerLinks.map((link) => (
 							link.to
 								? <Link key={link.label} to={link.to}>{link.label}</Link>
-								: <a key={link.label} href={link.href}>{link.label}</a>
+								: (
+									<a
+										key={link.label}
+										href={link.href}
+										{...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+									>
+										{link.label}
+									</a>
+								)
 						))}
 					</div>
 					<span>Version 0.0.0</span>
@@ -160,15 +183,19 @@ export default function AuthShell({ title, subtitle, children, footer }) {
 			<section className="auth-panel">
 				<div className="auth-card">
 					<div className="auth-card__mobile-brand">
-						<span className="auth-brand__mark"><Sparkles size={16} /></span>
-						<span className="auth-brand__name">Chef IA</span>
+						<PlatformBrandMark
+							logoUrl={logoUrl}
+							size={16}
+							className="auth-brand__mark"
+						/>
+						<span className="auth-brand__name">{platformName}</span>
 					</div>
 					<h1 className="auth-card__title">{title}</h1>
 					{subtitle ? <p className="auth-card__subtitle">{subtitle}</p> : null}
 					<div className="auth-card__body">{children}</div>
 					{footer ? <div className="auth-card__footer">{footer}</div> : null}
 					<div className="mt-5 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
-						<CheckCircle2 size={12} className="text-primary" /> Secure Chef IA workspace
+						<CheckCircle2 size={12} className="text-primary" /> Secure {platformName} workspace
 					</div>
 				</div>
 			</section>

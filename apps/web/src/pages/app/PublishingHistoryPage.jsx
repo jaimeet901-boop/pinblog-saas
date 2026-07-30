@@ -7,6 +7,7 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import {
@@ -90,6 +91,7 @@ function toCsv(rows) {
 
 export default function PublishingHistoryPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const searchRef = useRef(null);
 	const [searchParams] = useSearchParams();
 	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
@@ -473,7 +475,7 @@ export default function PublishingHistoryPage() {
 		<div className="pub-center">
 			<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
-					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
+					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">Publishing Center</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 						Track published, scheduled, and failed pins — retry or cancel without leaving the atelier.

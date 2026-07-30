@@ -5,9 +5,11 @@ import AuthShell from './AuthShell';
 import { Button, Input, Spinner } from '@/components/kit';
 import pb from '@/lib/pocketbaseClient';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 
 export default function ForgotPasswordPage() {
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const [email, setEmail] = useState('');
 	const [loading, setLoading] = useState(false);
 	const [sent, setSent] = useState(false);
@@ -28,7 +30,7 @@ export default function ForgotPasswordPage() {
 	return (
 		<AuthShell
 			title="Reset password"
-			subtitle="We'll email you a secure reset link for your Chef IA workspace."
+			subtitle={`We'll email you a secure reset link for your ${platformName} workspace.`}
 			footer={<Link to="/login" className="font-medium text-primary hover:underline">Back to login</Link>}
 		>
 			{sent ? (

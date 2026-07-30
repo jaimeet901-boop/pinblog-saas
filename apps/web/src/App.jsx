@@ -2,6 +2,7 @@
 import { Navigate, Route, Routes, BrowserRouter as Router } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 import ScrollToTop from '@/components/ScrollToTop';
+import PlatformFavicon from '@/components/PlatformFavicon';
 import AppLayout from '@/components/AppLayout';
 import AdminLayout from '@/components/admin/AdminLayout';
 import AdminRoute from '@/components/admin/AdminRoute';
@@ -57,6 +58,7 @@ const AdminJobsPage = lazy(() => import('@/pages/admin/AdminJobsPage'));
 const AdminLogsPage = lazy(() => import('@/pages/admin/AdminLogsPage'));
 const AdminNotificationsPage = lazy(() => import('@/pages/admin/AdminNotificationsPage'));
 const AdminLegalPagesPage = lazy(() => import('@/pages/admin/AdminLegalPagesPage'));
+const AdminPlatformIdentityPage = lazy(() => import('@/pages/admin/AdminPlatformIdentityPage'));
 const AdminSettingsPage = lazy(() => import('@/pages/admin/AdminSettingsPage'));
 const AdminSystemPage = lazy(() => import('@/pages/admin/AdminSystemPage'));
 const AdminBillingProvidersPage = lazy(() => import('@/pages/admin/billing/AdminBillingProvidersPage'));
@@ -112,6 +114,7 @@ function App() {
 			<AuthProvider>
 				<Router>
 					<WorkspaceProvider>
+						<PlatformFavicon />
 						<ScrollToTop />
 						<Routes>
 						<Route path="/" element={<LandingPage />} />
@@ -177,6 +180,7 @@ function App() {
 							<Route path="logs" element={<AdminLazy><AdminLogsPage /></AdminLazy>} />
 							<Route path="notifications" element={<AdminLazy><AdminNotificationsPage /></AdminLazy>} />
 							<Route path="legal-pages" element={<AdminLazy><AdminLegalPagesPage /></AdminLazy>} />
+							<Route path="platform-identity" element={<AdminLazy><AdminPlatformIdentityPage /></AdminLazy>} />
 							<Route path="settings" element={<AdminLazy><AdminSettingsPage /></AdminLazy>} />
 							<Route path="system" element={<AdminLazy><AdminSystemPage /></AdminLazy>} />
 						</Route>

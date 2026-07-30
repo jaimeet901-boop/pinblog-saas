@@ -8,6 +8,7 @@ import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Select } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import './AIPinHistoryPage.css';
@@ -92,6 +93,7 @@ function toCsv(rows) {
 export default function AIPinHistoryPage() {
 	const { toast } = useToast();
 	const { user } = useAuth();
+	const { platformName } = usePlatformIdentity();
 	const searchRef = useRef(null);
 	const [searchParams] = useSearchParams();
 	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
@@ -346,13 +348,13 @@ export default function AIPinHistoryPage() {
 			<section className="hist-hero">
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 					<div>
-						<p className="hist-hero__eyebrow">Chef IA Generation History</p>
+						<p className="hist-hero__eyebrow">{platformName} Generation History</p>
 						<h1 className="hist-hero__title">AI Generation History</h1>
 						<p className="mt-2 max-w-2xl text-sm text-muted-foreground">
 							Every analysis, prompt, image, and edit is tracked here with credits used.
 						</p>
 						<div className="hist-hero__meta">
-							<span className="hist-pill"><Sparkles size={12} /> {user?.name || 'Chef IA'} workspace</span>
+							<span className="hist-pill"><Sparkles size={12} /> {user?.name || platformName} workspace</span>
 							<span className="hist-pill"><Coins size={12} /> {stats.credits} credits used</span>
 							<span className="hist-pill"><History size={12} /> {stats.total} generations</span>
 						</div>

@@ -11,6 +11,7 @@ import { useActiveWebsite } from '@/context/ActiveWebsiteContext';
 import { Badge, Button } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import WorkspaceOnboardingWizard from '@/components/WorkspaceOnboardingWizard';
 import './DashboardPage.css';
 
@@ -51,6 +52,7 @@ function statusTone(status) {
 export default function DashboardPage() {
 	const { user } = useAuth();
 	const { toast } = useToast();
+	const { platformName } = usePlatformIdentity();
 	const { activeWebsiteId, websites: activeWebsites, loading: websitesLoading } = useActiveWebsite();
 	const [dashboard, setDashboard] = useState(null);
 	const [loading, setLoading] = useState(true);
@@ -162,7 +164,7 @@ export default function DashboardPage() {
 			<WorkspaceOnboardingWizard />
 
 			<section className="dash-hero">
-				<p className="dash-hero__eyebrow">Chef IA Command Center</p>
+				<p className="dash-hero__eyebrow">{platformName} Command Center</p>
 				<h1 className="dash-hero__title">{greeting}, {firstName}</h1>
 				<p className="mt-2 max-w-2xl text-sm text-muted-foreground">
 					Here&apos;s what&apos;s cooking across writing, imagery, and Pinterest publishing in your workspace.
@@ -171,7 +173,7 @@ export default function DashboardPage() {
 					<p className="mt-2 text-sm text-destructive">{error}</p>
 				) : null}
 				<div className="dash-hero__meta">
-					<span className="dash-pill"><Sparkles size={12} /> {dashboard?.workspace?.name || user?.name || 'Chef IA'} workspace</span>
+					<span className="dash-pill"><Sparkles size={12} /> {dashboard?.workspace?.name || user?.name || platformName} workspace</span>
 					<span className="dash-pill"><Globe size={12} /> {primaryWebsite?.name || primaryWebsite?.domain || 'No website yet'}</span>
 					<span className="dash-pill"><Gauge size={12} /> {planLabel} plan</span>
 					<span className="dash-pill"><CheckCircle2 size={12} /> {creditsRemaining} credits left</span>

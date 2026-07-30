@@ -4,7 +4,11 @@ import {
 	Sparkles, PenLine, Image as ImageIcon, Globe, CalendarDays, Pin, BarChart3, Check, ArrowRight,
 	Shield, Zap, Search, Send, Palette, Share2,
 } from 'lucide-react';
+import PlatformBrandMark from '@/components/PlatformBrandMark';
+import PublicSeoHead from '@/components/PublicSeoHead';
 import { useAuth } from '@/context/AuthContext';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import { buildPublicFooterLinks } from '@/lib/platformIdentity';
 import './auth/AuthShell.css';
 
 const FEATURES = [
@@ -40,32 +44,51 @@ const PLANS = [
 	{ name: 'Agency', price: '$129', items: ['Unlimited articles', 'Unlimited websites', 'Team & API access'], cta: 'Choose Agency' },
 ];
 
-const FOOTER_LINKS = [
-	{ label: 'Privacy Policy', to: '/privacy' },
-	{ label: 'Terms', to: '/terms' },
-	{ label: 'Cookies', to: '/cookies' },
-	{ label: 'Disclaimer', to: '/disclaimer' },
-	{ label: 'Refunds', to: '/refund' },
-	{ label: 'Support', href: 'mailto:support@tbuy.store' },
-	{ label: 'Contact', href: 'mailto:privacy@tbuy.store' },
-];
-
 export default function LandingPage() {
 	const { isAuthed } = useAuth();
+	const {
+		platformName,
+		supportEmail,
+		contactEmail,
+		documentationUrl,
+		loginLogoUrl,
+		platformLogoUrl,
+	} = usePlatformIdentity();
+	const brandLogoUrl = loginLogoUrl || platformLogoUrl;
 	const cta = isAuthed ? '/app' : '/signup';
+	const footerLinks = buildPublicFooterLinks({
+		supportEmail,
+		contactEmail,
+		documentationUrl,
+	});
 
 	return (
 		<div className="welcome-atelier text-foreground">
+			<PublicSeoHead />
 			<header className="welcome-nav">
 				<div className="mx-auto flex max-w-[76rem] items-center justify-between px-5 py-4">
 					<Link to="/" className="auth-brand">
-						<span className="auth-brand__mark"><Sparkles size={18} /></span>
-						<span className="auth-brand__name">Chef IA</span>
+						<PlatformBrandMark
+							logoUrl={brandLogoUrl}
+							size={18}
+							className="auth-brand__mark"
+						/>
+						<span className="auth-brand__name">{platformName}</span>
 					</Link>
 					<nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
 						<a href="#features" className="hover:text-foreground">Features</a>
-						<a href="#why" className="hover:text-foreground">Why Chef IA</a>
+						<a href="#why" className="hover:text-foreground">Why {platformName}</a>
 						<a href="#pricing" className="hover:text-foreground">Pricing</a>
+						{documentationUrl ? (
+							<a
+								href={documentationUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="hover:text-foreground"
+							>
+								Docs
+							</a>
+						) : null}
 					</nav>
 					<div className="flex items-center gap-2">
 						<Link to="/login" className="rounded-xl px-4 py-2 text-sm font-medium hover:bg-secondary">Log in</Link>
@@ -85,10 +108,10 @@ export default function LandingPage() {
 						animate={{ opacity: 1, y: 0 }}
 						transition={{ duration: 0.55, ease: 'easeOut' }}
 					>
-						<p className="auth-hero__eyebrow">Welcome to Chef IA</p>
+						<p className="auth-hero__eyebrow">Welcome to {platformName}</p>
 						<h1 className="auth-hero__title">Create, Design & Publish Pinterest Content with AI</h1>
 						<p className="auth-hero__desc">
-							Chef IA writes SEO-ready posts, generates scroll-stopping pins, and publishes to WordPress and Pinterest — all in one warm Atelier workspace.
+							{platformName} writes SEO-ready posts, generates scroll-stopping pins, and publishes to WordPress and Pinterest — all in one warm Atelier workspace.
 						</p>
 						<div className="mt-7 flex flex-wrap gap-3">
 							<Link to={cta} className="inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3 font-medium text-primary-foreground hover:opacity-90">
@@ -163,7 +186,7 @@ export default function LandingPage() {
 			</section>
 
 			<section id="why" className="welcome-panel pt-0">
-				<h2 className="font-display text-3xl font-semibold tracking-tight">Why Chef IA</h2>
+				<h2 className="font-display text-3xl font-semibold tracking-tight">Why {platformName}</h2>
 				<p className="mt-2 text-muted-foreground">Three pillars of the generation-to-publish loop.</p>
 				<div className="auth-why mt-8">
 					{WHY.map((item) => (
@@ -215,15 +238,27 @@ export default function LandingPage() {
 			<footer className="border-t border-border/80">
 				<div className="mx-auto flex max-w-[76rem] flex-col gap-4 px-5 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
 					<div className="flex items-center gap-2">
-						<span className="auth-brand__mark !h-8 !w-8"><Sparkles size={14} /></span>
-						<span className="font-display font-semibold text-foreground">Chef IA</span>
+						<PlatformBrandMark
+							logoUrl={brandLogoUrl}
+							size={14}
+							className="auth-brand__mark !h-8 !w-8"
+						/>
+						<span className="font-display font-semibold text-foreground">{platformName}</span>
 						<span className="text-xs">Version 0.0.0</span>
 					</div>
 					<div className="auth-footer__links">
-						{FOOTER_LINKS.map((link) => (
+						{footerLinks.map((link) => (
 							link.to
 								? <Link key={link.label} to={link.to}>{link.label}</Link>
-								: <a key={link.label} href={link.href}>{link.label}</a>
+								: (
+									<a
+										key={link.label}
+										href={link.href}
+										{...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+									>
+										{link.label}
+									</a>
+								)
 						))}
 					</div>
 				</div>

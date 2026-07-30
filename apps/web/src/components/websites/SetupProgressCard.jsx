@@ -1,5 +1,6 @@
 import { Button, Card } from '@/components/kit';
 import { setupStepMessage, setupStepWhy } from '@/lib/websites/websiteLifecycle';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 
 /**
  * Guided Website Setup progress card (Phase 1).
@@ -13,12 +14,14 @@ export default function SetupProgressCard({
 	className = '',
 	compact = false,
 }) {
+	const { platformName } = usePlatformIdentity();
+
 	if (!lifecycle || lifecycle.mode === 'operate' && lifecycle.step === 'operate') {
 		return null;
 	}
 
 	const stages = lifecycle.stages || lifecycle.checklist || [];
-	const why = setupStepWhy(lifecycle.step);
+	const why = setupStepWhy(lifecycle.step, platformName);
 	const title = lifecycle.mode === 'operate' && lifecycle.step === 'analytics'
 		? 'First pin published'
 		: 'Setup progress';
@@ -28,7 +31,7 @@ export default function SetupProgressCard({
 			<div className="flex flex-wrap items-start justify-between gap-2">
 				<div>
 					<p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{title}</p>
-					<p className="mt-1 text-sm font-medium">{setupStepMessage(lifecycle.step)}</p>
+					<p className="mt-1 text-sm font-medium">{setupStepMessage(lifecycle.step, platformName)}</p>
 					{why ? <p className="mt-1 text-xs text-muted-foreground">{why}</p> : null}
 				</div>
 				<p className="text-xs text-muted-foreground">

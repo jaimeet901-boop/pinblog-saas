@@ -1,12 +1,59 @@
 /**
  * Production default legal page templates for Chef IA.
  * Used by auto-seed and Admin Quick Start. Status is always draft.
+ *
+ * Branding placeholders are materialized from Platform Identity at seed/quick-start time.
+ * Existing user-created legal pages are never rewritten by this module.
  */
 
 export const SITE_URL = 'https://tbuy.store';
 export const PRIVACY_EMAIL = 'privacy@tbuy.store';
 export const SUPPORT_EMAIL = 'support@tbuy.store';
+export const PLATFORM_NAME = 'Chef IA';
 
+export const DEFAULT_LEGAL_BRAND = Object.freeze({
+	platformName: PLATFORM_NAME,
+	siteUrl: SITE_URL,
+	supportEmail: SUPPORT_EMAIL,
+	privacyEmail: PRIVACY_EMAIL,
+});
+
+export function resolveLegalBrandContext(input = {}) {
+	const platformName = String(input.platformName || '').trim() || DEFAULT_LEGAL_BRAND.platformName;
+	const siteUrl = String(input.siteUrl || input.appUrl || '').trim().replace(/\/$/, '')
+		|| DEFAULT_LEGAL_BRAND.siteUrl;
+	const supportEmail = String(input.supportEmail || '').trim() || DEFAULT_LEGAL_BRAND.supportEmail;
+	// Privacy email SoT: contact.privacyEmail alias → contact.contactEmail → fallback
+	const privacyEmail = String(
+		input.privacyEmail || input.contactEmail || '',
+	).trim() || DEFAULT_LEGAL_BRAND.privacyEmail;
+
+	return {
+		platformName,
+		siteUrl,
+		supportEmail,
+		privacyEmail,
+	};
+}
+
+function hostnameFromSiteUrl(siteUrl) {
+	try {
+		return new URL(siteUrl.includes('://') ? siteUrl : `https://${siteUrl}`).host;
+	} catch {
+		return 'tbuy.store';
+	}
+}
+
+function materializeLegalText(value, brand) {
+	const b = resolveLegalBrandContext(brand);
+	const host = hostnameFromSiteUrl(b.siteUrl);
+	return String(value || '')
+		.replaceAll('https://tbuy.store', b.siteUrl)
+		.replaceAll('support@tbuy.store', b.supportEmail)
+		.replaceAll('privacy@tbuy.store', b.privacyEmail)
+		.replaceAll('tbuy.store', host)
+		.replaceAll('Chef IA', b.platformName);
+}
 function estimateReadingMinutes(content) {
 	const words = String(content || '').trim().split(/\s+/).filter(Boolean).length;
 	return Math.max(1, Math.ceil(words / 200));
@@ -350,12 +397,27 @@ export const LEGAL_PAGE_TEMPLATES = Object.freeze([
 	}),
 ]);
 
-export function getLegalPageTemplate(slug) {
-	return LEGAL_PAGE_TEMPLATES.find((item) => item.slug === String(slug || '').toLowerCase()) || null;
+/**
+ * Materialize default legal templates with Platform Identity branding.
+ * Does not mutate stored user pages — only seed / quick-start template output.
+ */
+export function getLegalPageTemplates(brand = {}) {
+	return LEGAL_PAGE_TEMPLATES.map((item) => ({
+		...item,
+		description: materializeLegalText(item.description, brand),
+		seoTitle: materializeLegalText(item.seoTitle, brand),
+		metaDescription: materializeLegalText(item.metaDescription, brand),
+		content: materializeLegalText(item.content, brand),
+		estimatedReadingMinutes: estimateReadingMinutes(materializeLegalText(item.content, brand)),
+	}));
 }
 
-export function listLegalPageTemplateMeta() {
-	return LEGAL_PAGE_TEMPLATES.map((item) => ({
+export function getLegalPageTemplate(slug, brand = {}) {
+	return getLegalPageTemplates(brand).find((item) => item.slug === String(slug || '').toLowerCase()) || null;
+}
+
+export function listLegalPageTemplateMeta(brand = {}) {
+	return getLegalPageTemplates(brand).map((item) => ({
 		slug: item.slug,
 		title: item.title,
 		description: item.description,

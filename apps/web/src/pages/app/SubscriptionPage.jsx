@@ -15,9 +15,9 @@ import { PRODUCT_EVENTS, trackProductEvent } from '@/lib/productAnalytics';
 import { Badge, Button, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import { mailtoHref } from '@/lib/platformIdentity';
 import './SubscriptionPage.css';
-
-const SUPPORT_MAILTO = 'mailto:support@tbuy.store';
 
 const PLACEHOLDER_PLANS = [
 	{
@@ -38,7 +38,7 @@ const PLACEHOLDER_PLANS = [
 	},
 ];
 
-function BillingUnavailableModal({ open, onClose }) {
+function BillingUnavailableModal({ open, onClose, supportMailto }) {
 	const backdropPointerDownRef = useRef(false);
 
 	useEffect(() => {
@@ -97,7 +97,7 @@ function BillingUnavailableModal({ open, onClose }) {
 				</div>
 				<div className="mt-6 flex flex-wrap justify-end gap-2">
 					<Button variant="outline" onClick={onClose}>Close</Button>
-					<a href={SUPPORT_MAILTO}>
+					<a href={supportMailto}>
 						<Button>
 							<LifeBuoy size={15} />
 							Contact Support
@@ -150,6 +150,8 @@ function mapPlanCard(plan) {
 export default function SubscriptionPage() {
 	const { user, refresh } = useAuth();
 	const { toast } = useToast();
+	const { supportEmail, platformName } = usePlatformIdentity();
+	const supportMailto = mailtoHref(supportEmail);
 	const [busy, setBusy] = useState(null);
 	const [loadingUsage, setLoadingUsage] = useState(true);
 	const [plans, setPlans] = useState([]);
@@ -406,7 +408,7 @@ export default function SubscriptionPage() {
 	return (
 		<div className="bill-atelier">
 			<section className="bill-hero">
-				<p className="bill-hero__eyebrow">Chef IA Billing & Credits</p>
+				<p className="bill-hero__eyebrow">{platformName} Billing & Credits</p>
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 					<div>
 						<h1 className="bill-hero__title">{currentPlan.name} plan</h1>
@@ -423,7 +425,7 @@ export default function SubscriptionPage() {
 				</div>
 				<div className="bill-hero__grid">
 					<div className="bill-hero__metric"><span>Current plan</span><strong>{currentPlan.name}</strong></div>
-					<div className="bill-hero__metric"><span>Workspace</span><strong>{user?.name || 'Chef IA'}</strong></div>
+					<div className="bill-hero__metric"><span>Workspace</span><strong>{user?.name || platformName}</strong></div>
 					<div className="bill-hero__metric"><span>Renewal date</span><strong>{renewalDate.toLocaleDateString()}</strong></div>
 					<div className="bill-hero__metric"><span>Monthly price</span><strong>${currentPlan.price}/mo</strong></div>
 					<div className="bill-hero__metric"><span>Credits remaining</span><strong>{creditsRemaining}</strong></div>
@@ -547,7 +549,7 @@ export default function SubscriptionPage() {
 							<Badge tone="blue">{currentPlan.name}</Badge>
 						</div>
 						<p className="text-sm text-muted-foreground">
-							${currentPlan.price}/mo · {quota} monthly article credits · includes the Chef IA atelier suite.
+							${currentPlan.price}/mo · {quota} monthly article credits · includes the {platformName} atelier suite.
 						</p>
 						<div className="bill-features mt-4">
 							{CURRENT_FEATURES.map((feature) => (
@@ -728,6 +730,7 @@ export default function SubscriptionPage() {
 			<BillingUnavailableModal
 				open={billingUnavailableOpen}
 				onClose={() => setBillingUnavailableOpen(false)}
+				supportMailto={supportMailto}
 			/>
 		</div>
 	);

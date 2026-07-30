@@ -46,6 +46,7 @@ export const ADMIN_NAV = [
 	{ to: '/admin/logs', label: 'Logs' },
 	{ to: '/admin/notifications', label: 'Notifications' },
 	{ to: '/admin/legal-pages', label: 'Legal Pages' },
+	{ to: '/admin/platform-identity', label: 'Platform Identity' },
 	{ to: '/admin/settings', label: 'Global Settings' },
 	{ to: '/admin/system', label: 'System Health' },
 	// Workspace managers — same routes, not shown in user sidebar

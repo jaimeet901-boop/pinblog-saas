@@ -96,32 +96,54 @@ function deriveWebAppBaseFromApiUrl() {
 	return '';
 }
 
-/** Canonical production frontend origin for Chef IA (post-OAuth browser return). */
+/** Canonical production frontend origin fallback (post-OAuth browser return). */
 export const PINTEREST_OAUTH_FRONTEND_BASE = 'https://tbuy.store';
 
-/**
- * Frontend origin used for Pinterest OAuth browser redirects (/app/pinterest).
- * Rejects template placeholders like your-domain.com so production never bounces there.
- */
-export function getWebAppBaseUrl() {
-	const candidates = [
+function collectEnvWebAppCandidates() {
+	return [
 		process.env.WEB_APP_URL,
 		process.env.APP_WEB_URL,
 		process.env.PUBLIC_APP_URL,
+		process.env.APP_PUBLIC_URL,
 		...(String(process.env.CORS_ORIGIN || '').split(',')),
 		deriveWebAppBaseFromApiUrl(),
 	]
 		.map(normalizeWebAppBase)
 		.filter(Boolean);
+}
 
+function firstValidWebAppOrigin(candidates = []) {
 	for (const candidate of candidates) {
-		if (!isPlaceholderWebUrl(candidate)) {
-			try {
-				return new URL(candidate.includes('://') ? candidate : `https://${candidate}`).origin;
-			} catch {
-				// keep looking
-			}
+		if (!candidate || isPlaceholderWebUrl(candidate)) continue;
+		try {
+			return new URL(candidate.includes('://') ? candidate : `https://${candidate}`).origin;
+		} catch {
+			// keep looking
 		}
+	}
+	return '';
+}
+
+/**
+ * Frontend origin used for Pinterest OAuth browser redirects (/app/pinterest).
+ * Chain: Environment → Platform Identity domains.appUrl → safe fallback.
+ * Rejects template placeholders like your-domain.com.
+ */
+export async function getWebAppBaseUrl() {
+	const fromEnv = firstValidWebAppOrigin(collectEnvWebAppCandidates());
+	if (fromEnv) return fromEnv;
+
+	try {
+		const { getPublicPlatformIdentity } = await import('./platform-settings.js');
+		const identity = await getPublicPlatformIdentity();
+		const fromIdentity = firstValidWebAppOrigin([
+			identity?.appUrl,
+			identity?.canonicalUrl,
+			identity?.primaryDomain ? `https://${String(identity.primaryDomain).replace(/^https?:\/\//i, '')}` : '',
+		]);
+		if (fromIdentity) return fromIdentity;
+	} catch {
+		/* keep fallback */
 	}
 
 	if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
@@ -133,15 +155,15 @@ export function getWebAppBaseUrl() {
 
 /**
  * Absolute URL for post-OAuth browser return.
- * Always uses https://tbuy.store except for explicit local origins.
+ * Prefer env, then Platform Identity domains.appUrl, then production fallback.
  * Never trusts WEB_APP_URL / CORS placeholders like your-domain.com.
  */
-export function buildPinterestOAuthAppRedirect(query = {}) {
-	const fromEnv = getWebAppBaseUrl();
-	const localOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(fromEnv);
-	let base = localOrigin ? fromEnv : PINTEREST_OAUTH_FRONTEND_BASE;
+export async function buildPinterestOAuthAppRedirect(query = {}) {
+	const resolved = await getWebAppBaseUrl();
+	const localOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(resolved);
+	let base = resolved || PINTEREST_OAUTH_FRONTEND_BASE;
 
-	if (isPlaceholderWebUrl(base) || /your-domain\.com/i.test(base)) {
+	if (!localOrigin && (isPlaceholderWebUrl(base) || /your-domain\.com/i.test(base))) {
 		base = PINTEREST_OAUTH_FRONTEND_BASE;
 	}
 
