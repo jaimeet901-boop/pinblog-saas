@@ -34,7 +34,19 @@ export default function SchedulePinModal({
 	defaultScheduledAt = '',
 	pinCount = 1,
 	queueHint = '',
+	labels = null,
 }) {
+	const L = labels || {
+		account: 'Pinterest account',
+		destination: 'Pinterest board',
+		selectAccount: 'Select account',
+		selectDestination: 'Select board',
+		chooseAccount: 'Select a Pinterest account',
+		chooseDestination: 'Select a Pinterest board',
+		scheduleTitle: (count) => `Schedule pin${count > 1 ? 's' : ''}`,
+		scheduleSubtitle: (count) => `${count} pin${count === 1 ? '' : 's'} · appears on Calendar when scheduled`,
+		itemLower: 'pin',
+	};
 	const [mode, setMode] = useState('once');
 	const [dateTime, setDateTime] = useState('');
 	const [timezone, setTimezone] = useState(defaultTimezone);
@@ -84,8 +96,8 @@ export default function SchedulePinModal({
 		event.preventDefault();
 		setError('');
 		try {
-			if (!accountId) throw new Error('Select a Pinterest account');
-			if (!boardId) throw new Error('Select a Pinterest board');
+			if (!accountId) throw new Error(L.chooseAccount);
+			if (!boardId) throw new Error(L.chooseDestination);
 			if (mode !== 'once' && !dateTime) {
 				throw new Error('Pick a start date and time for recurring schedules');
 			}
@@ -117,9 +129,9 @@ export default function SchedulePinModal({
 			>
 				<div className="mb-4 flex items-center justify-between">
 					<div>
-						<h3 className="font-semibold">Schedule pin{pinCount > 1 ? 's' : ''}</h3>
+						<h3 className="font-semibold">{L.scheduleTitle(pinCount)}</h3>
 						<p className="text-xs text-muted-foreground">
-							{pinCount} pin{pinCount === 1 ? '' : 's'} · appears on Calendar when scheduled
+							{L.scheduleSubtitle(pinCount)}
 						</p>
 					</div>
 					<button type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
@@ -184,8 +196,8 @@ export default function SchedulePinModal({
 						/>
 					) : null}
 
-					<Select label="Pinterest account" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-						<option value="">Select account</option>
+					<Select label={L.account} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+						<option value="">{L.selectAccount}</option>
 						{accounts.map((account) => (
 							<option key={account.id} value={account.id}>
 								{account.label || account.accountName || account.username}
@@ -193,8 +205,8 @@ export default function SchedulePinModal({
 						))}
 					</Select>
 
-					<Select label="Pinterest board" value={boardId} onChange={(e) => setBoardId(e.target.value)}>
-						<option value="">Select board</option>
+					<Select label={L.destination} value={boardId} onChange={(e) => setBoardId(e.target.value)}>
+						<option value="">{L.selectDestination}</option>
 						{boards.map((board) => (
 							<option key={board.id} value={board.boardId}>{board.name}</option>
 						))}

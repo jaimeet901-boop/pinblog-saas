@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
 	LayoutDashboard, Globe, PenLine, Image, CalendarDays, BarChart3,
-	CreditCard, Settings, Shield, User, LogOut, Menu, X, Moon, Sun, Sparkles, Pin, ChevronDown, Bell, Wand2, History,
+	CreditCard, Settings, Shield, User, LogOut, Menu, X, Moon, Sun, Sparkles, Pin, ChevronDown, Bell, Wand2, History, Facebook,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -18,6 +18,7 @@ const NAV = [
 	{ to: '/app', label: 'Dashboard', icon: LayoutDashboard, end: true },
 	{ to: '/app/websites', label: 'Websites', icon: Globe },
 	{ to: '/app/ai-pins', label: 'AI Pins', icon: Wand2, needsWebsite: true },
+	{ to: '/app/ai-facebook-pages', label: 'AI Facebook Pages', icon: Facebook, needsWebsite: true },
 	// Templates + Brand Kit stay routed (/app/ai-pins/templates, /app/ai-pins/brand-kit)
 	// but are admin-only via Admin Console — not shown in the workspace sidebar.
 	{ to: '/app/ai-pins/history', label: 'Pin History', icon: History, needsWebsite: true },
@@ -275,6 +276,8 @@ function ActiveWebsiteSwitcher({ websites, activeWebsiteId, loading, onChange, p
 					}
 					const needsWebsiteQuery = [
 						'/app/ai-pins',
+						'/app/ai-facebook-pages',
+						'/app/facebook',
 						'/app/writer',
 						'/app/images',
 						'/app/analytics',

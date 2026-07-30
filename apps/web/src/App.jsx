@@ -30,6 +30,8 @@ import AdminPage from '@/pages/app/AdminPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 
 const AIPinsPage = lazy(() => import('@/pages/app/AIPinsPage'));
+const AIFacebookPagesPage = lazy(() => import('@/pages/app/AIFacebookPagesPage'));
+const FacebookPage = lazy(() => import('@/pages/app/FacebookPage'));
 const TemplatesPage = lazy(() => import('@/pages/app/TemplatesPage'));
 const TemplatesClassicPage = lazy(() => import('@/pages/app/TemplatesClassicPage'));
 const TemplateEditorPage = lazy(() => import('@/pages/app/TemplateEditorPage'));
@@ -128,6 +130,8 @@ function App() {
 						<Route path="/app/websites/:websiteId" element={<Shell><WebsiteDashboardPage /></Shell>} />
 						<Route path="/app/websites/:websiteId/articles" element={<Shell><WebsiteArticlesPage /></Shell>} />
 						<Route path="/app/ai-pins" element={<Shell><LazyPage><AIPinsPage /></LazyPage></Shell>} />
+						<Route path="/app/ai-facebook-pages" element={<Shell><LazyPage><AIFacebookPagesPage /></LazyPage></Shell>} />
+						<Route path="/app/facebook" element={<Shell><LazyPage><FacebookPage /></LazyPage></Shell>} />
 						<Route path="/app/ai-pins/templates" element={<Shell><LazyPage><TemplatesPage /></LazyPage></Shell>} />
 						<Route path="/app/ai-pins/templates/classic" element={<Shell><LazyPage><TemplatesClassicPage /></LazyPage></Shell>} />
 						<Route path="/app/ai-pins/templates/new/edit" element={<Shell><LazyPage><TemplateEditorPage /></LazyPage></Shell>} />

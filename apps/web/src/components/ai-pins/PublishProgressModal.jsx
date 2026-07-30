@@ -7,20 +7,32 @@ export default function PublishProgressModal({
 	result,
 	onClose,
 	onOpenHistory,
+	labels = null,
+	normalizeResponses = null,
 }) {
 	if (!open) return null;
 
+	const L = labels || {
+		progressNetworkLabel: 'Pinterest response',
+		openOnNetwork: 'Open on Pinterest',
+		externalIdLabel: 'Pin ID',
+		publishingHistoryNav: 'Publishing History',
+		destination: 'Board',
+	};
+
 	const phase = progress?.phase || (result ? 'done' : 'submitting');
-	const responses = result?.pinterestResponses || progress?.jobs?.map((job) => ({
-		jobId: job.id,
-		status: job.status,
-		pinId: job.pinterestPinId || '',
-		pinUrl: job.pinterestPinUrl || '',
-		error: job.lastError || '',
-		attemptCount: job.attemptCount || 0,
-		boardName: job.boardName || '',
-		accountLabel: job.accountLabel || '',
-	})) || [];
+	const responses = typeof normalizeResponses === 'function'
+		? normalizeResponses(result, progress)
+		: (result?.pinterestResponses || progress?.jobs?.map((job) => ({
+			jobId: job.id,
+			status: job.status,
+			pinId: job.pinterestPinId || '',
+			pinUrl: job.pinterestPinUrl || '',
+			error: job.lastError || '',
+			attemptCount: job.attemptCount || 0,
+			boardName: job.boardName || '',
+			accountLabel: job.accountLabel || '',
+		})) || []);
 
 	const isDone = phase === 'done' || Boolean(result);
 	const hasError = Boolean(result?.failed?.length) || responses.some((r) => r.status === 'failed');
@@ -58,7 +70,7 @@ export default function PublishProgressModal({
 
 				{responses.length > 0 ? (
 					<div className="space-y-2">
-						<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pinterest response</p>
+						<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{L.progressNetworkLabel}</p>
 						{responses.map((item) => (
 							<div key={item.jobId} className="rounded-xl border border-border p-3 text-sm">
 								<div className="mb-1 flex items-center justify-between gap-2">
@@ -70,10 +82,10 @@ export default function PublishProgressModal({
 								<p className="text-xs text-muted-foreground">{item.accountLabel} · {item.boardName}</p>
 								{item.pinUrl ? (
 									<a href={item.pinUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline">
-										Open on Pinterest <ExternalLink size={11} />
+										{L.openOnNetwork} <ExternalLink size={11} />
 									</a>
 								) : null}
-								{item.pinId ? <p className="mt-1 text-[11px] text-muted-foreground">Pin ID: {item.pinId}</p> : null}
+								{item.pinId ? <p className="mt-1 text-[11px] text-muted-foreground">{L.externalIdLabel}: {item.pinId}</p> : null}
 								{item.error ? (
 									<pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-destructive/5 p-2 text-[11px] leading-relaxed text-destructive">
 										{item.error}
@@ -87,7 +99,7 @@ export default function PublishProgressModal({
 				{isDone ? (
 					<div className="mt-4 flex flex-wrap gap-2">
 						{onOpenHistory ? (
-							<Button variant="outline" onClick={onOpenHistory}>Publishing History</Button>
+							<Button variant="outline" onClick={onOpenHistory}>{L.publishingHistoryNav}</Button>
 						) : null}
 						<Button onClick={onClose}>Done</Button>
 					</div>

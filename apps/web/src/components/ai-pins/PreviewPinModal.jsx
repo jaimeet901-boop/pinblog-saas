@@ -8,8 +8,15 @@ export default function PreviewPinModal({
 	onPublish,
 	onSchedule,
 	publishing = false,
+	labels = null,
 }) {
 	if (!open || !preview) return null;
+
+	const L = labels || {
+		previewTitle: 'Preview pin',
+		destination: 'Board',
+		account: 'Account',
+	};
 
 	const destinationUrl = preview.destinationUrl || preview.websiteUrl || preview.sourceUrl || '';
 
@@ -18,7 +25,7 @@ export default function PreviewPinModal({
 			<Card className="w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
 				<div className="mb-4 flex items-center justify-between">
 					<div>
-						<h3 className="font-semibold">Preview pin</h3>
+						<h3 className="font-semibold">{L.previewTitle}</h3>
 						<p className="text-xs text-muted-foreground">Review before publishing</p>
 					</div>
 					<button type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
@@ -55,11 +62,11 @@ export default function PreviewPinModal({
 					</div>
 					<div className="grid grid-cols-2 gap-3 text-sm">
 						<div>
-							<p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Board</p>
+							<p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{L.destination}</p>
 							<p>{preview.boardName || '—'}</p>
 						</div>
 						<div>
-							<p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Account</p>
+							<p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{L.accountTitle || L.account}</p>
 							<p className="truncate">{preview.accountLabel || '—'}</p>
 						</div>
 					</div>
