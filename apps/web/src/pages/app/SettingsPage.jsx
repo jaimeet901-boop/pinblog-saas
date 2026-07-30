@@ -10,7 +10,7 @@ import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Input, Select, Textarea } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
-import { OAUTH_PROVIDERS, getEnabledProviderNames, normalizePocketBaseError } from '@/lib/auth';
+import { OAUTH_PROVIDERS, getEnabledProviderNames, getInAppLoginOAuthProviders, normalizePocketBaseError } from '@/lib/auth';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
@@ -588,14 +588,11 @@ export default function SettingsPage() {
 								<div className="set-card">
 									<h3>Connected login providers</h3>
 									<p className="hint">
-										{isSuperAdmin
-											? 'Link Google or Pinterest to sign in faster and keep external auth in sync.'
-											: 'Link Google to sign in faster and keep external auth in sync.'}
+										Link Google or Pinterest to sign in faster and keep external auth in sync.
+										Publishing connections are managed in Pinterest Hub.
 									</p>
 									<div className="mt-4 grid gap-3 md:grid-cols-2">
-										{Object.values(OAUTH_PROVIDERS)
-											.filter((provider) => isSuperAdmin || provider.name !== 'pinterest')
-											.map((provider) => {
+										{getInAppLoginOAuthProviders().map((provider) => {
 											const connected = connectedProviders.has(provider.name);
 											const supported = enabledProviders.size === 0 || enabledProviders.has(provider.name);
 											return (

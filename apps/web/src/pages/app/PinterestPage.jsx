@@ -244,6 +244,7 @@ export default function PinterestPage() {
 	}, [location.search]);
 
 	const connectPinterest = async () => {
+		// Publishing OAuth — independent of AUTH_PAGE_OAUTH_ENABLED (login/signup hide).
 		if (setupMode || websiteIdFromQuery) {
 			const returnTo = peekSetupReturnPath()
 				|| `/app/ai-pins?websiteId=${encodeURIComponent(websiteIdFromQuery || '')}&setup=publish`;

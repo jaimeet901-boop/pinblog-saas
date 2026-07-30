@@ -6,7 +6,7 @@ import { Button, Input, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { useToast } from '@/hooks/use-toast';
-import { OAUTH_PROVIDERS, isValidEmail, normalizePocketBaseError } from '@/lib/auth';
+import { OAUTH_PROVIDERS, getAuthPageOAuthProviders, isValidEmail, normalizePocketBaseError } from '@/lib/auth';
 
 const REMEMBER_KEY = 'chef-ia-remember-email';
 
@@ -45,6 +45,7 @@ export default function LoginPage() {
 	const [oauthLoading, setOauthLoading] = useState('');
 
 	const enabledProviders = useMemo(() => new Set((authMethods?.oauth2?.providers || []).map((provider) => provider.name)), [authMethods]);
+	const authPageProviders = useMemo(() => getAuthPageOAuthProviders(), []);
 
 	useEffect(() => {
 		try {
@@ -114,20 +115,19 @@ export default function LoginPage() {
 			footer={<>No account? <Link to="/signup" className="font-medium text-primary hover:underline">Create one</Link></>}
 		>
 			<div className="space-y-4">
-				<div className="space-y-3">
-					<OAuthButton
-						provider={OAUTH_PROVIDERS.google}
-						disabled={enabledProviders.size > 0 && !enabledProviders.has('google')}
-						loading={oauthLoading === 'google'}
-						onClick={() => startOAuth('google')}
-					/>
-					<OAuthButton
-						provider={OAUTH_PROVIDERS.pinterest}
-						disabled={enabledProviders.size > 0 && !enabledProviders.has('pinterest')}
-						loading={oauthLoading === 'pinterest'}
-						onClick={() => startOAuth('pinterest')}
-					/>
-				</div>
+				{authPageProviders.length > 0 ? (
+					<div className="space-y-3">
+						{authPageProviders.map((provider) => (
+							<OAuthButton
+								key={provider.name}
+								provider={provider}
+								disabled={enabledProviders.size > 0 && !enabledProviders.has(provider.name)}
+								loading={oauthLoading === provider.name}
+								onClick={() => startOAuth(provider.name)}
+							/>
+						))}
+					</div>
+				) : null}
 
 				<div className="auth-divider"><span>OR</span></div>
 

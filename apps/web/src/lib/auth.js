@@ -17,6 +17,42 @@ export const OAUTH_PROVIDERS = {
 	},
 };
 
+/**
+ * Login / Signup pages ONLY.
+ * Toggle `pinterest` to show/hide the auth-page button.
+ * Never used by Pinterest Hub, reconnect, or Settings account linking.
+ */
+export const AUTH_PAGE_OAUTH_ENABLED = {
+	google: true,
+	pinterest: false,
+};
+
+/**
+ * In-app PocketBase login-provider linking (Settings, authenticated users).
+ * Independent from AUTH_PAGE_OAUTH_ENABLED.
+ * Publishing OAuth (Pinterest Hub Connect/Reconnect) uses /pinterest/oauth/* and is unrelated.
+ */
+export const IN_APP_LOGIN_OAUTH_ENABLED = {
+	google: true,
+	pinterest: true,
+};
+
+function filterProvidersByFlags(flags) {
+	return Object.values(OAUTH_PROVIDERS).filter(
+		(provider) => flags[provider.name] !== false,
+	);
+}
+
+/** Providers rendered on Login / Signup. */
+export function getAuthPageOAuthProviders() {
+	return filterProvidersByFlags(AUTH_PAGE_OAUTH_ENABLED);
+}
+
+/** Providers available for linking after the user is authenticated (Settings). */
+export function getInAppLoginOAuthProviders() {
+	return filterProvidersByFlags(IN_APP_LOGIN_OAUTH_ENABLED);
+}
+
 export function normalizeEmail(value) {
 	return String(value || '').trim().toLowerCase();
 }

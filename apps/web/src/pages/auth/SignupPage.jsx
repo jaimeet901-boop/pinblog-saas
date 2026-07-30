@@ -6,7 +6,7 @@ import { Button, Input, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
-import { OAUTH_PROVIDERS, normalizePocketBaseError, validateSignupForm } from '@/lib/auth';
+import { OAUTH_PROVIDERS, getAuthPageOAuthProviders, normalizePocketBaseError, validateSignupForm } from '@/lib/auth';
 
 function OAuthButton({ provider, disabled, loading, onClick }) {
 	return (
@@ -54,6 +54,7 @@ export default function SignupPage() {
 	}, [searchParams]);
 
 	const enabledProviders = useMemo(() => new Set((authMethods?.oauth2?.providers || []).map((provider) => provider.name)), [authMethods]);
+	const authPageProviders = useMemo(() => getAuthPageOAuthProviders(), []);
 
 	const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
 
@@ -127,20 +128,19 @@ export default function SignupPage() {
 			footer={<>Already have an account? <Link to="/login" className="font-medium text-primary hover:underline">Sign in</Link></>}
 		>
 			<div className="space-y-4">
-				<div className="space-y-3">
-					<OAuthButton
-						provider={OAUTH_PROVIDERS.google}
-						disabled={enabledProviders.size > 0 && !enabledProviders.has('google')}
-						loading={oauthLoading === 'google'}
-						onClick={() => startOAuth('google')}
-					/>
-					<OAuthButton
-						provider={OAUTH_PROVIDERS.pinterest}
-						disabled={enabledProviders.size > 0 && !enabledProviders.has('pinterest')}
-						loading={oauthLoading === 'pinterest'}
-						onClick={() => startOAuth('pinterest')}
-					/>
-				</div>
+				{authPageProviders.length > 0 ? (
+					<div className="space-y-3">
+						{authPageProviders.map((provider) => (
+							<OAuthButton
+								key={provider.name}
+								provider={provider}
+								disabled={enabledProviders.size > 0 && !enabledProviders.has(provider.name)}
+								loading={oauthLoading === provider.name}
+								onClick={() => startOAuth(provider.name)}
+							/>
+						))}
+					</div>
+				) : null}
 
 				<div className="auth-divider"><span>OR</span></div>
 
