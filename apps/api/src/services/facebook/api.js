@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import logger from '../../utils/logger.js';
-import { ensureUserWorkspace } from '../workspace-ownership.js';
+import { ensureUserWorkspace } from '../workspace-context.js';
 import { writeAuditLog } from '../audit/write.js';
 import {
 	assertFacebookOAuthReady,
