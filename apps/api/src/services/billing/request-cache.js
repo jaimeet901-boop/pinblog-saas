@@ -17,6 +17,7 @@ export function runWithBillingRequestCache(fn) {
 	return billingRequestCache.run({
 		rawPayloadPromise: null,
 		resolvedConfigPromise: null,
+		monitoringSnapshot: null,
 	}, fn);
 }
 

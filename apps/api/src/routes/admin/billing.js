@@ -50,6 +50,22 @@ import {
 	updateFailoverPolicy,
 } from '../../services/billing/failover.js';
 import {
+	acknowledgeMonitoringAlert,
+	getFailoverTimeline,
+	getMonitoringAlerts,
+	getMonitoringAudit,
+	getMonitoringDiagnostics,
+	getMonitoringEvents,
+	getMonitoringHealth,
+	getMonitoringMetrics,
+	getMonitoringPolicy,
+	getMonitoringStatus,
+	getMonitoringTrends,
+	getRecoveryTimeline,
+	muteMonitoringAlert,
+	updateMonitoringPolicy,
+} from '../../services/billing/monitoring.js';
+import {
 	BILLING_PERMISSIONS,
 	assertBillingPermission,
 	getBillingPermissions,
@@ -425,6 +441,120 @@ router.get(
 	requireBillingPermission(BILLING_PERMISSIONS.READ),
 	asyncHandler(async (req, res) => {
 		res.json(await listFailoverEvents(req.query || {}));
+	}),
+);
+
+/* ── BP-5 Monitoring & Observability ──────────────────────────── */
+
+router.get(
+	'/control-plane/monitoring/status',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getMonitoringStatus(req.adminUser));
+	}),
+);
+
+router.get(
+	'/control-plane/monitoring/health',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getMonitoringHealth(req.adminUser));
+	}),
+);
+
+router.get(
+	'/control-plane/monitoring/timeline/failover',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getFailoverTimeline(req.query || {}));
+	}),
+);
+
+router.get(
+	'/control-plane/monitoring/timeline/recovery',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getRecoveryTimeline(req.query || {}));
+	}),
+);
+
+router.get(
+	'/control-plane/monitoring/events',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getMonitoringEvents(req.query || {}));
+	}),
+);
+
+router.get(
+	'/control-plane/monitoring/audit',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getMonitoringAudit(req.query || {}));
+	}),
+);
+
+router.get(
+	'/control-plane/monitoring/metrics',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (_req, res) => {
+		res.json(await getMonitoringMetrics());
+	}),
+);
+
+router.get(
+	'/control-plane/monitoring/trends',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getMonitoringTrends(req.query || {}));
+	}),
+);
+
+router.get(
+	'/control-plane/monitoring/alerts',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getMonitoringAlerts(req.adminUser));
+	}),
+);
+
+router.post(
+	'/control-plane/monitoring/alerts/:id/ack',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await acknowledgeMonitoringAlert(req.params.id, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+router.post(
+	'/control-plane/monitoring/alerts/:id/mute',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await muteMonitoringAlert(req.params.id, req.body || {}, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+router.get(
+	'/control-plane/monitoring/diagnostics',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (_req, res) => {
+		res.json(await getMonitoringDiagnostics());
+	}),
+);
+
+router.get(
+	'/control-plane/monitoring/policy',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getMonitoringPolicy(req.adminUser));
+	}),
+);
+
+router.put(
+	'/control-plane/monitoring/policy',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await updateMonitoringPolicy(req.body || {}, actorFromReq(req), requestMeta(req)));
 	}),
 );
 

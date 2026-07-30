@@ -33,6 +33,7 @@ export const CONTROL_PLANE_OWNED_BILLING_KEYS = Object.freeze([
 	'webhookPath',
 	'failover',
 	'priceMappings',
+	'monitoring',
 ]);
 
 export function normalizeProviderCodeLocal(value) {

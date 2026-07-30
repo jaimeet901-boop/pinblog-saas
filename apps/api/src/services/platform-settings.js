@@ -217,6 +217,25 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 			},
 			recentEvents: [],
 		},
+		monitoring: {
+			policyVersion: 1,
+			pollHintSeconds: 30,
+			windows: {
+				metricsHours: 24,
+				trendsDays: 30,
+				timelineLimit: 100,
+				eventsPageMax: 100,
+			},
+			thresholds: {
+				criticalProvidersMin: 1,
+				failoverBurstCount: 3,
+				failoverBurstMinutes: 60,
+				validationFailStreak: 2,
+			},
+			alerts: {
+				items: [],
+			},
+		},
 	},
 };
 

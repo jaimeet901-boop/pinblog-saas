@@ -69,3 +69,8 @@ export {
 	getFailoverPolicy,
 	simulateFailover,
 } from './failover.js';
+export {
+	calculateMonitoringHealthScore,
+	normalizeMonitoringPolicy,
+	getMonitoringStatus,
+} from './monitoring.js';
