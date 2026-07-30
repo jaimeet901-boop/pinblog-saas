@@ -21,6 +21,7 @@ const NAV = [
 	{ to: '/app/websites', label: 'Websites', icon: Globe },
 	{ to: '/app/ai-pins', label: 'AI Pins', icon: Wand2, needsWebsite: true },
 	{ to: '/app/ai-facebook-pages', label: 'AI Facebook Pages', icon: Facebook, needsWebsite: true },
+	{ to: '/app/facebook', label: 'Facebook', icon: Facebook, needsWebsite: true },
 	// Templates + Brand Kit stay routed (/app/ai-pins/templates, /app/ai-pins/brand-kit)
 	// but are admin-only via Admin Console — not shown in the workspace sidebar.
 	{ to: '/app/ai-pins/history', label: 'Pin History', icon: History, needsWebsite: true },

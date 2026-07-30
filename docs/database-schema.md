@@ -4,7 +4,7 @@
 > Current runtime store: **PocketBase** (`/hcgi/platform`).  
 > Status: **existing collections** vs **proposed** for Admin Console / multi-seat workspaces.
 
-Related docs: [backend-integration-plan.md](./backend-integration-plan.md) · [api-contracts.md](./api-contracts.md) · [rbac.md](./rbac.md)
+Related docs: [backend-integration-plan.md](./backend-integration-plan.md) · [api-contracts.md](./api-contracts.md) · [rbac.md](./rbac.md) · [facebook-channel-pack-schema.md](./facebook-channel-pack-schema.md) (Facebook F1 design — collections not migrated yet)
 
 ---
 
@@ -326,6 +326,25 @@ Metadata only: `owner`, `pinterest_user_id`, `username`, `label`, `account_name`
 #### `pinterest_account_secrets`
 
 `owner`, `account`, encrypted `access_token`, `refresh_token`. **Admin list never returns these.**
+
+---
+
+### Facebook collections (F1 design — not migrated)
+
+> Full field lists, indexes, and lifecycle: [facebook-channel-pack-schema.md](./facebook-channel-pack-schema.md).  
+> Status: **F1-Apply** — migration `1785400000_facebook_channel_pack.js` (apply on deploy / migrate up).
+
+| Collection | Role |
+|------------|------|
+| `facebook_accounts` | Connected Meta user metadata |
+| `facebook_account_secrets` | Encrypted tokens (API-only) |
+| `facebook_pages` | Publish destinations |
+| `facebook_oauth_states` | OAuth CSRF state |
+| `facebook_publish_jobs` | Channel write SoT (Calendar) |
+| `facebook_publish_events` | Job audit trail |
+| `facebook_publish_history` | Published history / Insights snapshot |
+
+Studio drafts remain on shared `ai_pins` (Option A). Do not reuse `pinterest_*`.
 
 ---
 

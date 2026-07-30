@@ -46,10 +46,24 @@ const LEGACY_OWNER_COLLECTIONS = [
 	'pinterest_publish_jobs',
 ];
 
+const FACEBOOK_CHANNEL_COLLECTIONS = [
+	'facebook_accounts',
+	'facebook_account_secrets',
+	'facebook_pages',
+	'facebook_oauth_states',
+	'facebook_publish_jobs',
+	'facebook_publish_events',
+	'facebook_publish_history',
+];
+
 // --- Migrations exist ---
 {
 	check('API-only rules migration file exists', existsSync(path.join(root, RULES_MIGRATION)));
 	check('Visibility backfill migration file exists', existsSync(path.join(root, BACKFILL_MIGRATION)));
+	check(
+		'Facebook channel pack migration file exists',
+		existsSync(path.join(root, 'apps/pocketbase/pb_migrations/1785400000_facebook_channel_pack.js')),
+	);
 }
 
 // --- Rules migration content ---
@@ -80,6 +94,17 @@ const LEGACY_OWNER_COLLECTIONS = [
 	check('Backfill maps official meta → official', src.includes('"official"') && src.includes('marketplace_meta'));
 	check('Backfill maps blank → private by default', src.includes('"private"'));
 	check('Backfill skips non-blank visibility', /if\s*\(\s*current\s*\)\s*continue/.test(src));
+}
+
+// --- Facebook channel pack F1-Apply ---
+{
+	const src = read('apps/pocketbase/pb_migrations/1785400000_facebook_channel_pack.js');
+	const missing = FACEBOOK_CHANNEL_COLLECTIONS.filter((name) => !src.includes(`"${name}"`));
+	check('Facebook migration creates all approved collections', missing.length === 0, missing.join(', ') || 'all present');
+	check('Facebook migration sets API-only rules', /listRule:\s*null/.test(src) && /createRule:\s*null/.test(src));
+	check('Facebook migration does not touch pinterest collections', !/pinterest_/.test(src.replace(/pinterest twin|Pinterest/gi, '')));
+	check('Facebook migration includes workspace isolation indexes', src.includes('idx_isolation_facebook_publish_jobs_workspace'));
+	check('Facebook migration has no OAuth Graph client code', !/graph\.facebook|oauth\/access_token/i.test(src));
 }
 
 // --- Earlier rules migration still documents old owner rules (historical) ---

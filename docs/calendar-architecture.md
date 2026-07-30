@@ -3,6 +3,8 @@
 **Status:** Phase **C10** complete — Unified Calendar finalized. Orphan CE publish merge retired.  
 **Last updated:** 2026-07-30
 
+Related channel pack: [facebook-channel-pack-architecture.md](./facebook-channel-pack-architecture.md) (Facebook **F0** architecture lock — Calendar providers unchanged).
+
 ## Decision lock
 
 ### Channel-agnostic Calendar

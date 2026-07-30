@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-	LayoutDashboard, Users, Building2, CreditCard, Coins, Cpu, Boxes, Globe, Pin,
+	LayoutDashboard, Users, Building2, CreditCard, Coins, Cpu, Boxes, Globe, Pin, Facebook,
 	BarChart3, ListOrdered, Briefcase, ScrollText, Bell, Settings, Activity,
 	Menu, X, LogOut, ArrowLeftRight, ArrowRightLeft, Shield, ChevronRight, Palette, Scale,
 	Wallet, HeartPulse, Map, Receipt, Webhook, LineChart, Archive, IdCard,
@@ -32,6 +32,7 @@ const ICONS = {
 	'/admin/models': Boxes,
 	'/admin/websites': Globe,
 	'/admin/pinterest': Pin,
+	'/admin/facebook': Facebook,
 	'/admin/analytics': BarChart3,
 	'/admin/queue': ListOrdered,
 	'/admin/jobs': Briefcase,

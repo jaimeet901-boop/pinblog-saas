@@ -175,6 +175,69 @@ export async function listInventoryPinterestAccounts(query = {}) {
 	};
 }
 
+export async function listInventoryFacebookAccounts(query = {}) {
+	const { page, perPage } = normalizePage(query, 100);
+	const parts = [];
+	if (query.status) {
+		const status = String(query.status);
+		if (status === 'connected') {
+			parts.push('(status = "connected" || status = "active" || status = "" || status = null || connected = true)');
+		} else if (status === 'degraded') {
+			parts.push('(status = "expired" || status = "failed" || status = "error" || status = "degraded" || status = "disconnected")');
+		} else {
+			parts.push(pocketbaseClient.filter('status = {:status}', { status }));
+		}
+	}
+	if (query.q) {
+		const q = String(query.q).trim();
+		if (q) {
+			parts.push(pocketbaseClient.filter('(label ~ {:q} || account_name ~ {:q} || username ~ {:q})', { q }));
+		}
+	}
+
+	const result = await safeList('facebook_accounts', page, perPage, {
+		filter: parts.length ? parts.join(' && ') : undefined,
+		sort: '-updated,-created',
+	});
+
+	const cache = new Map();
+	const items = await Promise.all((result.items || []).map(async (account) => {
+		const pages = await pocketbaseClient.collection('facebook_pages').getList(1, 1, {
+			filter: pocketbaseClient.filter('account = {:account} || owner = {:owner}', {
+				account: account.id,
+				owner: account.owner,
+			}),
+			requestKey: null,
+		}).catch(() => ({ totalItems: 0 }));
+		return {
+			id: account.id,
+			name: account.label || account.account_name || account.username || account.name || account.id,
+			username: account.username || '—',
+			workspace: await workspaceNameForOwner(account.owner, cache),
+			pages: Number(pages.totalItems) || 0,
+			status: mapPinterestStatus(account.status || (account.connected ? 'connected' : 'error')),
+			connectedAt: formatDateTime(account.connected_at || account.created),
+			expiresAt: formatDateTime(account.token_expires_at),
+			lastSyncAt: formatDateTime(account.last_sync_at),
+			statusError: account.status_error || '',
+		};
+	}));
+
+	let filtered = items;
+	if (query.q) {
+		const q = String(query.q).trim().toLowerCase();
+		filtered = items.filter((item) => `${item.name} ${item.username} ${item.workspace}`.toLowerCase().includes(q));
+	}
+
+	return {
+		items: filtered,
+		page: result.page || page,
+		perPage: result.perPage || perPage,
+		totalItems: result.totalItems || filtered.length,
+		totalPages: result.totalPages || 1,
+	};
+}
+
 export async function listAllWebsitesForFilters() {
 	return safeFullList('websites');
 }

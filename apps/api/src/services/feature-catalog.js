@@ -87,6 +87,15 @@ export const FEATURE_CATALOG = Object.freeze([
 		defaultVisibleWhenLocked: true,
 	},
 	{
+		key: 'facebook',
+		label: 'Facebook',
+		group: 'core',
+		description: 'Connect Facebook Pages and publish/schedule posts from Content Studio (channel pack).',
+		stage: 'reserved',
+		dependencies: [],
+		defaultVisibleWhenLocked: true,
+	},
+	{
 		key: 'wordpress',
 		label: 'WordPress',
 		group: 'core',

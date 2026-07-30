@@ -25,6 +25,8 @@ describe('feature-catalog', () => {
 		assert.ok(keys.includes('templates.premium'));
 		assert.ok(keys.includes('features.ai_layout'));
 		assert.ok(keys.includes('aiImages'));
+		assert.ok(keys.includes('facebook'));
+		assert.ok(keys.includes('pinterest'));
 
 		const groups = listFeatureCatalogGroups();
 		assert.ok(groups.some((group) => group.id === 'templates'));

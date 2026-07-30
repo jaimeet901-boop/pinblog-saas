@@ -52,6 +52,7 @@ const AdminProvidersPage = lazy(() => import('@/pages/admin/AdminProvidersPage')
 const AdminModelsPage = lazy(() => import('@/pages/admin/AdminModelsPage'));
 const AdminWebsitesPage = lazy(() => import('@/pages/admin/AdminWebsitesPage'));
 const AdminPinterestPage = lazy(() => import('@/pages/admin/AdminPinterestPage'));
+const AdminFacebookPage = lazy(() => import('@/pages/admin/AdminFacebookPage'));
 const AdminAnalyticsPage = lazy(() => import('@/pages/admin/AdminAnalyticsPage'));
 const AdminQueuePage = lazy(() => import('@/pages/admin/AdminQueuePage'));
 const AdminJobsPage = lazy(() => import('@/pages/admin/AdminJobsPage'));
@@ -174,6 +175,7 @@ function App() {
 							<Route path="models" element={<AdminLazy><AdminModelsPage /></AdminLazy>} />
 							<Route path="websites" element={<AdminLazy><AdminWebsitesPage /></AdminLazy>} />
 							<Route path="pinterest" element={<AdminLazy><AdminPinterestPage /></AdminLazy>} />
+							<Route path="facebook" element={<AdminLazy><AdminFacebookPage /></AdminLazy>} />
 							<Route path="analytics" element={<AdminLazy><AdminAnalyticsPage /></AdminLazy>} />
 							<Route path="queue" element={<AdminLazy><AdminQueuePage /></AdminLazy>} />
 							<Route path="jobs" element={<AdminLazy><AdminJobsPage /></AdminLazy>} />

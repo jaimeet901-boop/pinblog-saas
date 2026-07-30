@@ -69,6 +69,8 @@ workspace.websites.manage
 workspace.wordpress.publish
 workspace.pinterest.manage
 workspace.pinterest.publish
+workspace.facebook.manage
+workspace.facebook.publish
 workspace.content.write
 workspace.content.publish
 workspace.ai.generate
@@ -106,6 +108,8 @@ workspace.exports.create
 | `workspace.wordpress.publish` | | | ✓ | ✓ | ✓ | | scoped |
 | `workspace.pinterest.manage` | | | ✓ | ✓ | | | |
 | `workspace.pinterest.publish` | | | ✓ | ✓ | ✓ | | scoped |
+| `workspace.facebook.manage` | | | ✓ | ✓ | | | |
+| `workspace.facebook.publish` | | | ✓ | ✓ | ✓ | | scoped |
 | `workspace.content.write` | | | ✓ | ✓ | ✓ | | scoped |
 | `workspace.content.publish` | | | ✓ | ✓ | limited | | scoped |
 | `workspace.ai.generate` | | | ✓ | ✓ | ✓ | | scoped |

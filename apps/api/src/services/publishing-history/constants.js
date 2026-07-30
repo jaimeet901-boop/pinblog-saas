@@ -61,6 +61,7 @@ export const PUBLISHING_SOURCE_MODULES = Object.freeze([
 export const PUBLISHING_JOB_COLLECTIONS = Object.freeze({
 	pinterest: 'pinterest_publish_jobs',
 	wordpress: 'publish_jobs',
+	facebook: 'facebook_publish_jobs',
 });
 
 /** @returns {object} Complete PublishingHistoryItem with empty defaults. */

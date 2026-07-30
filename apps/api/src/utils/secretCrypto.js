@@ -109,3 +109,49 @@ export function decryptPinterestSecret(value) {
 	error.status = 500;
 	throw error;
 }
+
+function getFacebookSecretMaterials() {
+	const keys = [
+		process.env.FACEBOOK_SECRETS_KEY,
+		process.env.PINTEREST_SECRETS_KEY,
+		process.env.WORDPRESS_SECRETS_KEY,
+		process.env.PB_ENCRYPTION_KEY,
+	].filter(Boolean);
+	return [...new Set(keys)].map((secret) => createHash('sha256').update(secret).digest());
+}
+
+/** Prefer FACEBOOK_SECRETS_KEY; fall back to shared keys. */
+export function encryptFacebookSecret(plainValue) {
+	if (typeof plainValue !== 'string' || !plainValue) {
+		return '';
+	}
+	return encryptWithMaterial(plainValue, getSecretMaterial(['FACEBOOK_SECRETS_KEY', 'PINTEREST_SECRETS_KEY']));
+}
+
+export function decryptFacebookSecret(value) {
+	if (typeof value !== 'string' || !value) {
+		return '';
+	}
+
+	if (!isEncryptedSecret(value)) {
+		return value;
+	}
+
+	const materials = getFacebookSecretMaterials();
+	let lastError = null;
+	for (const material of materials) {
+		try {
+			return decryptWithMaterial(value, material);
+		} catch (error) {
+			lastError = error;
+		}
+	}
+
+	if (lastError) {
+		throw lastError;
+	}
+
+	const error = new Error('Unable to decrypt Facebook secret');
+	error.status = 500;
+	throw error;
+}

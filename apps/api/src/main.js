@@ -19,6 +19,7 @@ import { startAnalyticsRefreshWorker, stopAnalyticsRefreshWorker } from './servi
 import { startAuditRetentionWorker, stopAuditRetentionWorker } from './services/audit/retention.js';
 import { startHealthMonitorWorker, stopHealthMonitorWorker } from './services/health/worker.js';
 import { ensurePinterestAppCredentialsSeeded } from './services/pinterest-app-credentials.js';
+import { ensureFacebookAppCredentialsSeeded } from './services/facebook/app-credentials.js';
 import { ensurePlatformSettingsSeeded } from './services/platform-settings.js';
 import { ensureOfficialPinTemplatesSeeded } from './services/official-pin-templates-seed.js';
 import { ensureWordpressIntegrationSchema } from './utils/ensure-wordpress-integration-schema.js';
@@ -148,6 +149,9 @@ app.listen(port, () => {
 	logger.info(`🚀 API Server running on http://localhost:${port}`);
 	ensurePinterestAppCredentialsSeeded().catch((error) => {
 		logger.warn('Pinterest OAuth credentials seed skipped:', error?.message || error);
+	});
+	ensureFacebookAppCredentialsSeeded().catch((error) => {
+		logger.warn('Facebook OAuth credentials seed skipped:', error?.message || error);
 	});
 	ensurePlatformSettingsSeeded().catch((error) => {
 		logger.warn('Platform settings seed skipped:', error?.message || error);

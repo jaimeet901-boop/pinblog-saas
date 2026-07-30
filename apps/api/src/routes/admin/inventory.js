@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+	listInventoryFacebookAccounts,
 	listInventoryPinterestAccounts,
 	listInventoryWebsites,
 } from '../../services/admin/inventory.js';
@@ -18,6 +19,10 @@ router.get('/websites', asyncHandler(async (req, res) => {
 
 router.get('/pinterest-accounts', asyncHandler(async (req, res) => {
 	res.json(await listInventoryPinterestAccounts(req.query || {}));
+}));
+
+router.get('/facebook-accounts', asyncHandler(async (req, res) => {
+	res.json(await listInventoryFacebookAccounts(req.query || {}));
 }));
 
 export default router;

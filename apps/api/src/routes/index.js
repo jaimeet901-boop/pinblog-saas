@@ -6,6 +6,7 @@ import { attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation } from 
 import websitesRouter from './websites.js';
 import wordpressRouter from './wordpress/index.js';
 import pinterestRouter from './pinterest.js';
+import facebookRouter from './facebook.js';
 import settingsRouter from './settings.js';
 import aiPinImagesRouter from './ai-pin-images.js';
 import aiPinGenerationRouter from './ai-pin-generation.js';
@@ -34,6 +35,7 @@ export default () => {
     router.use('/websites', pocketbaseAuth, attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation('workspace.websites.manage'), websitesRouter);
     router.use('/wordpress', wordpressRouter);
     router.use('/pinterest', pinterestRouter);
+    router.use('/facebook', facebookRouter);
     router.use('/publishing', pocketbaseAuth, attachWorkspace, requireWorkspaceRead, publishingRouter);
     router.use('/settings', settingsRouter);
     router.use('/ai-pin-images', pocketbaseAuth, attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation('workspace.ai.generate'), aiPinImagesRouter);
