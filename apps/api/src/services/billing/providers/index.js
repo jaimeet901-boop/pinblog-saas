@@ -3,7 +3,9 @@ import { NoneBillingProvider } from './none.js';
 import { StripeBillingProvider } from './stripe.js';
 import { PaddleBillingProvider } from './paddle.js';
 import { LemonSqueezyBillingProvider } from './lemonsqueezy.js';
-import { getPlatformSettings } from '../../platform-settings.js';
+import { resolveProviderRuntimeConfig } from '../control-plane-helpers.js';
+import { getRawBillingPayload } from '../control-plane.js';
+import { getBillingRequestCache } from '../request-cache.js';
 
 const PROVIDER_CTORS = {
 	none: NoneBillingProvider,
@@ -17,10 +19,16 @@ export function normalizeProviderCode(value) {
 	return BILLING_PROVIDERS.includes(code) ? code : 'none';
 }
 
-export async function resolveBillingConfig() {
-	const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
-	const billing = settings?.billing || {};
+async function buildBillingConfig() {
+	const { billing } = await getRawBillingPayload().catch(() => ({ billing: {} }));
 	const provider = normalizeProviderCode(billing.provider);
+
+	const providers = {
+		stripe: resolveProviderRuntimeConfig('stripe', billing.providers?.stripe || {}),
+		paddle: resolveProviderRuntimeConfig('paddle', billing.providers?.paddle || {}),
+		lemonsqueezy: resolveProviderRuntimeConfig('lemonsqueezy', billing.providers?.lemonsqueezy || {}),
+	};
+
 	return {
 		provider,
 		checkoutEnabled: Boolean(billing.checkoutEnabled) && provider !== 'none',
@@ -29,25 +37,37 @@ export async function resolveBillingConfig() {
 		autoRenew: billing.autoRenew !== false,
 		autoResetCredits: billing.autoResetCredits !== false,
 		webhookPath: billing.webhookPath || `/billing/webhooks/${provider}`,
-		providers: {
-			stripe: billing.providers?.stripe || {},
-			paddle: billing.providers?.paddle || {},
-			lemonsqueezy: billing.providers?.lemonsqueezy || {},
-		},
+		providers,
 		raw: billing,
 	};
 }
 
-export async function getBillingProvider(overrideCode = null) {
-	const config = await resolveBillingConfig();
+/**
+ * Resolve billing config for runtime.
+ * Priority: encrypted Admin configuration → environment variables → provider defaults.
+ * Reuses a per-request cache when runWithBillingRequestCache / middleware is active.
+ */
+export async function resolveBillingConfig() {
+	const cache = getBillingRequestCache();
+	if (cache) {
+		if (!cache.resolvedConfigPromise) {
+			cache.resolvedConfigPromise = buildBillingConfig();
+		}
+		return cache.resolvedConfigPromise;
+	}
+	return buildBillingConfig();
+}
+
+export async function getBillingProvider(overrideCode = null, options = {}) {
+	const config = options.config || await resolveBillingConfig();
 	const code = normalizeProviderCode(overrideCode || config.provider);
 	const Ctor = PROVIDER_CTORS[code] || NoneBillingProvider;
 	const providerConfig = code === 'none' ? {} : (config.providers?.[code] || {});
 	return new Ctor(providerConfig);
 }
 
-export async function listBillingProviders() {
-	const config = await resolveBillingConfig();
+export async function listBillingProviders(options = {}) {
+	const config = options.config || await resolveBillingConfig();
 	return BILLING_PROVIDERS.map((code) => {
 		const Ctor = PROVIDER_CTORS[code];
 		const instance = new Ctor(config.providers?.[code] || {});

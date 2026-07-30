@@ -2,12 +2,45 @@ import { Router } from 'express';
 import {
 	listBillingProviders,
 	resolveBillingConfig,
-	handleBillingWebhook,
 	runBillingAutomationTick,
 	runMonthlyCreditResetJob,
 	listCreditPacks,
 	purchaseCreditPack,
 } from '../../services/billing/index.js';
+import {
+	activateControlPlaneProvider,
+	getControlPlaneProvider,
+	listControlPlaneHealth,
+	listControlPlaneLogs,
+	listControlPlaneProviders,
+	runControlPlaneHealthCheck,
+	runControlPlaneHealthCheckAll,
+	setControlPlaneProviderEnabled,
+	updateControlPlaneCheckoutSettings,
+	updateControlPlaneProvider,
+	validateControlPlaneProvider,
+} from '../../services/billing/control-plane.js';
+import {
+	getPriceMappingGaps,
+	getPriceMappingMatrix,
+	syncPriceMappingsToProviders,
+	updatePriceMappings,
+	validatePriceMappingsEndpoint,
+} from '../../services/billing/price-mapping.js';
+import {
+	getRevenueByPeriod,
+	getRevenueByPlan,
+	getRevenueByProvider,
+	getRevenueConversions,
+	getRevenueSummary,
+	getRevenueTrends,
+} from '../../services/billing/revenue-aggregation.js';
+import {
+	BILLING_PERMISSIONS,
+	assertBillingPermission,
+	getBillingPermissions,
+	requireBillingPermission,
+} from '../../middleware/billing-permissions.js';
 
 const router = Router();
 
@@ -17,12 +50,31 @@ function asyncHandler(fn) {
 	};
 }
 
+function actorFromReq(req) {
+	return {
+		id: req.adminUser?.id || req.pocketbaseUserId,
+		email: req.adminUser?.email,
+		name: req.adminUser?.name,
+	};
+}
+
+function requestMeta(req) {
+	return {
+		ip: String(req.ip || req.headers['x-forwarded-for'] || '').split(',')[0].trim(),
+		userAgent: String(req.headers['user-agent'] || ''),
+		expectedUpdatedAt: req.body?.expectedUpdatedAt || req.query?.expectedUpdatedAt || null,
+	};
+}
+
+// Per-request billing config cache (no global cache).
+router.use(middlewareBillingRequestCache);
+
+/* ── Existing billing admin endpoints ─────────────────────────── */
+
 router.get('/providers', asyncHandler(async (req, res) => {
-	const [providers, config] = await Promise.all([
-		listBillingProviders(),
-		resolveBillingConfig(),
-	]);
-	res.json({ items: providers, config });
+	const config = await resolveBillingConfig();
+	const providers = await listBillingProviders({ config });
+	res.json({ items: providers, config: toPublicBillingConfig(config) });
 }));
 
 router.get('/packs', asyncHandler(async (req, res) => {
@@ -49,5 +101,233 @@ router.post('/automation/run', asyncHandler(async (req, res) => {
 router.post('/automation/reset-credits', asyncHandler(async (req, res) => {
 	res.json(await runMonthlyCreditResetJob({ force: Boolean(req.body?.force) }));
 }));
+
+/* ── BP-1 Control Plane ───────────────────────────────────────── */
+
+router.get(
+	'/control-plane/providers',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		const payload = await listControlPlaneProviders();
+		payload.permissions = getBillingPermissions(req.adminUser);
+		res.json(payload);
+	}),
+);
+
+router.get(
+	'/control-plane/providers/:code',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getControlPlaneProvider(req.params.code));
+	}),
+);
+
+router.put(
+	'/control-plane/providers/:code',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		const body = req.body || {};
+		const secretKeys = ['secretKey', 'apiKey', 'webhookSecret'];
+		const writesSecret = secretKeys.some((key) => {
+			const value = String(body[key] || '').trim();
+			return value && !value.includes('•');
+		});
+		if (writesSecret) {
+			assertBillingPermission(req.adminUser, BILLING_PERMISSIONS.SECRETS_WRITE);
+		}
+		res.json(await updateControlPlaneProvider(req.params.code, body, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+router.post(
+	'/control-plane/providers/:code/activate',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await activateControlPlaneProvider(req.params.code, actorFromReq(req), {
+			...requestMeta(req),
+			expectedUpdatedAt: req.body?.expectedUpdatedAt || null,
+		}));
+	}),
+);
+
+router.post(
+	'/control-plane/providers/:code/enable',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await setControlPlaneProviderEnabled(req.params.code, true, actorFromReq(req), {
+			...requestMeta(req),
+			expectedUpdatedAt: req.body?.expectedUpdatedAt || null,
+		}));
+	}),
+);
+
+router.post(
+	'/control-plane/providers/:code/disable',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await setControlPlaneProviderEnabled(req.params.code, false, actorFromReq(req), {
+			...requestMeta(req),
+			expectedUpdatedAt: req.body?.expectedUpdatedAt || null,
+		}));
+	}),
+);
+
+router.patch(
+	'/control-plane/settings',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await updateControlPlaneCheckoutSettings(req.body || {}, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+router.get(
+	'/control-plane/logs',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await listControlPlaneLogs(req.query || {}));
+	}),
+);
+
+/* ── BP-2 Health & Validation ─────────────────────────────────── */
+
+router.get(
+	'/control-plane/health',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		const payload = await listControlPlaneHealth();
+		payload.permissions = getBillingPermissions(req.adminUser);
+		res.json(payload);
+	}),
+);
+
+router.get(
+	'/control-plane/providers/:code/validation',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await validateControlPlaneProvider(req.params.code));
+	}),
+);
+
+router.post(
+	'/control-plane/providers/:code/health-check',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await runControlPlaneHealthCheck(req.params.code, actorFromReq(req), {
+			...requestMeta(req),
+			expectedUpdatedAt: req.body?.expectedUpdatedAt || null,
+			probeConnectivity: req.body?.probeConnectivity !== false,
+			auto: false,
+		}));
+	}),
+);
+
+router.post(
+	'/control-plane/health-check',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await runControlPlaneHealthCheckAll(actorFromReq(req), {
+			...requestMeta(req),
+			probeConnectivity: req.body?.probeConnectivity !== false,
+			auto: false,
+		}));
+	}),
+);
+
+/* ── BP-3 Price Mapping ───────────────────────────────────────── */
+
+router.get(
+	'/control-plane/price-mapping',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		const payload = await getPriceMappingMatrix();
+		payload.permissions = getBillingPermissions(req.adminUser);
+		res.json(payload);
+	}),
+);
+
+router.put(
+	'/control-plane/price-mapping',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await updatePriceMappings(req.body || {}, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+router.post(
+	'/control-plane/price-mapping/validate',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await validatePriceMappingsEndpoint(req.body || {}));
+	}),
+);
+
+router.post(
+	'/control-plane/price-mapping/sync',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await syncPriceMappingsToProviders(actorFromReq(req), {
+			...requestMeta(req),
+			expectedUpdatedAt: req.body?.expectedUpdatedAt || null,
+		}));
+	}),
+);
+
+router.get(
+	'/control-plane/price-mapping/gaps',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (_req, res) => {
+		res.json(await getPriceMappingGaps());
+	}),
+);
+
+/* ── BP-3 Revenue ─────────────────────────────────────────────── */
+
+router.get(
+	'/control-plane/revenue/summary',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getRevenueSummary(req.query || {}));
+	}),
+);
+
+router.get(
+	'/control-plane/revenue/by-provider',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getRevenueByProvider(req.query || {}));
+	}),
+);
+
+router.get(
+	'/control-plane/revenue/by-plan',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getRevenueByPlan(req.query || {}));
+	}),
+);
+
+router.get(
+	'/control-plane/revenue/by-period',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getRevenueByPeriod(req.query || {}));
+	}),
+);
+
+router.get(
+	'/control-plane/revenue/trends',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getRevenueTrends(req.query || {}));
+	}),
+);
+
+router.get(
+	'/control-plane/revenue/conversions',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getRevenueConversions(req.query || {}));
+	}),
+);
 
 export default router;

@@ -21,6 +21,7 @@ export function StatusPill({ status }) {
 	if (['active', 'healthy', 'connected', 'completed', 'enabled', 'operational', 'success', 'online', 'ok'].includes(value)) tone = 'admin-pill--green';
 	else if (['waiting', 'trial', 'warn', 'warning', 'degraded', 'retry', 'retrying', 'invited', 'ready', 'pending', 'queued', 'paused', 'throttled', 'scheduled', 'draft'].includes(value)) tone = 'admin-pill--amber';
 	else if (['failed', 'error', 'suspended', 'disabled', 'danger', 'disconnected', 'cancelled', 'offline', 'critical', 'denied'].includes(value)) tone = 'admin-pill--red';
+	else if (['unknown', 'configured', 'not_configured'].includes(value)) tone = 'admin-pill--blue';
 	else if (['running', 'info', 'pro', 'agency', 'admin', 'user', 'text', 'image', 'high', 'normal', 'low'].includes(value)) tone = 'admin-pill--blue';
 	return <span className={`admin-pill ${tone}`}>{status}</span>;
 }

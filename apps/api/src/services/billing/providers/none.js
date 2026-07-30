@@ -18,7 +18,7 @@ export class NoneBillingProvider extends BillingProvider {
 			ready: false,
 			provider: 'none',
 			mode: 'subscription',
-			message: 'No payment provider selected. Choose Stripe, Paddle, or LemonSqueezy in Global Settings.',
+			message: 'No payment provider selected. Choose Stripe, Paddle, or LemonSqueezy in Billing Providers.',
 		};
 	}
 

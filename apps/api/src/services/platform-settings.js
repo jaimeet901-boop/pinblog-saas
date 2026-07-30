@@ -3,6 +3,7 @@ import { encryptPinterestSecret } from '../utils/secretCrypto.js';
 import { writeAuditLog } from './audit/write.js';
 import { getPinterestAppCredentialsPublic } from './pinterest-app-credentials.js';
 import { listProviders } from './ai-providers.js';
+import { sanitizeBillingForPublic, stripControlPlaneBillingWrites } from './billing/control-plane-helpers.js';
 
 const CONFIG_KEY = 'platform';
 
@@ -174,9 +175,16 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		gracePeriodDays: 3,
 		webhookPath: '/billing/webhooks',
 		providers: {
-			stripe: { secretKeySet: false, webhookSecretSet: false },
-			paddle: { apiKeySet: false, webhookSecretSet: false },
-			lemonsqueezy: { apiKeySet: false, webhookSecretSet: false },
+			stripe: { enabled: true, mode: 'test', secretKeySet: false, webhookSecretSet: false },
+			paddle: { enabled: true, mode: 'test', apiKeySet: false, webhookSecretSet: false, sandbox: true },
+			lemonsqueezy: { enabled: true, mode: 'test', apiKeySet: false, webhookSecretSet: false },
+			paypal: { enabled: false, mode: 'test' },
+		},
+		priceMappings: {
+			version: 1,
+			plans: {},
+			packs: {},
+			meta: {},
 		},
 	},
 };
@@ -222,6 +230,7 @@ function normalizePayload(raw = {}) {
 	// Never expose ciphertext to clients.
 	delete merged.email.smtpPasswordCipher;
 	delete merged.email.smtpPassword;
+	merged.billing = sanitizeBillingForPublic(merged.billing || {});
 	return merged;
 }
 
@@ -256,11 +265,29 @@ export async function getPlatformSettings() {
 
 export async function upsertPlatformSettings(nextSettings = {}, actor = {}) {
 	const existing = await getSettingsRow();
-	const current = normalizePayload(existing?.payload || {});
-	const merged = deepMerge(current, nextSettings || {});
+	const currentRaw = existing?.payload || {};
+	const current = normalizePayload(currentRaw);
+	// Single Write Authority: Global Settings cannot mutate Control Plane–owned billing fields.
+	const safeIncoming = stripControlPlaneBillingWrites(nextSettings || {}, currentRaw.billing || {});
+	const merged = deepMerge(current, safeIncoming);
 
-	if (nextSettings?.email?.smtpPassword && !String(nextSettings.email.smtpPassword).includes('•')) {
-		merged.email.smtpPasswordCipher = encryptPinterestSecret(String(nextSettings.email.smtpPassword).trim());
+	// Preserve encrypted billing provider secrets from the raw row (not present on normalized current).
+	if (currentRaw.billing?.providers) {
+		merged.billing = merged.billing || {};
+		merged.billing.providers = structuredClone(currentRaw.billing.providers);
+	}
+	if (Object.prototype.hasOwnProperty.call(currentRaw.billing || {}, 'provider')) {
+		merged.billing.provider = currentRaw.billing.provider;
+	}
+	if (Object.prototype.hasOwnProperty.call(currentRaw.billing || {}, 'checkoutEnabled')) {
+		merged.billing.checkoutEnabled = currentRaw.billing.checkoutEnabled;
+	}
+	if (Object.prototype.hasOwnProperty.call(currentRaw.billing || {}, 'webhookPath')) {
+		merged.billing.webhookPath = currentRaw.billing.webhookPath;
+	}
+
+	if (safeIncoming?.email?.smtpPassword && !String(safeIncoming.email.smtpPassword).includes('•')) {
+		merged.email.smtpPasswordCipher = encryptPinterestSecret(String(safeIncoming.email.smtpPassword).trim());
 		merged.email.smtpPasswordSet = true;
 	} else if (existing?.payload?.email?.smtpPasswordCipher) {
 		merged.email.smtpPasswordCipher = existing.payload.email.smtpPasswordCipher;

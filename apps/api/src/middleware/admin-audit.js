@@ -4,6 +4,41 @@
  */
 import { writeApiRequest, writeAuditLog } from '../services/audit/write.js';
 
+function resolveAdminAuditMeta(path) {
+	const normalized = String(path || '');
+
+	// Billing Control Plane mutations are audited by writeControlPlaneAudit
+	// (service=billing-control-plane, ui_category=Billing Admin). Skip the
+	// generic admin row to avoid duplicate/inconsistent Billing Logs entries.
+	if (normalized.includes('/billing/control-plane')) {
+		return { skipDomainAudit: true };
+	}
+
+	if (normalized.includes('/billing')) {
+		return {
+			category: 'billing',
+			uiCategory: 'Subscriptions',
+			service: 'Admin Console',
+		};
+	}
+	if (normalized.includes('/providers') || normalized.includes('/models')) {
+		return { category: 'admin', uiCategory: 'Providers', service: 'Admin Console' };
+	}
+	if (normalized.includes('/plans')) {
+		return { category: 'billing', uiCategory: 'Subscriptions', service: 'Admin Console' };
+	}
+	if (normalized.includes('/credits')) {
+		return { category: 'billing', uiCategory: 'Payments', service: 'Admin Console' };
+	}
+	if (normalized.includes('/queue')) {
+		return { category: 'queue', uiCategory: 'Queue Jobs', service: 'Admin Console' };
+	}
+	if (normalized.includes('/analytics')) {
+		return { category: 'admin', uiCategory: 'System', service: 'Admin Console' };
+	}
+	return { category: 'admin', uiCategory: 'Users', service: 'Admin Console' };
+}
+
 export function adminAuditMiddleware(req, res, next) {
 	const started = Date.now();
 	const method = String(req.method || 'GET').toUpperCase();
@@ -28,21 +63,12 @@ export function adminAuditMiddleware(req, res, next) {
 
 		if (!shouldAudit) return;
 
+		const meta = resolveAdminAuditMeta(path);
+		if (meta.skipDomainAudit) return;
+
 		writeAuditLog({
-			category: 'admin',
-			uiCategory: path.includes('/providers')
-				? 'Providers'
-				: path.includes('/plans') || path.includes('/billing')
-					? 'Subscriptions'
-					: path.includes('/credits')
-						? 'Payments'
-						: path.includes('/models')
-							? 'Providers'
-							: path.includes('/queue')
-								? 'Queue Jobs'
-								: path.includes('/analytics')
-									? 'System'
-									: 'Users',
+			category: meta.category,
+			uiCategory: meta.uiCategory,
 			severity: res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'success',
 			action: `${method} ${path.split('?')[0]}`,
 			message: `Admin ${method} ${path.split('?')[0]}`,
@@ -52,7 +78,7 @@ export function adminAuditMiddleware(req, res, next) {
 			userAgent: req.headers['user-agent'] || '',
 			result: res.statusCode >= 400 ? 'failure' : 'ok',
 			durationMs,
-			service: 'Admin Console',
+			service: meta.service,
 			request: { method, path: path.split('?')[0], params: req.params || {} },
 			response: { status: res.statusCode },
 			metadata: { query: req.query || {} },

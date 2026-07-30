@@ -186,7 +186,7 @@ export async function getWorkspaceSubscription(req) {
 			gracePeriodDays: billingConfig.gracePeriodDays,
 			providers,
 			message: billingConfig.provider === 'none'
-				? 'No payment provider selected. Plan changes update workspace metadata; connect Stripe, Paddle, or Lemon Squeezy in Global Settings for checkout.'
+				? 'No payment provider selected. Plan changes update workspace metadata; connect Stripe, Paddle, or Lemon Squeezy in Billing Providers for checkout.'
 				: `${billingConfig.provider} interface active${billingConfig.checkoutEnabled ? '' : ' (checkout disabled)'}.`,
 		},
 	};

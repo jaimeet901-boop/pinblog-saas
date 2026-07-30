@@ -33,3 +33,32 @@ export { handleBillingWebhook } from './webhooks.js';
 export { logBillingAction } from './audit.js';
 export { maybeNotifyCreditThresholds } from './notifications.js';
 export { claimIdempotencyKey, completeIdempotency } from './idempotency.js';
+export {
+	listControlPlaneProviders,
+	listControlPlaneLogs,
+	sanitizeBillingForPublic,
+	stripControlPlaneBillingWrites,
+	toPublicBillingConfig,
+} from './control-plane.js';
+export { validateProvider, isValidationBlocking } from './validation-engine.js';
+export {
+	calculateHealthScore,
+	deriveHealthStatus,
+	buildHealthSnapshot,
+	toPublicHealthDto,
+} from './health-engine.js';
+export {
+	getPriceMappingMatrix,
+	updatePriceMappings,
+	validatePriceMappingsEndpoint,
+	syncPriceMappingsToProviders,
+} from './price-mapping.js';
+export {
+	resolveRecognizedAmount,
+	buildRevenueSnapshotMetadata,
+} from './revenue-recognition.js';
+export {
+	getRevenueSummary,
+	getRevenueByProvider,
+	computeLiveMrr,
+} from './revenue-aggregation.js';

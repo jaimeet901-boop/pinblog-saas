@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 
-const SECRET_KEYS = /pass(word)?|secret|token|api[_-]?key|authorization|cookie|refresh|ciphertext|app[_-]?password/i;
+const SECRET_KEYS = /pass(word)?|secret|token|api[_-]?key|authorization|cookie|refresh|ciphertext|app[_-]?password|cipher$/i;
 
 export const CATEGORY_LABELS = {
 	auth: 'Authentication',

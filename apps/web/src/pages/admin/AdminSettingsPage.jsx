@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
 	Save, RotateCcw, Upload, Download, Loader2,
 } from 'lucide-react';
@@ -528,19 +529,22 @@ export default function AdminSettingsPage() {
 					</div>
 				</Section>
 
-				<Section title="Credits & Subscription" hint="Global defaults for free credits, feature costs, trials, monthly reset, pay-as-you-go, and payment provider.">
+				<Section title="Credits & Subscription" hint="Global defaults for free credits, feature costs, trials, monthly reset, and pay-as-you-go. Billing providers are managed only from Billing Providers.">
+					<div className="admin-card mb-3" style={{ padding: 14 }}>
+						<p className="admin-stat__label">Billing Provider</p>
+						<p style={{ fontSize: 14, marginTop: 4 }}>
+							Active: <strong>{settings.billing?.provider || 'none'}</strong>
+							{' · '}
+							Checkout: <strong>{settings.billing?.checkoutEnabled ? 'enabled' : 'disabled'}</strong>
+						</p>
+						<p className="admin-note mb-2">
+							Managed from Billing Providers. Provider, secrets, and checkout provider settings are edited only there (Single Write Authority).
+						</p>
+						<Link to="/admin/billing/providers" className="admin-btn admin-btn--primary">
+							Open Billing Providers
+						</Link>
+					</div>
 					<div className="admin-config-grid">
-						<TextSelect
-							label="Billing Provider"
-							value={settings.billing?.provider || 'none'}
-							onChange={(value) => patch('billing', 'provider', value)}
-							options={[
-								{ value: 'none', label: 'None' },
-								{ value: 'stripe', label: 'Stripe' },
-								{ value: 'paddle', label: 'Paddle' },
-								{ value: 'lemonsqueezy', label: 'Lemon Squeezy' },
-							]}
-						/>
 						<TextInput
 							label="Grace Period Days"
 							value={settings.billing?.gracePeriodDays}
@@ -598,11 +602,6 @@ export default function AdminSettingsPage() {
 						/>
 					</div>
 					<div className="mt-2 space-y-2">
-						<ToggleRow
-							label="Checkout Enabled"
-							checked={Boolean(settings.billing?.checkoutEnabled)}
-							onChange={(value) => patch('billing', 'checkoutEnabled', value)}
-						/>
 						<ToggleRow
 							label="Plan Enforcement Enabled"
 							checked={Boolean(settings.billing?.planEnforcementEnabled)}

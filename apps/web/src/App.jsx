@@ -56,6 +56,12 @@ const AdminNotificationsPage = lazy(() => import('@/pages/admin/AdminNotificatio
 const AdminLegalPagesPage = lazy(() => import('@/pages/admin/AdminLegalPagesPage'));
 const AdminSettingsPage = lazy(() => import('@/pages/admin/AdminSettingsPage'));
 const AdminSystemPage = lazy(() => import('@/pages/admin/AdminSystemPage'));
+const AdminBillingProvidersPage = lazy(() => import('@/pages/admin/billing/AdminBillingProvidersPage'));
+const AdminBillingLogsPage = lazy(() => import('@/pages/admin/billing/AdminBillingLogsPage'));
+const AdminBillingHealthPage = lazy(() => import('@/pages/admin/billing/AdminBillingHealthPage'));
+const AdminBillingDashboardPage = lazy(() => import('@/pages/admin/billing/AdminBillingDashboardPage'));
+const AdminBillingPriceMappingPage = lazy(() => import('@/pages/admin/billing/AdminBillingPriceMappingPage'));
+const AdminBillingPlaceholderPage = lazy(() => import('@/pages/admin/billing/AdminBillingPlaceholderPage'));
 
 function Shell({ children, admin }) {
 	return (
@@ -140,6 +146,15 @@ function App() {
 							<Route path="workspaces" element={<AdminLazy><AdminWorkspacesPage /></AdminLazy>} />
 							<Route path="plans" element={<AdminLazy><AdminPlansPage /></AdminLazy>} />
 							<Route path="credits" element={<AdminLazy><AdminCreditsPage /></AdminLazy>} />
+							<Route path="billing" element={<AdminLazy><AdminBillingDashboardPage /></AdminLazy>} />
+							<Route path="billing/providers" element={<AdminLazy><AdminBillingProvidersPage /></AdminLazy>} />
+							<Route path="billing/logs" element={<AdminLazy><AdminBillingLogsPage /></AdminLazy>} />
+							<Route path="billing/health" element={<AdminLazy><AdminBillingHealthPage /></AdminLazy>} />
+							<Route path="billing/price-mapping" element={<AdminLazy><AdminBillingPriceMappingPage /></AdminLazy>} />
+							<Route path="billing/events" element={<AdminLazy><AdminBillingPlaceholderPage title="Payment Events" description="Runtime billing_events monitor arrives in a later phase." phaseKey="events" /></AdminLazy>} />
+							<Route path="billing/webhooks" element={<AdminLazy><AdminBillingPlaceholderPage title="Webhook Monitor" description="billing_idempotency monitor arrives in a later phase." phaseKey="webhooks" /></AdminLazy>} />
+							<Route path="billing/monitoring" element={<AdminLazy><AdminBillingPlaceholderPage title="Billing Monitoring" description="Enterprise monitoring widgets arrive in a later phase." phaseKey="monitoring" /></AdminLazy>} />
+							<Route path="billing/backup" element={<AdminLazy><AdminBillingPlaceholderPage title="Backup & Restore" description="Billing configuration backup and restore arrive in a later phase." phaseKey="backup" /></AdminLazy>} />
 							<Route path="providers" element={<AdminLazy><AdminProvidersPage /></AdminLazy>} />
 							<Route path="models" element={<AdminLazy><AdminModelsPage /></AdminLazy>} />
 							<Route path="websites" element={<AdminLazy><AdminWebsitesPage /></AdminLazy>} />

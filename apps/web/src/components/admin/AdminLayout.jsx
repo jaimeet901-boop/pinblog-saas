@@ -4,6 +4,7 @@ import {
 	LayoutDashboard, Users, Building2, CreditCard, Coins, Cpu, Boxes, Globe, Pin,
 	BarChart3, ListOrdered, Briefcase, ScrollText, Bell, Settings, Activity,
 	Menu, X, LogOut, ArrowLeftRight, Shield, ChevronRight, Palette, Scale,
+	Wallet, HeartPulse, Map, Receipt, Webhook, LineChart, Archive,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_NAV } from '@/lib/adminRbac';
@@ -15,6 +16,15 @@ const ICONS = {
 	'/admin/workspaces': Building2,
 	'/admin/plans': CreditCard,
 	'/admin/credits': Coins,
+	'/admin/billing': Wallet,
+	'/admin/billing/providers': CreditCard,
+	'/admin/billing/logs': ScrollText,
+	'/admin/billing/health': HeartPulse,
+	'/admin/billing/price-mapping': Map,
+	'/admin/billing/events': Receipt,
+	'/admin/billing/webhooks': Webhook,
+	'/admin/billing/monitoring': LineChart,
+	'/admin/billing/backup': Archive,
 	'/admin/providers': Cpu,
 	'/admin/models': Boxes,
 	'/admin/websites': Globe,
