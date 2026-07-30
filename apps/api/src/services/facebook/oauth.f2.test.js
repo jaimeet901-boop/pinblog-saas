@@ -125,10 +125,17 @@ describe('facebook F2 oauth foundation', () => {
 
 		const ensure = readFileSync(path.join(root, 'apps/api/src/utils/ensure-facebook-oauth-schema.js'), 'utf8');
 		assert.match(ensure, /facebook_app_credentials/);
+		assert.match(ensure, /facebook_accounts/);
+		assert.match(ensure, /facebook_pages/);
+		assert.match(ensure, /facebook_oauth_states/);
 		assert.match(ensure, /collections\.create/);
 
 		const credentials = readFileSync(path.join(root, 'apps/api/src/services/facebook/app-credentials.js'), 'utf8');
 		assert.match(credentials, /ensureFacebookOAuthSchema/);
+
+		const api = readFileSync(path.join(root, 'apps/api/src/services/facebook/api.js'), 'utf8');
+		assert.match(api, /ensureFacebookChannelSchema/);
+		assert.match(api, /isMissingFacebookCollectionError/);
 	});
 
 	it('does not modify Pinterest oauth routes', () => {

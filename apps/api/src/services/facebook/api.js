@@ -4,6 +4,10 @@ import logger from '../../utils/logger.js';
 import { ensureUserWorkspace } from '../workspace-context.js';
 import { writeAuditLog } from '../audit/write.js';
 import {
+	ensureFacebookChannelSchema,
+	isMissingFacebookCollectionError,
+} from '../../utils/ensure-facebook-oauth-schema.js';
+import {
 	assertFacebookOAuthReady,
 	getFacebookAppCredentials,
 } from './app-credentials.js';
@@ -150,6 +154,7 @@ export async function createFacebookOAuthState({
 	websiteId = '',
 }) {
 	const credentials = await assertFacebookOAuthReady();
+	await ensureFacebookChannelSchema(pocketbaseClient);
 	const state = randomBytes(24).toString('hex');
 	const expiresAt = new Date(Date.now() + STATE_TTL_MS).toISOString();
 	const scopes = mergeRequiredScopes(credentials.scopes?.length ? credentials.scopes : DEFAULT_SCOPES);
@@ -270,14 +275,20 @@ export async function fetchFacebookPages({ accessToken }) {
 }
 
 export async function getOwnedFacebookAccounts(owner, req = null) {
+	await ensureFacebookChannelSchema(pocketbaseClient).catch(() => null);
 	const filter = req
 		? (await import('../workspace-ownership.js')).andWorkspaceScope(req)
 		: pocketbaseClient.filter('owner = {:owner}', { owner });
-	const accounts = await pocketbaseClient.collection('facebook_accounts').getFullList({
-		sort: '-created',
-		filter,
-	});
-	return accounts.sort((a, b) => Number(Boolean(b.is_default)) - Number(Boolean(a.is_default)));
+	try {
+		const accounts = await pocketbaseClient.collection('facebook_accounts').getFullList({
+			sort: '-created',
+			filter,
+		});
+		return accounts.sort((a, b) => Number(Boolean(b.is_default)) - Number(Boolean(a.is_default)));
+	} catch (error) {
+		if (isMissingFacebookCollectionError(error)) return [];
+		throw error;
+	}
 }
 
 export async function getOwnedFacebookAccountById({ owner, accountId, req = null }) {

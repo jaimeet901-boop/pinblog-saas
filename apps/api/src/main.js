@@ -155,7 +155,7 @@ app.listen(port, () => {
 		logger.warn('Facebook OAuth credentials seed skipped:', error?.message || error);
 	});
 	ensureFacebookOAuthSchema(pocketbaseClient).catch((error) => {
-		logger.warn('Facebook OAuth schema ensure skipped:', error?.message || error);
+		logger.warn('Facebook Hub/OAuth schema ensure skipped:', error?.message || error);
 	});
 	ensurePlatformSettingsSeeded().catch((error) => {
 		logger.warn('Platform settings seed skipped:', error?.message || error);
