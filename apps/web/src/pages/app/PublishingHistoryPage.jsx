@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
 	RefreshCw, Search, Download, ExternalLink, Copy, Eye, XCircle,
 	Send, Pin, History, Loader2,
@@ -7,6 +7,8 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
+import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import {
 	adaptPublishingHistoryResponse,
 	buildPublishingHistoryFetchQuery,
@@ -89,6 +91,9 @@ function toCsv(rows) {
 export default function PublishingHistoryPage() {
 	const { toast } = useToast();
 	const searchRef = useRef(null);
+	const [searchParams] = useSearchParams();
+	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
+	usePersistWebsiteQuery(preferredWebsiteId);
 
 	const [loading, setLoading] = useState(true);
 	const [retryingId, setRetryingId] = useState('');
@@ -102,9 +107,13 @@ export default function PublishingHistoryPage() {
 	const [dateFilter, setDateFilter] = useState('');
 	const [accountFilter, setAccountFilter] = useState('');
 	const [boardFilter, setBoardFilter] = useState('');
-	const [websiteFilter, setWebsiteFilter] = useState('');
+	const [websiteFilter, setWebsiteFilter] = useState(preferredWebsiteId);
 	const [quickFilter, setQuickFilter] = useState('all');
 	const [exportFormat, setExportFormat] = useState('csv');
+
+	useEffect(() => {
+		if (preferredWebsiteId) setWebsiteFilter(preferredWebsiteId);
+	}, [preferredWebsiteId]);
 
 	const load = async () => {
 		setLoading(true);
@@ -470,7 +479,7 @@ export default function PublishingHistoryPage() {
 						Track published, scheduled, and failed pins — retry or cancel without leaving the atelier.
 					</p>
 				</div>
-				<Link to="/app/pinterest"><Button variant="outline" size="sm"><Pin size={14} /> Pinterest Hub</Button></Link>
+				<Link to={withWebsiteQuery('/app/pinterest', preferredWebsiteId)}><Button variant="outline" size="sm"><Pin size={14} /> Pinterest Hub</Button></Link>
 			</div>
 
 			<div className="pub-center__actions">
@@ -608,9 +617,14 @@ export default function PublishingHistoryPage() {
 							</div>
 							<p className="font-display text-xl font-semibold">No publishing records yet</p>
 							<p className="mt-2 max-w-md text-sm text-muted-foreground">
-								Publish or schedule pins from AI Pins to populate this center. History, retries, and cancels will appear here.
+								This history shows pins you publish or schedule. Create AI Pins for your website, publish them, then return here to track results.
 							</p>
-							<Link to="/app/ai-pins" className="mt-5"><Button size="sm"><Pin size={14} /> Go to AI Pins</Button></Link>
+							<Link
+								to={preferredWebsiteId ? `/app/ai-pins?websiteId=${encodeURIComponent(preferredWebsiteId)}` : '/app/ai-pins'}
+								className="mt-5"
+							>
+								<Button size="sm"><Pin size={14} /> Create AI Pins</Button>
+							</Link>
 						</div>
 					) : null}
 

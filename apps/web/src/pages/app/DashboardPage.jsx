@@ -6,6 +6,8 @@ import {
 	Settings, Wand2, Clock, ArrowUpRight, CheckCircle2, AlertTriangle,
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
+import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
+import { useActiveWebsite } from '@/context/ActiveWebsiteContext';
 import { Badge, Button } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -49,6 +51,7 @@ function statusTone(status) {
 export default function DashboardPage() {
 	const { user } = useAuth();
 	const { toast } = useToast();
+	const { activeWebsiteId, websites: activeWebsites, loading: websitesLoading } = useActiveWebsite();
 	const [dashboard, setDashboard] = useState(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
@@ -176,8 +179,15 @@ export default function DashboardPage() {
 					<span className="dash-pill"><Clock size={12} /> {now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</span>
 				</div>
 				<div className="mt-4 flex flex-wrap gap-2">
-					<Link to="/app/writer"><Button className="shadow-md shadow-primary/20"><PenLine size={16} /> New article</Button></Link>
-					<Link to="/app/ai-pins"><Button variant="outline"><Wand2 size={16} /> Open AI Pins</Button></Link>
+					{!websitesLoading && activeWebsites.length === 0 ? (
+						<Link to="/app/websites"><Button className="shadow-md shadow-primary/20"><Globe size={16} /> Add website</Button></Link>
+					) : (
+						<>
+							<Link to="/app/websites"><Button variant="outline"><Globe size={16} /> Website Hub</Button></Link>
+							<Link to={withWebsiteQuery('/app/writer', activeWebsiteId)}><Button className="shadow-md shadow-primary/20"><PenLine size={16} /> New article</Button></Link>
+							<Link to={withWebsiteQuery('/app/ai-pins', activeWebsiteId)}><Button variant="outline"><Wand2 size={16} /> Open AI Pins</Button></Link>
+						</>
+					)}
 				</div>
 			</section>
 
@@ -231,7 +241,7 @@ export default function DashboardPage() {
 								<div className="dash-empty">
 									<p>No scheduled content today</p>
 									<p>Schedule pins from AI Pins to fill this widget.</p>
-									<Link to="/app/calendar" className="mt-3 inline-block"><Button size="sm" variant="outline">Open Calendar</Button></Link>
+									<Link to={withWebsiteQuery('/app/calendar', activeWebsiteId)} className="mt-3 inline-block"><Button size="sm" variant="outline">Open Calendar</Button></Link>
 								</div>
 							) : (
 								<div className="dash-list">
@@ -256,7 +266,7 @@ export default function DashboardPage() {
 						<div className="mb-4">
 							<div className="dash-panel__head">
 								<p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Recent Articles</p>
-								<Link to="/app/writer" className="text-xs font-medium text-primary hover:underline">Open writer</Link>
+								<Link to={withWebsiteQuery('/app/writer', activeWebsiteId)} className="text-xs font-medium text-primary hover:underline">Open writer</Link>
 							</div>
 							{loading ? (
 								<div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="dash-skeleton" style={{ height: '3.25rem' }} />)}</div>
@@ -264,6 +274,7 @@ export default function DashboardPage() {
 								<div className="dash-empty">
 									<p>No articles yet</p>
 									<p>Generate your first SEO recipe article.</p>
+									<Link to={withWebsiteQuery('/app/writer', activeWebsiteId)} className="mt-3 inline-block"><Button size="sm">Write article</Button></Link>
 								</div>
 							) : (
 								<div className="dash-list">
@@ -279,7 +290,7 @@ export default function DashboardPage() {
 												</p>
 											</div>
 											<Badge tone={statusTone(article.status)}>{article.status || 'draft'}</Badge>
-											<Link to="/app/writer"><Button size="sm" variant="ghost"><ArrowUpRight size={14} /> Open</Button></Link>
+											<Link to={withWebsiteQuery('/app/writer', activeWebsiteId)}><Button size="sm" variant="ghost"><ArrowUpRight size={14} /> Open</Button></Link>
 										</div>
 									))}
 								</div>
@@ -289,7 +300,7 @@ export default function DashboardPage() {
 						<div className="mb-4">
 							<div className="dash-panel__head">
 								<p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Recent AI Images</p>
-								<Link to="/app/images" className="text-xs font-medium text-primary hover:underline">Image studio</Link>
+								<Link to={withWebsiteQuery('/app/images', activeWebsiteId)} className="text-xs font-medium text-primary hover:underline">Image studio</Link>
 							</div>
 							{loading ? (
 								<div className="dash-gallery">{[0, 1, 2].map((i) => <div key={i} className="dash-skeleton" style={{ height: '6rem' }} />)}</div>
@@ -297,6 +308,7 @@ export default function DashboardPage() {
 								<div className="dash-empty">
 									<p>No images yet</p>
 									<p>Generate visuals in the AI Image Studio.</p>
+									<Link to={withWebsiteQuery('/app/images', activeWebsiteId)} className="mt-3 inline-block"><Button size="sm">Generate image</Button></Link>
 								</div>
 							) : (
 								<div className="dash-gallery">
@@ -315,7 +327,7 @@ export default function DashboardPage() {
 						<div>
 							<div className="dash-panel__head">
 								<p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Recent Pins</p>
-								<Link to="/app/ai-pins" className="text-xs font-medium text-primary hover:underline">AI Pins</Link>
+								<Link to={withWebsiteQuery('/app/ai-pins', activeWebsiteId)} className="text-xs font-medium text-primary hover:underline">AI Pins</Link>
 							</div>
 							{loading ? (
 								<div className="space-y-2">{[0, 1].map((i) => <div key={i} className="dash-skeleton" style={{ height: '3.25rem' }} />)}</div>
@@ -323,6 +335,7 @@ export default function DashboardPage() {
 								<div className="dash-empty">
 									<p>No pins yet</p>
 									<p>Create pins from articles in AI Pins.</p>
+									<Link to={withWebsiteQuery('/app/ai-pins', activeWebsiteId)} className="mt-3 inline-block"><Button size="sm">Create pins</Button></Link>
 								</div>
 							) : (
 								<div className="dash-list">
@@ -340,7 +353,7 @@ export default function DashboardPage() {
 												</p>
 											</div>
 											<Badge tone="default">image</Badge>
-											<Link to="/app/ai-pins"><Button size="sm" variant="ghost">View</Button></Link>
+											<Link to={withWebsiteQuery('/app/ai-pins', activeWebsiteId)}><Button size="sm" variant="ghost">View</Button></Link>
 										</div>
 									))}
 								</div>
@@ -390,10 +403,15 @@ export default function DashboardPage() {
 							</div>
 						</div>
 						<div className="dash-actions">
-							{WORKSPACE_QUICK_ACTIONS.map((action) => {
+							{(activeWebsites.length === 0
+								? [{ label: 'Add website', to: '/app/websites', icon: Globe }]
+								: WORKSPACE_QUICK_ACTIONS
+							).map((action) => {
 								const Icon = action.icon;
+								const needsWebsite = ['/app/writer', '/app/images', '/app/ai-pins', '/app/pinterest-history', '/app/analytics', '/app/pinterest', '/app/calendar'].includes(action.to);
+								const href = needsWebsite ? withWebsiteQuery(action.to, activeWebsiteId) : action.to;
 								return (
-									<Link key={action.to} to={action.to} className="dash-action">
+									<Link key={action.to} to={href} className="dash-action">
 										<span><Icon size={14} /></span>
 										{action.label}
 									</Link>

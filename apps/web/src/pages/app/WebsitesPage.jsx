@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Globe, Plus, Trash2, Plug, X } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { notifyWebsitesChanged } from '@/lib/websites/websitesChanged';
+import { writeStoredActiveWebsiteId } from '@/lib/websites/activeWebsite';
+import {
+	deriveWebsiteLifecycle,
+	setWordPressSkipped,
+} from '@/lib/websites/websiteLifecycle';
+import { usePinterestConnected } from '@/hooks/usePinterestConnected';
+import SetupProgressCard from '@/components/websites/SetupProgressCard';
 import { Card, PageHeader, Button, Input, Badge, Empty, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 
@@ -140,7 +147,10 @@ async function readErrorMessage(res, fallback) {
 export default function WebsitesPage() {
 	const { toast } = useToast();
 	const navigate = useNavigate();
+	const location = useLocation();
+	const { pinterestConnected } = usePinterestConnected();
 	const [sites, setSites] = useState([]);
+	const [lifecycleTick, setLifecycleTick] = useState(0);
 	const [workspaceIndicators, setWorkspaceIndicators] = useState(null);
 	const [loading, setLoading] = useState(true);
 	const [loadError, setLoadError] = useState('');
@@ -185,6 +195,18 @@ export default function WebsitesPage() {
 	useEffect(() => {
 		load();
 	}, []);
+
+	useEffect(() => {
+		const targetId = location.state?.openWebsiteSettings;
+		if (!targetId || loading || sites.length === 0) return;
+		const site = sites.find((item) => item.id === targetId);
+		if (!site) return;
+		writeStoredActiveWebsiteId(site.id, { emit: true });
+		setModal({ mode: 'edit', data: { ...blank, ...site, wp_app_password: '' } });
+		setUrlError('');
+		setLastMetadataUrl('');
+		navigate(location.pathname, { replace: true, state: {} });
+	}, [location.state, location.pathname, loading, sites, navigate]);
 
 	const setModalData = (patch) => {
 		setModal((m) => ({ ...m, data: { ...m.data, ...patch } }));
@@ -352,10 +374,14 @@ export default function WebsitesPage() {
 			setLastMetadataUrl('');
 
 			if (mode === 'edit') {
-				toast({ title: 'Saved', description: 'Website saved successfully.' });
+				if (working.wp_username && working.wp_app_password) {
+					setWordPressSkipped(savedSite.id, false);
+				}
+				toast({ title: 'Saved', description: working.wp_username ? 'WordPress updated. Next: scan your website.' : 'Website saved successfully.' });
 				await load();
 			} else {
-				toast({ title: 'Website added', description: 'Website was added successfully and is ready to scan.' });
+				writeStoredActiveWebsiteId(savedSite.id, { emit: true });
+				toast({ title: 'Website created', description: 'Setup started — connect WordPress or skip and scan.' });
 				navigate(`/app/websites/${savedSite.id}`);
 			}
 		} catch (err) {
@@ -404,7 +430,13 @@ export default function WebsitesPage() {
 				throw new Error(data?.message || `Connection failed (${res.status})`);
 			}
 
-			toast({ variant: data.ok ? 'default' : 'destructive', title: data.ok ? 'Connected' : 'Connection failed', description: data.message });
+			toast({
+				variant: data.ok ? 'default' : 'destructive',
+				title: data.ok ? 'Connected' : 'Connection failed',
+				description: data.ok
+					? `${data.message || 'WordPress connection OK.'} Next: scan your website.`
+					: data.message,
+			});
 			load();
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Error', description: err?.message });
@@ -422,8 +454,8 @@ export default function WebsitesPage() {
 	return (
 		<div>
 			<PageHeader
-				title="Website Manager"
-				subtitle="Add your sites, validate the URL, save to PocketBase, then scan to discover articles."
+				title="Websites"
+				subtitle="Your Website Hub — guided setup until first publish, then Operate Mode for production."
 				action={<Button onClick={openNewModal}><Plus size={16} /> Add website</Button>}
 			/>
 
@@ -453,44 +485,48 @@ export default function WebsitesPage() {
 				<Empty
 					icon={Globe}
 					title="No websites yet"
-					subtitle="Add your first site to start scanning and discovering articles."
+					subtitle="Add your first website to unlock scanning, articles, AI Pins, and publishing."
 					action={<Button onClick={openNewModal}><Plus size={16} /> Add website</Button>}
 				/>
 			) : (
 				<>
-					{workspaceIndicators && (
-						<div className="mb-4 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-							{[
-								workspaceIndicators.aiImageProvider,
-								workspaceIndicators.pinterestConnection,
-								workspaceIndicators.brandKitAssigned,
-								workspaceIndicators.publishingQueue,
-								workspaceIndicators.scheduler,
-							].filter(Boolean).map((item) => (
-								<Card key={item.label}>
-									<p className="text-sm text-muted-foreground">{item.label}</p>
-									<div className="mt-2 flex items-center gap-2">
-										<Badge tone={item.tone || statusTone(item.status)}>{item.status || '—'}</Badge>
-									</div>
-									{item.detail ? <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p> : null}
-								</Card>
-							))}
-						</div>
-					)}
-
 					<div className="grid gap-4 md:grid-cols-2">
 						{sites.map((s) => {
-							const health = s.control?.health || {};
-							const wordpress = s.control?.wordpress || {};
-							const publishingHealth = s.control?.publishingHealth || {};
-							const credentialsHealth = s.control?.credentialsHealth || {};
 							const siteInfo = s.control?.siteInfo || {};
-							const recentActivity = Array.isArray(s.control?.recentActivity) ? s.control.recentActivity : [];
+							const lifecycle = deriveWebsiteLifecycle(s, { pinterestConnected });
+							const isSetup = lifecycle.mode === 'setup' || lifecycle.step === 'analytics';
 							const openSettings = () => {
+								writeStoredActiveWebsiteId(s.id, { emit: true });
 								setModal({ mode: 'edit', data: { ...blank, ...s, wp_app_password: '' } });
 								setUrlError('');
 								setLastMetadataUrl('');
 							};
+							const goPrimary = () => {
+								writeStoredActiveWebsiteId(s.id, { emit: true });
+								if (lifecycle.step === 'wordpress') {
+									openSettings();
+									return;
+								}
+								navigate(lifecycle.primaryHref);
+							};
+							const goSecondary = () => {
+								if (lifecycle.secondaryAction === 'skip_wordpress') {
+									setWordPressSkipped(s.id, true);
+									setLifecycleTick((n) => n + 1);
+									toast({
+										title: 'WordPress skipped',
+										description: 'You can connect later in Settings. Next: scan your website.',
+									});
+									writeStoredActiveWebsiteId(s.id, { emit: true });
+									navigate(`/app/websites/${s.id}`);
+									return;
+								}
+								if (lifecycle.secondaryAction === 'articles') {
+									writeStoredActiveWebsiteId(s.id, { emit: true });
+									navigate(`/app/websites/${s.id}/articles`);
+								}
+							};
+							void lifecycleTick;
 							return (
 								<Card key={s.id} className="flex h-full flex-col">
 									<div className="flex items-start justify-between gap-3">
@@ -505,80 +541,80 @@ export default function WebsitesPage() {
 												<a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-muted-foreground hover:text-primary">{s.url || '—'}</a>
 											</div>
 										</div>
-										<Badge tone={s.status === 'active' || s.status === 'connected' ? 'green' : s.status === 'failed' ? 'red' : 'default'}>{s.status || 'active'}</Badge>
+										<Badge tone={lifecycle.mode === 'setup' ? 'amber' : 'green'}>
+											{lifecycle.mode === 'setup' ? 'Setup' : 'Operate'}
+										</Badge>
 									</div>
 
-									<div className="mt-3 grid gap-3 sm:grid-cols-2">
-										<Section title="Website Information">
-											<p className="text-xs text-muted-foreground">Domain: {displayValue(siteInfo.domain || s.domain, 'Not available')}</p>
-											<p className="text-xs text-muted-foreground">Created: {s.created || siteInfo.created ? formatDate(siteInfo.created || s.created) : 'Not available'}</p>
-											<p className="text-xs text-muted-foreground">Last Scan: {formatRelative(siteInfo.lastScan || s.last_scan_at, 'Never synced')}</p>
-											<p className="text-xs text-muted-foreground">Last Sync: {formatRelative(siteInfo.lastSync, 'Never synced')}</p>
-											<p className="text-xs text-muted-foreground">WordPress Version: {displayValue(siteInfo.wordpressVersion || health.wpVersion, 'Not available')}</p>
-											<p className="text-xs text-muted-foreground">PHP Version: {displayValue(siteInfo.phpVersion, 'Not available')}</p>
-											<p className="text-xs text-muted-foreground">Theme: {displayValue(siteInfo.theme, 'Not available')}</p>
-											<p className="text-xs text-muted-foreground">Active Plugins: {displayCount(siteInfo.activePluginsCount, 'Not available')}</p>
-										</Section>
+									{isSetup ? (
+										<div className="mt-4">
+											<SetupProgressCard
+												lifecycle={lifecycle}
+												onPrimary={goPrimary}
+												onSecondary={lifecycle.secondaryLabel ? goSecondary : undefined}
+											/>
+										</div>
+									) : (
+										<div className="mt-4 rounded-xl border border-border bg-secondary/30 p-3">
+											<p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Operate</p>
+											<p className="mt-1 text-sm">Production ready — scan, create pins, publish, and measure.</p>
+											<div className="mt-3">
+												<Button size="sm" onClick={goPrimary}>{lifecycle.primaryLabel}</Button>
+											</div>
+										</div>
+									)}
 
-										<Section title="WordPress Status">
-											<StatusLine ok={wordpress.connection?.status === 'connected'} label="Connected" missingLabel={wordpress.connection?.label || 'Not Connected'} />
-											<StatusLine ok={wordpress.restApi?.status === 'ok'} label="REST API" missingLabel={wordpress.restApi?.label || 'REST API Missing'} />
-											<StatusLine ok={wordpress.credentials?.status === 'configured'} label="Credentials Saved" missingLabel="Credentials Missing" />
-											<StatusLine ok={wordpress.applicationPassword?.status === 'configured'} label="Application Password" missingLabel="Application Password Missing" />
-											<p className="text-xs text-muted-foreground">Last Publish: {formatRelative(wordpress.lastPublishAt, 'Never synced')}</p>
-											<p className="text-xs text-muted-foreground">Last Sync: {formatRelative(wordpress.lastSyncAt, 'Never synced')}</p>
-											{wordpress.needsConfiguration ? (
-												<>
-													<p className="text-xs text-muted-foreground">{wordpress.configureHint || 'WordPress credentials are missing. Configure them in Website Settings.'}</p>
-													<Button size="sm" variant="outline" onClick={openSettings}>Configure WordPress</Button>
-												</>
-											) : null}
-										</Section>
-
-										<Section title="Credentials Status">
-											{(credentialsHealth.items || []).map((item) => (
-												<p key={item.key} className="text-xs text-muted-foreground">
-													{item.label}: <Badge tone={item.tone || statusTone(item.status)}>{item.labelStatus || (item.configured ? 'Configured' : 'Missing')}</Badge>
-												</p>
-											))}
-											{(credentialsHealth.items || []).length === 0 ? (
-												<p className="text-xs text-muted-foreground">Not available</p>
-											) : null}
-										</Section>
-
-										<Section title="Publishing Health">
-											{(publishingHealth.items || []).map((item) => (
-												<StatusLine key={item.key} ok={item.ok} label={item.label} missingLabel={`${item.label} Missing`} />
-											))}
-											<p className="text-xs text-muted-foreground">
-												Overall Score: {publishingHealth.overallScore != null ? `${publishingHealth.overallScore}%` : 'Not available'}
+									{lifecycle.mode === 'setup' ? (
+										<div className="mt-3 space-y-2 text-xs text-muted-foreground">
+											<p>Domain: {displayValue(siteInfo.domain || s.domain, 'Add a URL to continue')}</p>
+											<p>
+												WordPress:{' '}
+												{lifecycle.wpConnected
+													? 'Connected'
+													: lifecycle.wpSkipped
+														? 'Skipped for now'
+														: 'Recommended for sync'}
 											</p>
-										</Section>
-									</div>
-
-									<Section title="Recent Activity">
-										{recentActivity.length === 0 ? (
-											<p className="text-xs text-muted-foreground">Not available</p>
-										) : (
-											<div className="grid gap-1 sm:grid-cols-2">
-												{recentActivity.map((event) => (
+											<p>Last scan: {formatRelative(siteInfo.lastScan || s.last_scan_at, 'Not scanned yet')}</p>
+										</div>
+									) : (
+										<div className="mt-3 grid gap-3 sm:grid-cols-2">
+											<Section title="Status">
+												<p className="text-xs text-muted-foreground">Last Scan: {formatRelative(siteInfo.lastScan || s.last_scan_at, 'Not scanned yet')}</p>
+												<p className="text-xs text-muted-foreground">Articles ready: {lifecycle.hasArticles ? 'Yes' : 'Scan to discover'}</p>
+												<StatusLine ok={lifecycle.wpConnected} label="WordPress connected" missingLabel="WordPress not connected" />
+											</Section>
+											<Section title="Recent activity">
+												{(Array.isArray(s.control?.recentActivity) ? s.control.recentActivity : []).slice(0, 3).map((event) => (
 													<p key={event.id} className="text-xs text-muted-foreground">
-														{event.title || event.type} · {formatRelative(event.at, 'Not available')}
+														{event.title || event.type} · {formatRelative(event.at, '—')}
 													</p>
 												))}
-											</div>
-										)}
-									</Section>
+												{(s.control?.recentActivity || []).length === 0 ? (
+													<p className="text-xs text-muted-foreground">No activity yet — create pins or publish to see history.</p>
+												) : null}
+											</Section>
+										</div>
+									)}
 
 									<div className="mt-auto flex flex-wrap gap-2 pt-4">
-										<Button size="sm" onClick={() => navigate(`/app/websites/${s.id}`)}>Dashboard</Button>
-										<Button size="sm" variant="outline" onClick={() => navigate(`/app/websites/${s.id}/articles`)}>Articles</Button>
-										<Button size="sm" variant="outline" onClick={() => navigate(`/app/writer?websiteId=${s.id}`)}>AI Writer</Button>
-										<Button size="sm" variant="outline" onClick={() => navigate(`/app/ai-pins?websiteId=${s.id}`)}>AI Pins</Button>
-										<Button size="sm" variant="outline" onClick={() => navigate('/app/images')}>Image Generator</Button>
-										<Button size="sm" variant="outline" onClick={() => test(s)} disabled={testing === s.id}>
-											{testing === s.id ? <Spinner className="h-3.5 w-3.5" /> : <Plug size={14} />} Test Connection
-										</Button>
+										{lifecycle.mode === 'operate' ? (
+											<Button size="sm" onClick={goPrimary}>{lifecycle.primaryLabel}</Button>
+										) : null}
+										{!isSetup || lifecycle.hasArticles ? (
+											<Button size="sm" variant="outline" onClick={() => { writeStoredActiveWebsiteId(s.id, { emit: true }); navigate(`/app/websites/${s.id}/articles`); }}>Articles</Button>
+										) : null}
+										{lifecycle.hasArticles ? (
+											<Button size="sm" variant="outline" onClick={() => { writeStoredActiveWebsiteId(s.id, { emit: true }); navigate(`/app/ai-pins?websiteId=${s.id}`); }}>AI Pins</Button>
+										) : null}
+										{lifecycle.mode === 'operate' ? (
+											<>
+												<Button size="sm" variant="outline" onClick={() => { writeStoredActiveWebsiteId(s.id, { emit: true }); navigate(`/app/writer?websiteId=${s.id}`); }}>AI Writer</Button>
+												<Button size="sm" variant="outline" onClick={() => test(s)} disabled={testing === s.id}>
+													{testing === s.id ? <Spinner className="h-3.5 w-3.5" /> : <Plug size={14} />} Test
+												</Button>
+											</>
+										) : null}
 										<Button size="sm" variant="ghost" onClick={openSettings}>Settings</Button>
 										<Button size="sm" variant="ghost" onClick={() => remove(s)}><Trash2 size={14} className="text-destructive" /></Button>
 									</div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
 	BarChart3, RefreshCw, Download, CalendarClock, CheckCircle2, AlertTriangle,
 	Pin, Globe, Sparkles, ExternalLink, LayoutGrid,
@@ -12,6 +12,9 @@ import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Select, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { markAnalyticsSeen } from '@/lib/websites/websiteLifecycle';
+import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
+import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import './AnalyticsPage.css';
 
 const CHART_COLORS = ['hsl(12 80% 55%)', 'hsl(38 90% 55%)', 'hsl(142 45% 40%)', 'hsl(210 55% 45%)', 'hsl(280 40% 50%)', 'hsl(0 70% 50%)'];
@@ -75,6 +78,9 @@ function dayKey(date) {
 export default function AnalyticsPage() {
 	const { toast } = useToast();
 	const { user } = useAuth();
+	const [searchParams] = useSearchParams();
+	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
+	usePersistWebsiteQuery(preferredWebsiteId);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
 	const [summary, setSummary] = useState({
@@ -94,7 +100,7 @@ export default function AnalyticsPage() {
 	});
 	const [items, setItems] = useState([]);
 	const [charts, setCharts] = useState({ dailyActivity: [], monthlyActivity: [] });
-	const [websiteFilter, setWebsiteFilter] = useState('');
+	const [websiteFilter, setWebsiteFilter] = useState(preferredWebsiteId);
 	const [accountFilter, setAccountFilter] = useState('');
 	const [boardFilter, setBoardFilter] = useState('');
 	const [statusFilter, setStatusFilter] = useState('');
@@ -145,13 +151,21 @@ export default function AnalyticsPage() {
 		load();
 	}, [dateRange]);
 
+	useEffect(() => {
+		if (preferredWebsiteId) {
+			setWebsiteFilter(preferredWebsiteId);
+			markAnalyticsSeen(preferredWebsiteId);
+		}
+	}, [preferredWebsiteId]);
+
 	const websiteOptions = useMemo(() => {
 		const set = new Set();
 		for (const item of items) {
 			if (item.websiteId) set.add(item.websiteId);
 		}
+		if (preferredWebsiteId) set.add(preferredWebsiteId);
 		return [...set];
-	}, [items]);
+	}, [items, preferredWebsiteId]);
 
 	const accountOptions = useMemo(() => {
 		const map = new Map();
@@ -649,8 +663,15 @@ export default function AnalyticsPage() {
 						) : filteredItems.length === 0 ? (
 							<div className="an-empty">
 								<p className="font-semibold">No published pins yet</p>
-								<p className="mt-1 text-sm text-muted-foreground">Once pins are published, analytics-ready rows will appear here.</p>
-								<Link to="/app/ai-pins" className="mt-4 inline-block"><Button size="sm">Go to AI Pins</Button></Link>
+								<p className="mt-1 text-sm text-muted-foreground">
+									Analytics appear after you publish AI Pins for a website. Create pins, publish to Pinterest, then return here.
+								</p>
+								<Link
+									to={preferredWebsiteId ? `/app/ai-pins?websiteId=${encodeURIComponent(preferredWebsiteId)}` : '/app/ai-pins'}
+									className="mt-4 inline-block"
+								>
+									<Button size="sm">Create AI Pins</Button>
+								</Link>
 							</div>
 						) : (
 							<div className="an-table-wrap">
@@ -845,9 +866,9 @@ export default function AnalyticsPage() {
 							))}
 						</div>
 						<div className="mt-3 grid gap-2">
-							<Link to="/app/pinterest-history"><Button size="sm" variant="outline" className="w-full"><AlertTriangle size={14} /> Publishing Center</Button></Link>
-							<Link to="/app/calendar"><Button size="sm" variant="outline" className="w-full"><CalendarClock size={14} /> Content Calendar</Button></Link>
-							<Link to="/app/pinterest"><Button size="sm" variant="ghost" className="w-full"><Pin size={14} /> Pinterest Hub</Button></Link>
+							<Link to={withWebsiteQuery('/app/pinterest-history', preferredWebsiteId || websiteFilter)}><Button size="sm" variant="outline" className="w-full"><AlertTriangle size={14} /> Publishing Center</Button></Link>
+							<Link to={withWebsiteQuery('/app/calendar', preferredWebsiteId || websiteFilter)}><Button size="sm" variant="outline" className="w-full"><CalendarClock size={14} /> Content Calendar</Button></Link>
+							<Link to={withWebsiteQuery('/app/pinterest', preferredWebsiteId || websiteFilter)}><Button size="sm" variant="ghost" className="w-full"><Pin size={14} /> Pinterest Hub</Button></Link>
 						</div>
 					</section>
 

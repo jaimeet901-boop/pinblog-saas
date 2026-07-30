@@ -10,6 +10,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { WorkspaceConfigProvider } from '@/context/WorkspaceConfigContext';
 import { WorkspaceProvider } from '@/context/WorkspaceContext';
+import { ActiveWebsiteProvider } from '@/context/ActiveWebsiteContext';
 
 import LandingPage from '@/pages/LandingPage';
 import LegalPage from '@/pages/LegalPage';
@@ -71,7 +72,9 @@ function Shell({ children, admin }) {
 	return (
 		<ProtectedRoute admin={admin}>
 			<WorkspaceConfigProvider>
-				<AppLayout>{children}</AppLayout>
+				<ActiveWebsiteProvider>
+					<AppLayout>{children}</AppLayout>
+				</ActiveWebsiteProvider>
 			</WorkspaceConfigProvider>
 		</ProtectedRoute>
 	);

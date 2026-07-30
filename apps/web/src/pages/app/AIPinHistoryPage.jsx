@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
 	History, Search, Download, Copy, RefreshCw, ExternalLink, Pin,
 	Sparkles, LayoutGrid, List, Coins, Clock,
@@ -8,6 +8,8 @@ import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Select } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
+import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import './AIPinHistoryPage.css';
 
 const QUICK_FILTERS = [
@@ -91,6 +93,9 @@ export default function AIPinHistoryPage() {
 	const { toast } = useToast();
 	const { user } = useAuth();
 	const searchRef = useRef(null);
+	const [searchParams] = useSearchParams();
+	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
+	usePersistWebsiteQuery(preferredWebsiteId);
 
 	const [items, setItems] = useState([]);
 	const [loading, setLoading] = useState(true);
@@ -100,13 +105,19 @@ export default function AIPinHistoryPage() {
 	const [selectedId, setSelectedId] = useState('');
 	const [view, setView] = useState('table');
 	const [searchQuery, setSearchQuery] = useState('');
-	const [websiteFilter, setWebsiteFilter] = useState('');
+	const [websiteFilter, setWebsiteFilter] = useState(preferredWebsiteId);
 	const [templateFilter, setTemplateFilter] = useState('');
 	const [modelFilter, setModelFilter] = useState('');
 	const [statusFilter, setStatusFilter] = useState('');
 	const [dateRange, setDateRange] = useState('');
 	const [quickFilter, setQuickFilter] = useState('all');
 	const [exportFormat, setExportFormat] = useState('csv');
+
+	useEffect(() => {
+		if (preferredWebsiteId) setWebsiteFilter(preferredWebsiteId);
+	}, [preferredWebsiteId]);
+
+	const pinsHref = withWebsiteQuery('/app/ai-pins', preferredWebsiteId || websiteFilter);
 
 	const load = async () => {
 		setLoading(true);
@@ -347,7 +358,7 @@ export default function AIPinHistoryPage() {
 						</div>
 					</div>
 					<div className="flex flex-wrap gap-2">
-						<Link to="/app/ai-pins"><Button variant="outline">Back to AI Pins</Button></Link>
+						<Link to={pinsHref}><Button variant="outline">Back to AI Pins</Button></Link>
 						<div className="flex items-end gap-2">
 							<Select label="Export" value={exportFormat} onChange={(e) => setExportFormat(e.target.value)}>
 								<option value="csv">CSV</option>
@@ -477,7 +488,7 @@ export default function AIPinHistoryPage() {
 							<p className="mt-2 max-w-md text-sm text-muted-foreground">
 								Analyze articles or generate pin images to build your history.
 							</p>
-							<Link to="/app/ai-pins" className="mt-5"><Button size="sm"><Pin size={14} /> Create your first AI Pin</Button></Link>
+							<Link to={pinsHref} className="mt-5"><Button size="sm"><Pin size={14} /> Create your first AI Pin</Button></Link>
 						</div>
 					) : null}
 
@@ -668,7 +679,7 @@ export default function AIPinHistoryPage() {
 								<Button size="sm" variant="outline" disabled={!selected.prompt} onClick={() => copyPrompt(selected.prompt)}>
 									<Copy size={14} /> Copy Prompt
 								</Button>
-								<Link to="/app/ai-pins">
+								<Link to={pinsHref}>
 									<Button size="sm" variant="outline" className="w-full"><RefreshCw size={14} /> Regenerate in AI Pins</Button>
 								</Link>
 								<Button

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
 	Image as ImageIcon, Wand2, Loader2, Download, Save, ChevronDown,
 	Sparkles, Settings2, Layers, Copy, RefreshCw, Trash2, Search,
@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { generateText } from '@/lib/aiGenerate';
+import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
+import { useActiveWebsite } from '@/context/ActiveWebsiteContext';
 import { Badge, Button, Input, Select, Spinner, Textarea } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import './ImagesPage.css';
@@ -95,6 +97,10 @@ function startOfDay(date = new Date()) {
 
 export default function ImagesPage() {
 	const { toast } = useToast();
+	const [searchParams] = useSearchParams();
+	const { activeWebsiteId, setActiveWebsiteId } = useActiveWebsite();
+	const preferredWebsiteId = String(searchParams.get('websiteId') || activeWebsiteId || '').trim();
+	const pinsHref = withWebsiteQuery('/app/ai-pins', preferredWebsiteId);
 	const [prompt, setPrompt] = useState('');
 	const [baselinePrompt, setBaselinePrompt] = useState('');
 	const [format, setFormat] = useState('portrait');
@@ -135,6 +141,13 @@ export default function ImagesPage() {
 		() => estimateCredits({ quality, count: Number(imageCount) || 1 }),
 		[quality, imageCount],
 	);
+
+	useEffect(() => {
+		const fromQuery = String(searchParams.get('websiteId') || '').trim();
+		if (fromQuery && fromQuery !== activeWebsiteId) {
+			setActiveWebsiteId(fromQuery);
+		}
+	}, [searchParams, activeWebsiteId, setActiveWebsiteId]);
 
 	const load = async () => {
 		try {
@@ -273,7 +286,7 @@ export default function ImagesPage() {
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to save pin (${response.status})`);
 			}
-			toast({ title: 'Saved to pins' });
+			toast({ title: 'Saved to pins', description: 'Next: open AI Pins to refine and publish.' });
 			setBaselinePrompt(image.prompt || prompt);
 			await load();
 		} catch (err) {
@@ -415,7 +428,7 @@ export default function ImagesPage() {
 						Compose prompts, generate scroll-stopping food imagery, and save favorites into your pin library.
 					</p>
 				</div>
-				<Link to="/app/ai-pins"><Button variant="outline" size="sm"><Pin size={14} /> Open AI Pins</Button></Link>
+				<Link to={pinsHref}><Button variant="outline" size="sm"><Pin size={14} /> Open AI Pins</Button></Link>
 			</div>
 
 			<div className="img-atelier__actions">
@@ -619,9 +632,9 @@ export default function ImagesPage() {
 							<div className="img-empty__icon">
 								<ImageIcon size={26} strokeWidth={1.6} />
 							</div>
-							<p className="font-display text-xl font-semibold">Your image studio is ready</p>
+							<p className="font-display text-xl font-semibold">Generate images for your pins</p>
 							<p className="mt-2 max-w-md text-sm text-muted-foreground">
-								Write a prompt, pick an aspect ratio, and generate appetizing Pinterest-ready food imagery.
+								Write a prompt and create Pinterest-ready imagery here. When you have an image, use it in AI Pins for the active website.
 							</p>
 							<Button className="mt-5" onClick={generate} disabled={!prompt.trim()}>
 								<Wand2 size={15} /> Start generating
@@ -772,7 +785,7 @@ export default function ImagesPage() {
 									{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save size={14} />}
 									Save to Library
 								</Button>
-								<Link to="/app/ai-pins">
+								<Link to={pinsHref}>
 									<Button size="sm" variant="outline" className="w-full">
 										<Pin size={14} /> Use in AI Pins
 									</Button>

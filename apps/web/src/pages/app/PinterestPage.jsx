@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
 	Link2, Loader2, Pin, RefreshCw, Unlink, Pencil, Star, Search,
 	Download, LayoutGrid, ListOrdered, CalendarClock, BarChart3, AlertTriangle,
@@ -8,6 +8,8 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Input, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import { consumeSetupReturnPath, peekSetupReturnPath, setSetupReturnPath } from '@/lib/websites/websiteLifecycle';
+import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import './PinterestPage.css';
 
 const TABS = [
@@ -55,6 +57,10 @@ export default function PinterestPage() {
 	const { toast } = useToast();
 	const navigate = useNavigate();
 	const location = useLocation();
+	const [searchParams] = useSearchParams();
+	const setupMode = searchParams.get('setup') === '1';
+	const websiteIdFromQuery = String(searchParams.get('websiteId') || '').trim();
+	usePersistWebsiteQuery(websiteIdFromQuery);
 	const searchRef = useRef(null);
 
 	const [loading, setLoading] = useState(true);
@@ -189,10 +195,10 @@ export default function PinterestPage() {
 	}, [filter]);
 
 	useEffect(() => {
-		const searchParams = new URLSearchParams(location.search);
-		const connectedParam = searchParams.get('pinterest_connected');
-		const connectedAccountId = searchParams.get('account_id');
-		const errorParam = searchParams.get('pinterest_error');
+		const oauthParams = new URLSearchParams(location.search);
+		const connectedParam = oauthParams.get('pinterest_connected');
+		const connectedAccountId = oauthParams.get('account_id');
+		const errorParam = oauthParams.get('pinterest_error');
 
 		if (!connectedParam && !errorParam) {
 			return;
@@ -202,10 +208,10 @@ export default function PinterestPage() {
 			toast({
 				title: 'Pinterest connected',
 				description: connectedAccountId
-					? `Account linked successfully.`
+					? 'Account linked successfully. Returning to publishing…'
 					: 'Your Pinterest account is now linked successfully.',
 			});
-			if (searchParams.get('boards_sync_warning') === '1') {
+			if (oauthParams.get('boards_sync_warning') === '1') {
 				toast({
 					variant: 'destructive',
 					title: 'Boards sync incomplete',
@@ -213,16 +219,34 @@ export default function PinterestPage() {
 				});
 			}
 			load();
+			const returnTo = consumeSetupReturnPath()
+				|| (websiteIdFromQuery
+					? `/app/ai-pins?websiteId=${encodeURIComponent(websiteIdFromQuery)}&setup=publish`
+					: '');
+			navigate(returnTo || '/app/pinterest', { replace: true });
+			return;
 		}
 
 		if (errorParam) {
 			toast({ variant: 'destructive', title: 'Pinterest connection failed', description: decodeURIComponent(errorParam) });
+			const returnTo = peekSetupReturnPath();
+			const stayParams = new URLSearchParams();
+			if (websiteIdFromQuery) stayParams.set('websiteId', websiteIdFromQuery);
+			if (setupMode || returnTo) stayParams.set('setup', '1');
+			const stayQuery = stayParams.toString();
+			navigate(stayQuery ? `/app/pinterest?${stayQuery}` : '/app/pinterest', { replace: true });
+			return;
 		}
 
 		navigate('/app/pinterest', { replace: true });
 	}, [location.search]);
 
 	const connectPinterest = async () => {
+		if (setupMode || websiteIdFromQuery) {
+			const returnTo = peekSetupReturnPath()
+				|| `/app/ai-pins?websiteId=${encodeURIComponent(websiteIdFromQuery || '')}&setup=publish`;
+			setSetupReturnPath(returnTo);
+		}
 		setConnecting(true);
 		try {
 			const response = await apiServerClient.fetch('/pinterest/oauth/start', {
@@ -518,13 +542,47 @@ export default function PinterestPage() {
 					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">Pinterest Hub</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-						Connect accounts, sync boards, and manage your Pinterest publishing workspace in one atelier.
+						{setupMode
+							? 'Connect Pinterest to publish your first pin. You will return to AI Pins automatically after connecting.'
+							: 'Connect accounts, sync boards, and manage your Pinterest publishing workspace in one atelier.'}
 					</p>
 				</div>
-				<Link to="/app/pinterest-history">
-					<Button variant="outline" size="sm"><ListOrdered size={14} /> Publishing History</Button>
-				</Link>
+				{!setupMode ? (
+					<Link to={websiteIdFromQuery ? `/app/pinterest-history?websiteId=${encodeURIComponent(websiteIdFromQuery)}` : '/app/pinterest-history'}>
+						<Button variant="outline" size="sm"><ListOrdered size={14} /> Publishing History</Button>
+					</Link>
+				) : null}
 			</div>
+
+			{setupMode || connectedCount === 0 ? (
+				<div className="mb-4 flex flex-col gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<div>
+						<p className="text-sm font-medium">Why connect Pinterest?</p>
+						<p className="text-xs text-muted-foreground">
+							Publishing AI Pins requires a connected account and board. After you connect, we return you to the publish step.
+						</p>
+					</div>
+					<Button size="sm" onClick={connectPinterest} disabled={connecting || loading}>
+						{connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 size={14} />}
+						Connect Pinterest
+					</Button>
+				</div>
+			) : null}
+
+			{setupMode && connectedCount > 0 ? (
+				<div className="mb-4 flex flex-col gap-3 rounded-2xl border border-green-500/30 bg-green-500/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<p className="text-sm">Pinterest connected — continue publishing your first pin.</p>
+					<Button
+						size="sm"
+						onClick={() => navigate(
+							consumeSetupReturnPath()
+							|| `/app/ai-pins?websiteId=${encodeURIComponent(websiteIdFromQuery || '')}&setup=publish`,
+						)}
+					>
+						Return to publish
+					</Button>
+				</div>
+			) : null}
 
 			<div className="pin-hub__actions">
 				<div className="flex flex-wrap items-center gap-2">
@@ -919,7 +977,7 @@ export default function PinterestPage() {
 									<div className="pin-empty__icon"><CalendarClock size={22} /></div>
 									<p className="font-display text-xl font-semibold">No scheduled pins</p>
 									<p className="mt-2 max-w-md text-sm text-muted-foreground">Schedule pins from AI Pins. They appear here and in the Calendar.</p>
-									<Link to="/app/calendar" className="mt-5"><Button size="sm">Open Calendar</Button></Link>
+									<Link to={websiteIdFromQuery ? `/app/calendar?websiteId=${encodeURIComponent(websiteIdFromQuery)}` : '/app/calendar'} className="mt-5"><Button size="sm">Open Calendar</Button></Link>
 								</div>
 							) : (
 								<div className="space-y-2">

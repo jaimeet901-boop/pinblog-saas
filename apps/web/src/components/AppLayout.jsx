@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useActiveWebsite } from '@/context/ActiveWebsiteContext';
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher';
 import {
 	DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
@@ -16,24 +17,32 @@ import {
 const NAV = [
 	{ to: '/app', label: 'Dashboard', icon: LayoutDashboard, end: true },
 	{ to: '/app/websites', label: 'Websites', icon: Globe },
-	{ to: '/app/ai-pins', label: 'AI Pins', icon: Wand2 },
+	{ to: '/app/ai-pins', label: 'AI Pins', icon: Wand2, needsWebsite: true },
 	// Templates + Brand Kit stay routed (/app/ai-pins/templates, /app/ai-pins/brand-kit)
 	// but are admin-only via Admin Console — not shown in the workspace sidebar.
-	{ to: '/app/ai-pins/history', label: 'Pin History', icon: History },
-	{ to: '/app/writer', label: 'AI Writer', icon: PenLine },
-	{ to: '/app/images', label: 'Image Generator', icon: Image },
-	{ to: '/app/pinterest', label: 'Pinterest', icon: Pin },
-	{ to: '/app/calendar', label: 'Calendar', icon: CalendarDays },
-	{ to: '/app/pinterest-history', label: 'Publishing History', icon: History },
-	{ to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
+	{ to: '/app/ai-pins/history', label: 'Pin History', icon: History, needsWebsite: true },
+	{ to: '/app/writer', label: 'AI Writer', icon: PenLine, needsWebsite: true },
+	{ to: '/app/images', label: 'Image Generator', icon: Image, needsWebsite: true },
+	{ to: '/app/pinterest', label: 'Pinterest', icon: Pin, needsWebsite: true },
+	{ to: '/app/calendar', label: 'Calendar', icon: CalendarDays, needsWebsite: true },
+	{ to: '/app/pinterest-history', label: 'Publishing History', icon: History, needsWebsite: true },
+	{ to: '/app/analytics', label: 'Analytics', icon: BarChart3, needsWebsite: true },
 	{ to: '/app/subscription', label: 'Subscription', icon: CreditCard },
 	{ to: '/app/settings', label: 'Settings', icon: Settings },
 ];
+
+function withActiveWebsite(path, websiteId, needsWebsite) {
+	if (!needsWebsite || !websiteId) return path;
+	const join = path.includes('?') ? '&' : '?';
+	if (path.includes('websiteId=')) return path;
+	return `${path}${join}websiteId=${encodeURIComponent(websiteId)}`;
+}
 
 export default function AppLayout({ children }) {
 	const [open, setOpen] = useState(false);
 	const { user, logout } = useAuth();
 	const { theme, toggle } = useTheme();
+	const { websites, activeWebsiteId, activeWebsite, setActiveWebsiteId, loading: websitesLoading } = useActiveWebsite();
 	const navigate = useNavigate();
 	const location = useLocation();
 
@@ -49,35 +58,38 @@ export default function AppLayout({ children }) {
 
 	const NavItems = () => (
 		<nav className="flex flex-col gap-1">
-			{NAV.map(({ to, label, icon: Icon, end }, i) => (
-				<NavLink
-					key={to}
-					to={to}
-					end={end}
-					onClick={() => setOpen(false)}
-					className={({ isActive }) =>
-						`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
-							isActive
-								? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
-								: 'text-muted-foreground hover:bg-secondary hover:text-foreground hover:translate-x-0.5'
-						}`
-					}
-					style={{ animationDelay: `${i * 30}ms` }}
-				>
-					{({ isActive }) => (
-						<>
-							<Icon className="h-4.5 w-4.5 transition-transform group-hover:scale-110" strokeWidth={2} size={18} />
-							<span>{label}</span>
-							{isActive && (
-								<motion.span
-									layoutId="nav-active-dot"
-									className="ml-auto h-1.5 w-1.5 rounded-full bg-primary-foreground"
-								/>
-							)}
-						</>
-					)}
-				</NavLink>
-			))}
+			{NAV.map(({ to, label, icon: Icon, end, needsWebsite }, i) => {
+				const href = withActiveWebsite(to, activeWebsiteId, needsWebsite);
+				return (
+					<NavLink
+						key={to}
+						to={href}
+						end={end}
+						onClick={() => setOpen(false)}
+						className={({ isActive }) =>
+							`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+								isActive
+									? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
+									: 'text-muted-foreground hover:bg-secondary hover:text-foreground hover:translate-x-0.5'
+							}`
+						}
+						style={{ animationDelay: `${i * 30}ms` }}
+					>
+						{({ isActive }) => (
+							<>
+								<Icon className="h-4.5 w-4.5 transition-transform group-hover:scale-110" strokeWidth={2} size={18} />
+								<span>{label}</span>
+								{isActive && (
+									<motion.span
+										layoutId="nav-active-dot"
+										className="ml-auto h-1.5 w-1.5 rounded-full bg-primary-foreground"
+									/>
+								)}
+							</>
+						)}
+					</NavLink>
+				);
+			})}
 			{user?.role === 'admin' && (
 				<NavLink
 					to="/app/admin"
@@ -96,14 +108,12 @@ export default function AppLayout({ children }) {
 
 	return (
 		<div className="min-h-[100dvh] bg-gradient-to-b from-background to-secondary/30 text-foreground">
-			{/* Sidebar desktop */}
 			<aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border/80 bg-card/70 backdrop-blur-xl px-4 py-5 lg:flex">
 				<Brand />
 				<div className="mt-6 flex-1 overflow-y-auto"><NavItems /></div>
 				<UserCard user={user} onLogout={handleLogout} />
 			</aside>
 
-			{/* Mobile drawer */}
 			<AnimatePresence>
 				{open && (
 					<motion.div
@@ -142,7 +152,7 @@ export default function AppLayout({ children }) {
 
 			<div className="lg:pl-64">
 				<header className="sticky top-0 z-20 flex items-center justify-between border-b border-border/70 bg-background/70 px-4 py-3 backdrop-blur-xl lg:px-8">
-					<div className="flex items-center gap-3">
+					<div className="flex min-w-0 items-center gap-3">
 						<button
 							className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground lg:hidden"
 							onClick={() => setOpen(true)}
@@ -151,9 +161,19 @@ export default function AppLayout({ children }) {
 							<Menu size={22} />
 						</button>
 						<WorkspaceSwitcher />
-						<div className="hidden sm:block">
-							<p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Workspace</p>
-							<h2 className="font-display text-base font-semibold leading-tight sm:text-lg">{currentLabel}</h2>
+						<ActiveWebsiteSwitcher
+							websites={websites}
+							activeWebsiteId={activeWebsiteId}
+							loading={websitesLoading}
+							onChange={setActiveWebsiteId}
+							pathname={location.pathname}
+							navigate={navigate}
+						/>
+						<div className="hidden min-w-0 sm:block">
+							<p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Working on</p>
+							<h2 className="truncate font-display text-base font-semibold leading-tight sm:text-lg">
+								{activeWebsite?.name || activeWebsite?.domain || currentLabel}
+							</h2>
 						</div>
 					</div>
 
@@ -216,6 +236,68 @@ export default function AppLayout({ children }) {
 				</motion.main>
 			</div>
 		</div>
+	);
+}
+
+function ActiveWebsiteSwitcher({ websites, activeWebsiteId, loading, onChange, pathname, navigate }) {
+	if (loading && websites.length === 0) {
+		return (
+			<div className="hidden max-w-[160px] truncate rounded-xl border border-border/70 px-2.5 py-1.5 text-xs text-muted-foreground md:block">
+				Loading sites…
+			</div>
+		);
+	}
+	if (!websites.length) {
+		return (
+			<button
+				type="button"
+				onClick={() => navigate('/app/websites')}
+				className="hidden items-center gap-1.5 rounded-xl border border-dashed border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary md:inline-flex"
+			>
+				<Globe size={14} /> Add website
+			</button>
+		);
+	}
+	return (
+		<label className="hidden items-center gap-1.5 md:flex">
+			<span className="sr-only">Active website</span>
+			<select
+				className="max-w-[180px] truncate rounded-xl border border-border/70 bg-background px-2.5 py-1.5 text-xs font-medium text-foreground"
+				value={activeWebsiteId || ''}
+				onChange={(e) => {
+					const id = e.target.value;
+					onChange(id);
+					if (!id) return;
+					if (pathname.startsWith('/app/websites/') && pathname !== '/app/websites') {
+						const rest = pathname.replace(/^\/app\/websites\/[^/]+/, '');
+						navigate(`/app/websites/${id}${rest.includes('articles') ? '/articles' : ''}`);
+						return;
+					}
+					const needsWebsiteQuery = [
+						'/app/ai-pins',
+						'/app/writer',
+						'/app/images',
+						'/app/analytics',
+						'/app/pinterest-history',
+						'/app/ai-pins/history',
+						'/app/calendar',
+						'/app/pinterest',
+					].some((route) => pathname === route || pathname.startsWith(`${route}/`));
+					if (needsWebsiteQuery) {
+						const params = new URLSearchParams(window.location.search);
+						params.set('websiteId', id);
+						navigate(`${pathname}?${params.toString()}`, { replace: true });
+					}
+				}}
+				aria-label="Active website"
+			>
+				{websites.map((site) => (
+					<option key={site.id} value={site.id}>
+						{site.name || site.domain || site.id}
+					</option>
+				))}
+			</select>
+		</label>
 	);
 }
 

@@ -16,6 +16,8 @@ import ManualArticleForm from '@/components/ai-pins/ManualArticleForm';
 import SchedulePinModal from '@/components/ai-pins/SchedulePinModal';
 import PreviewPinModal from '@/components/ai-pins/PreviewPinModal';
 import PublishProgressModal from '@/components/ai-pins/PublishProgressModal';
+import { usePinterestConnected } from '@/hooks/usePinterestConnected';
+import { setSetupReturnPath } from '@/lib/websites/websiteLifecycle';
 import PinTemplateChooser from '@/components/ai-pins/PinTemplateChooser';
 import UpgradeModal from '@/components/billing/UpgradeModal';
 import {
@@ -204,6 +206,9 @@ export default function AIPinsPage() {
 	const defaultsAppliedRef = useRef(false);
 	const [searchParams] = useSearchParams();
 	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
+	const setupPublish = searchParams.get('setup') === 'publish';
+	const openManualFromQuery = searchParams.get('manual') === '1';
+	const { pinterestConnected, refresh: refreshPinterest } = usePinterestConnected();
 	const {
 		websites,
 		websiteId,
@@ -663,7 +668,10 @@ export default function AIPinsPage() {
 				const previousStatus = previousStatusesRef.current.get(pin.id);
 				if (previousStatus && previousStatus !== pin.status) {
 					if (pin.status === 'published') {
-						toast({ title: 'Publish successful', description: `Pin published: ${pin.title}` });
+						toast({
+							title: 'Publish successful',
+							description: `Pin published: ${pin.title}. Next: open Analytics to measure performance.`,
+						});
 					}
 					if (pin.status === 'failed') {
 						toast({ variant: 'destructive', title: 'Publish failed', description: pin.publishError || `Pin failed: ${pin.title}` });
@@ -825,6 +833,12 @@ export default function AIPinsPage() {
 		if (!websitesError) return;
 		toast({ variant: 'destructive', title: 'Error', description: websitesError });
 	}, [websitesError]);
+
+	useEffect(() => {
+		if (openManualFromQuery && websiteId) {
+			setManualOpen(true);
+		}
+	}, [openManualFromQuery, websiteId]);
 
 	useEffect(() => {
 		loadBoards();
@@ -1959,7 +1973,23 @@ export default function AIPinsPage() {
 			const created = await createPinRecords({ previewPins: generatedPreviewPins });
 			setSavedPins((prev) => [...created, ...prev]);
 			setGeneratedPreviewPins([]);
-			toast({ title: 'Pins saved', description: `${created.length} pins saved as drafts.` });
+			if (!pinterestConnected) {
+				toast({
+					title: 'Pins saved',
+					description: 'Next: connect Pinterest so you can publish.',
+				});
+			} else if (isGuidedSetup) {
+				toast({
+					title: 'Pins saved',
+					description: `${created.length} draft${created.length === 1 ? '' : 's'} ready. Next: publish to finish setup.`,
+				});
+			} else {
+				toast({
+					title: 'Pins saved',
+					description: `${created.length} draft${created.length === 1 ? '' : 's'} ready. Next: publish or schedule from the library.`,
+				});
+			}
+			refreshPinterest();
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Save failed', description: error.message });
 		} finally {
@@ -2031,7 +2061,10 @@ export default function AIPinsPage() {
 			clearDraftPinSelection();
 			setActionPinIds([]);
 			if (result.ok) {
-				toast({ title: 'Published', description: result.message });
+				toast({
+					title: '✓ First pin published',
+					description: `${result.message || 'Published successfully.'} Next: open Analytics.`,
+				});
 			} else {
 				toast({
 					variant: 'destructive',
@@ -2451,11 +2484,33 @@ export default function AIPinsPage() {
 		}
 	};
 
+	const hasPublishedForSite = useMemo(
+		() => savedPins.some((pin) => String(pin.status || '').toLowerCase() === 'published'),
+		[savedPins],
+	);
+	const isGuidedSetup = !hasPublishedForSite;
+	const visibleCreateModes = useMemo(
+		() => (isGuidedSetup ? CREATE_MODES.filter((mode) => mode.id !== 'bulk') : CREATE_MODES),
+		[isGuidedSetup],
+	);
+
+	useEffect(() => {
+		if (isGuidedSetup && createMode === 'bulk') {
+			setCreateMode('single');
+		}
+	}, [isGuidedSetup, createMode]);
+
 	const generateLabel = createMode === 'bulk'
 		? `Generate ${Math.max(1, selectedArticleIds.size) * panel.count} Pins`
 		: panel.count > 1
 			? `Generate ${panel.count} Pins`
 			: 'Generate Pin';
+
+	const goConnectPinterest = () => {
+		const returnTo = `/app/ai-pins?websiteId=${encodeURIComponent(websiteId || '')}&setup=publish`;
+		setSetupReturnPath(returnTo);
+		navigate(`/app/pinterest?websiteId=${encodeURIComponent(websiteId || '')}&setup=1`);
+	};
 
 	return (
 		<div className="ai-pins-atelier">
@@ -2464,14 +2519,22 @@ export default function AIPinsPage() {
 					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">AI Pins Atelier</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-						Compose Pinterest-ready drafts from pages, bulk catalogs, or free prompts — then refine title, description, keywords, and imagery before publishing.
+						{isGuidedSetup
+							? `Create your first pin for ${activeWebsite?.name || activeWebsite?.domain || 'this website'}, connect Pinterest, then publish to finish setup.`
+							: activeWebsite
+								? `Compose Pinterest-ready drafts for ${activeWebsite.name || activeWebsite.domain} — then refine and publish.`
+								: 'Compose Pinterest-ready drafts from pages, bulk catalogs, or free prompts — then refine and publish.'}
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
 					{/* Templates / Brand Kit managers: Admin Console only (routes kept). */}
 					{false && showBrandKit ? <Link to="/app/ai-pins/brand-kit"><Button variant="outline" size="sm"><Palette size={14} /> Brand Kit</Button></Link> : null}
 					{false && showTemplates ? <Link to="/app/ai-pins/templates"><Button variant="outline" size="sm"><LayoutTemplate size={14} /> Templates</Button></Link> : null}
-					{showHistory ? <Link to="/app/ai-pins/history"><Button variant="outline" size="sm"><History size={14} /> History</Button></Link> : null}
+					{!isGuidedSetup && showHistory ? (
+						<Link to={websiteId ? `/app/ai-pins/history?websiteId=${encodeURIComponent(websiteId)}` : '/app/ai-pins/history'}>
+							<Button variant="outline" size="sm"><History size={14} /> History</Button>
+						</Link>
+					) : null}
 					<div
 						className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium shadow-sm"
 						title={`config v${configVersion} · ${cacheStatus}${configRefreshing ? ' · refreshing' : ''}`}
@@ -2483,10 +2546,27 @@ export default function AIPinsPage() {
 				</div>
 			</div>
 
-			{showPinterest && accounts.length === 0 && !loadingAccounts ? (
+			{isGuidedSetup && savedPins.length > 0 && !pinterestConnected ? (
+				<div className="mb-4 flex flex-col gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<div>
+						<p className="text-sm font-medium">Pin created — connect Pinterest next</p>
+						<p className="text-xs text-muted-foreground">Publishing requires a connected Pinterest account and board.</p>
+					</div>
+					<Button size="sm" onClick={goConnectPinterest}>Connect Pinterest</Button>
+				</div>
+			) : null}
+
+			{isGuidedSetup && (pinterestConnected || setupPublish) && savedPins.some((pin) => pin.status === 'draft' || !pin.status || pin.status === 'ready') ? (
 				<div className="mb-4 flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-					<p className="text-sm text-foreground/90">Connect Pinterest to schedule and publish pins from this studio.</p>
-					<Link to="/app/pinterest"><Button size="sm">Connect Pinterest</Button></Link>
+					<p className="text-sm">Pinterest is ready — publish your first pin to enter Operate Mode.</p>
+					<Button size="sm" onClick={() => runPublishNow()} disabled={publishing}>Publish first pin</Button>
+				</div>
+			) : null}
+
+			{showPinterest && !pinterestConnected && !loadingAccounts ? (
+				<div className="mb-4 flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<p className="text-sm text-foreground/90">Connect Pinterest to publish pins from this studio.</p>
+					<Button size="sm" onClick={goConnectPinterest}>Connect Pinterest</Button>
 				</div>
 			) : null}
 
@@ -2515,7 +2595,7 @@ export default function AIPinsPage() {
 					</div>
 
 					<div className="ai-pins-mode-tabs mb-4">
-						{CREATE_MODES.map(({ id, label, icon: Icon }) => (
+						{visibleCreateModes.map(({ id, label, icon: Icon }) => (
 							<button
 								key={id}
 								type="button"
@@ -2528,7 +2608,7 @@ export default function AIPinsPage() {
 						))}
 					</div>
 
-					<div className="space-y-4">
+					<div className="space-y-4" data-ai-pins-articles>
 						<p className="ai-pins-step-label">Step 1 — Select Article</p>
 						<Select label="Website" value={websiteId} onChange={(e) => setWebsiteId(e.target.value)} disabled={loadingWebsites}>
 							<option value="">Select website</option>
@@ -2803,6 +2883,8 @@ export default function AIPinsPage() {
 							</div>
 						</div>
 
+						{!isGuidedSetup ? (
+							<>
 						<button
 							type="button"
 							className="flex w-full items-center justify-between rounded-xl border border-border bg-background/50 px-3 py-2.5 text-sm font-medium"
@@ -2864,6 +2946,8 @@ export default function AIPinsPage() {
 									</div>
 								) : null}
 							</div>
+						) : null}
+							</>
 						) : null}
 					</div>
 
@@ -3107,7 +3191,22 @@ export default function AIPinsPage() {
 							</div>
 
 							{filteredSavedPins.length === 0 ? (
-								<Empty icon={Sparkles} title="No pins in this view" subtitle="Generate and save drafts to fill your library." />
+								<Empty
+									icon={Sparkles}
+									title="No pins yet for this website"
+									subtitle="Select articles above, choose a template, and generate AI Pins. When ready, publish to Pinterest."
+									action={(
+										<Button
+											size="sm"
+											onClick={() => {
+												const el = document.querySelector('[data-ai-pins-articles]');
+												if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+											}}
+										>
+											Select articles to start
+										</Button>
+									)}
+								/>
 							) : (
 								<div className="ai-pins-grid">
 									{filteredSavedPins.map((pin, index) => {

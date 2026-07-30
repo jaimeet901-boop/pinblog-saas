@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
 	ChevronLeft, ChevronRight, CalendarClock, Pin, RefreshCw, Search,
 	ExternalLink, XCircle, Loader2,
@@ -9,6 +9,8 @@ import { Badge, Button, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import { useWorkspaceConfig } from '@/context/WorkspaceConfigContext';
 import { resolvePublishingConfig } from '@/services/ai-pins/publishingConfig.js';
+import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
+import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import './CalendarPage.css';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -77,10 +79,15 @@ function boardLabel(job) {
 
 export default function CalendarPage() {
 	const { toast } = useToast();
+	const [searchParams] = useSearchParams();
+	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
+	usePersistWebsiteQuery(preferredWebsiteId);
 	const { config } = useWorkspaceConfig();
 	const publishingConfig = useMemo(() => resolvePublishingConfig(config), [config]);
 	const workspaceTimezone = publishingConfig.timezone || 'UTC';
 	const searchRef = useRef(null);
+	const pinsHref = withWebsiteQuery('/app/ai-pins', preferredWebsiteId);
+	const historyHref = withWebsiteQuery('/app/pinterest-history', preferredWebsiteId);
 
 	const [cursor, setCursor] = useState(() => new Date());
 	const [view, setView] = useState('month');
@@ -89,7 +96,7 @@ export default function CalendarPage() {
 	const [draggingJobId, setDraggingJobId] = useState('');
 	const [selectedJob, setSelectedJob] = useState(null);
 	const [searchQuery, setSearchQuery] = useState('');
-	const [websiteFilter, setWebsiteFilter] = useState('');
+	const [websiteFilter, setWebsiteFilter] = useState(preferredWebsiteId);
 	const [accountFilter, setAccountFilter] = useState('');
 	const [boardFilter, setBoardFilter] = useState('');
 	const [statusFilter, setStatusFilter] = useState('');
@@ -97,6 +104,10 @@ export default function CalendarPage() {
 	const [quickFilter, setQuickFilter] = useState('all');
 	const [retryingId, setRetryingId] = useState('');
 	const [cancellingId, setCancellingId] = useState('');
+
+	useEffect(() => {
+		if (preferredWebsiteId) setWebsiteFilter(preferredWebsiteId);
+	}, [preferredWebsiteId]);
 
 	const monthKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`;
 
@@ -439,11 +450,12 @@ export default function CalendarPage() {
 					<h1 className="font-display text-3xl font-semibold tracking-tight">Content Calendar</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 						Plan, drag, and refine scheduled Pinterest pins across month, week, and day views.
+						{preferredWebsiteId ? ' Filtered to the active website.' : ''}
 					</p>
 				</div>
 				<div className="flex flex-wrap gap-2">
-					<Link to="/app/ai-pins"><Button variant="outline" size="sm"><Pin size={14} /> AI Pins</Button></Link>
-					<Link to="/app/pinterest-history"><Button variant="outline" size="sm"><CalendarClock size={14} /> Publishing Center</Button></Link>
+					<Link to={pinsHref}><Button variant="outline" size="sm"><Pin size={14} /> AI Pins</Button></Link>
+					<Link to={historyHref}><Button variant="outline" size="sm"><CalendarClock size={14} /> Publishing Center</Button></Link>
 				</div>
 			</div>
 
@@ -587,7 +599,7 @@ export default function CalendarPage() {
 							<p className="mt-2 max-w-md text-sm text-muted-foreground">
 								Your Chef IA calendar will fill as you schedule Pinterest pins. Drag items between days to reschedule.
 							</p>
-							<Link to="/app/ai-pins" className="mt-5">
+							<Link to={pinsHref} className="mt-5">
 								<Button size="sm"><Pin size={14} /> Schedule your first Pinterest Pin</Button>
 							</Link>
 						</div>

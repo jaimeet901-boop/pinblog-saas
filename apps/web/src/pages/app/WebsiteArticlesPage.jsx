@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, FileText } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
+import { writeStoredActiveWebsiteId } from '@/lib/websites/activeWebsite';
 import { Badge, Button, Card, Empty, Input, PageHeader, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -32,6 +33,9 @@ export default function WebsiteArticlesPage() {
 	const [filters, setFilters] = useState({ search: '', status: '', category: '', dateFrom: '', dateTo: '', page: 1 });
 
 	useEffect(() => {
+		if (websiteId) {
+			writeStoredActiveWebsiteId(websiteId, { emit: true });
+		}
 		(async () => {
 			try {
 				const response = await apiServerClient.fetch(`/websites/${websiteId}`, { method: 'GET' });
@@ -123,9 +127,41 @@ export default function WebsiteArticlesPage() {
 				</div>
 
 				{!loading && articlesData.items.length === 0 ? (
-					<Empty icon={FileText} title="No articles found" subtitle="Run a website scan or adjust your filters to see discovered content." />
+					<Empty
+						icon={FileText}
+						title="No articles yet"
+						subtitle="Run a website scan to discover articles, or add one manually in AI Pins. Pins need a source article."
+						action={(
+					<>
+						<Button onClick={() => navigate(`/app/websites/${websiteId}`)}>
+							Run Scan Again
+						</Button>
+						<Button
+							variant="outline"
+							onClick={() => navigate(`/app/writer?websiteId=${encodeURIComponent(websiteId)}`)}
+						>
+							Write with AI Writer
+						</Button>
+						<Button
+							variant="outline"
+							onClick={() => navigate(`/app/ai-pins?websiteId=${encodeURIComponent(websiteId)}&manual=1`)}
+						>
+							Add Article Manually
+						</Button>
+					</>
+				)}
+					/>
 				) : (
 					<>
+						{!loading && articlesData.items.length > 0 ? (
+							<div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
+								<div>
+									<p className="text-sm font-medium">Ready for your first AI Pin</p>
+									<p className="text-xs text-muted-foreground">{articlesData.totalArticles || articlesData.items.length} articles discovered for this website.</p>
+								</div>
+								<Button size="sm" onClick={() => navigate(`/app/ai-pins?websiteId=${encodeURIComponent(websiteId)}`)}>Create AI Pin</Button>
+							</div>
+						) : null}
 						<Table>
 							<TableHeader>
 								<TableRow>
@@ -135,7 +171,7 @@ export default function WebsiteArticlesPage() {
 									<TableHead>Author</TableHead>
 									<TableHead>Published</TableHead>
 									<TableHead>Updated</TableHead>
-									<TableHead className="text-right">Open</TableHead>
+									<TableHead className="text-right">Actions</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -153,9 +189,20 @@ export default function WebsiteArticlesPage() {
 										<TableCell>{formatDate(article.publishDate)}</TableCell>
 										<TableCell>{formatDate(article.lastModifiedDate)}</TableCell>
 										<TableCell className="text-right">
-											<a href={article.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-												<ExternalLink size={14} /> Open
-											</a>
+											<div className="inline-flex flex-wrap items-center justify-end gap-2">
+												<Button
+													size="sm"
+													variant="outline"
+													onClick={() => navigate(`/app/ai-pins?websiteId=${encodeURIComponent(websiteId)}`)}
+												>
+													Create AI Pin
+												</Button>
+												{article.url ? (
+													<a href={article.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+														<ExternalLink size={14} /> Open
+													</a>
+												) : null}
+											</div>
 										</TableCell>
 									</TableRow>
 								))}

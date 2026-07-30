@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
 	PenLine, Wand2, Save, Loader2, Globe, Upload, ExternalLink, ChevronDown,
 	FileText, Settings2, ListChecks, Send, Copy, Download, RefreshCw,
@@ -10,10 +11,11 @@ import apiServerClient from '@/lib/apiServerClient';
 import { generateText, extractJson } from '@/lib/aiGenerate';
 import { uploadImageBlob } from '@/services/ai-pins/imageLifecycle';
 import { useWorkspaceWebsites } from '@/hooks/useWorkspaceWebsites';
+import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
+import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import { Badge, Button, Input, Select, Textarea, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import './WriterPage.css';
-
 const initForm = {
 	keyword: '',
 	secondary: '',
@@ -274,6 +276,9 @@ function OptionToggle({ label, checked, onChange }) {
 
 export default function WriterPage() {
 	const { toast } = useToast();
+	const [searchParams] = useSearchParams();
+	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
+	usePersistWebsiteQuery(preferredWebsiteId);
 	const [form, setForm] = useState(initForm);
 	const [options, setOptions] = useState(initOptions);
 	const [generating, setGenerating] = useState(false);
@@ -286,7 +291,12 @@ export default function WriterPage() {
 		websites: sites,
 		websiteId: siteId,
 		setWebsiteId: setSiteId,
-	} = useWorkspaceWebsites();
+	} = useWorkspaceWebsites({ preferredId: preferredWebsiteId });
+	const activeSite = sites.find((s) => s.id === siteId);
+	const pinsHref = withWebsiteQuery('/app/ai-pins', siteId || preferredWebsiteId);
+	const articlesHref = siteId
+		? `/app/websites/${encodeURIComponent(siteId)}/articles`
+		: '/app/websites';
 	const [recentDrafts, setRecentDrafts] = useState([]);
 	const [history, setHistory] = useState([]);
 	const [genStep, setGenStep] = useState(0);
@@ -469,7 +479,10 @@ Respond ONLY with the JSON object described in your instructions.`;
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to save article (${response.status})`);
 			}
-			toast({ title: 'Saved', description: `Article saved as ${status}.` });
+			toast({
+				title: 'Saved',
+				description: `Article saved as ${status}. Next: create AI Pins for this website.`,
+			});
 			setArticle(null);
 			setArticleBaseline(null);
 			setForm(initForm);
@@ -833,8 +846,14 @@ Respond ONLY with the JSON object described in your instructions.`;
 					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Chef IA Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">AI Writer</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-						Craft publish-ready SEO recipe articles in a premium writing atelier — then push them to WordPress.
+						{activeSite
+							? `Writing for ${activeSite.name || activeSite.domain || 'this website'} — craft SEO articles, then create AI Pins.`
+							: 'Craft publish-ready SEO recipe articles — then create AI Pins and publish to WordPress.'}
 					</p>
+				</div>
+				<div className="flex flex-wrap gap-2">
+					<Link to={articlesHref}><Button variant="outline" size="sm">Articles</Button></Link>
+					<Link to={pinsHref}><Button size="sm">Next: AI Pins</Button></Link>
 				</div>
 			</div>
 
