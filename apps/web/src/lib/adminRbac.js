@@ -30,6 +30,7 @@ export const ADMIN_NAV = [
 	{ to: '/admin/billing/logs', label: 'Billing Logs' },
 	{ to: '/admin/billing/health', label: 'Provider Health' },
 	{ to: '/admin/billing/price-mapping', label: 'Price Mapping' },
+	{ to: '/admin/billing/failover', label: 'Failover & Recovery' },
 	{ to: '/admin/billing/events', label: 'Payment Events' },
 	{ to: '/admin/billing/webhooks', label: 'Webhook Monitor' },
 	{ to: '/admin/billing/monitoring', label: 'Billing Monitoring' },

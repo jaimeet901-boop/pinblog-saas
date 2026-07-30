@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import {
 	LayoutDashboard, Users, Building2, CreditCard, Coins, Cpu, Boxes, Globe, Pin,
 	BarChart3, ListOrdered, Briefcase, ScrollText, Bell, Settings, Activity,
-	Menu, X, LogOut, ArrowLeftRight, Shield, ChevronRight, Palette, Scale,
+	Menu, X, LogOut, ArrowLeftRight, ArrowRightLeft, Shield, ChevronRight, Palette, Scale,
 	Wallet, HeartPulse, Map, Receipt, Webhook, LineChart, Archive,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -21,6 +21,7 @@ const ICONS = {
 	'/admin/billing/logs': ScrollText,
 	'/admin/billing/health': HeartPulse,
 	'/admin/billing/price-mapping': Map,
+	'/admin/billing/failover': ArrowRightLeft,
 	'/admin/billing/events': Receipt,
 	'/admin/billing/webhooks': Webhook,
 	'/admin/billing/monitoring': LineChart,

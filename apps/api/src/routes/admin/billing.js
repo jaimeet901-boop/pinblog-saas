@@ -16,10 +16,12 @@ import {
 	runControlPlaneHealthCheck,
 	runControlPlaneHealthCheckAll,
 	setControlPlaneProviderEnabled,
+	toPublicBillingConfig,
 	updateControlPlaneCheckoutSettings,
 	updateControlPlaneProvider,
 	validateControlPlaneProvider,
 } from '../../services/billing/control-plane.js';
+import { middlewareBillingRequestCache } from '../../services/billing/request-cache.js';
 import {
 	getPriceMappingGaps,
 	getPriceMappingMatrix,
@@ -35,6 +37,18 @@ import {
 	getRevenueSummary,
 	getRevenueTrends,
 } from '../../services/billing/revenue-aggregation.js';
+import {
+	evaluateFailover,
+	executeFailover,
+	getFailoverPolicy,
+	getFailoverStatus,
+	listFailoverEvents,
+	maybeAutoEvaluateAfterHealthCheck,
+	overrideFailover,
+	recoverFailover,
+	simulateFailover,
+	updateFailoverPolicy,
+} from '../../services/billing/failover.js';
 import {
 	BILLING_PERMISSIONS,
 	assertBillingPermission,
@@ -212,12 +226,17 @@ router.post(
 	'/control-plane/providers/:code/health-check',
 	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
 	asyncHandler(async (req, res) => {
-		res.json(await runControlPlaneHealthCheck(req.params.code, actorFromReq(req), {
+		const provider = await runControlPlaneHealthCheck(req.params.code, actorFromReq(req), {
 			...requestMeta(req),
 			expectedUpdatedAt: req.body?.expectedUpdatedAt || null,
 			probeConnectivity: req.body?.probeConnectivity !== false,
 			auto: false,
-		}));
+		});
+		const failover = await maybeAutoEvaluateAfterHealthCheck(actorFromReq(req), {
+			...requestMeta(req),
+			expectedUpdatedAt: null,
+		}).catch(() => null);
+		res.json(failover ? { ...provider, failover } : provider);
 	}),
 );
 
@@ -225,11 +244,16 @@ router.post(
 	'/control-plane/health-check',
 	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
 	asyncHandler(async (req, res) => {
-		res.json(await runControlPlaneHealthCheckAll(actorFromReq(req), {
+		const result = await runControlPlaneHealthCheckAll(actorFromReq(req), {
 			...requestMeta(req),
 			probeConnectivity: req.body?.probeConnectivity !== false,
 			auto: false,
-		}));
+		});
+		const failover = await maybeAutoEvaluateAfterHealthCheck(actorFromReq(req), {
+			...requestMeta(req),
+			expectedUpdatedAt: null,
+		}).catch(() => null);
+		res.json(failover ? { ...result, failover } : result);
 	}),
 );
 
@@ -327,6 +351,80 @@ router.get(
 	requireBillingPermission(BILLING_PERMISSIONS.READ),
 	asyncHandler(async (req, res) => {
 		res.json(await getRevenueConversions(req.query || {}));
+	}),
+);
+
+/* ── BP-4 Failover & Recovery ─────────────────────────────────── */
+
+router.get(
+	'/control-plane/failover/policy',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getFailoverPolicy(req.adminUser));
+	}),
+);
+
+router.put(
+	'/control-plane/failover/policy',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await updateFailoverPolicy(req.body || {}, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+router.get(
+	'/control-plane/failover/status',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getFailoverStatus(req.adminUser));
+	}),
+);
+
+router.post(
+	'/control-plane/failover/evaluate',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await evaluateFailover(req.body || {}, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+router.post(
+	'/control-plane/failover/simulate',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await simulateFailover(req.body || {}));
+	}),
+);
+
+router.post(
+	'/control-plane/failover/execute',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await executeFailover(req.body || {}, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+router.post(
+	'/control-plane/failover/recover',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await recoverFailover(req.body || {}, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+router.post(
+	'/control-plane/failover/override',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await overrideFailover(req.body || {}, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+router.get(
+	'/control-plane/failover/events',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await listFailoverEvents(req.query || {}));
 	}),
 );
 

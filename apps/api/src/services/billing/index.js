@@ -62,3 +62,10 @@ export {
 	getRevenueByProvider,
 	computeLiveMrr,
 } from './revenue-aggregation.js';
+export {
+	normalizeFailoverPolicy,
+	decideFailover,
+	decideRecovery,
+	getFailoverPolicy,
+	simulateFailover,
+} from './failover.js';

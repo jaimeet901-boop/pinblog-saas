@@ -7,7 +7,7 @@
 		"dev": "node --trace-deprecation --env-file=.env src/main.js",
 		"start": "node --env-file=.env src/main.js",
 		"lint": "eslint . --quiet",
-		"test": "node --test src/services/workspace-config.test.js src/services/official-pin-template-catalog.test.js src/utils/pin-publish-destination.test.js src/services/publishing-history/publishing-history.test.js src/services/publishing-history/list.test.js src/services/feature-catalog.test.js src/services/plan-features.test.js src/services/plan-access.test.js src/services/plan-access-guard.test.js src/services/product-events.test.js src/services/premium-template-security.phase8.test.js src/services/billing/control-plane.test.js src/services/billing/health-engine.test.js src/services/billing/revenue-recognition.test.js"
+		"test": "node --test src/services/workspace-config.test.js src/services/official-pin-template-catalog.test.js src/utils/pin-publish-destination.test.js src/services/publishing-history/publishing-history.test.js src/services/publishing-history/list.test.js src/services/feature-catalog.test.js src/services/plan-features.test.js src/services/plan-access.test.js src/services/plan-access-guard.test.js src/services/product-events.test.js src/services/premium-template-security.phase8.test.js src/services/billing/control-plane.test.js src/services/billing/health-engine.test.js src/services/billing/revenue-recognition.test.js src/services/billing/failover-helpers.test.js src/services/billing/failover-concurrency.test.js"
 	},
 	"dependencies": {
 		"cors": "^2.8.5",

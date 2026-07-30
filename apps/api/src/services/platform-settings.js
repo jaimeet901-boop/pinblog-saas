@@ -186,6 +186,37 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 			packs: {},
 			meta: {},
 		},
+		failover: {
+			policyVersion: 1,
+			autoFailoverEnabled: false,
+			mode: 'automatic',
+			forcedProvider: null,
+			priority: ['stripe', 'lemonsqueezy', 'paddle'],
+			preferredPrimary: 'stripe',
+			eligibility: {
+				requireEnabled: true,
+				requireImplemented: true,
+				forbidHealth: ['Critical', 'Offline', 'Unknown'],
+				forbidValidation: ['FAIL'],
+				allowWarning: true,
+			},
+			cooldownSeconds: 300,
+			autoOnHealthCheck: false,
+			recovery: {
+				mode: 'manual',
+				autoRestorePreferred: false,
+				requireHealthyPrimary: true,
+			},
+			lastDecision: {
+				at: null,
+				type: null,
+				from: null,
+				to: null,
+				reasonCode: null,
+				fingerprint: null,
+			},
+			recentEvents: [],
+		},
 	},
 };
 

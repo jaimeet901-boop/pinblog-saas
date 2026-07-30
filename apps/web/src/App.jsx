@@ -61,6 +61,7 @@ const AdminBillingLogsPage = lazy(() => import('@/pages/admin/billing/AdminBilli
 const AdminBillingHealthPage = lazy(() => import('@/pages/admin/billing/AdminBillingHealthPage'));
 const AdminBillingDashboardPage = lazy(() => import('@/pages/admin/billing/AdminBillingDashboardPage'));
 const AdminBillingPriceMappingPage = lazy(() => import('@/pages/admin/billing/AdminBillingPriceMappingPage'));
+const AdminBillingFailoverPage = lazy(() => import('@/pages/admin/billing/AdminBillingFailoverPage'));
 const AdminBillingPlaceholderPage = lazy(() => import('@/pages/admin/billing/AdminBillingPlaceholderPage'));
 
 function Shell({ children, admin }) {
@@ -151,6 +152,7 @@ function App() {
 							<Route path="billing/logs" element={<AdminLazy><AdminBillingLogsPage /></AdminLazy>} />
 							<Route path="billing/health" element={<AdminLazy><AdminBillingHealthPage /></AdminLazy>} />
 							<Route path="billing/price-mapping" element={<AdminLazy><AdminBillingPriceMappingPage /></AdminLazy>} />
+							<Route path="billing/failover" element={<AdminLazy><AdminBillingFailoverPage /></AdminLazy>} />
 							<Route path="billing/events" element={<AdminLazy><AdminBillingPlaceholderPage title="Payment Events" description="Runtime billing_events monitor arrives in a later phase." phaseKey="events" /></AdminLazy>} />
 							<Route path="billing/webhooks" element={<AdminLazy><AdminBillingPlaceholderPage title="Webhook Monitor" description="billing_idempotency monitor arrives in a later phase." phaseKey="webhooks" /></AdminLazy>} />
 							<Route path="billing/monitoring" element={<AdminLazy><AdminBillingPlaceholderPage title="Billing Monitoring" description="Enterprise monitoring widgets arrive in a later phase." phaseKey="monitoring" /></AdminLazy>} />
