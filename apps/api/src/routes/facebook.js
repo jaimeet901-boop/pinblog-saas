@@ -89,7 +89,13 @@ router.post('/oauth/start', asyncHandler(async (req, res) => {
 		returnPath: String(body.returnPath || '').trim(),
 		websiteId: String(body.websiteId || '').trim(),
 	});
-	res.json({ authUrl: result.authUrl });
+	res.json({
+		authUrl: result.authUrl,
+		redirectUri: result.redirectUri,
+		clientId: result.clientId,
+		scopes: result.scopes,
+		responseType: result.responseType,
+	});
 }));
 
 router.post('/accounts/:accountId/reconnect', asyncHandler(async (req, res) => {
@@ -102,7 +108,13 @@ router.post('/accounts/:accountId/reconnect', asyncHandler(async (req, res) => {
 		requestedLabel: account.label || '',
 		workspaceId: req.workspaceId || account.workspace || '',
 	});
-	res.json({ authUrl: result.authUrl });
+	res.json({
+		authUrl: result.authUrl,
+		redirectUri: result.redirectUri,
+		clientId: result.clientId,
+		scopes: result.scopes,
+		responseType: result.responseType,
+	});
 }));
 
 router.get('/accounts', asyncHandler(async (req, res) => {

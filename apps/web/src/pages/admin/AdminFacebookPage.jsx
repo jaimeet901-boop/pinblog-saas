@@ -18,7 +18,7 @@ const EMPTY_OAUTH = {
 	appSecretMasked: '',
 	hasAppSecret: false,
 	redirectUri: '',
-	scopes: 'pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata,business_management',
+	scopes: 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata',
 	enabled: false,
 	trialAccessPending: true,
 	configured: false,

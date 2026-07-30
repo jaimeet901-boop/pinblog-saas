@@ -11,7 +11,7 @@ import {
 	assertFacebookOAuthReady,
 	getFacebookAppCredentials,
 } from './app-credentials.js';
-import { DEFAULT_SCOPES, mergeRequiredScopes, analyzeGrantedScopes } from './scopes.js';
+import { DEFAULT_SCOPES, mergeRequiredScopes, analyzeGrantedScopes, scopesForLoginDialog } from './scopes.js';
 import {
 	decryptAccountAccessToken,
 	deleteFacebookAccountSecrets,
@@ -19,11 +19,27 @@ import {
 	replaceFacebookAccountSecrets,
 } from './secrets.js';
 
-const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || 'v21.0';
+const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || 'v22.0';
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 const DIALOG_BASE = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
 const STATE_TTL_MS = 15 * 60 * 1000;
 const FACEBOOK_OAUTH_FRONTEND_BASE = process.env.APP_WEB_URL || process.env.WEB_APP_URL || 'http://localhost:3000';
+
+function normalizeOAuthRedirectUri(value) {
+	return String(value || '').trim();
+}
+
+function assertValidFacebookAppId(appId) {
+	const id = String(appId || '').trim();
+	if (!/^\d{5,}$/.test(id)) {
+		throw httpError(
+			422,
+			'Facebook App ID is invalid. Use the numeric App ID from Meta Developers → App settings.',
+			'FACEBOOK_APP_ID_INVALID',
+		);
+	}
+	return id;
+}
 
 function httpError(status, message, errorCode = 'FACEBOOK_API_ERROR') {
 	const error = new Error(message);
@@ -75,9 +91,11 @@ export async function buildFacebookOAuthAppRedirect(query = {}) {
 
 export async function getFacebookRedirectUri() {
 	const credentials = await getFacebookAppCredentials();
-	return credentials.redirectUri
+	return String(
+		credentials.redirectUri
 		|| process.env.FACEBOOK_REDIRECT_URI
-		|| `${process.env.API_PUBLIC_URL || 'http://localhost:3001'}/facebook/oauth/callback`;
+		|| `${process.env.API_PUBLIC_URL || 'http://localhost:3001'}/facebook/oauth/callback`,
+	).trim();
 }
 
 export function mapPage(record) {
@@ -155,9 +173,16 @@ export async function createFacebookOAuthState({
 }) {
 	const credentials = await assertFacebookOAuthReady();
 	await ensureFacebookChannelSchema(pocketbaseClient);
+	const clientId = assertValidFacebookAppId(credentials.appId);
+	const redirectUri = normalizeOAuthRedirectUri(credentials.redirectUri);
+	if (!redirectUri) {
+		throw httpError(500, 'Facebook redirect URI is not configured.', 'FACEBOOK_REDIRECT_MISSING');
+	}
+
 	const state = randomBytes(24).toString('hex');
 	const expiresAt = new Date(Date.now() + STATE_TTL_MS).toISOString();
-	const scopes = mergeRequiredScopes(credentials.scopes?.length ? credentials.scopes : DEFAULT_SCOPES);
+	const scopes = scopesForLoginDialog(credentials.scopes?.length ? credentials.scopes : DEFAULT_SCOPES);
+	const scopeParam = scopes.join(',');
 
 	let resolvedWorkspaceId = workspaceId;
 	let resolvedWorkspaceKey = workspaceKey;
@@ -204,18 +229,34 @@ export async function createFacebookOAuthState({
 		});
 	}
 
-	const query = new URLSearchParams({
-		client_id: credentials.appId,
-		redirect_uri: credentials.redirectUri,
+	const url = new URL(DIALOG_BASE);
+	url.searchParams.set('client_id', clientId);
+	url.searchParams.set('redirect_uri', redirectUri);
+	url.searchParams.set('state', state);
+	url.searchParams.set('response_type', 'code');
+	url.searchParams.set('scope', scopeParam);
+	const authUrl = url.toString();
+
+	logger.info('[facebook-oauth] authorization URL built', {
+		authUrl,
+		clientId,
+		redirectUri,
+		responseType: 'code',
+		scope: scopeParam,
+		scopes,
 		state,
-		response_type: 'code',
-		scope: scopes.join(','),
+		dialogBase: DIALOG_BASE,
+		graphVersion: GRAPH_VERSION,
 	});
 
 	return {
-		authUrl: `${DIALOG_BASE}?${query.toString()}`,
+		authUrl,
 		state,
 		expiresAt,
+		redirectUri,
+		clientId,
+		scopes,
+		responseType: 'code',
 	};
 }
 
@@ -224,7 +265,7 @@ export async function exchangeFacebookCodeForTokens({ code, redirectUri }) {
 	const url = new URL(`${GRAPH_BASE}/oauth/access_token`);
 	url.searchParams.set('client_id', credentials.appId);
 	url.searchParams.set('client_secret', credentials.appSecret);
-	url.searchParams.set('redirect_uri', redirectUri || credentials.redirectUri);
+	url.searchParams.set('redirect_uri', redirectUri || normalizeOAuthRedirectUri(credentials.redirectUri));
 	url.searchParams.set('code', code);
 
 	const response = await fetch(url.toString(), { method: 'GET' });

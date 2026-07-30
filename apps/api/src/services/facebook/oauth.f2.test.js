@@ -33,7 +33,16 @@ describe('facebook F2 oauth foundation', () => {
 		assert.ok(scopes.includes('pages_show_list'));
 		assert.ok(scopes.includes('pages_manage_posts'));
 		assert.ok(scopes.includes('public_profile'));
+		assert.equal(scopes.includes('business_management'), false);
 		assert.deepEqual(parseScopeList(DEFAULT_SCOPES.join(',')), [...DEFAULT_SCOPES]);
+	});
+
+	it('builds login-dialog safe scopes without business_management by default', async () => {
+		const { scopesForLoginDialog } = await import('./scopes.js');
+		const scopes = scopesForLoginDialog('business_management,pages_show_list');
+		assert.ok(scopes.includes('public_profile'));
+		assert.ok(scopes.includes('pages_show_list'));
+		assert.equal(scopes.includes('business_management'), false);
 	});
 
 	it('analyzes granted scopes', () => {
