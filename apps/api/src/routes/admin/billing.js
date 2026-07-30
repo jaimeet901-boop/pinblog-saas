@@ -66,6 +66,20 @@ import {
 	updateMonitoringPolicy,
 } from '../../services/billing/monitoring.js';
 import {
+	createDisasterRecoveryBackup,
+	getDisasterRecoveryBackup,
+	getDisasterRecoveryReadiness,
+	listDisasterRecoveryAudit,
+	listDisasterRecoveryBackups,
+	listDisasterRecoveryRestores,
+	restoreDisasterRecovery,
+	rollbackDisasterRecovery,
+	simulateDisasterRecoveryRestore,
+	validateDisasterRecovery,
+	verifyDisasterRecoveryBackup,
+	verifyDisasterRecoveryState,
+} from '../../services/billing/disaster-recovery.js';
+import {
 	BILLING_PERMISSIONS,
 	assertBillingPermission,
 	getBillingPermissions,
@@ -555,6 +569,125 @@ router.put(
 	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
 	asyncHandler(async (req, res) => {
 		res.json(await updateMonitoringPolicy(req.body || {}, actorFromReq(req), requestMeta(req)));
+	}),
+);
+
+/* ── BP-6 Disaster Recovery ───────────────────────────────────── */
+
+router.get(
+	'/control-plane/dr/readiness',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getDisasterRecoveryReadiness(req.adminUser));
+	}),
+);
+
+router.get(
+	'/control-plane/dr/backups',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await listDisasterRecoveryBackups(req.adminUser, {
+			limit: Number(req.query.limit) || 50,
+		}));
+	}),
+);
+
+router.post(
+	'/control-plane/dr/backups',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.status(201).json(await createDisasterRecoveryBackup(
+			req.body || {},
+			actorFromReq(req),
+			requestMeta(req),
+		));
+	}),
+);
+
+router.get(
+	'/control-plane/dr/backups/:id',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await getDisasterRecoveryBackup(req.params.id, req.adminUser));
+	}),
+);
+
+router.post(
+	'/control-plane/dr/backups/:id/verify',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await verifyDisasterRecoveryBackup(req.params.id, req.adminUser));
+	}),
+);
+
+router.post(
+	'/control-plane/dr/simulate',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await simulateDisasterRecoveryRestore(req.body || {}, req.adminUser));
+	}),
+);
+
+router.post(
+	'/control-plane/dr/restore',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await restoreDisasterRecovery(
+			req.body || {},
+			actorFromReq(req),
+			requestMeta(req),
+			req.adminUser,
+		));
+	}),
+);
+
+router.post(
+	'/control-plane/dr/rollback',
+	requireBillingPermission(BILLING_PERMISSIONS.MANAGE),
+	asyncHandler(async (req, res) => {
+		res.json(await rollbackDisasterRecovery(
+			req.body || {},
+			actorFromReq(req),
+			requestMeta(req),
+			req.adminUser,
+		));
+	}),
+);
+
+router.get(
+	'/control-plane/dr/restores',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await listDisasterRecoveryRestores(req.adminUser, {
+			limit: Number(req.query.limit) || 40,
+		}));
+	}),
+);
+
+router.post(
+	'/control-plane/dr/verify-state',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await verifyDisasterRecoveryState(req.adminUser, req.body || {}));
+	}),
+);
+
+router.post(
+	'/control-plane/dr/validate-recovery',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await validateDisasterRecovery(req.adminUser));
+	}),
+);
+
+router.get(
+	'/control-plane/dr/audit',
+	requireBillingPermission(BILLING_PERMISSIONS.READ),
+	asyncHandler(async (req, res) => {
+		res.json(await listDisasterRecoveryAudit({
+			page: Number(req.query.page) || 1,
+			perPage: Number(req.query.perPage) || 20,
+		}));
 	}),
 );
 

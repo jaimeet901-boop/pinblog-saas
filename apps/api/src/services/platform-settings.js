@@ -236,6 +236,17 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 				items: [],
 			},
 		},
+		disasterRecovery: {
+			policyVersion: 1,
+			maxBackups: 20,
+			cooldownSeconds: 60,
+			backups: [],
+			checkpoints: {
+				preRestore: null,
+			},
+			lastRestore: null,
+			restoreHistory: [],
+		},
 	},
 };
 

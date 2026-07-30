@@ -34,6 +34,7 @@ export const CONTROL_PLANE_OWNED_BILLING_KEYS = Object.freeze([
 	'failover',
 	'priceMappings',
 	'monitoring',
+	'disasterRecovery',
 ]);
 
 export function normalizeProviderCodeLocal(value) {
@@ -85,7 +86,30 @@ export function sanitizeBillingForPublic(billing = {}) {
 	for (const code of CONTROL_PLANE_PROVIDER_CODES) {
 		out.providers[code] = publicProviderConfig(code, providers[code] || {});
 	}
+	if (out.disasterRecovery && typeof out.disasterRecovery === 'object') {
+		// Lazy import avoided: redact nested backup provider ciphers inline.
+		const dr = out.disasterRecovery;
+		const backups = Array.isArray(dr.backups) ? dr.backups : [];
+		dr.backups = backups.map((backup) => redactBackupProviders(backup));
+		if (dr.checkpoints?.preRestore) {
+			dr.checkpoints.preRestore = redactBackupProviders(dr.checkpoints.preRestore);
+		}
+	}
 	return out;
+}
+
+function redactBackupProviders(backup) {
+	if (!backup || typeof backup !== 'object') return backup;
+	const copy = { ...backup, payload: { ...(backup.payload || {}) } };
+	if (copy.payload.providers && typeof copy.payload.providers === 'object') {
+		const providers = {};
+		for (const code of CONTROL_PLANE_PROVIDER_CODES) {
+			providers[code] = publicProviderConfig(code, copy.payload.providers[code] || {});
+		}
+		copy.payload.providers = providers;
+	}
+	copy.payloadRedacted = true;
+	return copy;
 }
 
 export function stripControlPlaneBillingWrites(incomingSettings = {}, currentBilling = {}) {

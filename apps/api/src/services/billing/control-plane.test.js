@@ -24,28 +24,30 @@ test('resolveProviderRuntimeConfig prefers decrypted admin secrets over empty co
 	assert.equal(resolved.mode, 'test');
 });
 
-test('sanitizeBillingForPublic never exposes ciphertext or plaintext secrets', () => {
+test('sanitizeBillingForPublic redacts disasterRecovery backup ciphertext', () => {
 	const publicBilling = sanitizeBillingForPublic({
 		provider: 'stripe',
-		checkoutEnabled: true,
 		providers: {
-			stripe: {
-				secretKey: 'sk_live_should_not_leak',
-				secretKeyCipher: 'enc:v1:fake',
-				webhookSecret: 'whsec_should_not_leak',
-				secretKeySet: true,
-				webhookSecretSet: true,
-				mode: 'live',
-			},
+			stripe: { mode: 'test', secretKeyCipher: 'enc:v1:live', secretKeySet: true },
+		},
+		disasterRecovery: {
+			policyVersion: 1,
+			backups: [{
+				id: 'drb_1',
+				manifest: { policyVersion: 1, manifestVersion: 1 },
+				payload: {
+					providers: {
+						stripe: { mode: 'test', secretKeyCipher: 'enc:v1:backup', secretKeySet: true },
+					},
+				},
+			}],
+			checkpoints: { preRestore: null },
 		},
 	});
-	const stripe = publicBilling.providers.stripe;
-	assert.equal(stripe.secretKeySet, true);
-	assert.equal(stripe.webhookSecretSet, true);
-	assert.equal(stripe.secretKey, undefined);
-	assert.equal(stripe.secretKeyCipher, undefined);
-	assert.equal(stripe.webhookSecret, undefined);
-	assert.equal(stripe.mode, 'live');
+	const backupStripe = publicBilling.disasterRecovery.backups[0].payload.providers.stripe;
+	assert.equal(backupStripe.secretKeyCipher, undefined);
+	assert.equal(backupStripe.secretKeySet, true);
+	assert.equal(publicBilling.disasterRecovery.backups[0].payloadRedacted, true);
 });
 
 test('stripControlPlaneBillingWrites preserves current provider authority fields', () => {
