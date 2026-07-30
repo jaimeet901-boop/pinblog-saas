@@ -59,6 +59,12 @@ import {
 	rescheduleCalendarEvent,
 	deleteCalendarEvent,
 } from '../../services/workspace-calendar.js';
+import { listUnifiedCalendarEvents } from '../../services/calendar/facade.js';
+import {
+	cancelCalendarScheduledItem,
+	rescheduleCalendarScheduledItem,
+	retryCalendarScheduledItem,
+} from '../../services/calendar/mutations/router.js';
 import { getWorkspaceHistory } from '../../services/workspace-history.js';
 import {
 	buildWorkspaceConfig,
@@ -429,6 +435,24 @@ router.post('/notifications/:id/dismiss', async (req, res) => {
 router.get('/calendar', async (req, res) => {
 	res.json(await listCalendarEvents(req, req.query));
 });
+
+/** Unified Calendar Facade (C1). Channel-agnostic Scheduled Items. UI cutover is C2. */
+router.get('/calendar/events', asyncHandler(async (req, res) => {
+	res.json(await listUnifiedCalendarEvents(req, req.query));
+}));
+
+/** Unified Calendar Mutation Router (C5). Dispatches to owning channel adapters. */
+router.post('/calendar/events/:eventId/reschedule', asyncHandler(async (req, res) => {
+	res.json(await rescheduleCalendarScheduledItem(req, req.params.eventId, req.body || {}));
+}));
+
+router.post('/calendar/events/:eventId/cancel', asyncHandler(async (req, res) => {
+	res.json(await cancelCalendarScheduledItem(req, req.params.eventId, req.body || {}));
+}));
+
+router.post('/calendar/events/:eventId/retry', asyncHandler(async (req, res) => {
+	res.json(await retryCalendarScheduledItem(req, req.params.eventId, req.body || {}));
+}));
 
 router.post('/calendar', async (req, res) => {
 	res.status(201).json(await createCalendarEvent(req, req.body || {}));

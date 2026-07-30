@@ -234,35 +234,13 @@ export async function getWorkspaceDashboard(req) {
 	const successRate = successTotal ? Math.round((publishedPosts / successTotal) * 100) : null;
 
 	const calendarMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-	let calendarJobs = [];
-	try {
-		const events = await pocketbaseClient.collection('calendar_events').getFullList({
-			filter: pocketbaseClient.filter('workspace = {:ws}', { ws: req.workspace.id }),
-			sort: 'scheduled_at',
-			requestKey: null,
-		});
-		calendarJobs = events
-			.filter((event) => String(event.scheduled_at || '').startsWith(calendarMonth))
-			.map((event) => ({
-				id: event.id,
-				title: event.title,
-				status: event.status,
-				scheduledAt: event.scheduled_at,
-				timezone: event.timezone || 'UTC',
-				eventType: event.event_type,
-			}));
-	} catch {
-		calendarJobs = publishJobs
-			.filter((job) => job.scheduled_at && String(job.scheduled_at).startsWith(calendarMonth))
-			.map((job) => ({
-				id: job.id,
-				title: job.title || 'Scheduled pin',
-				status: job.status,
-				scheduledAt: job.scheduled_at,
-				timezone: job.scheduled_timezone || 'UTC',
-				eventType: 'publish',
-			}));
-	}
+	// C3: Dashboard calendar preview uses Unified Calendar Facade only (no CE-first path).
+	const { loadDashboardCalendarJobs } = await import('./calendar/product-calendar.js');
+	const calendarPreview = await loadDashboardCalendarJobs(req, {
+		month: calendarMonth,
+		assertCapability: () => {},
+	}).catch(() => ({ month: calendarMonth, calendarJobs: [], items: [] }));
+	const calendarJobs = calendarPreview.calendarJobs || [];
 
 	const storageUsedGb = Number(req.workspace.metadata?.storageUsedGb)
 		|| Math.round(((Number(usage.totals?.tokens) || 0) / 1_000_000) * 10) / 10

@@ -210,6 +210,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
 	const setupPublish = searchParams.get('setup') === 'publish';
 	const openManualFromQuery = searchParams.get('manual') === '1';
+	const openPinIdFromQuery = String(searchParams.get('pinId') || '').trim();
 	const { connected: destinationConnected, refresh: refreshDestination } = useDestinationConnected(destination);
 	const pinterestConnected = destinationConnected;
 	const refreshPinterest = refreshDestination;
@@ -833,6 +834,15 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			setManualOpen(true);
 		}
 	}, [openManualFromQuery, websiteId]);
+
+	// Calendar / deep-link: open the originating Studio pin when pinId is present.
+	useEffect(() => {
+		if (!openPinIdFromQuery || loadingPins) return;
+		const exists = savedPins.some((pin) => pin.id === openPinIdFromQuery);
+		if (!exists) return;
+		setEditingPinId(openPinIdFromQuery);
+		setSelectedPreviewTempId('');
+	}, [openPinIdFromQuery, savedPins, loadingPins]);
 
 	useEffect(() => {
 		loadBoards();

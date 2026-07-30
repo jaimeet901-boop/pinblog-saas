@@ -200,12 +200,45 @@ interface BrandKitDto {
 | POST | `/pinterest/accounts/:id/boards/:boardId/default` | default board |
 | POST | `/pinterest/publish` | publish now |
 | POST | `/pinterest/schedule` | schedule |
-| GET | `/pinterest/calendar` | `month=` |
+| GET | `/pinterest/calendar` | `month=` (legacy; CalendarPage uses facade since C2 — see `docs/calendar-architecture.md`) |
 | GET | `/pinterest/history` | filters + page |
 | PATCH | `/pinterest/jobs/:id` | reschedule |
 | POST | `/pinterest/jobs/:id/retry` | retry |
 | POST | `/pinterest/jobs/:id/cancel` | cancel |
 | GET | `/pinterest/analytics` | metrics |
+
+### 2.x Unified Calendar Facade (C1)
+
+Base (workspace router): `/workspace/v1`
+
+| Method | Path | Query | Notes |
+|--------|------|-------|-------|
+| GET | `/calendar/events` | `month` \| `from`+`to`, `websiteId`, `channels`, `statuses` (default: publish lifecycle), `includeManual`, `includeDrafts` (default false) | Channel-agnostic Scheduled Items; see `docs/calendar-architecture.md` |
+| POST | `/calendar/events/:eventId/reschedule` | `{ scheduledAt, timezone }` | Mutation router → channel adapter |
+| POST | `/calendar/events/:eventId/cancel` | — | Mutation router → channel adapter |
+| POST | `/calendar/events/:eventId/retry` | — | Mutation router → channel adapter |
+| GET | `/calendar` | `month` | Legacy **calendar_events only** (manual/planned); PPJ merge retired in C10; orphan channel-job mirrors excluded |
+| POST/PATCH/DELETE | `/calendar`, `/calendar/:id` | — | Legacy CE CRUD; dual-write of channel jobs frozen |
+
+```ts
+interface ScheduledItem {
+  id: string;            // `${channel}:${refId}`
+  channel: string;       // opaque: pinterest | manual | …
+  status: 'scheduled' | 'publishing' | 'published' | 'failed' | 'cancelled';
+  scheduledAt: string;
+  timezone: string;
+  websiteId: string;
+  website: { id: string; name: string | null; domain: string | null } | null;
+  title: string;
+  previewUrl: string;
+  refType: string;
+  refId: string;
+  actions: string[];
+  readOnly: boolean;
+  deepLinks: Record<string, string>;
+  performance: Record<string, unknown> | null;
+}
+```
 
 ```ts
 interface PinterestPublishJob {
@@ -619,7 +652,7 @@ Matches `systemHealthMock` structure.
 | Brand Kit | `/ai-pins/brand-kits` |
 | History | `/ai-pins/history` |
 | Pinterest hub | `/pinterest/*` |
-| Calendar / Pub history | `/pinterest/calendar`, `/history`, jobs |
+| Calendar / Pub history | **Unified Calendar (C10):** Facade + Mutation Router; channel job SoT; CE manual overlay only (no PPJ merge); Pinterest/WordPress/Facebook providers+adapters; Studio/drafts; C8 projections — `docs/calendar-architecture.md` |
 | Analytics (app) | `/pinterest/analytics` |
 | Subscription | PB `users.plan` → target `/billing/*` |
 | Settings / Profile | PB users + `/settings` |

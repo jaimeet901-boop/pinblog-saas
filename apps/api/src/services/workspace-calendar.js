@@ -1,5 +1,19 @@
+/**
+ * Workspace calendar_events CRUD (manual / planned overlay only).
+ *
+ * C10 architecture lock (docs/calendar-architecture.md):
+ * - Channel jobs remain the sole write SoT for scheduled publishing.
+ * - Dual-write of channel job schedules into calendar_events is frozen.
+ * - Legacy GET /workspace/v1/calendar returns calendar_events only (no PPJ merge).
+ * - Product Calendar reads the Unified Facade; this module must not grow
+ *   Pinterest/WordPress/Facebook business logic.
+ */
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { httpError } from '../middleware/require-admin.js';
+import {
+	assertCalendarEventsNotChannelJobMirror,
+	isOrphanChannelJobMirrorEvent,
+} from './calendar/calendar-architecture.js';
 import { assertCapability } from './workspace-rbac.js';
 import { assertSameWorkspace } from './workspace-context.js';
 
@@ -20,6 +34,10 @@ function mapEvent(record) {
 	};
 }
 
+/**
+ * Legacy CE list for manual / planned events only.
+ * Does not merge channel publish jobs (C10 — publish SoT is channel job tables).
+ */
 export async function listCalendarEvents(req, query = {}) {
 	assertCapability(req, 'workspace.read');
 	const month = String(query.month || '').trim();
@@ -30,45 +48,21 @@ export async function listCalendarEvents(req, query = {}) {
 		requestKey: null,
 	}).catch(() => []);
 
-	let items = records.map(mapEvent);
+	let items = records
+		.map(mapEvent)
+		.filter((item) => !isOrphanChannelJobMirrorEvent(item));
 	if (month) {
 		items = items.filter((item) => String(item.scheduledAt || '').startsWith(month));
 	}
 
-	// Also surface owned Pinterest publish jobs as calendar entries (read-only merge).
-	let publishJobs = [];
-	try {
-		publishJobs = await pocketbaseClient.collection('pinterest_publish_jobs').getFullList({
-			filter: pocketbaseClient.filter('owner = {:owner}', { owner: req.pocketbaseUserId }),
-			sort: 'scheduled_at',
-			requestKey: null,
-		});
-	} catch {
-		publishJobs = [];
-	}
-
-	const fromJobs = publishJobs
-		.filter((job) => job.scheduled_at)
-		.filter((job) => !month || String(job.scheduled_at).startsWith(month))
-		.map((job) => ({
-			id: job.id,
-			title: job.title || 'Pinterest publish',
-			description: job.publish_error || '',
-			eventType: 'publish',
-			status: job.status || 'scheduled',
-			scheduledAt: job.scheduled_at,
-			timezone: job.scheduled_timezone || 'UTC',
-			refType: 'pinterest_publish_jobs',
-			refId: job.id,
-			meta: { source: 'pinterest' },
-			created: job.created,
-			updated: job.updated,
-			readOnly: true,
-		}));
-
 	return {
-		items: [...items, ...fromJobs].sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt)),
+		items: items.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt)),
 		month: month || null,
+		meta: {
+			source: 'calendar_events',
+			channelJobMerge: false,
+			phase: 'C10',
+		},
 	};
 }
 
@@ -78,6 +72,7 @@ export async function createCalendarEvent(req, payload = {}) {
 	const scheduledAt = payload.scheduledAt || payload.scheduled_at;
 	if (!title) throw httpError(422, 'title is required', 'VALIDATION_ERROR');
 	if (!scheduledAt) throw httpError(422, 'scheduledAt is required', 'VALIDATION_ERROR');
+	assertCalendarEventsNotChannelJobMirror(payload, { operation: 'create' });
 
 	const created = await pocketbaseClient.collection('calendar_events').create({
 		workspace: req.workspace.id,
@@ -105,6 +100,8 @@ async function loadEvent(req, id) {
 export async function updateCalendarEvent(req, id, payload = {}) {
 	assertCapability(req, 'workspace.calendar.manage');
 	const existing = await loadEvent(req, id);
+	assertCalendarEventsNotChannelJobMirror(payload, { operation: 'update' });
+
 	const updates = {};
 	if (payload.title != null) updates.title = String(payload.title).trim();
 	if (payload.description != null) updates.description = String(payload.description).slice(0, 2000);
@@ -117,6 +114,7 @@ export async function updateCalendarEvent(req, id, payload = {}) {
 	}
 	if (payload.timezone != null) updates.timezone = payload.timezone;
 	if (payload.meta != null) updates.meta = payload.meta;
+	// ref_type / ref_id not accepted on update (C0: prevent attaching channel job mirrors).
 
 	const updated = await pocketbaseClient.collection('calendar_events').update(existing.id, updates);
 	return mapEvent(updated);

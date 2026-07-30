@@ -5,6 +5,11 @@ import {
 	ExternalLink, XCircle, Loader2,
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
+import {
+	buildCalendarEventsUrl,
+	mapFacadeCalendarResponse,
+} from '@/lib/calendar/mapScheduledItem';
+import { buildCalendarMutationUrl } from '@/lib/calendar/mutations';
 import { Badge, Button, Select, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import { useWorkspaceConfig } from '@/context/WorkspaceConfigContext';
@@ -116,12 +121,16 @@ export default function CalendarPage() {
 	const loadCalendar = async () => {
 		setLoading(true);
 		try {
-			const response = await apiServerClient.fetch(`/pinterest/calendar?month=${monthKey}`, { method: 'GET' });
-			const payload = await response.json().catch(() => []);
+			// C2: Unified Calendar Facade is the only read source (legacy /pinterest/calendar kept for compat).
+			const response = await apiServerClient.fetch(buildCalendarEventsUrl({
+				month: monthKey,
+				websiteId: websiteFilter,
+			}), { method: 'GET' });
+			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to load calendar (${response.status})`);
 			}
-			const next = Array.isArray(payload) ? payload : [];
+			const next = mapFacadeCalendarResponse(payload);
 			setJobs(next);
 			setSelectedJob((prev) => {
 				if (!prev) return null;
@@ -136,7 +145,7 @@ export default function CalendarPage() {
 
 	useEffect(() => {
 		loadCalendar();
-	}, [monthKey]);
+	}, [monthKey, websiteFilter]);
 
 	const { days, month } = useMemo(() => {
 		const y = cursor.getFullYear();
@@ -295,8 +304,9 @@ export default function CalendarPage() {
 		const movedDate = new Date(targetDay.getFullYear(), targetDay.getMonth(), targetDay.getDate(), oldDate.getHours(), oldDate.getMinutes(), 0);
 
 		try {
-			const response = await apiServerClient.fetch(`/pinterest/jobs/${draggingJobId}`, {
-				method: 'PATCH',
+			// C5: mutations go through Unified Calendar Mutation Router (channel adapter owns writes).
+			const response = await apiServerClient.fetch(buildCalendarMutationUrl(dragged, 'reschedule'), {
+				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					scheduledAt: movedDate.toISOString(),
@@ -308,11 +318,8 @@ export default function CalendarPage() {
 				throw new Error(payload?.message || `Failed to update schedule (${response.status})`);
 			}
 
-			setJobs((prev) => prev.map((job) => (job.id === draggingJobId ? payload : job)));
-			if (selectedJob?.id === draggingJobId) {
-				setSelectedJob(payload);
-			}
 			toast({ title: 'Schedule updated', description: 'Pin date was moved successfully.' });
+			await loadCalendar();
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Failed to move pin', description: error.message });
 		} finally {
@@ -321,9 +328,10 @@ export default function CalendarPage() {
 	};
 
 	const retryFailed = async (jobId) => {
+		const job = jobs.find((item) => item.id === jobId) || selectedJob;
 		setRetryingId(jobId);
 		try {
-			const response = await apiServerClient.fetch(`/pinterest/jobs/${jobId}/retry`, { method: 'POST' });
+			const response = await apiServerClient.fetch(buildCalendarMutationUrl(job, 'retry'), { method: 'POST' });
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to retry job (${response.status})`);
@@ -338,9 +346,10 @@ export default function CalendarPage() {
 	};
 
 	const cancelScheduled = async (jobId) => {
+		const job = jobs.find((item) => item.id === jobId) || selectedJob;
 		setCancellingId(jobId);
 		try {
-			const response = await apiServerClient.fetch(`/pinterest/jobs/${jobId}/cancel`, { method: 'POST' });
+			const response = await apiServerClient.fetch(buildCalendarMutationUrl(job, 'cancel'), { method: 'POST' });
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to cancel schedule (${response.status})`);
@@ -816,6 +825,21 @@ export default function CalendarPage() {
 									<div className="cal-box">{selectedJob.pin?.overlayText || selectedJob.pin?.description || 'No prompt text on this job.'}</div>
 								</div>
 								<div className="grid gap-2">
+									{Boolean(selectedJob.studioHref || selectedJob.pin?.id) && (
+										<Link
+											to={
+												selectedJob.studioHref
+												|| withWebsiteQuery(
+													`/app/ai-pins?pinId=${encodeURIComponent(selectedJob.pin.id)}`,
+													selectedJob.websiteId || preferredWebsiteId,
+												)
+											}
+										>
+											<Button size="sm" variant="outline" className="w-full">
+												<Pin size={14} /> Open in Studio
+											</Button>
+										</Link>
+									)}
 									<Button
 										size="sm"
 										variant="outline"
