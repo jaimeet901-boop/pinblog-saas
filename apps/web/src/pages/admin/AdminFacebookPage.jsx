@@ -97,6 +97,16 @@ export default function AdminFacebookPage() {
 				enabled,
 				trialAccessPending,
 			};
+			const looksReady = Boolean(body.appId)
+				&& !/^YOUR_FACEBOOK/i.test(body.appId)
+				&& (Boolean(appSecret.trim()) || oauth.hasAppSecret);
+			if (looksReady) {
+				// Activate OAuth when real Meta credentials are saved (seed defaults block Connect with 503).
+				body.enabled = true;
+				body.trialAccessPending = false;
+				setEnabled(true);
+				setTrialAccessPending(false);
+			}
 			if (appSecret.trim() && !appSecret.includes('•')) {
 				body.appSecret = appSecret.trim();
 			}

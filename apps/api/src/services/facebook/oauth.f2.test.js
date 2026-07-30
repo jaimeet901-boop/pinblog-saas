@@ -9,6 +9,10 @@ import {
 	FACEBOOK_CHANNEL_CAPABILITIES,
 	getFacebookChannelPackDto,
 } from './channel-pack.js';
+import {
+	evaluateFacebookOAuthReadiness,
+	PLACEHOLDER_APP_ID,
+} from './oauth-readiness.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
@@ -44,6 +48,40 @@ describe('facebook F2 oauth foundation', () => {
 		});
 		assert.equal(missing.ok, false);
 		assert.ok(missing.missing.includes('pages_manage_posts'));
+	});
+
+	it('does not block OAuth start on trial_access_pending when credentials are complete', () => {
+		const ready = evaluateFacebookOAuthReadiness({
+			appId: '123456789012345',
+			appSecret: 'secret',
+			redirectUri: 'https://tbuy.store/api/facebook/oauth/callback',
+			enabled: true,
+			trialAccessPending: true,
+			source: 'pocketbase',
+		});
+		assert.equal(ready.ok, true);
+
+		const pending = evaluateFacebookOAuthReadiness({
+			appId: PLACEHOLDER_APP_ID,
+			appSecret: '',
+			redirectUri: 'https://tbuy.store/api/facebook/oauth/callback',
+			enabled: false,
+			trialAccessPending: true,
+			source: 'pocketbase',
+		});
+		assert.equal(pending.ok, false);
+		assert.equal(pending.errorCode, 'FACEBOOK_OAUTH_PENDING');
+
+		const disabled = evaluateFacebookOAuthReadiness({
+			appId: '123456789012345',
+			appSecret: 'secret',
+			redirectUri: 'https://tbuy.store/api/facebook/oauth/callback',
+			enabled: false,
+			trialAccessPending: false,
+			source: 'pocketbase',
+		});
+		assert.equal(disabled.ok, false);
+		assert.equal(disabled.errorCode, 'FACEBOOK_OAUTH_DISABLED');
 	});
 
 	it('ships oauth platform migration and routes', () => {

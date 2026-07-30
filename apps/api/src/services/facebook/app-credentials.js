@@ -3,9 +3,13 @@ import { encryptFacebookSecret, decryptFacebookSecret, isEncryptedSecret } from 
 import { ensureFacebookOAuthSchema } from '../../utils/ensure-facebook-oauth-schema.js';
 import { writeAuditLog } from '../audit/write.js';
 import { DEFAULT_SCOPES, mergeRequiredScopes } from './scopes.js';
+import {
+	evaluateFacebookOAuthReadiness,
+	isPlaceholderFacebookAppId,
+	PLACEHOLDER_APP_ID,
+} from './oauth-readiness.js';
 
 const CONFIG_KEY = 'platform';
-const PLACEHOLDER_APP_ID = 'YOUR_FACEBOOK_APP_ID';
 
 async function withFacebookCredentialsCollection(fn) {
 	await ensureFacebookOAuthSchema(pocketbaseClient);
@@ -32,9 +36,7 @@ function maskSecret(value) {
 }
 
 function isPlaceholderAppId(appId) {
-	const value = String(appId || '').trim();
-	if (!value) return true;
-	return /^YOUR_FACEBOOK/i.test(value) || /^PENDING_/i.test(value) || value === PLACEHOLDER_APP_ID;
+	return isPlaceholderFacebookAppId(appId, PLACEHOLDER_APP_ID);
 }
 
 async function getCredentialRow() {
@@ -115,29 +117,35 @@ export async function getFacebookAppCredentials() {
 
 export async function isFacebookOAuthReady() {
 	const credentials = await getFacebookAppCredentials();
-	if (credentials.trialAccessPending || isPlaceholderAppId(credentials.appId) || !credentials.appSecret) {
-		return false;
-	}
-	if (!credentials.enabled && credentials.source === 'pocketbase') {
-		return false;
-	}
-	return Boolean(credentials.redirectUri);
+	return evaluateFacebookOAuthReadiness(credentials).ok;
 }
 
 export async function assertFacebookOAuthReady() {
-	const credentials = await getFacebookAppCredentials();
-	if (credentials.trialAccessPending || isPlaceholderAppId(credentials.appId) || !credentials.appSecret) {
-		throw httpError(
-			503,
-			'Facebook OAuth is not ready. Configure App ID and App Secret in Admin Console → Facebook Accounts.',
-			'FACEBOOK_OAUTH_PENDING',
-		);
+	let credentials = await getFacebookAppCredentials();
+	let readiness = evaluateFacebookOAuthReadiness(credentials);
+
+	// Heal seed/Admin default trap: App ID + Secret saved while "App access pending"
+	// stayed on and "OAuth enabled" stayed off → Connect returned 503 forever.
+	if (
+		!readiness.ok
+		&& readiness.errorCode === 'FACEBOOK_OAUTH_DISABLED'
+		&& credentials.trialAccessPending
+		&& !isPlaceholderAppId(credentials.appId)
+		&& credentials.appSecret
+	) {
+		const row = await getCredentialRow();
+		if (row?.id) {
+			await pocketbaseClient.collection('facebook_app_credentials').update(row.id, {
+				enabled: true,
+				trial_access_pending: false,
+			});
+			credentials = await getFacebookAppCredentials();
+			readiness = evaluateFacebookOAuthReadiness(credentials);
+		}
 	}
-	if (!credentials.enabled && credentials.source === 'pocketbase') {
-		throw httpError(503, 'Facebook OAuth is disabled in Admin Console.', 'FACEBOOK_OAUTH_DISABLED');
-	}
-	if (!credentials.redirectUri) {
-		throw httpError(500, 'Facebook redirect URI is not configured.', 'FACEBOOK_REDIRECT_MISSING');
+
+	if (!readiness.ok) {
+		throw httpError(readiness.status, readiness.message, readiness.errorCode);
 	}
 	return credentials;
 }
@@ -156,16 +164,35 @@ export async function upsertFacebookAppCredentials(payload = {}, actor = {}) {
 			? String(payload.scopes).trim()
 			: (existing?.scopes || DEFAULT_SCOPES.join(',')),
 	).join(',');
-	const trialPending = payload.trialAccessPending != null
-		? Boolean(payload.trialAccessPending)
-		: (existing ? Boolean(existing.trial_access_pending) : true);
-	const enabled = payload.enabled != null
-		? Boolean(payload.enabled)
-		: (existing ? Boolean(existing.enabled) : false);
 
 	let secretCipher = existing?.app_secret_ciphertext || '';
 	if (payload.appSecret != null && String(payload.appSecret).trim() && !String(payload.appSecret).includes('•')) {
 		secretCipher = encryptFacebookSecret(String(payload.appSecret).trim());
+	}
+
+	const credentialsComplete = !isPlaceholderAppId(nextAppId) && Boolean(secretCipher);
+	const previouslyComplete = Boolean(
+		existing
+		&& !isPlaceholderAppId(existing.app_id)
+		&& existing.app_secret_ciphertext,
+	);
+
+	// Meta has no Trial Access gate. Complete credentials must clear the seed pending flag
+	// or OAuth start stays 503 even after Admin saves App ID / Secret.
+	const trialPending = credentialsComplete
+		? false
+		: (payload.trialAccessPending != null
+			? Boolean(payload.trialAccessPending)
+			: (existing ? Boolean(existing.trial_access_pending) : true));
+
+	let enabled;
+	if (credentialsComplete && !previouslyComplete) {
+		// First time real credentials are stored — activate OAuth (seed defaults are disabled/pending).
+		enabled = true;
+	} else if (payload.enabled != null) {
+		enabled = Boolean(payload.enabled);
+	} else {
+		enabled = existing ? Boolean(existing.enabled) : false;
 	}
 
 	const body = {
@@ -234,4 +261,10 @@ export async function ensureFacebookAppCredentialsSeeded() {
 	return mapPublicConfig(created || body);
 }
 
-export { PLACEHOLDER_APP_ID, DEFAULT_SCOPES, defaultRedirectUri };
+export {
+	PLACEHOLDER_APP_ID,
+	DEFAULT_SCOPES,
+	defaultRedirectUri,
+	isPlaceholderAppId,
+	evaluateFacebookOAuthReadiness,
+};

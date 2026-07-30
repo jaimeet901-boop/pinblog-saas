@@ -166,6 +166,10 @@ export async function createFacebookOAuthState({
 		}
 	}
 
+	if (!resolvedWorkspaceId) {
+		throw httpError(422, 'Workspace is required to start Facebook OAuth.', 'FACEBOOK_WORKSPACE_REQUIRED');
+	}
+
 	const body = {
 		owner,
 		state,
@@ -176,11 +180,24 @@ export async function createFacebookOAuthState({
 		workspace_id: resolvedWorkspaceId || '',
 		workspace_key: resolvedWorkspaceKey || '',
 		return_path: returnPath || '',
+		workspace: resolvedWorkspaceId,
 	};
-	if (resolvedWorkspaceId) body.workspace = resolvedWorkspaceId;
 	if (websiteId) body.websiteId = websiteId;
 
-	await pocketbaseClient.collection('facebook_oauth_states').create(body);
+	try {
+		await pocketbaseClient.collection('facebook_oauth_states').create(body);
+	} catch (error) {
+		// Older / partial schemas may reject optional fields — retry minimal required set.
+		await pocketbaseClient.collection('facebook_oauth_states').create({
+			owner,
+			state,
+			expires_at: expiresAt,
+			used: false,
+			workspace: resolvedWorkspaceId,
+		}).catch(() => {
+			throw error;
+		});
+	}
 
 	const query = new URLSearchParams({
 		client_id: credentials.appId,
