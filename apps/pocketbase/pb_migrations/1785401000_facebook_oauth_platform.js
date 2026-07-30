@@ -5,6 +5,32 @@
  * - oauth_states fields for reconnect (account_id, requested_label, workspace_*)
  */
 
+const coreNS = typeof core !== "undefined" ? core : {};
+
+function pickCtor(...ctors) {
+	for (const ctor of ctors) {
+		if (typeof ctor === "function") return ctor;
+	}
+	return null;
+}
+
+function toField(def) {
+	if (!def || typeof def !== "object" || typeof def.type !== "string") return def;
+	const ctorByType = {
+		text: pickCtor(typeof TextField !== "undefined" ? TextField : null, coreNS.TextField),
+		number: pickCtor(typeof NumberField !== "undefined" ? NumberField : null, coreNS.NumberField),
+		bool: pickCtor(typeof BoolField !== "undefined" ? BoolField : null, coreNS.BoolField),
+		select: pickCtor(typeof SelectField !== "undefined" ? SelectField : null, coreNS.SelectField),
+		date: pickCtor(typeof DateField !== "undefined" ? DateField : null, coreNS.DateField),
+		json: pickCtor(typeof JSONField !== "undefined" ? JSONField : null, coreNS.JSONField),
+		relation: pickCtor(typeof RelationField !== "undefined" ? RelationField : null, coreNS.RelationField),
+		autodate: pickCtor(typeof AutodateField !== "undefined" ? AutodateField : null, coreNS.AutodateField),
+	};
+	const Ctor = ctorByType[def.type];
+	if (!Ctor) throw new Error(`Unsupported migration field type: ${def.type}`);
+	return new Ctor(def);
+}
+
 function findCollectionSafe(app, name) {
 	try {
 		return app.findCollectionByNameOrId(name);
@@ -13,21 +39,16 @@ function findCollectionSafe(app, name) {
 	}
 }
 
-function relationField(name, collectionId, options = {}) {
-	return {
+function ensureTextField(collection, name, max) {
+	if (collection.fields.getByName(name)) return false;
+	collection.fields.add(toField({
+		type: "text",
 		name,
-		type: "relation",
-		required: options.required === true,
-		maxSelect: options.maxSelect ?? 1,
-		collectionId,
-		cascadeDelete: options.cascadeDelete === true,
-	};
+		max: max || 255,
+		required: false,
+	}));
+	return true;
 }
-
-const AUTODATE_FIELDS = [
-	{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
-	{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
-];
 
 function saveApiOnly(app, collection) {
 	collection.listRule = null;
@@ -39,20 +60,25 @@ function saveApiOnly(app, collection) {
 	return app.findCollectionByNameOrId(collection.id || collection.name);
 }
 
-function ensureTextField(collection, name, max) {
-	if (collection.fields.getByName(name)) return false;
-	collection.fields.add(new Field({
-		type: "text",
-		name,
-		max: max || 255,
-		required: false,
-	}));
-	return true;
-}
+const AUTODATE_FIELDS = [
+	{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
+	{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
+];
 
 migrate(
 	(app) => {
 		if (!findCollectionSafe(app, "facebook_app_credentials")) {
+			const credentialFields = [
+				{ type: "text", name: "config_key", required: true, max: 80 },
+				{ type: "text", name: "app_id", max: 200 },
+				{ type: "text", name: "app_secret_ciphertext", max: 4000 },
+				{ type: "text", name: "redirect_uri", max: 1000 },
+				{ type: "text", name: "scopes", max: 2000 },
+				{ type: "bool", name: "enabled" },
+				{ type: "bool", name: "trial_access_pending" },
+				{ type: "text", name: "kek_version", max: 40 },
+				{ type: "json", name: "meta", maxSize: 100000 },
+			];
 			saveApiOnly(
 				app,
 				new Collection({
@@ -66,17 +92,7 @@ migrate(
 					indexes: [
 						"CREATE UNIQUE INDEX `idx_facebook_app_credentials_key` ON `facebook_app_credentials` (`config_key`)",
 					],
-					fields: [
-						{ type: "text", name: "config_key", required: true, max: 80 },
-						{ type: "text", name: "app_id", max: 200 },
-						{ type: "text", name: "app_secret_ciphertext", max: 4000 },
-						{ type: "text", name: "redirect_uri", max: 1000 },
-						{ type: "text", name: "scopes", max: 2000 },
-						{ type: "bool", name: "enabled" },
-						{ type: "bool", name: "trial_access_pending" },
-						{ type: "text", name: "kek_version", max: 40 },
-						{ type: "json", name: "meta", maxSize: 100000 },
-					].concat(AUTODATE_FIELDS),
+					fields: credentialFields.concat(AUTODATE_FIELDS).map(toField),
 				}),
 			);
 		}

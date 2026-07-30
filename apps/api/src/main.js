@@ -29,6 +29,7 @@ import { ensureBillingAutomationSchema } from './utils/ensure-billing-automation
 import { ensureWorkspaceEnterpriseSchema } from './utils/ensure-workspace-enterprise-schema.js';
 import { ensureWorkspaceOwnershipSchema } from './utils/ensure-workspace-ownership-schema.js';
 import { ensureWebsiteLifecycleSchema } from './utils/ensure-website-lifecycle-schema.js';
+import { ensureFacebookOAuthSchema } from './utils/ensure-facebook-oauth-schema.js';
 import { startBillingAutomationWorker, stopBillingAutomationWorker } from './services/billing/index.js';
 import pocketbaseClient from './utils/pocketbaseClient.js';
 
@@ -152,6 +153,9 @@ app.listen(port, () => {
 	});
 	ensureFacebookAppCredentialsSeeded().catch((error) => {
 		logger.warn('Facebook OAuth credentials seed skipped:', error?.message || error);
+	});
+	ensureFacebookOAuthSchema(pocketbaseClient).catch((error) => {
+		logger.warn('Facebook OAuth schema ensure skipped:', error?.message || error);
 	});
 	ensurePlatformSettingsSeeded().catch((error) => {
 		logger.warn('Platform settings seed skipped:', error?.message || error);

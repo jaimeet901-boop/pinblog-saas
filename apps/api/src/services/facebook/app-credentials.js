@@ -1,10 +1,16 @@
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { encryptFacebookSecret, decryptFacebookSecret, isEncryptedSecret } from '../../utils/secretCrypto.js';
+import { ensureFacebookOAuthSchema } from '../../utils/ensure-facebook-oauth-schema.js';
 import { writeAuditLog } from '../audit/write.js';
 import { DEFAULT_SCOPES, mergeRequiredScopes } from './scopes.js';
 
 const CONFIG_KEY = 'platform';
 const PLACEHOLDER_APP_ID = 'YOUR_FACEBOOK_APP_ID';
+
+async function withFacebookCredentialsCollection(fn) {
+	await ensureFacebookOAuthSchema(pocketbaseClient);
+	return fn();
+}
 
 function httpError(status, message, errorCode = 'FACEBOOK_OAUTH_CONFIG') {
 	const error = new Error(message);
@@ -32,10 +38,10 @@ function isPlaceholderAppId(appId) {
 }
 
 async function getCredentialRow() {
-	return pocketbaseClient.collection('facebook_app_credentials').getFirstListItem(
+	return withFacebookCredentialsCollection(() => pocketbaseClient.collection('facebook_app_credentials').getFirstListItem(
 		pocketbaseClient.filter('config_key = {:key}', { key: CONFIG_KEY }),
 		{ requestKey: null },
-	).catch(() => null);
+	)).catch(() => null);
 }
 
 function mapPublicConfig(row) {
@@ -137,6 +143,7 @@ export async function assertFacebookOAuthReady() {
 }
 
 export async function upsertFacebookAppCredentials(payload = {}, actor = {}) {
+	await ensureFacebookOAuthSchema(pocketbaseClient);
 	const existing = await getCredentialRow();
 	const nextAppId = payload.appId != null
 		? String(payload.appId).trim()
@@ -204,6 +211,7 @@ export async function upsertFacebookAppCredentials(payload = {}, actor = {}) {
 }
 
 export async function ensureFacebookAppCredentialsSeeded() {
+	await ensureFacebookOAuthSchema(pocketbaseClient);
 	const existing = await getCredentialRow();
 	if (existing) return mapPublicConfig(existing);
 

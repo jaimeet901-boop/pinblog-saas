@@ -51,6 +51,10 @@ describe('facebook F2 oauth foundation', () => {
 			existsSync(path.join(root, 'apps/pocketbase/pb_migrations/1785401000_facebook_oauth_platform.js')),
 			true,
 		);
+		assert.equal(
+			existsSync(path.join(root, 'apps/pocketbase/pb_migrations/1785401100_fix_facebook_app_credentials_schema.js')),
+			true,
+		);
 		const route = readFileSync(path.join(root, 'apps/api/src/routes/facebook.js'), 'utf8');
 		assert.match(route, /oauth\/callback/);
 		assert.match(route, /oauth\/start/);
@@ -62,6 +66,9 @@ describe('facebook F2 oauth foundation', () => {
 
 		const admin = readFileSync(path.join(root, 'apps/api/src/routes/admin/facebook.js'), 'utf8');
 		assert.match(admin, /oauth-config/);
+
+		const adminMount = readFileSync(path.join(root, 'apps/api/src/routes/admin/index.js'), 'utf8');
+		assert.match(adminMount, /\/facebook/);
 
 		const secrets = readFileSync(path.join(root, 'apps/api/src/services/facebook/secrets.js'), 'utf8');
 		assert.match(secrets, /encryptFacebookSecret/);
@@ -75,6 +82,15 @@ describe('facebook F2 oauth foundation', () => {
 		const adminUi = readFileSync(path.join(root, 'apps/web/src/pages/admin/AdminFacebookPage.jsx'), 'utf8');
 		assert.match(adminUi, /Facebook OAuth App/);
 		assert.match(adminUi, /App Secret/);
+		assert.match(adminUi, /\/admin\/v1\/facebook\/oauth-config/);
+		assert.doesNotMatch(adminUi, /pinterest\/oauth-config/);
+
+		const ensure = readFileSync(path.join(root, 'apps/api/src/utils/ensure-facebook-oauth-schema.js'), 'utf8');
+		assert.match(ensure, /facebook_app_credentials/);
+		assert.match(ensure, /collections\.create/);
+
+		const credentials = readFileSync(path.join(root, 'apps/api/src/services/facebook/app-credentials.js'), 'utf8');
+		assert.match(credentials, /ensureFacebookOAuthSchema/);
 	});
 
 	it('does not modify Pinterest oauth routes', () => {
