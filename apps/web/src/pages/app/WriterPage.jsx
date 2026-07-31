@@ -37,6 +37,7 @@ import {
 	shouldWarnOnLeave,
 } from '@/lib/writer-leave-protection';
 import { sanitizeRichHtml } from '@/lib/sanitizeHtml';
+import { createPublishLock } from '@/lib/writer-publish-lock';
 import './WriterPage.css';
 const initForm = {
 	keyword: '',
@@ -438,6 +439,7 @@ export default function WriterPage() {
 	const replaceGalleryIndexRef = useRef(-1);
 	const generatingLockRef = useRef(false);
 	const saveLockRef = useRef(false);
+	const publishLockRef = useRef(createPublishLock());
 	const abortControllerRef = useRef(null);
 	const cancelRequestedRef = useRef(false);
 	const isDirtyRef = useRef(false);
@@ -878,6 +880,12 @@ Respond ONLY with the JSON object described in your instructions.`;
 			if (extras.throwOnError) throw err;
 			return;
 		}
+		if (publishing || !publishLockRef.current.tryAcquire()) {
+			if (extras.throwOnError) {
+				throw new Error('A publish or schedule request is already in progress.');
+			}
+			return;
+		}
 		setPublishing(true);
 		try {
 			const persistBody = buildPersistableBody(article, form);
@@ -993,6 +1001,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 			if (extras.throwOnError) throw err;
 		} finally {
 			setPublishing(false);
+			publishLockRef.current.release();
 		}
 	};
 
