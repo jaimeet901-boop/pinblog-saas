@@ -1,0 +1,59 @@
+---
+description: AI Writer production hardening — preserve capabilities, zero regression, never redesign
+globs: apps/web/src/pages/app/WriterPage.*,apps/web/src/lib/aiGenerate.js,apps/web/src/lib/integratedAiClient.js,apps/api/src/routes/integrated-ai.js,apps/api/src/api/integrated-ai.js,apps/api/src/constants/prompts.js,apps/api/src/routes/tenant-content.js,apps/api/src/routes/wordpress/**
+alwaysApply: false
+---
+
+# AI Writer Hardening Rules
+
+Goal: harden AI Writer for production. **Not** a redesign or rebuild.
+
+## Non-negotiable
+
+1. **Keep working features** — Do not remove anything that already works.
+2. **Keep architecture** — Improve in place; no app rewrite.
+3. **Keep workflows** — generate → edit → save → publish must still work the same way.
+4. **Backward compatible** — Existing articles, drafts, prompts, JSON bodies keep working.
+5. **Do not break integrations** — Websites, Image Generator, AI Pins, Pinterest, WordPress, Workspaces, Plans, Credits.
+6. **Improve, don’t replace** — better Save Draft / stream / SEO controls in place.
+7. **UI consistency** — No redesign; usability fixes only where needed.
+8. **API compatibility** — Existing endpoints keep working; additive fields only.
+9. **DB compatibility** — Additive migrations only; never delete collections/fields.
+10. **Production-safe** — Never trade away working behavior for new work.
+
+## Phase order
+
+1. Production blockers → 2. UX → 3. Workflow → 4. Integrations  
+**Never start the next phase until the current phase passes all regression checks.**
+
+## Zero Regression Policy
+
+### Before each phase
+1. Analyze affected modules.
+2. List every existing feature that could be impacted.
+3. Preserve all existing behavior unless the change explicitly improves it.
+4. Run the regression checklist after implementation.
+
+### Regression checklist (all must pass)
+- Article generation · Streaming · Drafts · SEO generation · Prompt generation
+- Credits · Plan restrictions · Image Generator · AI Pins · WordPress
+- Workspace isolation · No breaking API changes · No DB compatibility issues · No UI regressions
+
+### After every phase report
+- Files changed · Why · Preserved · Improved · **Regression result** · **Production readiness** · **Safe to deploy: YES / NO**
+
+## Concrete do / don’t
+
+```text
+✅ Wire Reading/SEO/Creativity into existing prompt builder
+❌ Remove those controls
+
+✅ Keep Save Draft; improve in-place save; PATCH when id exists
+❌ New draft system
+
+✅ Burn credits on existing /integrated-ai/stream
+❌ Rewrite generation stack
+
+✅ Keep inline tool buttons; implement real rewrite in Phase 3
+❌ Delete Rewrite/Expand/etc.
+```

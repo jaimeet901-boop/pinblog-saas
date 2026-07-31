@@ -1,15 +1,25 @@
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import { ContentBlockType, stream, uploadImagesToPocketBase } from '../api/integrated-ai.js';
 import { SystemPrompt } from '../constants/prompts.js';
 import { uploadFiles } from '../middleware/file-upload.js';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
+import { attachWorkspace, requireWorkspaceMutation, requireWorkspaceRead } from '../middleware/product-access.js';
 import { assertTextProviderConfigured } from '../services/ai-providers.js';
+import {
+	beginFeatureReservation,
+	settleFeatureReservation,
+} from '../services/credits-engine.js';
+import { assertFeatureAccess } from '../services/plan-access-guard.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
 
 const NO_AI_PROVIDER_MESSAGE = 'No AI provider configured. Please configure an AI provider in Admin Settings.';
+const WRITER_FEATURE_KEY = 'aiWriter';
+/** Credit catalog key — cost resolved only inside the Credit Engine. */
+const WRITER_CREDIT_FEATURE = 'ai_writer';
 
 function httpError(status, message) {
 	const error = new Error(message);
@@ -239,8 +249,10 @@ function uploadImagesWithDiagnostics(req, res, next) {
 }
 
 router.use(pocketbaseAuth);
+router.use(attachWorkspace);
+router.use(requireWorkspaceRead);
 
-router.post('/stream', integratedAiRateLimit, uploadImagesWithDiagnostics, async (req, res) => {
+router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspace.ai.generate'), uploadImagesWithDiagnostics, async (req, res) => {
 	await assertAiProviderConfigured(req);
 
 	const { message } = req.body;
@@ -269,27 +281,96 @@ router.post('/stream', integratedAiRateLimit, uploadImagesWithDiagnostics, async
 	const singleShotRaw = String(req.body?.singleShot ?? '').trim().toLowerCase();
 	const singleShot = singleShotRaw === '1' || singleShotRaw === 'true' || singleShotRaw === 'yes';
 
+	/** @type {{ id: string|null } | null} */
+	let writerReservation = null;
+
+	// Writer path only (singleShot): plan gate + Credit Engine reservation.
+	// Non-singleShot callers (pin copy, image studio text path) keep prior behavior.
+	if (singleShot) {
+		await assertFeatureAccess(req, WRITER_FEATURE_KEY, {
+			message: 'AI Writer requires a plan upgrade. Open Subscription to unlock article generation.',
+		});
+
+		const workspaceKey = String(req.workspaceKey || '').trim();
+		if (!workspaceKey) {
+			throw httpError(422, 'Workspace context is required for AI Writer generation');
+		}
+
+		const rawIdempotency = typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey.trim() : '';
+		const idempotencyKey = (rawIdempotency || `ai-writer:${req.pocketbaseUserId}:${randomUUID()}`).slice(0, 120);
+
+		writerReservation = await beginFeatureReservation({
+			workspaceKey,
+			feature: WRITER_CREDIT_FEATURE,
+			units: 1,
+			reason: 'AI Writer article generation',
+			actorUserId: req.pocketbaseUserId,
+			referenceId: String(req.body?.referenceId || '').slice(0, 120),
+			idempotencyKey,
+			ttlMs: 20 * 60 * 1000,
+			metadata: {
+				source: 'integrated-ai/stream',
+				singleShot: true,
+				planFeatureKey: WRITER_FEATURE_KEY,
+			},
+			wallet: {
+				workspaceName: req.workspace?.name || workspaceKey,
+				ownerEmail: req.workspaceUser?.email || req.pocketbaseUser?.email || '',
+				planSlug: req.workspaceSubscription?.expand?.plan?.slug
+					|| req.workspace?.plan_slug
+					|| req.workspaceUser?.plan
+					|| 'free',
+			},
+		});
+	}
+
 	if (process.env.NODE_ENV !== 'production') {
 		logger.info('[integrated-ai/stream] prompt debug', {
 			systemPromptLength: SystemPrompt.length,
 			userPromptLength: userPromptText.length,
 			customPromptIncluded,
 			singleShot,
+			writerReservationId: writerReservation?.id || null,
 			userPromptPreview: String(userPromptText || '').slice(0, 300),
 		});
 	}
 
-	const sseStream = await stream({
-		userId: req.pocketbaseUserId,
-		systemPrompt: SystemPrompt,
-		userMessage,
-		singleShot,
-	});
+	const settleWriterCredits = async ({ success }) => {
+		if (!writerReservation?.id) return;
+		await settleFeatureReservation(writerReservation.id, {
+			success: Boolean(success),
+			actor: req.pocketbaseUserId || 'system',
+			metadata: { source: 'integrated-ai/stream', feature: WRITER_CREDIT_FEATURE },
+			bumpLegacyAiCounterForUserId: success ? req.pocketbaseUserId : '',
+		});
+	};
+
+	let sseStream;
+	try {
+		sseStream = await stream({
+			userId: req.pocketbaseUserId,
+			systemPrompt: SystemPrompt,
+			userMessage,
+			singleShot,
+			onGenerationSettled: singleShot ? settleWriterCredits : null,
+		});
+	} catch (error) {
+		if (writerReservation?.id) {
+			await settleFeatureReservation(writerReservation.id, {
+				success: false,
+				actor: req.pocketbaseUserId || 'system',
+			}).catch(() => null);
+		}
+		throw error;
+	}
 
 	res.setHeader('Content-Type', 'text/event-stream');
 	res.setHeader('Cache-Control', 'no-cache');
 	res.setHeader('Connection', 'keep-alive');
 	res.setHeader('X-Accel-Buffering', 'no');
+	if (writerReservation?.id) {
+		res.setHeader('X-Credit-Reservation', writerReservation.id);
+	}
 
 	sseStream.pipe(res, { end: false });
 

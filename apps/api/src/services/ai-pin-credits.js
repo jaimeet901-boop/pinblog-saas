@@ -1,6 +1,6 @@
 /**
- * AI Pins credit adapter — burns through the centralized Credits Engine.
- * Keeps legacy user.ai_credits_used / image_credits_used counters for UI compatibility.
+ * AI Pins credit adapter — thin wrapper over the platform Credits Engine.
+ * Costs always come from resolveFeatureCost(feature). Do not add feature-specific pricing here.
  */
 import { workspaceKeyForUser } from './workspace-context.js';
 import {

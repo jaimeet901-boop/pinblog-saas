@@ -16,6 +16,14 @@ import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import { Badge, Button, Input, Select, Textarea, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import UpgradeModal from '@/components/billing/UpgradeModal';
+import WriterScheduleModal from '@/components/writer/WriterScheduleModal';
+import WriterSectionBlocks, {
+	assignEditorIds,
+	stripEditorIds,
+} from '@/components/writer/WriterSectionBlocks';
+import { isFeatureLockedError } from '@/lib/templateAccess';
+import { isPlanFeatureEnabled } from '@/lib/planFeatures';
 import './WriterPage.css';
 const initForm = {
 	keyword: '',
@@ -52,14 +60,73 @@ const SECTIONS = [
 	{ id: 'publishing', label: 'Publishing', icon: Send },
 ];
 
-const GEN_STEPS = [
-	{ id: 'research', label: 'Research' },
-	{ id: 'outline', label: 'Outline' },
-	{ id: 'writing', label: 'Writing' },
-	{ id: 'recipe', label: 'Recipe' },
-	{ id: 'seo', label: 'SEO' },
-	{ id: 'review', label: 'Final Review' },
+const STREAM_PHASES = [
+	{ id: 'preparing', label: 'Preparing...' },
+	{ id: 'connecting', label: 'Connecting AI...' },
+	{ id: 'outline', label: 'Generating outline...' },
+	{ id: 'writing', label: 'Writing article...' },
+	{ id: 'finalizing', label: 'Finalizing...' },
+	{ id: 'completed', label: 'Completed' },
+	{ id: 'cancelling', label: 'Cancelling...' },
+	{ id: 'cancelled', label: 'Cancelled' },
+	{ id: 'failed', label: 'Failed' },
 ];
+
+const STREAM_PHASE_ORDER = STREAM_PHASES.map((step) => step.id);
+
+function isCancelledGenerationError(err) {
+	const code = String(err?.errorCode || '').toUpperCase();
+	if (code === 'GENERATION_CANCELLED') return true;
+	if (err?.name === 'AbortError') return true;
+	return /generation cancelled|aborted|canceled/i.test(String(err?.message || ''));
+}
+
+function friendlyGenerationError(err) {
+	const code = String(err?.errorCode || '').toUpperCase();
+	const status = Number(err?.status) || 0;
+	const raw = String(err?.message || '').trim();
+
+	if (code === 'FEATURE_LOCKED' || status === 403) {
+		return {
+			title: 'Upgrade required',
+			description: raw || 'AI Writer is not included in your current plan.',
+			kind: 'plan',
+		};
+	}
+	if (code === 'INSUFFICIENT_CREDITS' || status === 402) {
+		return {
+			title: 'Insufficient credits',
+			description: raw || 'Add credits or upgrade your plan to generate articles.',
+			kind: 'credits',
+		};
+	}
+	if (code === 'STREAM_ERROR') {
+		return {
+			title: 'Generation interrupted',
+			description: raw || 'The AI stream returned an error. You can retry with the same settings.',
+			kind: 'stream',
+		};
+	}
+	if (/parse|json/i.test(raw)) {
+		return {
+			title: 'Could not finish the article',
+			description: 'The AI response was incomplete or invalid. Your settings were kept — try again.',
+			kind: 'parse',
+		};
+	}
+	if (/failed to fetch|network|load failed/i.test(raw)) {
+		return {
+			title: 'Connection problem',
+			description: 'We could not stay connected to the AI service. Your inputs were kept — retry when ready.',
+			kind: 'network',
+		};
+	}
+	return {
+		title: 'Generation failed',
+		description: raw || 'Something went wrong while writing. Your inputs were kept — you can retry.',
+		kind: 'generic',
+	};
+}
 
 const INLINE_TOOLS = [
 	{ id: 'rewrite', label: 'Rewrite', icon: RefreshCw },
@@ -121,10 +188,24 @@ function countWords(text) {
 	return cleaned.split(/\s+/).filter(Boolean).length;
 }
 
-function estimateCredits(length) {
-	if (String(length).startsWith('Short')) return 1.2;
-	if (String(length).startsWith('Long')) return 2.8;
-	return 1.9;
+function creativityGuidance(value) {
+	const n = Number(value);
+	if (!Number.isFinite(n)) return 'balanced creativity';
+	if (n <= 25) return 'conservative, practical, and literal';
+	if (n <= 50) return 'moderately creative with clear practical tips';
+	if (n <= 75) return 'creative storytelling with vivid sensory details';
+	return 'highly imaginative, distinctive voice, and unexpected but useful angles';
+}
+
+function seoLevelGuidance(level) {
+	const key = String(level || '').trim().toLowerCase();
+	if (key === 'light') {
+		return 'Light SEO: natural keyword use, avoid stuffing, keep language conversational.';
+	}
+	if (key === 'aggressive') {
+		return 'Aggressive SEO: denser keyword use in title/meta/headings/intro, strong search intent coverage, without breaking readability.';
+	}
+	return 'Balanced SEO: clear keyword placement in title, meta, slug, intro, and headings while staying readable.';
 }
 
 function normalizeGallery(value) {
@@ -134,14 +215,28 @@ function normalizeGallery(value) {
 
 function buildPersistableBody(article, form) {
 	if (!article || typeof article !== 'object') return null;
+	const clean = stripEditorIds(article);
 	return {
-		...article,
-		featured_image: String(article.featured_image || '').trim(),
-		gallery_images: normalizeGallery(article.gallery_images),
-		custom_prompt: String(form?.customPrompt || article.custom_prompt || '').trim(),
-		published_url: String(article.published_url || '').trim(),
-		published_at: String(article.published_at || '').trim(),
+		...clean,
+		featured_image: String(clean.featured_image || '').trim(),
+		gallery_images: normalizeGallery(clean.gallery_images),
+		custom_prompt: String(form?.customPrompt || clean.custom_prompt || '').trim(),
+		published_url: String(clean.published_url || '').trim(),
+		published_at: String(clean.published_at || '').trim(),
 	};
+}
+
+/** Fingerprint of fields persisted by Save Draft — used for dirty tracking. */
+function buildSaveFingerprint(article, form) {
+	if (!article) return null;
+	return JSON.stringify({
+		article,
+		keyword: form?.keyword || '',
+		language: form?.language || '',
+		country: form?.country || '',
+		tone: form?.tone || '',
+		customPrompt: form?.customPrompt || '',
+	});
 }
 
 function formatPublishedAt(value) {
@@ -287,7 +382,10 @@ export default function WriterPage() {
 	const [stream, setStream] = useState('');
 	const [article, setArticle] = useState(null);
 	const [articleBaseline, setArticleBaseline] = useState(null);
+	const [savedArticleId, setSavedArticleId] = useState(null);
+	const [savedFingerprint, setSavedFingerprint] = useState(null);
 	const [saving, setSaving] = useState(false);
+	const [saveError, setSaveError] = useState(null);
 	const [publishing, setPublishing] = useState(false);
 	const {
 		websites: sites,
@@ -301,7 +399,8 @@ export default function WriterPage() {
 		: '/app/websites';
 	const [recentDrafts, setRecentDrafts] = useState([]);
 	const [history, setHistory] = useState([]);
-	const [genStep, setGenStep] = useState(0);
+	const [genPhase, setGenPhase] = useState('idle');
+	const [generationError, setGenerationError] = useState(null);
 	const [openSections, setOpenSections] = useState({
 		basics: true,
 		content: true,
@@ -312,6 +411,11 @@ export default function WriterPage() {
 	});
 	const [imageBusy, setImageBusy] = useState(false);
 	const [dragGalleryIndex, setDragGalleryIndex] = useState(null);
+	const [writerPlanAllowed, setWriterPlanAllowed] = useState(true);
+	const [upgradeOpen, setUpgradeOpen] = useState(false);
+	const [upgradeAccess, setUpgradeAccess] = useState(null);
+	const [writerCreditCost, setWriterCreditCost] = useState(null);
+	const [scheduleOpen, setScheduleOpen] = useState(false);
 
 	const streamRef = useRef(null);
 	const editorRef = useRef(null);
@@ -319,6 +423,17 @@ export default function WriterPage() {
 	const galleryInputRef = useRef(null);
 	const replaceGalleryInputRef = useRef(null);
 	const replaceGalleryIndexRef = useRef(-1);
+	const generatingLockRef = useRef(false);
+	const saveLockRef = useRef(false);
+	const abortControllerRef = useRef(null);
+	const cancelRequestedRef = useRef(false);
+	const isDirtyRef = useRef(false);
+	const preservedMediaRef = useRef({
+		featured_image: '',
+		gallery_images: [],
+		published_url: '',
+		published_at: '',
+	});
 
 	const loadRecentDrafts = async () => {
 		try {
@@ -339,17 +454,40 @@ export default function WriterPage() {
 	}, []);
 
 	useEffect(() => {
-		if (!generating) return undefined;
-		setGenStep(0);
-		const timers = [
-			window.setTimeout(() => setGenStep(1), 900),
-			window.setTimeout(() => setGenStep(2), 2200),
-			window.setTimeout(() => setGenStep(3), 4200),
-			window.setTimeout(() => setGenStep(4), 6200),
-			window.setTimeout(() => setGenStep(5), 8200),
-		];
-		return () => timers.forEach((id) => window.clearTimeout(id));
-	}, [generating]);
+		let cancelled = false;
+		(async () => {
+			try {
+				const response = await apiServerClient.fetch('/workspace/v1/subscription', { method: 'GET' });
+				const payload = await response.json().catch(() => ({}));
+				if (!response.ok || cancelled) return;
+				const features = payload?.plan?.features || payload?.subscription?.features || {};
+				const allowed = isPlanFeatureEnabled(features, 'aiWriter');
+				// If plan payload omits features, keep UI usable and rely on API enforcement.
+				const hasFeatureMap = features && typeof features === 'object' && Object.keys(features).length > 0;
+				setWriterPlanAllowed(hasFeatureMap ? allowed : true);
+				const fromSubscription = Number(payload?.credits?.featureCosts?.ai_writer);
+				if (Number.isFinite(fromSubscription) && fromSubscription >= 0) {
+					setWriterCreditCost(fromSubscription);
+				}
+			} catch {
+				if (!cancelled) setWriterPlanAllowed(true);
+			}
+			try {
+				const creditsRes = await apiServerClient.fetch('/workspace/v1/credits', { method: 'GET' });
+				const creditsPayload = await creditsRes.json().catch(() => ({}));
+				if (!creditsRes.ok || cancelled) return;
+				const cost = Number(creditsPayload?.featureCosts?.ai_writer);
+				if (Number.isFinite(cost) && cost >= 0) {
+					setWriterCreditCost(cost);
+				}
+			} catch {
+				/* keep prior cost */
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!generating || !streamRef.current) return;
@@ -363,8 +501,55 @@ export default function WriterPage() {
 
 	const isDirty = useMemo(() => {
 		if (!article) return false;
-		return JSON.stringify(article) !== JSON.stringify(articleBaseline);
-	}, [article, articleBaseline]);
+		const current = buildSaveFingerprint(article, form);
+		if (!savedFingerprint) return true;
+		return current !== savedFingerprint;
+	}, [article, form, savedFingerprint]);
+
+	useEffect(() => {
+		isDirtyRef.current = isDirty;
+	}, [isDirty]);
+
+	// Warn on tab close / refresh while Writer has unsaved work (Writer-scoped effect).
+	useEffect(() => {
+		if (!isDirty) return undefined;
+		const onBeforeUnload = (event) => {
+			event.preventDefault();
+			event.returnValue = '';
+		};
+		window.addEventListener('beforeunload', onBeforeUnload);
+		return () => window.removeEventListener('beforeunload', onBeforeUnload);
+	}, [isDirty]);
+
+	// Warn on in-app navigation away from Writer (sidebar / header links).
+	useEffect(() => {
+		if (!isDirty) return undefined;
+		const onDocumentClick = (event) => {
+			if (event.defaultPrevented) return;
+			if (event.button !== 0) return;
+			if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+			const anchor = event.target?.closest?.('a[href]');
+			if (!anchor) return;
+			if (anchor.target === '_blank' || anchor.hasAttribute('download')) return;
+			const href = anchor.getAttribute('href');
+			if (!href || href.startsWith('#')) return;
+			let url;
+			try {
+				url = new URL(href, window.location.origin);
+			} catch {
+				return;
+			}
+			if (url.origin !== window.location.origin) return;
+			if (url.pathname === window.location.pathname) return;
+			const leave = window.confirm('You have unsaved changes. Leave without saving?');
+			if (!leave) {
+				event.preventDefault();
+				event.stopPropagation();
+			}
+		};
+		document.addEventListener('click', onDocumentClick, true);
+		return () => document.removeEventListener('click', onDocumentClick, true);
+	}, [isDirty]);
 
 	const stats = useMemo(() => {
 		const text = article ? articlePlainText(article) : stream;
@@ -375,7 +560,7 @@ export default function WriterPage() {
 	}, [article, stream]);
 
 	const insights = useMemo(() => scoreArticle(article, form), [article, form]);
-	const creditEstimate = useMemo(() => estimateCredits(form.length), [form.length]);
+	const creditEstimate = writerCreditCost;
 
 	const buildPrompt = () => {
 		const include = Object.entries(options)
@@ -391,6 +576,9 @@ export default function WriterPage() {
 			}[key]))
 			.filter(Boolean);
 
+		const creativity = creativityGuidance(form.creativity);
+		const seo = seoLevelGuidance(form.seoLevel);
+
 		return `Write a complete SEO-optimized food blog article.
 Main keyword: ${form.keyword}
 Secondary keywords: ${form.secondary || 'none'}
@@ -399,43 +587,114 @@ Language: ${form.language}
 Article length: ${form.length}
 Tone: ${form.tone}
 Number of H2/H3 headings: ${form.headings}
+Reading level: ${form.readingLevel} — write so a ${String(form.readingLevel || 'General').toLowerCase()} audience can follow easily.
+SEO level: ${form.seoLevel}. ${seo}
+Creativity: ${form.creativity}/100 — keep the writing ${creativity}.
 ${include.length ? `Include: ${include.join(', ')}.` : ''}
 Respond ONLY with the JSON object described in your instructions.`;
 	};
 
+	const openWriterUpgrade = (access = null) => {
+		setUpgradeAccess(access || {
+			visible: true,
+			enabled: false,
+			locked: true,
+			missingKeys: ['aiWriter'],
+			dependencyChain: ['aiWriter'],
+		});
+		setUpgradeOpen(true);
+	};
+
+	const cancelGeneration = () => {
+		if (!generating && !generatingLockRef.current) return;
+		if (genPhase === 'cancelling' || genPhase === 'cancelled') return;
+		cancelRequestedRef.current = true;
+		setGenPhase('cancelling');
+		try {
+			abortControllerRef.current?.abort();
+		} catch {
+			/* ignore */
+		}
+	};
+
 	const generate = async (event) => {
 		event?.preventDefault?.();
+		if (generatingLockRef.current || generating) return;
+		if (!writerPlanAllowed) {
+			openWriterUpgrade();
+			toast({
+				variant: 'destructive',
+				title: 'Upgrade required',
+				description: 'AI Writer is not included in your current plan.',
+			});
+			return;
+		}
 		if (!form.keyword.trim()) {
 			toast({ variant: 'destructive', title: 'Main keyword required', description: 'Add a keyword to start writing.' });
 			return;
 		}
+
+		generatingLockRef.current = true;
+		cancelRequestedRef.current = false;
+		const controller = new AbortController();
+		abortControllerRef.current = controller;
 		setGenerating(true);
+		setGenerationError(null);
+		setSaveError(null);
+		setGenPhase('preparing');
 		setStream('');
 		const preserved = {
-			featured_image: article?.featured_image || '',
-			gallery_images: normalizeGallery(article?.gallery_images),
-			published_url: article?.published_url || '',
-			published_at: article?.published_at || '',
+			featured_image: article?.featured_image || preservedMediaRef.current.featured_image || '',
+			gallery_images: normalizeGallery(article?.gallery_images?.length
+				? article.gallery_images
+				: preservedMediaRef.current.gallery_images),
+			published_url: article?.published_url || preservedMediaRef.current.published_url || '',
+			published_at: article?.published_at || preservedMediaRef.current.published_at || '',
 		};
+		preservedMediaRef.current = preserved;
 		setArticle(null);
 		setArticleBaseline(null);
+
+		const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
+			? `ai-writer:${crypto.randomUUID()}`
+			: `ai-writer:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
 		try {
+			setGenPhase('connecting');
 			const { text } = await generateText(buildPrompt(), {
-				onChunk: setStream,
+				signal: controller.signal,
+				onChunk: (next) => {
+					if (cancelRequestedRef.current || controller.signal.aborted) return;
+					setStream(next);
+				},
+				onStatus: (phase) => {
+					if (cancelRequestedRef.current || controller.signal.aborted) return;
+					if (phase === 'connecting' || phase === 'outline' || phase === 'writing' || phase === 'finalizing') {
+						setGenPhase(phase);
+					}
+				},
 				customPrompt: form.customPrompt,
 				singleShot: true,
+				idempotencyKey,
 			});
+			if (cancelRequestedRef.current || controller.signal.aborted) {
+				throw Object.assign(new Error('Generation cancelled'), { errorCode: 'GENERATION_CANCELLED' });
+			}
+			setGenPhase('finalizing');
 			const json = extractJson(text);
 			if (!json) throw new Error('Could not parse the AI response. Try again.');
-			const next = {
+			const next = assignEditorIds({
 				...json,
 				sections: json.sections || [],
 				faq: json.faq || [],
 				...preserved,
 				custom_prompt: form.customPrompt || '',
-			};
+			});
 			setArticle(next);
 			setArticleBaseline(next);
+			setSavedFingerprint(null);
+			setSaveError(null);
+			setGenPhase('completed');
 			setHistory((prev) => [
 				{
 					id: `${Date.now()}`,
@@ -449,59 +708,130 @@ Respond ONLY with the JSON object described in your instructions.`;
 			].slice(0, 8));
 			requestAnimationFrame(() => editorRef.current?.scrollTo?.({ top: 0, behavior: 'smooth' }));
 		} catch (err) {
-			toast({ variant: 'destructive', title: 'Generation failed', description: err?.message });
+			if (isCancelledGenerationError(err) || cancelRequestedRef.current) {
+				setGenPhase('cancelled');
+				setGenerationError(null);
+				if (typeof err?.partialText === 'string' && err.partialText) {
+					setStream(err.partialText);
+				}
+				toast({
+					title: 'Cancelled',
+					description: 'Generation stopped. Your settings and any text received so far were kept.',
+				});
+			} else {
+				const friendly = friendlyGenerationError(err);
+				setGenPhase('failed');
+				setGenerationError(friendly);
+				if (friendly.kind === 'plan' || isFeatureLockedError(err) || String(err?.errorCode || '').toUpperCase() === 'FEATURE_LOCKED') {
+					openWriterUpgrade(err.access || null);
+				}
+				toast({
+					variant: 'destructive',
+					title: friendly.title,
+					description: friendly.description,
+				});
+			}
 		} finally {
 			setGenerating(false);
-			setGenStep(GEN_STEPS.length - 1);
+			generatingLockRef.current = false;
+			abortControllerRef.current = null;
+			cancelRequestedRef.current = false;
 		}
 	};
 
-	const save = async (status) => {
+	const save = async (status = 'draft') => {
 		if (!article) return;
+		if (saving || saveLockRef.current) return;
+
+		saveLockRef.current = true;
 		setSaving(true);
+		setSaveError(null);
+
+		const active = typeof document !== 'undefined' ? document.activeElement : null;
+		const selection = active && typeof active.selectionStart === 'number'
+			? { start: active.selectionStart, end: active.selectionEnd }
+			: null;
+
 		try {
 			const persistBody = buildPersistableBody(article, form);
-			const response = await apiServerClient.fetch('/content/articles', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					keyword: form.keyword,
-					seo_title: article.seo_title,
-					meta_description: article.meta_description,
-					slug: article.slug,
-					language: form.language,
-					country: form.country,
-					tone: form.tone,
-					body: persistBody,
-					status,
-					...(status === 'scheduled' && { scheduled_at: new Date(Date.now() + 86400000).toISOString() }),
-				}),
-			});
-			const payload = await response.json().catch(() => ({}));
+			const payload = {
+				keyword: form.keyword,
+				seo_title: article.seo_title,
+				meta_description: article.meta_description,
+				slug: article.slug,
+				language: form.language,
+				country: form.country,
+				tone: form.tone,
+				body: persistBody,
+				status,
+				...(status === 'scheduled' ? { scheduled_at: new Date(Date.now() + 86400000).toISOString() } : {}),
+			};
+
+			const response = savedArticleId
+				? await apiServerClient.fetch(`/content/articles/${savedArticleId}`, {
+					method: 'PATCH',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload),
+				})
+				: await apiServerClient.fetch('/content/articles', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload),
+				});
+
+			const data = await response.json().catch(() => ({}));
 			if (!response.ok) {
-				throw new Error(payload?.message || `Failed to save article (${response.status})`);
+				throw new Error(data?.message || `Failed to save article (${response.status})`);
 			}
+
+			if (!savedArticleId && data?.id) {
+				setSavedArticleId(data.id);
+			}
+
+			// Keep editor state; mark clean.
+			setArticleBaseline(article);
+			setSavedFingerprint(buildSaveFingerprint(article, form));
 			toast({
 				title: 'Saved',
-				description: `Article saved as ${status}. Next: create AI Pins for this website.`,
+				description: status === 'draft'
+					? 'Draft saved. You can keep editing.'
+					: `Article saved as ${status}. You can keep editing.`,
 			});
-			setArticle(null);
-			setArticleBaseline(null);
-			setForm(initForm);
-			setStream('');
 			await loadRecentDrafts();
+
+			requestAnimationFrame(() => {
+				if (!active || typeof active.focus !== 'function') return;
+				try {
+					active.focus();
+					if (selection && typeof active.setSelectionRange === 'function') {
+						active.setSelectionRange(selection.start, selection.end);
+					}
+				} catch {
+					/* ignore focus restore failures */
+				}
+			});
 		} catch (err) {
-			toast({ variant: 'destructive', title: 'Error', description: err?.message });
+			const message = err?.message || 'Save failed. Please try again.';
+			setSaveError(message);
+			toast({ variant: 'destructive', title: 'Save failed', description: message });
 		} finally {
 			setSaving(false);
+			saveLockRef.current = false;
 		}
 	};
 
 	const publishToWp = async (wpStatus, extras = {}) => {
-		if (!article) return;
+		if (!article) {
+			if (extras.throwOnError) throw new Error('Generate an article before scheduling.');
+			return;
+		}
 		const site = sites.find((s) => s.id === siteId);
 		if (!site) {
-			toast({ variant: 'destructive', title: 'No website selected', description: 'Add and connect a WordPress site first.' });
+			const err = new Error('Add and connect a WordPress site first.');
+			if (!extras.silent) {
+				toast({ variant: 'destructive', title: 'No website selected', description: err.message });
+			}
+			if (extras.throwOnError) throw err;
 			return;
 		}
 		setPublishing(true);
@@ -605,22 +935,27 @@ Respond ONLY with the JSON object described in your instructions.`;
 			}
 			await loadRecentDrafts();
 		} catch (err) {
-			toast({ variant: 'destructive', title: 'WordPress error', description: err?.message });
+			if (!extras.silent) {
+				toast({ variant: 'destructive', title: 'WordPress error', description: err?.message });
+			}
+			if (extras.throwOnError) throw err;
 		} finally {
 			setPublishing(false);
 		}
 	};
 
-	const scheduleToWp = async () => {
+	const openScheduleModal = () => {
 		if (!article) return;
-		const when = window.prompt('Schedule publish time (ISO or local datetime)', new Date(Date.now() + 3600000).toISOString().slice(0, 16));
-		if (!when) return;
-		const scheduledAt = new Date(when);
-		if (Number.isNaN(scheduledAt.getTime())) {
-			toast({ variant: 'destructive', title: 'Invalid date', description: 'Enter a valid schedule time.' });
-			return;
-		}
-		await publishToWp('future', { scheduledAt: scheduledAt.toISOString() });
+		setScheduleOpen(true);
+	};
+
+	const handleScheduleSubmit = async ({ scheduledAt }) => {
+		await publishToWp('future', {
+			scheduledAt,
+			throwOnError: true,
+			silent: true,
+		});
+		setScheduleOpen(false);
 	};
 
 	const copyArticle = async () => {
@@ -653,19 +988,27 @@ Respond ONLY with the JSON object described in your instructions.`;
 	};
 
 	const restoreHistory = (item) => {
-		setArticle(item.snapshot);
-		setArticleBaseline(item.snapshot);
+		if (isDirtyRef.current && !window.confirm('You have unsaved changes. Discard them and restore this version?')) {
+			return;
+		}
+		const next = assignEditorIds(item.snapshot);
+		setArticle(next);
+		setArticleBaseline(next);
+		setSavedFingerprint(null);
 		if (item.formSnapshot) setForm((prev) => ({ ...prev, ...item.formSnapshot }));
 		toast({ title: 'Restored', description: item.title });
 	};
 
 	const openDraft = (draft) => {
+		if (isDirtyRef.current && !window.confirm('You have unsaved changes. Discard them and load this draft?')) {
+			return;
+		}
 		const body = draft.body && typeof draft.body === 'object' ? draft.body : null;
 		if (!body) {
 			toast({ variant: 'destructive', title: 'Draft unavailable', description: 'This draft has no editable body.' });
 			return;
 		}
-		const next = {
+		const next = assignEditorIds({
 			...body,
 			sections: body.sections || [],
 			faq: body.faq || [],
@@ -674,23 +1017,27 @@ Respond ONLY with the JSON object described in your instructions.`;
 			published_url: body.published_url || '',
 			published_at: body.published_at || '',
 			custom_prompt: body.custom_prompt || '',
+		});
+		const nextForm = {
+			...form,
+			keyword: draft.keyword || form.keyword,
+			language: draft.language || form.language,
+			country: draft.country || form.country,
+			tone: draft.tone || form.tone,
+			customPrompt: body.custom_prompt || form.customPrompt || '',
 		};
 		setArticle(next);
 		setArticleBaseline(next);
-		setForm((prev) => ({
-			...prev,
-			keyword: draft.keyword || prev.keyword,
-			language: draft.language || prev.language,
-			country: draft.country || prev.country,
-			tone: draft.tone || prev.tone,
-			customPrompt: body.custom_prompt || prev.customPrompt || '',
-		}));
+		setForm(nextForm);
+		setSavedArticleId(draft.id || null);
+		setSavedFingerprint(buildSaveFingerprint(next, nextForm));
+		setSaveError(null);
 		toast({ title: 'Draft loaded', description: draft.seo_title || draft.keyword });
 	};
 
 	const ensureArticleShell = () => {
 		if (article) return article;
-		const shell = {
+		const shell = assignEditorIds({
 			seo_title: form.keyword || 'Untitled article',
 			meta_description: '',
 			slug: '',
@@ -703,7 +1050,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 			published_url: '',
 			published_at: '',
 			custom_prompt: form.customPrompt || '',
-		};
+		});
 		setArticle(shell);
 		setArticleBaseline(shell);
 		return shell;
@@ -834,7 +1181,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 		};
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [article, saving, form]);
+	}, [article, saving, form, savedArticleId]);
 
 	const renderedHtml = useMemo(() => {
 		if (!article) return '';
@@ -868,7 +1215,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 								Unsaved changes
 							</span>
 						) : (
-							<span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] text-muted-foreground">Synced</span>
+							<span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] text-muted-foreground">Saved</span>
 						)
 					) : (
 						<span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] text-muted-foreground">Ready to write</span>
@@ -876,16 +1223,28 @@ Respond ONLY with the JSON object described in your instructions.`;
 					<span className="hidden text-[11px] text-muted-foreground sm:inline">Ctrl+S</span>
 				</div>
 				<div className="flex flex-wrap gap-2">
-					<Button size="sm" onClick={generate} disabled={generating}>
+					<Button size="sm" onClick={generate} disabled={generating || !writerPlanAllowed}>
 						{generating ? <Spinner className="h-4 w-4" /> : <Wand2 size={14} />}
 						Generate
 					</Button>
-					<Button size="sm" variant="outline" onClick={generate} disabled={generating || !form.keyword.trim()}>
+					{generating ? (
+						<Button
+							size="sm"
+							variant="outline"
+							type="button"
+							onClick={cancelGeneration}
+							disabled={genPhase === 'cancelling'}
+						>
+							{genPhase === 'cancelling' ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+							{genPhase === 'cancelling' ? 'Cancelling...' : 'Cancel'}
+						</Button>
+					) : null}
+					<Button size="sm" variant="outline" onClick={generate} disabled={generating || !form.keyword.trim() || !writerPlanAllowed}>
 						<RefreshCw size={14} /> Regenerate
 					</Button>
 					<Button size="sm" variant="outline" onClick={() => save('draft')} disabled={!article || saving}>
 						{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save size={14} />}
-						Save Draft
+						{saving ? 'Saving...' : 'Save Draft'}
 					</Button>
 					<Button size="sm" variant="accent" onClick={() => publishToWp('publish')} disabled={!article || publishing}>
 						{publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink size={14} />}
@@ -899,6 +1258,31 @@ Respond ONLY with the JSON object described in your instructions.`;
 					</Button>
 				</div>
 			</div>
+
+			{saveError ? (
+				<div className="mb-3 rounded-xl border border-destructive/35 bg-destructive/5 px-4 py-3 text-sm">
+					<p className="font-medium text-destructive">Couldn’t save draft</p>
+					<p className="mt-1 text-muted-foreground">{saveError}</p>
+					<div className="mt-2">
+						<Button size="sm" type="button" variant="outline" disabled={saving || !article} onClick={() => save('draft')}>
+							{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save size={14} />}
+							{saving ? 'Saving...' : 'Retry save'}
+						</Button>
+					</div>
+				</div>
+			) : null}
+
+			{!writerPlanAllowed ? (
+				<div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+					<p className="font-medium">AI Writer is not included in your current plan.</p>
+					<p className="mt-1 text-muted-foreground">Upgrade to generate SEO articles with Chef IA.</p>
+					<div className="mt-2">
+						<Button size="sm" type="button" onClick={() => openWriterUpgrade()}>
+							View upgrade options
+						</Button>
+					</div>
+				</div>
+			) : null}
 
 			{article?.published_url ? (
 				<div className="wr-publish-success">
@@ -987,13 +1371,11 @@ Respond ONLY with the JSON object described in your instructions.`;
 									<option key={level}>{level}</option>
 								))}
 							</Select>
-							<p className="text-[11px] text-muted-foreground -mt-1">UI only — not sent to the model yet.</p>
 							<Select label="SEO level" value={form.seoLevel} onChange={set('seoLevel')}>
 								{['Light', 'Balanced', 'Aggressive'].map((level) => (
 									<option key={level}>{level}</option>
 								))}
 							</Select>
-							<p className="text-[11px] text-muted-foreground -mt-1">UI only — preview control.</p>
 							<label className="wr-slider">
 								<span className="flex items-center justify-between text-sm font-medium">
 									Creativity
@@ -1006,7 +1388,6 @@ Respond ONLY with the JSON object described in your instructions.`;
 									value={form.creativity}
 									onChange={(e) => setForm((f) => ({ ...f, creativity: Number(e.target.value) }))}
 								/>
-								<span className="text-[11px] text-muted-foreground">UI only — does not change generation yet.</span>
 							</label>
 						</Section>
 
@@ -1151,7 +1532,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 								</Button>
 							</div>
 							<div className="flex flex-wrap gap-2 pt-1">
-								<Button type="button" size="sm" variant="ghost" disabled={!article || publishing} onClick={scheduleToWp}>
+								<Button type="button" size="sm" variant="ghost" disabled={!article || publishing} onClick={openScheduleModal}>
 									Schedule
 								</Button>
 								<Button type="button" size="sm" variant="ghost" disabled={!article || saving} onClick={() => save('published')}>
@@ -1166,10 +1547,11 @@ Respond ONLY with the JSON object described in your instructions.`;
 							) : null}
 						</Section>
 
-						<Button type="submit" disabled={generating} className="w-full">
+						<Button type="submit" disabled={generating || !writerPlanAllowed} className="w-full">
 							{generating ? (
 								<>
-									<Loader2 className="h-4 w-4 animate-spin" /> Generating…
+									<Loader2 className="h-4 w-4 animate-spin" />
+									{STREAM_PHASES.find((step) => step.id === genPhase)?.label || 'Generating…'}
 								</>
 							) : (
 								<>
@@ -1188,7 +1570,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 						<span className="wr-stat inline-flex items-center gap-1"><Clock size={12} /> Live editor</span>
 					</div>
 
-					{!article && !generating ? (
+					{!article && !generating && genPhase !== 'failed' && genPhase !== 'cancelled' ? (
 						<div className="wr-empty">
 							<div className="wr-empty__icon">
 								<PenLine size={26} strokeWidth={1.6} />
@@ -1197,32 +1579,123 @@ Respond ONLY with the JSON object described in your instructions.`;
 							<p className="mt-2 max-w-md text-sm text-muted-foreground">
 								Set a keyword, tune the atelier controls, and generate a publish-ready recipe article with live SEO guidance.
 							</p>
-							<Button className="mt-5" onClick={generate} disabled={!form.keyword.trim()}>
+							<Button className="mt-5" onClick={generate} disabled={!form.keyword.trim() || generating || !writerPlanAllowed}>
 								<Wand2 size={15} /> Start generating
 							</Button>
 						</div>
 					) : null}
 
-					{generating ? (
+					{generating || genPhase === 'failed' || genPhase === 'cancelled' ? (
 						<div className="space-y-4">
-							<div className="wr-progress">
-								{GEN_STEPS.map((step, index) => {
-									const state = index < genStep ? 'is-done' : index === genStep ? 'is-active' : '';
+							<div className="wr-progress" role="status" aria-live="polite">
+								{STREAM_PHASES.filter((step) => {
+									if (step.id === 'failed') return genPhase === 'failed';
+									if (step.id === 'cancelled' || step.id === 'cancelling') {
+										return genPhase === 'cancelling' || genPhase === 'cancelled';
+									}
+									if (genPhase === 'failed' && step.id === 'completed') return false;
+									if ((genPhase === 'cancelling' || genPhase === 'cancelled') && step.id === 'completed') return false;
+									return true;
+								}).map((step) => {
+									const currentIndex = STREAM_PHASE_ORDER.indexOf(genPhase === 'idle' ? 'preparing' : genPhase);
+									const stepIndex = STREAM_PHASE_ORDER.indexOf(step.id);
+									const isFailed = genPhase === 'failed';
+									const isCancelled = genPhase === 'cancelled';
+									const isCancelling = genPhase === 'cancelling';
+									const state = (isFailed && step.id === 'failed')
+										|| (isCancelled && step.id === 'cancelled')
+										|| (isCancelling && step.id === 'cancelling')
+										? (isFailed ? 'is-failed' : isCancelled || isCancelling ? 'is-cancelled' : '')
+										: !isFailed && !isCancelled && !isCancelling && stepIndex < currentIndex
+											? 'is-done'
+											: !isFailed && !isCancelled && !isCancelling && step.id === genPhase
+												? 'is-active'
+												: (isCancelling || isCancelled) && stepIndex < STREAM_PHASE_ORDER.indexOf('cancelling')
+													? 'is-done'
+													: '';
 									return (
 										<div key={step.id} className={`wr-progress__step ${state}`}>
 											<span className="wr-progress__dot" />
 											<span>{step.label}</span>
-											{index === genStep ? <span className="ml-auto"><Badge tone="amber">In progress</Badge></span> : null}
-											{index < genStep ? <span className="ml-auto text-[11px] text-muted-foreground">Done</span> : null}
+											{(state === 'is-active' || (state === 'is-cancelled' && step.id === 'cancelling')) ? (
+												<span className="ml-auto"><Badge tone="amber">In progress</Badge></span>
+											) : null}
+											{state === 'is-done' ? (
+												<span className="ml-auto text-[11px] text-muted-foreground">Done</span>
+											) : null}
+											{state === 'is-failed' ? (
+												<span className="ml-auto"><Badge tone="red">Failed</Badge></span>
+											) : null}
+											{state === 'is-cancelled' && step.id === 'cancelled' ? (
+												<span className="ml-auto"><Badge tone="amber">Cancelled</Badge></span>
+											) : null}
 										</div>
 									);
 								})}
 							</div>
-							<div className="flex items-center gap-2 text-sm text-muted-foreground">
-								<Spinner className="h-4 w-4 text-primary" />
-								Writing your article section by section…
-							</div>
-							<pre className="wr-stream" ref={streamRef}>{stream || 'Waiting for the first tokens…'}</pre>
+
+							{generating ? (
+								<div className="wr-stream-status">
+									<Spinner className="h-4 w-4 text-primary" />
+									<div className="min-w-0 flex-1">
+										<p className="text-sm font-medium text-foreground">
+											{genPhase === 'cancelling'
+												? 'Cancelling...'
+												: (STREAM_PHASES.find((step) => step.id === genPhase)?.label || 'Generating...')}
+										</p>
+										<p className="text-[11px] text-muted-foreground">
+											{genPhase === 'cancelling'
+												? 'Stopping the stream. Partial text already received will be kept.'
+												: 'Live stream progress — no estimated percentages.'}
+										</p>
+									</div>
+									{genPhase !== 'cancelling' ? (
+										<Button size="sm" variant="outline" type="button" onClick={cancelGeneration}>
+											Cancel
+										</Button>
+									) : null}
+								</div>
+							) : null}
+
+							{genPhase === 'cancelled' ? (
+								<div className="wr-stream-cancelled">
+									<p className="text-sm font-medium">Cancelled</p>
+									<p className="mt-1 text-[12px] text-muted-foreground">
+										Generation stopped. Your inputs and any streamed text below were preserved. Generate again when ready.
+									</p>
+									<div className="mt-3 flex flex-wrap gap-2">
+										<Button size="sm" type="button" onClick={generate} disabled={generating || !writerPlanAllowed}>
+											<Wand2 size={14} /> Generate again
+										</Button>
+									</div>
+								</div>
+							) : null}
+
+							{genPhase === 'failed' && generationError ? (
+								<div className="wr-stream-error">
+									<div className="flex items-start gap-2">
+										<AlertCircle size={16} className="mt-0.5 shrink-0 text-destructive" />
+										<div className="min-w-0 flex-1">
+											<p className="text-sm font-medium">{generationError.title}</p>
+											<p className="mt-1 text-[12px] text-muted-foreground">{generationError.description}</p>
+											<p className="mt-2 text-[11px] text-muted-foreground">
+												Your keyword, settings, and prompt were kept. You can retry without re-entering them.
+											</p>
+											<div className="mt-3 flex flex-wrap gap-2">
+												<Button size="sm" type="button" onClick={generate} disabled={generating || !writerPlanAllowed}>
+													<RefreshCw size={14} /> Retry generation
+												</Button>
+											</div>
+										</div>
+									</div>
+								</div>
+							) : null}
+
+							{(generating || stream || genPhase === 'cancelled') ? (
+								<pre className="wr-stream" ref={streamRef}>
+									{stream || (generating ? 'Waiting for the first tokens…' : 'No streamed text was received before cancel.')}
+								</pre>
+							) : null}
 						</div>
 					) : null}
 
@@ -1243,33 +1716,24 @@ Respond ONLY with the JSON object described in your instructions.`;
 								) : null}
 							</article>
 
-							<div className="grid gap-3">
-								<Textarea label="Introduction (edit)" rows={3} value={article.introduction || ''} onChange={(e) => upd('introduction', e.target.value)} />
-								<div>
-									<p className="mb-1.5 text-sm font-medium">Sections</p>
-									<div className="max-h-72 space-y-2 overflow-auto rounded-xl border border-border p-3">
-										{article.sections?.map((s, i) => (
-											<div key={i} className="rounded-lg bg-secondary/60 p-2.5">
-												<p className="text-sm font-semibold uppercase text-primary">{s.level || 'h2'} · {s.heading}</p>
-												<p className="mt-1 text-xs text-muted-foreground">{stripHtml(s.content)}</p>
-											</div>
-										))}
-									</div>
-								</div>
-								{article.faq?.length > 0 ? (
-									<div>
-										<p className="mb-1.5 text-sm font-medium">FAQ ({article.faq.length})</p>
-										<div className="max-h-48 space-y-2 overflow-auto rounded-xl border border-border p-3 text-sm">
-											{article.faq.map((f, i) => (
-												<div key={i}>
-													<p className="font-medium">{f.question}</p>
-													<p className="text-xs text-muted-foreground">{f.answer}</p>
-												</div>
-											))}
-										</div>
-									</div>
-								) : null}
-								<Textarea label="Conclusion (edit)" rows={3} value={article.conclusion || ''} onChange={(e) => upd('conclusion', e.target.value)} />
+							<div className="space-y-2">
+								<p className="text-sm font-medium">Edit sections</p>
+								<p className="text-[11px] text-muted-foreground -mt-1">
+									Use the AI toolbar on each section (Rewrite, Expand, Shorten, SEO, Readability, Simplify, Professional). Only that section is updated.
+								</p>
+								<WriterSectionBlocks
+									article={article}
+									form={form}
+									writerPlanAllowed={writerPlanAllowed}
+									onPlanLocked={(access) => openWriterUpgrade(access || null)}
+									onChangeArticle={(updater) => {
+										setArticle((prev) => {
+											if (!prev) return prev;
+											const next = typeof updater === 'function' ? updater(prev) : updater;
+											return next;
+										});
+									}}
+								/>
 							</div>
 
 							<div className="wr-inline-tools">
@@ -1384,8 +1848,12 @@ Respond ONLY with the JSON object described in your instructions.`;
 
 					<div className="wr-assist-card">
 						<div className="wr-assist-card__title"><span>Estimated AI Credits</span><Coins size={13} /></div>
-						<p className="font-display text-2xl font-semibold text-primary">{creditEstimate.toFixed(1)}</p>
-						<p className="mt-1 text-[11px] text-muted-foreground">Estimate from article length setting (UI guide).</p>
+						<p className="font-display text-2xl font-semibold text-primary">
+							{creditEstimate == null ? '—' : Number(creditEstimate).toFixed(Number.isInteger(creditEstimate) ? 0 : 1)}
+						</p>
+						<p className="mt-1 text-[11px] text-muted-foreground">
+							From platform Credit Engine (`ai_writer`). Charged on successful generate.
+						</p>
 					</div>
 
 					<div className="wr-assist-card">
@@ -1425,6 +1893,23 @@ Respond ONLY with the JSON object described in your instructions.`;
 					</div>
 				</aside>
 			</div>
+
+			<UpgradeModal
+				open={upgradeOpen}
+				onClose={() => setUpgradeOpen(false)}
+				templateName="AI Writer"
+				templateId="aiWriter"
+				access={upgradeAccess}
+				sourcePage="ai_writer"
+				requiredFeatureKeys={['aiWriter']}
+			/>
+
+			<WriterScheduleModal
+				open={scheduleOpen}
+				onClose={() => !publishing && setScheduleOpen(false)}
+				onSubmit={handleScheduleSubmit}
+				submitting={publishing}
+			/>
 		</div>
 	);
 }

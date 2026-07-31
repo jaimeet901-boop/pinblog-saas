@@ -65,8 +65,8 @@ router.post('/articles', async (req, res) => {
 
 /**
  * PATCH /content/articles/:id
- * Merge writer metadata into the existing JSON body (published_url, images, custom_prompt).
- * Backward compatible — no schema migration required.
+ * In-place Writer save: merge JSON body + optional top-level article fields.
+ * Additive / backward compatible — no schema migration; existing clients keep working.
  */
 router.patch('/articles/:id', async (req, res) => {
 	requireAuth(req);
@@ -98,9 +98,36 @@ router.patch('/articles/:id', async (req, res) => {
 		Object.assign(currentBody, input.body);
 	}
 
-	const updated = await pocketbaseClient.collection('articles').update(record.id, {
-		body: currentBody,
-	});
+	const update = { body: currentBody };
+	if (typeof input.keyword === 'string') {
+		update.keyword = input.keyword.trim().slice(0, 300);
+	}
+	if (typeof input.seo_title === 'string') {
+		update.seo_title = input.seo_title.trim().slice(0, 300);
+	}
+	if (typeof input.meta_description === 'string') {
+		update.meta_description = input.meta_description.trim().slice(0, 1000);
+	}
+	if (typeof input.slug === 'string') {
+		update.slug = input.slug.trim().slice(0, 200);
+	}
+	if (typeof input.language === 'string') {
+		update.language = input.language.trim().slice(0, 60);
+	}
+	if (typeof input.country === 'string') {
+		update.country = input.country.trim().slice(0, 60);
+	}
+	if (typeof input.tone === 'string') {
+		update.tone = input.tone.trim().slice(0, 60);
+	}
+	if (typeof input.status === 'string' && input.status.trim()) {
+		update.status = input.status.trim().slice(0, 40);
+	}
+	if (typeof input.scheduled_at === 'string' && input.scheduled_at.trim()) {
+		update.scheduled_at = input.scheduled_at.trim().slice(0, 64);
+	}
+
+	const updated = await pocketbaseClient.collection('articles').update(record.id, update);
 	res.json(updated);
 });
 

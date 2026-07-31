@@ -1,0 +1,36 @@
+---
+description: Unified platform Credit Engine — features never invent credit math
+globs: apps/api/src/services/credits-engine.js,apps/api/src/services/ai-pin-credits.js,apps/api/src/services/credits.js,apps/api/src/routes/integrated-ai.js,apps/api/src/routes/ai-pins.js,apps/api/src/services/**/*credit*,apps/web/src/pages/app/WriterPage.*
+alwaysApply: false
+---
+
+# Unified Credit Engine
+
+Credits are a **platform service**, not a feature module concern.
+
+## Rules
+
+1. Never implement feature-specific credit math in routes/pages.
+2. Every AI feature uses the same Credit Engine (`credits-engine.js`).
+3. Every cost is resolved only via `resolveFeatureCost(featureKey)`.
+4. Standard async/stream flow:
+   - `beginFeatureReservation({ feature, units, ... })`
+   - execute task
+   - `settleFeatureReservation(id, { success: true|false })`
+5. Sync tasks may use `withFeatureCredits(options, execute)`.
+6. Immediate burns may use `consumeFeatureCredits` / `consumeWorkspaceCredits` **only after** `resolveFeatureCost`.
+7. Feature modules must not calculate amounts, invent estimates, or duplicate reservation/settlement logic.
+8. Adding a new AI feature requires only:
+   1. Register cost key in `DEFAULT_CREDIT_COSTS` (or platform `credits.featureCosts`)
+   2. Call Credit Engine with that feature key
+   3. Plan gate separately via feature catalog if needed
+
+## Do / don’t
+
+```text
+✅ beginFeatureReservation({ feature: 'ai_writer', units: 1, workspaceKey })
+❌ const amount = length === 'Long' ? 3 : 2; reserveCredits({ amount })
+
+✅ Display cost from GET /workspace/v1/credits → featureCosts.ai_writer
+❌ Local estimateCredits(articleLength) in the UI
+```

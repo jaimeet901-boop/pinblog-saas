@@ -60,6 +60,150 @@ export async function resolveFeatureCost(feature, planCreditCosts = null) {
 	return Number.isFinite(value) && value >= 0 ? value : 1;
 }
 
+/**
+ * Registered credit feature keys (platform cost catalog).
+ * New AI features: add a key here (or platform settings credits.featureCosts) + call begin/settle.
+ */
+export function listCreditFeatureKeys() {
+	return Object.keys(DEFAULT_CREDIT_COSTS);
+}
+
+/**
+ * Begin a reservation for a registered feature.
+ * Amount is ALWAYS derived from resolveFeatureCost(feature) × units — callers must not compute credits.
+ *
+ * @returns {Promise<object>} reservation DTO (+ unitCost, units). id may be null when cost is 0 (noop).
+ */
+export async function beginFeatureReservation({
+	workspaceKey,
+	feature,
+	units = 1,
+	planCreditCosts = null,
+	reason = '',
+	actorUserId = '',
+	referenceId = '',
+	idempotencyKey = '',
+	ttlMs = 15 * 60 * 1000,
+	metadata = {},
+	wallet = null,
+} = {}) {
+	const featureKey = String(feature || '').trim();
+	const key = String(workspaceKey || '').trim();
+	if (!key || !featureKey) {
+		throw httpError(422, 'workspaceKey and feature are required', 'VALIDATION_ERROR');
+	}
+
+	if (wallet && typeof wallet === 'object') {
+		await ensureWorkspaceWallet(key, {
+			workspaceName: wallet.workspaceName || key,
+			ownerEmail: wallet.ownerEmail || '',
+			planSlug: wallet.planSlug || 'free',
+			planId: wallet.planId || '',
+		}).catch(() => null);
+	}
+
+	const unitCount = Math.max(1, Number(units) || 1);
+	const unitCost = await resolveFeatureCost(featureKey, planCreditCosts);
+	const amount = unitCost * unitCount;
+
+	if (!Number.isFinite(amount) || amount <= 0) {
+		return {
+			id: null,
+			workspaceKey: key,
+			amount: 0,
+			feature: featureKey,
+			status: 'noop',
+			unitCost,
+			units: unitCount,
+			noop: true,
+		};
+	}
+
+	const reservation = await reserveCredits({
+		workspaceKey: key,
+		amount,
+		feature: featureKey,
+		reason: reason || `Reserve ${featureKey}`,
+		actorUserId,
+		referenceId,
+		idempotencyKey,
+		ttlMs,
+		metadata: {
+			...(metadata && typeof metadata === 'object' ? metadata : {}),
+			unitCost,
+			units: unitCount,
+			resolvedVia: 'resolveFeatureCost',
+		},
+	});
+
+	return {
+		...reservation,
+		unitCost,
+		units: unitCount,
+		noop: false,
+	};
+}
+
+/**
+ * Commit on success or release on failure. Single settlement entry for all features.
+ */
+export async function settleFeatureReservation(reservationId, {
+	success,
+	actor = 'system',
+	metadata = {},
+	bumpLegacyAiCounterForUserId = '',
+} = {}) {
+	const id = String(reservationId || '').trim();
+	if (!id) {
+		return { settled: 'noop', reservation: null };
+	}
+
+	if (success) {
+		const reservation = await commitReservation(id, { actor, metadata });
+		const userId = String(bumpLegacyAiCounterForUserId || '').trim();
+		if (userId) {
+			const user = await pocketbaseClient.collection('users').getOne(userId).catch(() => null);
+			if (user) {
+				await pocketbaseClient.collection('users').update(userId, {
+					ai_credits_used: Number(user.ai_credits_used || 0) + 1,
+				}).catch(() => null);
+			}
+		}
+		return { settled: 'committed', reservation };
+	}
+
+	const reservation = await releaseReservation(id, { actor });
+	return { settled: 'released', reservation };
+}
+
+/**
+ * Sync helper: reserve → execute → commit | release.
+ * Prefer begin/settle separately for streaming / long-running jobs.
+ */
+export async function withFeatureCredits(options, execute) {
+	if (typeof execute !== 'function') {
+		throw httpError(422, 'execute callback is required', 'VALIDATION_ERROR');
+	}
+	const reservation = await beginFeatureReservation(options);
+	const actor = options.actorUserId || 'system';
+	try {
+		const result = await execute(reservation);
+		await settleFeatureReservation(reservation.id, {
+			success: true,
+			actor,
+			metadata: options.commitMetadata || {},
+			bumpLegacyAiCounterForUserId: options.bumpLegacyAiCounterForUserId || '',
+		});
+		return result;
+	} catch (error) {
+		await settleFeatureReservation(reservation.id, {
+			success: false,
+			actor,
+		}).catch(() => null);
+		throw error;
+	}
+}
+
 async function getSubscription(workspaceKey) {
 	if (!workspaceKey) return null;
 	return pocketbaseClient.collection('workspace_subscriptions').getFirstListItem(

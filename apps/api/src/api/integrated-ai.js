@@ -246,10 +246,17 @@ function estimateInputTokens(characterCount) {
  *   systemPrompt: string,
  *   userMessage: ContentBlock[],
  *   singleShot?: boolean,
+ *   onGenerationSettled?: (result: { success: boolean, contentEventCount: number }) => Promise<void>|void,
  * }} params
  * @returns {Promise<import('node:stream').Readable>}
  */
-export async function stream({ userId, systemPrompt, userMessage, singleShot = false }) {
+export async function stream({
+	userId,
+	systemPrompt,
+	userMessage,
+	singleShot = false,
+	onGenerationSettled = null,
+}) {
 	// Single-shot (Writer / one-off generate): system + current user turn only.
 	// Conversational callers keep shared _integratedAiMessages history.
 	const history = singleShot ? [] : await getHistory({ userId });
@@ -280,6 +287,7 @@ export async function stream({ userId, systemPrompt, userMessage, singleShot = f
 		const contentEvents = [];
 		let providerLabel = 'text-provider';
 		let firstTokenAt = null;
+		let settledSuccess = false;
 
 		try {
 			for await (const chunk of streamTextWithRegistry({
@@ -302,6 +310,8 @@ export async function stream({ userId, systemPrompt, userMessage, singleShot = f
 				passThrough.write(`data: ${JSON.stringify(event)}\n\n`);
 			}
 
+			settledSuccess = contentEvents.length > 0;
+
 			if (!singleShot) {
 				const squashedHistoryEvents = squashSSEEvents({ events: contentEvents });
 				await saveMessages({
@@ -321,6 +331,7 @@ export async function stream({ userId, systemPrompt, userMessage, singleShot = f
 				});
 			}
 		} catch (error) {
+			settledSuccess = false;
 			logger.error('Text provider stream failed', error);
 			const message = error?.message || 'Text generation failed';
 			passThrough.write(`data: ${JSON.stringify({
@@ -328,6 +339,17 @@ export async function stream({ userId, systemPrompt, userMessage, singleShot = f
 				data: { content: message },
 			})}\n\n`);
 		} finally {
+			if (typeof onGenerationSettled === 'function') {
+				try {
+					await onGenerationSettled({
+						success: settledSuccess,
+						contentEventCount: contentEvents.length,
+					});
+				} catch (settleError) {
+					logger.error('[integrated-ai/stream] onGenerationSettled failed', settleError);
+				}
+			}
+
 			const finishedAt = Date.now();
 			logger.info('[integrated-ai/stream] generation timing', {
 				singleShot: Boolean(singleShot),
@@ -340,6 +362,7 @@ export async function stream({ userId, systemPrompt, userMessage, singleShot = f
 				timeToFirstTokenMs: firstTokenAt == null ? null : firstTokenAt - startedAt,
 				totalDurationMs: finishedAt - startedAt,
 				receivedContentEvents: contentEvents.length,
+				settledSuccess,
 			});
 
 			passThrough.end(`data: ${JSON.stringify({

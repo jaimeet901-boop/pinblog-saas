@@ -4,6 +4,7 @@ import { assertCapability } from './workspace-rbac.js';
 import { ensurePlansSeeded, listPlans, mapPlanDto } from './plans.js';
 import { getSubscriptionPlan } from './workspace-context.js';
 import { getBillingProvider, resolveBillingConfig } from './billing/providers/index.js';
+import { getCreditCosts } from './credits-engine.js';
 
 function currentPeriod() {
 	const now = new Date();
@@ -124,6 +125,8 @@ export async function getWorkspaceCredits(req) {
 		remaining: balance,
 		planSlug: plan?.slug || 'free',
 		planName: plan?.name || 'Free',
+		/** Platform Credit Engine catalog — clients must not invent feature costs. */
+		featureCosts: await getCreditCosts(),
 		ledger: ledger.items.map((row) => ({
 			id: row.id,
 			amount: Number(row.amount) || 0,

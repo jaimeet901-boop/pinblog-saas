@@ -4,6 +4,9 @@ import { getPocketbaseAuthHeader } from './pocketbaseClient.js';
 function buildHttpError(response, errorBody) {
 	let message;
 	let errorCode = '';
+	let access = null;
+	let featureKey = '';
+	let requiredKeys;
 	try {
 		const parsed = JSON.parse(errorBody);
 		message = parsed?.message
@@ -11,6 +14,13 @@ function buildHttpError(response, errorBody) {
 			|| (typeof parsed?.error === 'string' ? parsed.error : '')
 			|| '';
 		errorCode = parsed?.errorCode || '';
+		if (parsed?.access && typeof parsed.access === 'object') {
+			access = parsed.access;
+		}
+		featureKey = parsed?.featureKey || '';
+		if (Array.isArray(parsed?.requiredKeys)) {
+			requiredKeys = parsed.requiredKeys;
+		}
 	} catch {
 		message = errorBody;
 	}
@@ -20,6 +30,9 @@ function buildHttpError(response, errorBody) {
 	error.status = response.status;
 	error.errorCode = errorCode || undefined;
 	error.body = errorBody;
+	if (access) error.access = access;
+	if (featureKey) error.featureKey = featureKey;
+	if (requiredKeys) error.requiredKeys = requiredKeys;
 	return error;
 }
 
@@ -58,6 +71,9 @@ const integratedAiClient = {
 		}
 		if (body.singleShot === true || body.singleShot === 1 || body.singleShot === '1') {
 			formData.append('singleShot', '1');
+		}
+		if (typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()) {
+			formData.append('idempotencyKey', body.idempotencyKey.trim().slice(0, 120));
 		}
 
 		images.forEach((image) => {
