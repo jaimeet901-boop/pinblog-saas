@@ -7,28 +7,37 @@ import { useAuth } from '@/context/AuthContext';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { useToast } from '@/hooks/use-toast';
 import { OAUTH_PROVIDERS, getAuthPageOAuthProviders, isValidEmail, normalizePocketBaseError } from '@/lib/auth';
+import { R0_AUTH } from '@/lib/marketing/r0Copy';
 
 const REMEMBER_KEY = 'chef-ia-remember-email';
 
 function OAuthButton({ provider, disabled, loading, onClick }) {
+	const label = `Continue with ${provider.label}`;
 	return (
 		<Button
 			type="button"
 			variant="outline"
 			disabled={disabled || loading}
 			onClick={onClick}
-			className="h-12 w-full justify-between border-border/70 bg-card/80 px-4 text-left shadow-sm hover:bg-secondary/70"
+			aria-label={loading ? `Signing in with ${provider.label}` : label}
+			aria-busy={loading || undefined}
+			className="auth-oauth-btn h-12 w-full justify-between px-4 text-left"
 		>
 			<span className="flex items-center gap-3">
-				<span className={`flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm ${provider.accent}`}>
-					{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : provider.badge}
+				<span
+					className={`flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm ${provider.accent}`}
+					aria-hidden="true"
+				>
+					{loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : provider.badge}
 				</span>
-				<span>
+				<span aria-hidden="true">
 					<span className="block text-sm font-medium">{provider.label}</span>
 					<span className="block text-xs text-muted-foreground">{provider.description}</span>
 				</span>
 			</span>
-			<span className="text-xs font-medium text-muted-foreground">Continue</span>
+			<span className="text-xs font-medium text-muted-foreground" aria-hidden="true">
+				{loading ? 'Connecting…' : 'Continue'}
+			</span>
 		</Button>
 	);
 }
@@ -43,6 +52,7 @@ export default function LoginPage() {
 	const [rememberMe, setRememberMe] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [oauthLoading, setOauthLoading] = useState('');
+	const [fieldErrors, setFieldErrors] = useState({ email: '', password: '', form: '' });
 
 	const enabledProviders = useMemo(() => new Set((authMethods?.oauth2?.providers || []).map((provider) => provider.name)), [authMethods]);
 	const authPageProviders = useMemo(() => getAuthPageOAuthProviders(), []);
@@ -58,6 +68,10 @@ export default function LoginPage() {
 			/* ignore */
 		}
 	}, []);
+
+	const clearFieldError = (key) => {
+		setFieldErrors((prev) => (prev[key] ? { ...prev, [key]: '', form: '' } : prev));
+	};
 
 	const startOAuth = async (provider) => {
 		const popup = window.open('', 'pb-oauth', 'popup=yes,width=560,height=720');
@@ -83,11 +97,21 @@ export default function LoginPage() {
 
 	const submit = async (e) => {
 		e.preventDefault();
+		const nextErrors = { email: '', password: '', form: '' };
 		if (!isValidEmail(email)) {
-			toast({ variant: 'destructive', title: 'Invalid email', description: 'Enter a valid email address.' });
+			nextErrors.email = 'Enter a valid email address.';
+		}
+		if (!String(password || '').trim()) {
+			nextErrors.password = 'Enter your password.';
+		}
+		if (nextErrors.email || nextErrors.password) {
+			setFieldErrors(nextErrors);
+			toast({ variant: 'destructive', title: 'Check your details', description: nextErrors.email || nextErrors.password });
 			return;
 		}
+
 		setLoading(true);
+		setFieldErrors({ email: '', password: '', form: '' });
 		try {
 			await login(email, password);
 			try {
@@ -102,7 +126,9 @@ export default function LoginPage() {
 			toast({ title: 'Signed in', description: 'Your workspace is ready.' });
 			navigate('/app');
 		} catch (err) {
-			toast({ variant: 'destructive', title: 'Login failed', description: normalizePocketBaseError(err, 'Check your credentials and try again.') });
+			const message = normalizePocketBaseError(err, 'Check your credentials and try again.');
+			setFieldErrors({ email: '', password: '', form: message });
+			toast({ variant: 'destructive', title: 'Login failed', description: message });
 		} finally {
 			setLoading(false);
 		}
@@ -110,8 +136,9 @@ export default function LoginPage() {
 
 	return (
 		<AuthShell
+			seoPage="login"
 			title="Welcome back"
-			subtitle={`Sign in to your ${platformName} workspace.`}
+			subtitle={R0_AUTH.loginSubtitle.replace('Chef IA', platformName)}
 			footer={<>No account? <Link to="/signup" className="font-medium text-primary hover:underline">Create one</Link></>}
 		>
 			<div className="space-y-4">
@@ -129,19 +156,57 @@ export default function LoginPage() {
 					</div>
 				) : null}
 
-				<div className="auth-divider"><span>OR</span></div>
+				{authPageProviders.length > 0 ? (
+					<div className="auth-divider"><span>OR</span></div>
+				) : null}
 
-				<form onSubmit={submit} className="space-y-4">
-					<Input label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@blog.com" />
-					<Input label="Password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+				<form onSubmit={submit} className="space-y-4" noValidate>
+					{fieldErrors.form ? (
+						<p id="login-form-error" className="auth-field-error" role="alert">{fieldErrors.form}</p>
+					) : null}
+					<Input
+						label="Email"
+						type="email"
+						name="email"
+						autoComplete="username"
+						required
+						value={email}
+						onChange={(e) => {
+							setEmail(e.target.value);
+							clearFieldError('email');
+						}}
+						placeholder="you@blog.com"
+						error={fieldErrors.email}
+						aria-describedby={fieldErrors.form ? 'login-form-error' : undefined}
+					/>
+					<Input
+						label="Password"
+						type="password"
+						name="password"
+						autoComplete="current-password"
+						required
+						value={password}
+						onChange={(e) => {
+							setPassword(e.target.value);
+							clearFieldError('password');
+						}}
+						placeholder="••••••••"
+						error={fieldErrors.password}
+						aria-describedby={fieldErrors.form ? 'login-form-error' : undefined}
+					/>
 					<div className="flex items-center justify-between gap-3">
 						<label className="auth-check">
-							<input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+							<input
+								type="checkbox"
+								name="remember"
+								checked={rememberMe}
+								onChange={(e) => setRememberMe(e.target.checked)}
+							/>
 							<span>Remember me</span>
 						</label>
 						<Link to="/forgot-password" className="text-sm text-muted-foreground hover:text-foreground">Forgot password?</Link>
 					</div>
-					<Button type="submit" disabled={loading} className="w-full">
+					<Button type="submit" disabled={loading} aria-busy={loading || undefined} className="w-full">
 						{loading ? <Spinner /> : 'Login'}
 					</Button>
 				</form>

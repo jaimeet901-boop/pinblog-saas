@@ -1,50 +1,47 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
-	Sparkles, PenLine, Image as ImageIcon, Pin, Send, CalendarDays, BarChart3,
-	Palette, Share2, Shield, Zap, Globe, Search, CheckCircle2,
+	PenLine,
+	Image as ImageIcon,
+	Palette,
+	Pin,
+	Facebook,
+	Send,
+	CalendarDays,
+	BarChart3,
+	CheckCircle2,
 } from 'lucide-react';
 import PlatformBrandMark from '@/components/PlatformBrandMark';
 import PublicSeoHead from '@/components/PublicSeoHead';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { buildPublicFooterLinks } from '@/lib/platformIdentity';
+import { buildPageSeoOverrides } from '@/lib/platformSeo';
+import {
+	R0_HERO,
+	R0_AUTH,
+	R0_PAGE_SEO,
+	R0_ONBOARDING,
+	R0_CHANNELS,
+	R0_FOOTER,
+	R0_POSITION,
+} from '@/lib/marketing/r0Copy';
 import './AuthShell.css';
 
-const FEATURE_CARDS = [
+const ICON = { size: 14, strokeWidth: 1.75 };
+
+const AUTH_FEATURE_CHIPS = [
 	{ icon: PenLine, title: 'AI Writer' },
-	{ icon: ImageIcon, title: 'AI Image Generator' },
-	{ icon: Pin, title: 'AI Pins Studio' },
-	{ icon: Send, title: 'Publishing Center' },
-	{ icon: CalendarDays, title: 'Content Calendar' },
-	{ icon: BarChart3, title: 'Analytics Center' },
+	{ icon: ImageIcon, title: 'AI Image Studio' },
 	{ icon: Palette, title: 'Brand Kit' },
-	{ icon: Share2, title: 'Pinterest Hub' },
+	{ icon: Pin, title: 'Pinterest Hub' },
+	{ icon: Facebook, title: 'Facebook Hub' },
+	{ icon: Send, title: 'Publishing Center' },
+	{ icon: CalendarDays, title: 'Unified Calendar' },
+	{ icon: BarChart3, title: 'Analytics' },
 ];
 
-const TRUST = [
-	{ icon: Sparkles, label: 'AI Powered' },
-	{ icon: Shield, label: 'Secure Workspace' },
-	{ icon: Zap, label: 'Fast Publishing' },
-	{ icon: Globe, label: 'Multi Website Support' },
-	{ icon: Pin, label: 'Pinterest Ready' },
-	{ icon: Search, label: 'SEO Optimized' },
-];
-
-const WHY = [
-	{ title: 'AI Writing', body: 'Generate SEO articles in minutes.' },
-	{ title: 'AI Design', body: 'Generate Pinterest images automatically.' },
-	{ title: 'AI Publishing', body: 'Publish content to Pinterest and WordPress.' },
-];
-
-const ONBOARD_STEPS = [
-	'Create Workspace',
-	'Add Website',
-	'Connect WordPress',
-	'Connect Pinterest',
-	'Ready to Start',
-];
-
-export default function AuthShell({ title, subtitle, children, footer }) {
+export default function AuthShell({ title, subtitle, children, footer, seoPage = 'login' }) {
+	const identity = usePlatformIdentity();
 	const {
 		platformName,
 		loginLogoUrl,
@@ -52,7 +49,7 @@ export default function AuthShell({ title, subtitle, children, footer }) {
 		supportEmail,
 		contactEmail,
 		documentationUrl,
-	} = usePlatformIdentity();
+	} = identity;
 	const logoUrl = loginLogoUrl || platformLogoUrl;
 	const footerLinks = useMemo(() => buildPublicFooterLinks({
 		supportEmail,
@@ -60,35 +57,40 @@ export default function AuthShell({ title, subtitle, children, footer }) {
 		documentationUrl,
 	}), [supportEmail, contactEmail, documentationUrl]);
 
+	const seoOverrides = useMemo(() => {
+		const pageKey = seoPage === 'signup' ? 'signup' : 'login';
+		return buildPageSeoOverrides(R0_PAGE_SEO[pageKey], identity);
+	}, [seoPage, identity]);
+
 	return (
 		<div className="auth-atelier">
-			<PublicSeoHead />
+			<PublicSeoHead overrides={seoOverrides} />
+			<a href="#main-content" className="skip-link">Skip to main content</a>
+
 			<aside className="auth-hero" aria-label={`${platformName} product story`}>
 				<span className="auth-hero__glow auth-hero__glow--a" aria-hidden="true" />
 				<span className="auth-hero__glow auth-hero__glow--b" aria-hidden="true" />
 				<span className="auth-hero__glow auth-hero__glow--c" aria-hidden="true" />
 
-				<Link to="/" className="auth-brand">
-					<PlatformBrandMark
-						logoUrl={logoUrl}
-						size={18}
-						className="auth-brand__mark"
-					/>
-					<span className="auth-brand__name">{platformName}</span>
-				</Link>
+				<header className="auth-hero__brand">
+					<Link to="/" className="auth-brand">
+						<PlatformBrandMark logoUrl={logoUrl} size={18} className="auth-brand__mark" />
+						<span className="auth-brand__name">{platformName}</span>
+					</Link>
+				</header>
 
 				<div className="auth-hero__copy">
-					<p className="auth-hero__eyebrow">{platformName} Atelier</p>
-					<h2 className="auth-hero__title">Create, Design & Publish Pinterest Content with AI</h2>
-					<p className="auth-hero__desc">
-						One warm workspace for SEO writing, pin design, brand kits, and multi-site publishing — built for creators who ship every day.
-					</p>
+					<p className="auth-hero__eyebrow">{R0_AUTH.eyebrow}</p>
+					<p className="auth-hero__position">{R0_POSITION}</p>
+					{/* Visual headline only — form owns the page <h1> for hierarchy */}
+					<p className="auth-hero__title">{R0_HERO.headline}</p>
+					<p className="auth-hero__desc">{R0_HERO.subheadline}</p>
 				</div>
 
 				<div className="auth-features">
-					{FEATURE_CARDS.map(({ icon: Icon, title: featureTitle }) => (
+					{AUTH_FEATURE_CHIPS.map(({ icon: Icon, title: featureTitle }) => (
 						<div key={featureTitle} className="auth-feature">
-							<span className="auth-feature__icon"><Icon size={14} /></span>
+							<span className="auth-feature__icon" aria-hidden="true"><Icon {...ICON} /></span>
 							<p className="auth-feature__title">{featureTitle}</p>
 						</div>
 					))}
@@ -99,69 +101,52 @@ export default function AuthShell({ title, subtitle, children, footer }) {
 						<div className="auth-mock__blur" />
 						<div className="auth-mock__panels">
 							<div className="auth-mock__panel">
-								<strong>Dashboard</strong>
-								<div className="auth-mock__bars">
-									<span className="auth-mock__bar" />
-									<span className="auth-mock__bar" />
-									<span className="auth-mock__bar" />
+								<strong>Unified Calendar</strong>
+								<div className="auth-mock__cal">
+									<span className="is-busy" /><span /><span className="is-busy" /><span /><span className="is-busy" /><span /><span />
 								</div>
 							</div>
 							<div className="auth-mock__panel">
 								<strong>Analytics</strong>
-								<div className="auth-mock__bars">
-									<span className="auth-mock__bar" />
-									<span className="auth-mock__bar" />
+								<div className="auth-mock__spark">
+									<span /><span /><span /><span /><span />
 								</div>
 							</div>
 							<div className="auth-mock__panel">
-								<strong>AI Writer · Pins · Calendar</strong>
-								<div className="auth-mock__dots">
-									<span className="auth-mock__dot" />
-									<span className="auth-mock__dot" />
-									<span className="auth-mock__dot" />
-									<span className="auth-mock__dot" />
-									<span className="auth-mock__dot" />
-									<span className="auth-mock__dot" />
+								<strong>Publishing · AI Studio</strong>
+								<div className="auth-mock__queue">
+									<em>WordPress · queued</em>
+									<em>Pinterest · scheduled</em>
+									<em>Facebook · connected</em>
 								</div>
 							</div>
 						</div>
 					</div>
 				</div>
 
-				<div className="auth-trust">
-					{TRUST.map(({ icon: Icon, label }) => (
-						<span key={label} className="auth-trust__pill">
-							<Icon size={12} /> {label}
+				<div className="auth-channels" aria-label="Connected destinations">
+					{R0_CHANNELS.live.map((channel) => (
+						<span key={channel.id} className="auth-channels__chip auth-channels__chip--live">
+							{channel.label}
 						</span>
 					))}
-				</div>
-
-				<div className="auth-why">
-					{WHY.map((item) => (
-						<div key={item.title} className="auth-why__card">
-							<h3>{item.title}</h3>
-							<p>{item.body}</p>
-						</div>
-					))}
+					<span className="auth-channels__chip auth-channels__chip--soon">More channels soon</span>
 				</div>
 
 				<div className="auth-onboard">
-					<p className="auth-onboard__title">Onboarding preview</p>
+					<p className="auth-onboard__title">Get started</p>
 					<div className="auth-onboard__steps">
-						{ONBOARD_STEPS.map((step, index) => (
-							<span key={step} className="auth-onboard__step">
-								<span>{index + 1}</span>
-								{step}
+						{R0_ONBOARDING.map((step, index) => (
+							<span key={step.title} className="auth-onboard__step">
+								<span aria-hidden="true">{index + 1}</span>
+								{step.title}
 							</span>
 						))}
 					</div>
-					<p className="mt-2 text-[11px] text-muted-foreground">
-						Guided setup preview — coming soon in your workspace.
-					</p>
 				</div>
 
 				<footer className="auth-footer">
-					<div className="auth-footer__links">
+					<nav className="auth-footer__links" aria-label="Legal and support">
 						{footerLinks.map((link) => (
 							link.to
 								? <Link key={link.label} to={link.to}>{link.label}</Link>
@@ -175,19 +160,15 @@ export default function AuthShell({ title, subtitle, children, footer }) {
 									</a>
 								)
 						))}
-					</div>
-					<span>Version 0.0.0</span>
+					</nav>
+					<span className="auth-footer__note">{R0_FOOTER.note}</span>
 				</footer>
 			</aside>
 
-			<section className="auth-panel">
+			<main id="main-content" className="auth-panel" tabIndex={-1}>
 				<div className="auth-card">
 					<div className="auth-card__mobile-brand">
-						<PlatformBrandMark
-							logoUrl={logoUrl}
-							size={16}
-							className="auth-brand__mark"
-						/>
+						<PlatformBrandMark logoUrl={logoUrl} size={16} className="auth-brand__mark" />
 						<span className="auth-brand__name">{platformName}</span>
 					</div>
 					<h1 className="auth-card__title">{title}</h1>
@@ -195,10 +176,11 @@ export default function AuthShell({ title, subtitle, children, footer }) {
 					<div className="auth-card__body">{children}</div>
 					{footer ? <div className="auth-card__footer">{footer}</div> : null}
 					<div className="mt-5 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
-						<CheckCircle2 size={12} className="text-primary" /> Secure {platformName} workspace
+						<CheckCircle2 size={12} className="text-primary" aria-hidden="true" />
+						Secure {platformName} workspace
 					</div>
 				</div>
-			</section>
+			</main>
 		</div>
 	);
 }

@@ -49,17 +49,37 @@ export function Button({ variant = 'primary', className, size = 'md', ...props }
 	);
 }
 
-export function Input({ className, label, ...props }) {
+export function Input({
+	className,
+	label,
+	error,
+	id,
+	'aria-describedby': ariaDescribedBy,
+	'aria-invalid': ariaInvalid,
+	...props
+}) {
+	const inputId = id || props.name || undefined;
+	const errorId = error && inputId ? `${inputId}-error` : undefined;
+	const describedBy = [ariaDescribedBy, errorId].filter(Boolean).join(' ') || undefined;
+
 	return (
-		<label className="block">
+		<label className="block" htmlFor={inputId}>
 			{label && <span className="mb-1.5 block text-sm font-medium">{label}</span>}
 			<input
+				{...props}
+				id={inputId}
+				aria-invalid={error ? true : ariaInvalid}
+				aria-describedby={describedBy}
 				className={cn(
 					'w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20',
+					error && 'border-destructive focus:border-destructive focus:ring-destructive/20',
 					className,
 				)}
-				{...props}
-			/>
+			/>			{error ? (
+				<span id={errorId} className="auth-field-error" role="alert">
+					{error}
+				</span>
+			) : null}
 		</label>
 	);
 }
