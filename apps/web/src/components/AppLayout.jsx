@@ -19,17 +19,17 @@ import {
 const NAV = [
 	{ to: '/app', label: 'Dashboard', icon: LayoutDashboard, end: true },
 	{ to: '/app/websites', label: 'Websites', icon: Globe },
-	{ to: '/app/ai-pins', label: 'AI Pins', icon: Wand2, needsWebsite: true },
-	{ to: '/app/ai-facebook-pages', label: 'AI Facebook Pages', icon: Facebook, needsWebsite: true },
-	{ to: '/app/facebook', label: 'Facebook', icon: Facebook, needsWebsite: true },
-	// Templates + Brand Kit stay routed (/app/ai-pins/templates, /app/ai-pins/brand-kit)
-	// but are admin-only via Admin Console — not shown in the workspace sidebar.
-	{ to: '/app/ai-pins/history', label: 'Pin History', icon: History, needsWebsite: true },
 	{ to: '/app/writer', label: 'AI Writer', icon: PenLine, needsWebsite: true },
 	{ to: '/app/images', label: 'Image Generator', icon: Image, needsWebsite: true },
+	{ to: '/app/ai-pins', label: 'AI Pins', icon: Wand2, needsWebsite: true, end: true },
 	{ to: '/app/pinterest', label: 'Pinterest', icon: Pin, needsWebsite: true },
+	{ to: '/app/facebook', label: 'Facebook', icon: Facebook, needsWebsite: true },
+	{ to: '/app/ai-facebook-pages', label: 'AI Facebook Pages', icon: Facebook, needsWebsite: true },
+	// Templates + Brand Kit stay routed (/app/ai-pins/templates, /app/ai-pins/brand-kit)
+	// but are admin-only via Admin Console — not shown in the workspace sidebar.
 	{ to: '/app/calendar', label: 'Calendar', icon: CalendarDays, needsWebsite: true },
 	{ to: '/app/pinterest-history', label: 'Publishing History', icon: History, needsWebsite: true },
+	{ to: '/app/ai-pins/history', label: 'Pin History', icon: History, needsWebsite: true },
 	{ to: '/app/analytics', label: 'Analytics', icon: BarChart3, needsWebsite: true },
 	{ to: '/app/subscription', label: 'Subscription', icon: CreditCard },
 	{ to: '/app/settings', label: 'Settings', icon: Settings },
@@ -59,7 +59,10 @@ export default function AppLayout({ children }) {
 	const currentLabel =
 		user?.role === 'admin' && location.pathname === '/app/admin'
 			? 'Admin'
-			: NAV.find((n) => (n.end ? location.pathname === n.to : location.pathname.startsWith(n.to)))?.label || 'Dashboard';
+			: [...NAV]
+				.sort((a, b) => b.to.length - a.to.length)
+				.find((n) => (n.end ? location.pathname === n.to : location.pathname.startsWith(n.to)))
+				?.label || 'Dashboard';
 
 	const NavItems = () => (
 		<nav className="flex flex-col gap-1">
