@@ -22,15 +22,7 @@ import { ensurePinterestAppCredentialsSeeded } from './services/pinterest-app-cr
 import { ensureFacebookAppCredentialsSeeded } from './services/facebook/app-credentials.js';
 import { ensurePlatformSettingsSeeded } from './services/platform-settings.js';
 import { ensureOfficialPinTemplatesSeeded } from './services/official-pin-templates-seed.js';
-import { ensureWordpressIntegrationSchema } from './utils/ensure-wordpress-integration-schema.js';
-import { ensureArticleLifecycleSchema } from './utils/ensure-article-lifecycle-schema.js';
-import { ensureCreditsEngineSchema } from './utils/ensure-credits-engine-schema.js';
-import { ensureBillingAutomationSchema } from './utils/ensure-billing-automation-schema.js';
-import { ensureWorkspaceEnterpriseSchema } from './utils/ensure-workspace-enterprise-schema.js';
-import { ensureWorkspaceOwnershipSchema } from './utils/ensure-workspace-ownership-schema.js';
-import { ensureWebsiteLifecycleSchema } from './utils/ensure-website-lifecycle-schema.js';
-import { ensureFacebookOAuthSchema } from './utils/ensure-facebook-oauth-schema.js';
-import { ensureUsersPrivilegedRules } from './utils/ensure-users-privileged-rules.js';
+import { runStartupSchemaCompat } from './utils/run-schema-compat.js';
 import { startBillingAutomationWorker, stopBillingAutomationWorker } from './services/billing/index.js';
 import pocketbaseClient from './utils/pocketbaseClient.js';
 
@@ -155,38 +147,13 @@ app.listen(port, () => {
 	ensureFacebookAppCredentialsSeeded().catch((error) => {
 		logger.warn('Facebook OAuth credentials seed skipped:', error?.message || error);
 	});
-	ensureFacebookOAuthSchema(pocketbaseClient).catch((error) => {
-		logger.warn('Facebook Hub/OAuth schema ensure skipped:', error?.message || error);
-	});
-	ensureUsersPrivilegedRules(pocketbaseClient).catch((error) => {
-		logger.warn('Users privileged-field rules ensure skipped:', error?.message || error);
-	});
+	// Schema: migrations are authoritative; startup ensures are compat gap-fill only.
+	runStartupSchemaCompat(pocketbaseClient);
 	ensurePlatformSettingsSeeded().catch((error) => {
 		logger.warn('Platform settings seed skipped:', error?.message || error);
 	});
 	ensureOfficialPinTemplatesSeeded().catch((error) => {
 		logger.warn('Official pin templates seed skipped:', error?.message || error);
-	});
-	ensureWordpressIntegrationSchema(pocketbaseClient).catch((error) => {
-		logger.warn('WordPress integration schema ensure skipped:', error?.message || error);
-	});
-	ensureArticleLifecycleSchema(pocketbaseClient).catch((error) => {
-		logger.warn('Article lifecycle schema ensure skipped:', error?.message || error);
-	});
-	ensureCreditsEngineSchema(pocketbaseClient).catch((error) => {
-		logger.warn('Credits engine schema ensure skipped:', error?.message || error);
-	});
-	ensureBillingAutomationSchema(pocketbaseClient).catch((error) => {
-		logger.warn('Billing automation schema ensure skipped:', error?.message || error);
-	});
-	ensureWorkspaceEnterpriseSchema(pocketbaseClient).catch((error) => {
-		logger.warn('Workspace enterprise schema ensure skipped:', error?.message || error);
-	});
-	ensureWorkspaceOwnershipSchema(pocketbaseClient).catch((error) => {
-		logger.warn('Workspace ownership schema ensure skipped:', error?.message || error);
-	});
-	ensureWebsiteLifecycleSchema(pocketbaseClient).catch((error) => {
-		logger.warn('Website lifecycle schema ensure skipped:', error?.message || error);
 	});
 	startPinterestPublishQueue();
 	startPinterestAnalyticsSync();

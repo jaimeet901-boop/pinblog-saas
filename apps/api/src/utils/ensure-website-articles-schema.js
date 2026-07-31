@@ -67,7 +67,9 @@ function getFieldsArray(model) {
 
 /**
  * Ensure website_articles exists with the fields the scanner needs.
- * Uses superuser collections API so production schema drift can self-heal.
+ * Compat gap-fill only — primary schema lives in PocketBase migrations
+ * (1737465000, 1783989000, 1783995000). Uses superuser collections API so
+ * older production volumes can self-heal. Rules must stay API-only (null).
  */
 export async function ensureWebsiteArticlesSchema(pocketbaseClient) {
 	const users = await pocketbaseClient.collections.getOne('users');
@@ -82,14 +84,15 @@ export async function ensureWebsiteArticlesSchema(pocketbaseClient) {
 			status: error?.status || null,
 		});
 
+		// Match 1783995000 workspace isolation: API-only (null) rules — not owner-scoped.
 		collection = await pocketbaseClient.collections.create({
 			name: 'website_articles',
 			type: 'base',
-			listRule: "@request.auth.id != '' && owner = @request.auth.id",
-			viewRule: "@request.auth.id != '' && owner = @request.auth.id",
-			createRule: "@request.auth.id != '' && owner = @request.auth.id",
-			updateRule: "@request.auth.id != '' && owner = @request.auth.id",
-			deleteRule: "@request.auth.id != '' && owner = @request.auth.id",
+			listRule: null,
+			viewRule: null,
+			createRule: null,
+			updateRule: null,
+			deleteRule: null,
 			fields: [
 				buildRelationField('websiteId', websites.id, { required: true }),
 				buildRelationField('owner', users.id, { required: true }),
@@ -159,6 +162,25 @@ export async function ensureWebsiteArticlesSchema(pocketbaseClient) {
 
 		collection = await pocketbaseClient.collections.update(collection.id, {
 			fields: nextFields,
+		});
+	}
+
+	// Harden rules to API-only when an older ensure/create left owner-scoped rules.
+	const rulesAreApiOnly = [
+		collection.listRule,
+		collection.viewRule,
+		collection.createRule,
+		collection.updateRule,
+		collection.deleteRule,
+	].every((rule) => rule == null);
+	if (!rulesAreApiOnly) {
+		logger.warn('Hardening website_articles to API-only rules (compat with 1783995000)');
+		collection = await pocketbaseClient.collections.update(collection.id, {
+			listRule: null,
+			viewRule: null,
+			createRule: null,
+			updateRule: null,
+			deleteRule: null,
 		});
 	}
 

@@ -155,7 +155,8 @@ test('migration, hook, ensure, and main wiring exist and match rule builders', (
 
 	assert.match(ensure, /buildUsersUpdateRule/);
 	assert.match(ensure, /buildUsersCreateRule/);
-	assert.match(main, /ensureUsersPrivilegedRules/);
+	assert.match(main, /runStartupSchemaCompat/);
+	assert.match(readFileSync(path.join(here, '../utils/schema-compat-registry.js'), 'utf8'), /ensureUsersPrivilegedRules/);
 
 	const expected = usersRulesMatchHardened({
 		createRule: buildUsersCreateRule(),

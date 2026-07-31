@@ -4,7 +4,9 @@
 > Current runtime store: **PocketBase** (`/hcgi/platform`).  
 > Status: **existing collections** vs **proposed** for Admin Console / multi-seat workspaces.
 
-Related docs: [backend-integration-plan.md](./backend-integration-plan.md) · [api-contracts.md](./api-contracts.md) · [rbac.md](./rbac.md) · [facebook-channel-pack-schema.md](./facebook-channel-pack-schema.md) (Facebook F1 design — collections not migrated yet)
+Related docs: [schema-authority.md](./schema-authority.md) · [backend-integration-plan.md](./backend-integration-plan.md) · [api-contracts.md](./api-contracts.md) · [rbac.md](./rbac.md) · [facebook-channel-pack-schema.md](./facebook-channel-pack-schema.md) (Facebook F1 design — collections not migrated yet)
+
+> **Schema authority:** PocketBase migrations (`apps/pocketbase/pb_migrations`) are the primary source of truth. Runtime `ensure-*` helpers are compat-only gap-fill for older installs — see [schema-authority.md](./schema-authority.md).
 
 ---
 
