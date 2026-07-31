@@ -24,6 +24,11 @@ import WriterSectionBlocks, {
 } from '@/components/writer/WriterSectionBlocks';
 import { isFeatureLockedError } from '@/lib/templateAccess';
 import { isPlanFeatureEnabled } from '@/lib/planFeatures';
+import {
+	buildArticlePersistPayload,
+	resolveArticlePersistRequest,
+	resolvePersistedArticleId,
+} from '@/lib/writer-article-persist';
 import './WriterPage.css';
 const initForm = {
 	keyword: '',
@@ -754,38 +759,29 @@ Respond ONLY with the JSON object described in your instructions.`;
 
 		try {
 			const persistBody = buildPersistableBody(article, form);
-			const payload = {
-				keyword: form.keyword,
-				seo_title: article.seo_title,
-				meta_description: article.meta_description,
-				slug: article.slug,
-				language: form.language,
-				country: form.country,
-				tone: form.tone,
-				body: persistBody,
+			const payload = buildArticlePersistPayload({
+				form,
+				article,
+				persistBody,
 				status,
-				...(status === 'scheduled' ? { scheduled_at: new Date(Date.now() + 86400000).toISOString() } : {}),
-			};
+				scheduledAt: status === 'scheduled' ? new Date(Date.now() + 86400000).toISOString() : '',
+			});
+			const persist = resolveArticlePersistRequest(savedArticleId);
 
-			const response = savedArticleId
-				? await apiServerClient.fetch(`/content/articles/${savedArticleId}`, {
-					method: 'PATCH',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(payload),
-				})
-				: await apiServerClient.fetch('/content/articles', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(payload),
-				});
+			const response = await apiServerClient.fetch(persist.path, {
+				method: persist.method,
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload),
+			});
 
 			const data = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(data?.message || `Failed to save article (${response.status})`);
 			}
 
-			if (!savedArticleId && data?.id) {
-				setSavedArticleId(data.id);
+			const nextId = resolvePersistedArticleId(savedArticleId, data);
+			if (nextId && nextId !== savedArticleId) {
+				setSavedArticleId(nextId);
 			}
 
 			// Keep editor state; mark clean.
@@ -838,25 +834,30 @@ Respond ONLY with the JSON object described in your instructions.`;
 		try {
 			const persistBody = buildPersistableBody(article, form);
 			const articleStatus = extras.scheduledAt ? 'scheduled' : (wpStatus === 'publish' ? 'published' : 'draft');
-			const createResponse = await apiServerClient.fetch('/content/articles', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					keyword: form.keyword,
-					seo_title: article.seo_title,
-					meta_description: article.meta_description,
-					slug: article.slug,
-					language: form.language,
-					country: form.country,
-					tone: form.tone,
-					body: persistBody,
-					status: articleStatus,
-					...(extras.scheduledAt ? { scheduled_at: extras.scheduledAt } : {}),
-				}),
+			const payload = buildArticlePersistPayload({
+				form,
+				article,
+				persistBody,
+				status: articleStatus,
+				scheduledAt: extras.scheduledAt || '',
 			});
-			const savedArticle = await createResponse.json().catch(() => ({}));
-			if (!createResponse.ok) {
-				throw new Error(savedArticle?.message || `Failed to save article (${createResponse.status})`);
+			const persist = resolveArticlePersistRequest(savedArticleId);
+			const persistResponse = await apiServerClient.fetch(persist.path, {
+				method: persist.method,
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload),
+			});
+			const savedArticle = await persistResponse.json().catch(() => ({}));
+			if (!persistResponse.ok) {
+				throw new Error(savedArticle?.message || `Failed to save article (${persistResponse.status})`);
+			}
+
+			const articleRecordId = resolvePersistedArticleId(savedArticleId, savedArticle);
+			if (articleRecordId && articleRecordId !== savedArticleId) {
+				setSavedArticleId(articleRecordId);
+			}
+			if (articleRecordId) {
+				setSavedFingerprint(buildSaveFingerprint(article, form));
 			}
 
 			const endpoint = extras.scheduledAt ? '/wordpress/schedule' : '/wordpress/publish';
@@ -866,7 +867,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 				body: JSON.stringify({
 					siteId: site.id,
 					websiteId: site.id,
-					articleId: savedArticle.id,
+					articleId: articleRecordId,
 					title: article.seo_title || form.keyword,
 					content: composeHtml(article),
 					slug: article.slug,
@@ -883,7 +884,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 					},
 					recipeCard: options.recipe ? (article.recipe || article.recipe_card || { enabled: true }) : null,
 					enqueuePinterest: true,
-					idempotencyKey: `writer-${site.id}-${savedArticle.id}-${wpStatus}-${extras.scheduledAt || 'now'}`,
+					idempotencyKey: `writer-${site.id}-${articleRecordId}-${wpStatus}-${extras.scheduledAt || 'now'}`,
 				}),
 			});
 			const data = await res.json().catch(() => ({}));
@@ -917,8 +918,8 @@ Respond ONLY with the JSON object described in your instructions.`;
 				};
 				setArticle(nextArticle);
 				setArticleBaseline(nextArticle);
-				if (savedArticle?.id) {
-					await apiServerClient.fetch(`/content/articles/${savedArticle.id}`, {
+				if (articleRecordId) {
+					await apiServerClient.fetch(`/content/articles/${articleRecordId}`, {
 						method: 'PATCH',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({
@@ -929,6 +930,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 							custom_prompt: form.customPrompt || '',
 						}),
 					}).catch(() => null);
+					setSavedFingerprint(buildSaveFingerprint(nextArticle, form));
 				}
 			} else {
 				setArticleBaseline(article);
