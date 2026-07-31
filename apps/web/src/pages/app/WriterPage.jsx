@@ -1719,7 +1719,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 							<div className="space-y-2">
 								<p className="text-sm font-medium">Edit sections</p>
 								<p className="text-[11px] text-muted-foreground -mt-1">
-									Use the AI toolbar on each section (Rewrite, Expand, Shorten, SEO, Readability, Simplify, Professional). Only that section is updated.
+									Reorder, add, split, merge, or delete body sections without regenerating. Structural edits mark the draft unsaved.
 								</p>
 								<WriterSectionBlocks
 									article={article}

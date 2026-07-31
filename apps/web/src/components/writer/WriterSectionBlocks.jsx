@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import {
 	Loader2, RefreshCw, Type, Hash, Search, Pencil, AlertCircle,
-	BookOpen, Sparkles, Briefcase,
+	BookOpen, Sparkles, Briefcase, GripVertical, ChevronUp, ChevronDown,
+	Plus, Trash2, SplitSquareVertical, Merge,
 } from 'lucide-react';
 import { Button, Input, Textarea, Spinner } from '@/components/kit';
 import { generateText, extractJson } from '@/lib/aiGenerate';
@@ -23,6 +24,41 @@ function newEditorId(prefix) {
 		return `${prefix}_${crypto.randomUUID()}`;
 	}
 	return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function createEmptySection(heading = '') {
+	return {
+		heading: heading || '',
+		content: '',
+		level: 'h2',
+		_editorId: newEditorId('section'),
+	};
+}
+
+function reorderSections(sections, fromIndex, toIndex) {
+	const list = [...(sections || [])];
+	if (
+		fromIndex < 0
+		|| toIndex < 0
+		|| fromIndex >= list.length
+		|| toIndex >= list.length
+		|| fromIndex === toIndex
+	) {
+		return list;
+	}
+	const [item] = list.splice(fromIndex, 1);
+	list.splice(toIndex, 0, item);
+	return list;
+}
+
+function mergeSectionContents(first, second) {
+	const parts = [];
+	if (String(first?.content || '').trim()) parts.push(String(first.content).trim());
+	if (String(second?.heading || '').trim()) {
+		parts.push(`<p><strong>${String(second.heading).trim()}</strong></p>`);
+	}
+	if (String(second?.content || '').trim()) parts.push(String(second.content).trim());
+	return parts.join('\n');
 }
 
 /** Attach stable session editor ids without changing persisted meaning. */
@@ -175,6 +211,68 @@ function SectionAiToolbar({
 	);
 }
 
+function SectionStructureToolbar({
+	sectionTitle,
+	disabled,
+	canMoveUp,
+	canMoveDown,
+	canMergeNext,
+	onMoveUp,
+	onMoveDown,
+	onAddAbove,
+	onAddBelow,
+	onSplit,
+	onMergeNext,
+	onDelete,
+	dragHandleProps,
+}) {
+	return (
+		<div
+			className="wr-sec-structure"
+			role="toolbar"
+			aria-label={`Structure tools for ${sectionTitle}`}
+		>
+			<span className="wr-sec-structure__label" aria-hidden="true">Structure</span>
+			<button
+				type="button"
+				className="wr-sec-structure__btn wr-sec-structure__drag"
+				title="Drag to reorder"
+				aria-label={`Drag to reorder ${sectionTitle}`}
+				disabled={disabled}
+				{...dragHandleProps}
+			>
+				<GripVertical size={14} aria-hidden="true" />
+			</button>
+			<button type="button" className="wr-sec-structure__btn" title="Move up" aria-label={`Move ${sectionTitle} up`} disabled={disabled || !canMoveUp} onClick={onMoveUp}>
+				<ChevronUp size={14} aria-hidden="true" />
+			</button>
+			<button type="button" className="wr-sec-structure__btn" title="Move down" aria-label={`Move ${sectionTitle} down`} disabled={disabled || !canMoveDown} onClick={onMoveDown}>
+				<ChevronDown size={14} aria-hidden="true" />
+			</button>
+			<button type="button" className="wr-sec-structure__btn" title="Add section above" aria-label={`Add section above ${sectionTitle}`} disabled={disabled} onClick={onAddAbove}>
+				<Plus size={14} aria-hidden="true" />
+				<span className="wr-sec-structure__btn-text">Above</span>
+			</button>
+			<button type="button" className="wr-sec-structure__btn" title="Add section below" aria-label={`Add section below ${sectionTitle}`} disabled={disabled} onClick={onAddBelow}>
+				<Plus size={14} aria-hidden="true" />
+				<span className="wr-sec-structure__btn-text">Below</span>
+			</button>
+			<button type="button" className="wr-sec-structure__btn" title="Split at cursor in content field" aria-label={`Split ${sectionTitle} at cursor`} disabled={disabled} onClick={onSplit}>
+				<SplitSquareVertical size={14} aria-hidden="true" />
+				<span className="wr-sec-structure__btn-text">Split</span>
+			</button>
+			<button type="button" className="wr-sec-structure__btn" title="Merge with next section" aria-label={`Merge ${sectionTitle} with next section`} disabled={disabled || !canMergeNext} onClick={onMergeNext}>
+				<Merge size={14} aria-hidden="true" />
+				<span className="wr-sec-structure__btn-text">Merge</span>
+			</button>
+			<button type="button" className="wr-sec-structure__btn is-danger" title="Delete section" aria-label={`Delete ${sectionTitle}`} disabled={disabled} onClick={onDelete}>
+				<Trash2 size={14} aria-hidden="true" />
+				<span className="wr-sec-structure__btn-text">Delete</span>
+			</button>
+		</div>
+	);
+}
+
 function SectionCard({
 	id,
 	title,
@@ -186,10 +284,16 @@ function SectionCard({
 	onRetry,
 	onAction,
 	disabledActions,
+	structure,
+	insertAction,
+	dragOver,
 	children,
 }) {
 	return (
-		<div className={`wr-sec-card${busy ? ' is-busy' : ''}${editing ? ' is-editing' : ''}`} data-section-id={id}>
+		<div
+			className={`wr-sec-card${busy ? ' is-busy' : ''}${editing ? ' is-editing' : ''}${dragOver ? ' is-drag-over' : ''}`}
+			data-section-id={id}
+		>
 			<div className="wr-sec-card__head">
 				<div>
 					<p className="wr-sec-card__title">{title}</p>
@@ -214,6 +318,40 @@ function SectionCard({
 					<span>Edit</span>
 				</button>
 			</div>
+
+			{structure ? (
+				<SectionStructureToolbar
+					sectionTitle={title}
+					disabled={busy || structure.disabled}
+					canMoveUp={structure.canMoveUp}
+					canMoveDown={structure.canMoveDown}
+					canMergeNext={structure.canMergeNext}
+					onMoveUp={structure.onMoveUp}
+					onMoveDown={structure.onMoveDown}
+					onAddAbove={structure.onAddAbove}
+					onAddBelow={structure.onAddBelow}
+					onSplit={structure.onSplit}
+					onMergeNext={structure.onMergeNext}
+					onDelete={structure.onDelete}
+					dragHandleProps={structure.dragHandleProps}
+				/>
+			) : null}
+
+			{insertAction ? (
+				<div className="wr-sec-structure wr-sec-structure--insert" role="toolbar" aria-label={`Insert section for ${title}`}>
+					<button
+						type="button"
+						className="wr-sec-structure__btn"
+						title={insertAction.title}
+						aria-label={insertAction.label}
+						disabled={busy || insertAction.disabled}
+						onClick={insertAction.onClick}
+					>
+						<Plus size={14} aria-hidden="true" />
+						<span className="wr-sec-structure__btn-text">{insertAction.text}</span>
+					</button>
+				</div>
+			) : null}
 
 			<SectionAiToolbar
 				sectionTitle={title}
@@ -264,7 +402,12 @@ export default function WriterSectionBlocks({
 	const [activeActionMap, setActiveActionMap] = useState({});
 	const [errors, setErrors] = useState({});
 	const [lastAction, setLastAction] = useState({});
+	const [dragFromIndex, setDragFromIndex] = useState(null);
+	const [dragOverIndex, setDragOverIndex] = useState(null);
 	const abortRef = useRef({});
+	const caretBySectionRef = useRef({});
+
+	const sectionCount = article?.sections?.length || 0;
 
 	const blocks = useMemo(() => {
 		if (!article) return [];
@@ -305,6 +448,20 @@ export default function WriterSectionBlocks({
 		});
 	};
 
+	const focusSectionContent = (sectionId) => {
+		requestAnimationFrame(() => {
+			const node = document.getElementById(`wr-sec-content-${sectionId}`);
+			if (node && typeof node.focus === 'function') node.focus();
+		});
+	};
+
+	const rememberCaret = (sectionId, event) => {
+		const start = event?.target?.selectionStart;
+		if (typeof start === 'number') {
+			caretBySectionRef.current[sectionId] = start;
+		}
+	};
+
 	const updateIntroduction = (value) => {
 		patchArticle((prev) => ({ ...prev, introduction: value }));
 	};
@@ -329,6 +486,88 @@ export default function WriterSectionBlocks({
 			faq[index] = { ...(faq[index] || {}), [field]: value };
 			return { ...prev, faq };
 		});
+	};
+
+	const moveSection = (fromIndex, toIndex) => {
+		patchArticle((prev) => ({
+			...prev,
+			sections: reorderSections(prev.sections, fromIndex, toIndex),
+		}));
+	};
+
+	const insertSectionAt = (index, heading = '') => {
+		const empty = createEmptySection(heading);
+		patchArticle((prev) => {
+			const sections = [...(prev.sections || [])];
+			const at = Math.max(0, Math.min(index, sections.length));
+			sections.splice(at, 0, empty);
+			return { ...prev, sections };
+		});
+		setEditingId(empty._editorId);
+		focusSectionContent(empty._editorId);
+		return empty._editorId;
+	};
+
+	const deleteSectionAt = (index) => {
+		const section = article.sections?.[index];
+		const label = section?.heading || `Section ${index + 1}`;
+		if (!window.confirm(`Delete “${label}”? This cannot be undone until you restore from a saved draft.`)) {
+			return;
+		}
+		patchArticle((prev) => {
+			const sections = [...(prev.sections || [])];
+			sections.splice(index, 1);
+			return { ...prev, sections };
+		});
+	};
+
+	const splitSectionAt = (index) => {
+		const section = article.sections?.[index];
+		if (!section) return;
+		const sectionId = section._editorId || `section-${index}`;
+		const el = document.getElementById(`wr-sec-content-${sectionId}`);
+		const content = String(section.content || '');
+		let pos = typeof el?.selectionStart === 'number'
+			? el.selectionStart
+			: caretBySectionRef.current[sectionId];
+		if (typeof pos !== 'number' || pos < 0 || pos > content.length) {
+			pos = Math.floor(content.length / 2);
+		}
+		const left = content.slice(0, pos);
+		const right = content.slice(pos);
+		const next = createEmptySection('');
+		next.content = right;
+		patchArticle((prev) => {
+			const sections = [...(prev.sections || [])];
+			const current = { ...(sections[index] || {}) };
+			sections[index] = { ...current, content: left };
+			sections.splice(index + 1, 0, next);
+			return { ...prev, sections };
+		});
+		setEditingId(next._editorId);
+		focusSectionContent(next._editorId);
+	};
+
+	const mergeWithNext = (index) => {
+		const first = article.sections?.[index];
+		const second = article.sections?.[index + 1];
+		if (!first || !second) return;
+		patchArticle((prev) => {
+			const sections = [...(prev.sections || [])];
+			const a = { ...(sections[index] || {}) };
+			const b = sections[index + 1] || {};
+			sections[index] = {
+				...a,
+				content: mergeSectionContents(a, b),
+			};
+			sections.splice(index + 1, 1);
+			return { ...prev, sections };
+		});
+		const keepId = first._editorId;
+		if (keepId) {
+			setEditingId(keepId);
+			focusSectionContent(keepId);
+		}
 	};
 
 	const runAiAction = async (block, actionId) => {
@@ -454,6 +693,52 @@ export default function WriterSectionBlocks({
 				const editing = true;
 				const error = errors[block.id];
 				const retryAction = lastAction[block.id] || 'rewrite';
+				const isBodySection = block.kind === 'section';
+				const index = block.index;
+
+				const structure = isBodySection ? {
+					disabled: false,
+					canMoveUp: index > 0,
+					canMoveDown: index < sectionCount - 1,
+					canMergeNext: index < sectionCount - 1,
+					onMoveUp: () => moveSection(index, index - 1),
+					onMoveDown: () => moveSection(index, index + 1),
+					onAddAbove: () => insertSectionAt(index),
+					onAddBelow: () => insertSectionAt(index + 1),
+					onSplit: () => splitSectionAt(index),
+					onMergeNext: () => mergeWithNext(index),
+					onDelete: () => deleteSectionAt(index),
+					dragHandleProps: {
+						draggable: !busy,
+						onDragStart: (event) => {
+							setDragFromIndex(index);
+							event.dataTransfer.effectAllowed = 'move';
+							event.dataTransfer.setData('text/plain', String(index));
+						},
+						onDragEnd: () => {
+							setDragFromIndex(null);
+							setDragOverIndex(null);
+						},
+					},
+				} : null;
+
+				const insertAction = block.kind === 'introduction'
+					? {
+						title: 'Add a new empty section below the introduction',
+						label: 'Add section below introduction',
+						text: 'Add section below',
+						disabled: false,
+						onClick: () => insertSectionAt(0),
+					}
+					: (block.kind === 'conclusion'
+						? {
+							title: 'Add a new empty section above the conclusion',
+							label: 'Add section above conclusion',
+							text: 'Add section above',
+							disabled: false,
+							onClick: () => insertSectionAt(sectionCount),
+						}
+						: null);
 
 				return (
 					<SectionCard
@@ -465,10 +750,12 @@ export default function WriterSectionBlocks({
 						error={error}
 						editing={editingId === block.id || busy}
 						disabledActions={!writerPlanAllowed}
+						structure={structure}
+						insertAction={insertAction}
+						dragOver={isBodySection && dragOverIndex === index}
 						onEdit={() => {
 							setEditingId(block.id);
-							const node = document.querySelector(`[data-section-id="${block.id}"] textarea, [data-section-id="${block.id}"] input`);
-							if (node && typeof node.focus === 'function') node.focus();
+							focusSectionContent(block.id);
 						}}
 						onAction={(actionId) => runAiAction(block, actionId)}
 						onRetry={() => runAiAction(block, retryAction)}
@@ -494,7 +781,27 @@ export default function WriterSectionBlocks({
 						) : null}
 
 						{block.kind === 'section' ? (
-							<div className="space-y-2">
+							<div
+								className="space-y-2"
+								onDragOver={(event) => {
+									if (dragFromIndex == null) return;
+									event.preventDefault();
+									event.dataTransfer.dropEffect = 'move';
+									if (dragOverIndex !== index) setDragOverIndex(index);
+								}}
+								onDragLeave={() => {
+									if (dragOverIndex === index) setDragOverIndex(null);
+								}}
+								onDrop={(event) => {
+									event.preventDefault();
+									const from = Number(event.dataTransfer.getData('text/plain'));
+									const fromIndex = Number.isFinite(from) ? from : dragFromIndex;
+									setDragFromIndex(null);
+									setDragOverIndex(null);
+									if (fromIndex == null || fromIndex === index) return;
+									moveSection(fromIndex, index);
+								}}
+							>
 								<Input
 									label="Heading"
 									value={article.sections?.[block.index]?.heading || ''}
@@ -502,30 +809,40 @@ export default function WriterSectionBlocks({
 									disabled={busy}
 								/>
 								<Textarea
+									id={`wr-sec-content-${block.id}`}
 									label="Content"
 									rows={5}
 									value={article.sections?.[block.index]?.content || ''}
-									onChange={(e) => updateSectionField(block.index, 'content', e.target.value)}
+									onChange={(e) => {
+										rememberCaret(block.id, e);
+										updateSectionField(block.index, 'content', e.target.value);
+									}}
+									onSelect={(e) => rememberCaret(block.id, e)}
+									onClick={(e) => rememberCaret(block.id, e)}
+									onKeyUp={(e) => rememberCaret(block.id, e)}
 									disabled={busy}
 								/>
+								<p className="text-[11px] text-muted-foreground">
+									Split uses the cursor position in Content. Place the caret, then click Split.
+								</p>
 							</div>
 						) : null}
 
 						{block.kind === 'faq' ? (
 							<div className="space-y-2">
-								{(article.faq || []).map((item, index) => (
-									<div key={item._editorId || index} className="rounded-lg border border-border/80 p-2.5 space-y-2">
+								{(article.faq || []).map((item, faqIndex) => (
+									<div key={item._editorId || faqIndex} className="rounded-lg border border-border/80 p-2.5 space-y-2">
 										<Input
-											label={`Question ${index + 1}`}
+											label={`Question ${faqIndex + 1}`}
 											value={item.question || ''}
-											onChange={(e) => updateFaqItem(index, 'question', e.target.value)}
+											onChange={(e) => updateFaqItem(faqIndex, 'question', e.target.value)}
 											disabled={busy}
 										/>
 										<Textarea
 											label="Answer"
 											rows={2}
 											value={item.answer || ''}
-											onChange={(e) => updateFaqItem(index, 'answer', e.target.value)}
+											onChange={(e) => updateFaqItem(faqIndex, 'answer', e.target.value)}
 											disabled={busy}
 										/>
 									</div>
