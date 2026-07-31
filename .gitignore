@@ -12,6 +12,8 @@ apps/pocketbase/pocketbase
 apps/pocketbase/pocketbase.exe
 apps/pocketbase/pb_data_*/
 apps/pocketbase/pb_migrations_*_test/
+# Accidental PocketBase Admin schema dumps (not product migrations)
+apps/pocketbase/pb_migrations/1785340*.js
 deploy/nginx/certs/
 *.log
 *.tmp
