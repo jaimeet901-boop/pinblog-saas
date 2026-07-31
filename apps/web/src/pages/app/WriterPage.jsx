@@ -29,6 +29,13 @@ import {
 	resolveArticlePersistRequest,
 	resolvePersistedArticleId,
 } from '@/lib/writer-article-persist';
+import {
+	captureGenerationSnapshot,
+	isArticleContentDirty,
+	resolveGenerationEditorRestore,
+	shouldClearDirtyAfterPublish,
+	shouldWarnOnLeave,
+} from '@/lib/writer-leave-protection';
 import './WriterPage.css';
 const initForm = {
 	keyword: '',
@@ -433,6 +440,7 @@ export default function WriterPage() {
 	const abortControllerRef = useRef(null);
 	const cancelRequestedRef = useRef(false);
 	const isDirtyRef = useRef(false);
+	const generationSnapshotRef = useRef(null);
 	const preservedMediaRef = useRef({
 		featured_image: '',
 		gallery_images: [],
@@ -505,17 +513,25 @@ export default function WriterPage() {
 	const upd = (k, v) => setArticle((a) => ({ ...a, [k]: v }));
 
 	const isDirty = useMemo(() => {
-		if (!article) return false;
-		const current = buildSaveFingerprint(article, form);
-		if (!savedFingerprint) return true;
-		return current !== savedFingerprint;
-	}, [article, form, savedFingerprint]);
+		const currentFingerprint = article ? buildSaveFingerprint(article, form) : null;
+		const articleDirty = isArticleContentDirty({
+			article,
+			currentFingerprint,
+			savedFingerprint,
+		});
+		return shouldWarnOnLeave({
+			articleDirty,
+			generating,
+			genPhase,
+			stream,
+		});
+	}, [article, form, savedFingerprint, generating, genPhase, stream]);
 
 	useEffect(() => {
 		isDirtyRef.current = isDirty;
 	}, [isDirty]);
 
-	// Warn on tab close / refresh while Writer has unsaved work (Writer-scoped effect).
+	// Warn on tab close / refresh while Writer has unsaved work or generation in flight.
 	useEffect(() => {
 		if (!isDirty) return undefined;
 		const onBeforeUnload = (event) => {
@@ -546,7 +562,11 @@ export default function WriterPage() {
 			}
 			if (url.origin !== window.location.origin) return;
 			if (url.pathname === window.location.pathname) return;
-			const leave = window.confirm('You have unsaved changes. Leave without saving?');
+			const leave = window.confirm(
+				generating
+					? 'AI generation is in progress. Leave and lose this run?'
+					: 'You have unsaved changes. Leave without saving?',
+			);
 			if (!leave) {
 				event.preventDefault();
 				event.stopPropagation();
@@ -554,7 +574,7 @@ export default function WriterPage() {
 		};
 		document.addEventListener('click', onDocumentClick, true);
 		return () => document.removeEventListener('click', onDocumentClick, true);
-	}, [isDirty]);
+	}, [isDirty, generating]);
 
 	const stats = useMemo(() => {
 		const text = article ? articlePlainText(article) : stream;
@@ -648,6 +668,11 @@ Respond ONLY with the JSON object described in your instructions.`;
 		setSaveError(null);
 		setGenPhase('preparing');
 		setStream('');
+		generationSnapshotRef.current = captureGenerationSnapshot({
+			article,
+			articleBaseline,
+			savedFingerprint,
+		});
 		const preserved = {
 			featured_image: article?.featured_image || preservedMediaRef.current.featured_image || '',
 			gallery_images: normalizeGallery(article?.gallery_images?.length
@@ -657,6 +682,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 			published_at: article?.published_at || preservedMediaRef.current.published_at || '',
 		};
 		preservedMediaRef.current = preserved;
+		// Clear article for streaming UX — leave protection stays active via `generating`.
 		setArticle(null);
 		setArticleBaseline(null);
 
@@ -695,6 +721,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 				...preserved,
 				custom_prompt: form.customPrompt || '',
 			});
+			generationSnapshotRef.current = null;
 			setArticle(next);
 			setArticleBaseline(next);
 			setSavedFingerprint(null);
@@ -719,14 +746,34 @@ Respond ONLY with the JSON object described in your instructions.`;
 				if (typeof err?.partialText === 'string' && err.partialText) {
 					setStream(err.partialText);
 				}
+				const restore = resolveGenerationEditorRestore({
+					outcome: 'cancelled',
+					snapshot: generationSnapshotRef.current,
+				});
+				if (restore.restore) {
+					setArticle(restore.snapshot.article);
+					setArticleBaseline(restore.snapshot.articleBaseline ?? restore.snapshot.article);
+					setSavedFingerprint(restore.snapshot.savedFingerprint ?? null);
+				}
+				generationSnapshotRef.current = null;
 				toast({
 					title: 'Cancelled',
-					description: 'Generation stopped. Your settings and any text received so far were kept.',
+					description: 'Generation stopped. Your previous editor content and any streamed text were kept.',
 				});
 			} else {
 				const friendly = friendlyGenerationError(err);
 				setGenPhase('failed');
 				setGenerationError(friendly);
+				const restore = resolveGenerationEditorRestore({
+					outcome: 'failed',
+					snapshot: generationSnapshotRef.current,
+				});
+				if (restore.restore) {
+					setArticle(restore.snapshot.article);
+					setArticleBaseline(restore.snapshot.articleBaseline ?? restore.snapshot.article);
+					setSavedFingerprint(restore.snapshot.savedFingerprint ?? null);
+				}
+				generationSnapshotRef.current = null;
 				if (friendly.kind === 'plan' || isFeatureLockedError(err) || String(err?.errorCode || '').toUpperCase() === 'FEATURE_LOCKED') {
 					openWriterUpgrade(err.access || null);
 				}
@@ -856,9 +903,6 @@ Respond ONLY with the JSON object described in your instructions.`;
 			if (articleRecordId && articleRecordId !== savedArticleId) {
 				setSavedArticleId(articleRecordId);
 			}
-			if (articleRecordId) {
-				setSavedFingerprint(buildSaveFingerprint(article, form));
-			}
 
 			const endpoint = extras.scheduledAt ? '/wordpress/schedule' : '/wordpress/publish';
 			const res = await apiServerClient.fetch(endpoint, {
@@ -930,10 +974,15 @@ Respond ONLY with the JSON object described in your instructions.`;
 							custom_prompt: form.customPrompt || '',
 						}),
 					}).catch(() => null);
+				}
+				if (shouldClearDirtyAfterPublish({ persistSucceeded: true })) {
 					setSavedFingerprint(buildSaveFingerprint(nextArticle, form));
 				}
 			} else {
 				setArticleBaseline(article);
+				if (shouldClearDirtyAfterPublish({ persistSucceeded: true })) {
+					setSavedFingerprint(buildSaveFingerprint(article, form));
+				}
 			}
 			await loadRecentDrafts();
 		} catch (err) {
