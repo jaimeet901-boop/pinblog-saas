@@ -7,6 +7,7 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { httpError } from '../middleware/require-admin.js';
 import { getPlatformSettings } from './platform-settings.js';
 import logger from '../utils/logger.js';
+import { withWorkspaceCreditLock } from './credit-workspace-lock.js';
 
 export const DEFAULT_CREDIT_COSTS = Object.freeze({
 	ai_analyze: 1,
@@ -212,6 +213,74 @@ async function getSubscription(workspaceKey) {
 	).catch(() => null);
 }
 
+async function getSubscriptionById(subscriptionId) {
+	if (!subscriptionId) return null;
+	return pocketbaseClient.collection('workspace_subscriptions').getOne(subscriptionId, {
+		expand: 'plan',
+		requestKey: null,
+	}).catch(() => null);
+}
+
+/**
+ * Apply a signed balance delta under an already-held workspace lock.
+ * Re-reads before write; rejects overdraft; never persists a negative balance unless allowNegative.
+ * @returns {{ subscription: object, previousBalance: number, balance: number }}
+ */
+async function applyBalanceDeltaLocked(workspaceKey, delta, {
+	allowNegative = false,
+	usedTotalDelta = 0,
+	requireNotSuspended = false,
+} = {}) {
+	const key = String(workspaceKey || '').trim();
+	let subscription = await getSubscription(key);
+	if (!subscription) {
+		throw httpError(404, 'Workspace subscription not found', 'NOT_FOUND');
+	}
+	if (requireNotSuspended && subscription.credits_suspended) {
+		throw httpError(403, 'Credits are suspended for this workspace', 'CREDITS_SUSPENDED');
+	}
+
+	const current = Number(subscription.credits_balance) || 0;
+	const rawNext = current + Number(delta);
+	if (!Number.isFinite(rawNext)) {
+		throw httpError(422, 'Invalid credit balance delta', 'VALIDATION_ERROR');
+	}
+	if (!allowNegative && rawNext < 0) {
+		const error = httpError(402, `Insufficient credits. Remaining: ${current}`, 'INSUFFICIENT_CREDITS');
+		error.remaining = current;
+		throw error;
+	}
+	const nextBalance = allowNegative ? rawNext : Math.max(0, rawNext);
+	if (nextBalance < 0) {
+		throw httpError(500, 'Credit balance would become negative', 'CREDITS_INTEGRITY');
+	}
+
+	const patch = { credits_balance: nextBalance };
+	if (usedTotalDelta) {
+		patch.credits_used_total = Math.max(0, (Number(subscription.credits_used_total) || 0) + Number(usedTotalDelta));
+	}
+
+	await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, patch);
+
+	const verified = await getSubscriptionById(subscription.id);
+	if (!verified) {
+		throw httpError(500, 'Credit wallet missing after update', 'CREDITS_INTEGRITY');
+	}
+	const verifiedBalance = Number(verified.credits_balance) || 0;
+	if (verifiedBalance < 0) {
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			credits_balance: 0,
+		}).catch(() => null);
+		throw httpError(500, 'Credit balance integrity violation', 'CREDITS_INTEGRITY');
+	}
+
+	return {
+		subscription: verified,
+		previousBalance: current,
+		balance: verifiedBalance,
+	};
+}
+
 /**
  * Ensure a workspace credit wallet exists (creates free-plan subscription when missing).
  */
@@ -357,7 +426,7 @@ export async function getWallet(workspaceKey) {
 }
 
 /**
- * Consume credits for a feature (atomic burn against workspace wallet).
+ * Consume credits for a feature (serialized burn against workspace wallet).
  */
 export async function consumeWorkspaceCredits({
 	workspaceKey,
@@ -393,75 +462,91 @@ export async function consumeWorkspaceCredits({
 		}
 	}
 
-	let subscription = await getSubscription(workspaceKey);
-	if (!subscription) {
-		subscription = await ensureWorkspaceWallet(workspaceKey, {
-			workspaceName: metadata?.workspaceName || workspaceKey,
-			ownerEmail: metadata?.ownerEmail || '',
-		});
-	}
-	if (subscription.credits_suspended) {
-		throw httpError(403, 'Credits are suspended for this workspace', 'CREDITS_SUSPENDED');
-	}
+	return withWorkspaceCreditLock(workspaceKey, async () => {
+		if (idempotencyKey) {
+			const existing = await pocketbaseClient.collection('credit_transactions').getFirstListItem(
+				pocketbaseClient.filter('idempotency_key = {:key}', { key: idempotencyKey }),
+				{ requestKey: null },
+			).catch(() => null);
+			if (existing) {
+				return {
+					idempotent: true,
+					transactionId: existing.id,
+					balance: Number(existing.balance) || 0,
+					amount: Number(existing.amount) || 0,
+				};
+			}
+		}
 
-	const current = Number(subscription.credits_balance) || 0;
-	if (!allowNegative && current < burnAmount) {
-		const error = httpError(402, `Insufficient credits. Remaining: ${current}`, 'INSUFFICIENT_CREDITS');
-		error.remaining = current;
-		throw error;
-	}
+		let subscription = await getSubscription(workspaceKey);
+		if (!subscription) {
+			subscription = await ensureWorkspaceWallet(workspaceKey, {
+				workspaceName: metadata?.workspaceName || workspaceKey,
+				ownerEmail: metadata?.ownerEmail || '',
+			});
+		}
 
-	const nextBalance = allowNegative ? current - burnAmount : Math.max(0, current - burnAmount);
-	const usedTotal = (Number(subscription.credits_used_total) || 0) + burnAmount;
+		const { subscription: updated, balance: nextBalance } = await applyBalanceDeltaLocked(
+			workspaceKey,
+			-burnAmount,
+			{
+				allowNegative,
+				usedTotalDelta: burnAmount,
+				requireNotSuspended: true,
+			},
+		);
 
-	await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
-		credits_balance: nextBalance,
-		credits_used_total: usedTotal,
+		const resolvedIdempotencyKey = String(idempotencyKey || '').trim() || randomUUID();
+		let tx;
+		try {
+			tx = await pocketbaseClient.collection('credit_transactions').create({
+				workspace_key: workspaceKey,
+				workspace_name: updated.workspace_name || workspaceKey,
+				amount: -burnAmount,
+				type: 'burn',
+				reason: reason || `Consume ${feature || 'credits'}`,
+				balance: nextBalance,
+				created_by: actor,
+				feature: String(feature || '').slice(0, 80),
+				idempotency_key: resolvedIdempotencyKey,
+				reference_id: referenceId || '',
+				metadata: metadata || {},
+			});
+		} catch (error) {
+			await applyBalanceDeltaLocked(workspaceKey, burnAmount, {
+				allowNegative: true,
+				usedTotalDelta: -burnAmount,
+			}).catch(() => null);
+			throw error;
+		}
+
+		const usage = await getOrCreateUsage(workspaceKey, updated.workspace_name);
+		const usagePatch = {
+			credits_burned: (Number(usage.credits_burned) || 0) + burnAmount,
+		};
+		if (feature === 'ai_image' || feature === 'image') {
+			usagePatch.images = (Number(usage.images) || 0) + 1;
+		} else if (feature === 'ai_analyze' || feature === 'ai_prompt' || feature === 'ai_writer') {
+			usagePatch.tokens = (Number(usage.tokens) || 0) + burnAmount;
+		} else if (feature === 'pin_publish' || feature === 'wordpress_publish') {
+			usagePatch.publishing = (Number(usage.publishing) || 0) + 1;
+		} else {
+			usagePatch.api_calls = (Number(usage.api_calls) || 0) + 1;
+		}
+		await pocketbaseClient.collection('workspace_usage').update(usage.id, usagePatch).catch(() => null);
+
+		import('./billing/notifications.js')
+			.then((mod) => mod.maybeNotifyCreditThresholds(workspaceKey))
+			.catch(() => null);
+
+		return {
+			idempotent: false,
+			transactionId: tx.id,
+			balance: nextBalance,
+			amount: -burnAmount,
+			usedTotal: Number(updated.credits_used_total) || 0,
+		};
 	});
-
-	// UNIQUE idx_credit_tx_idempotency treats omitted/empty as ""; generate a UUID so burns never collide.
-	const resolvedIdempotencyKey = String(idempotencyKey || '').trim() || randomUUID();
-
-	const tx = await pocketbaseClient.collection('credit_transactions').create({
-		workspace_key: workspaceKey,
-		workspace_name: subscription.workspace_name || workspaceKey,
-		amount: -burnAmount,
-		type: 'burn',
-		reason: reason || `Consume ${feature || 'credits'}`,
-		balance: nextBalance,
-		created_by: actor,
-		feature: String(feature || '').slice(0, 80),
-		idempotency_key: resolvedIdempotencyKey,
-		reference_id: referenceId || '',
-		metadata: metadata || {},
-	});
-
-	const usage = await getOrCreateUsage(workspaceKey, subscription.workspace_name);
-	const usagePatch = {
-		credits_burned: (Number(usage.credits_burned) || 0) + burnAmount,
-	};
-	if (feature === 'ai_image' || feature === 'image') {
-		usagePatch.images = (Number(usage.images) || 0) + 1;
-	} else if (feature === 'ai_analyze' || feature === 'ai_prompt' || feature === 'ai_writer') {
-		usagePatch.tokens = (Number(usage.tokens) || 0) + burnAmount;
-	} else if (feature === 'pin_publish' || feature === 'wordpress_publish') {
-		usagePatch.publishing = (Number(usage.publishing) || 0) + 1;
-	} else {
-		usagePatch.api_calls = (Number(usage.api_calls) || 0) + 1;
-	}
-	await pocketbaseClient.collection('workspace_usage').update(usage.id, usagePatch).catch(() => null);
-
-	import('./billing/notifications.js')
-		.then((mod) => mod.maybeNotifyCreditThresholds(workspaceKey))
-		.catch(() => null);
-
-	return {
-		idempotent: false,
-		transactionId: tx.id,
-		balance: nextBalance,
-		amount: -burnAmount,
-		usedTotal,
-	};
 }
 
 // Fire-and-forget low-balance notifications after successful burns.
@@ -493,49 +578,56 @@ export async function reserveCredits({
 		if (existing) return mapReservation(existing);
 	}
 
-	const subscription = await getSubscription(workspaceKey);
-	if (!subscription) throw httpError(404, 'Workspace subscription not found', 'NOT_FOUND');
-	if (subscription.credits_suspended) {
-		throw httpError(403, 'Credits are suspended for this workspace', 'CREDITS_SUSPENDED');
-	}
-	const balance = Number(subscription.credits_balance) || 0;
-	if (balance < reserveAmount) {
-		throw httpError(402, `Insufficient credits to reserve. Remaining: ${balance}`, 'INSUFFICIENT_CREDITS');
-	}
+	return withWorkspaceCreditLock(workspaceKey, async () => {
+		if (idempotencyKey) {
+			const existing = await pocketbaseClient.collection('credit_reservations').getFirstListItem(
+				pocketbaseClient.filter('idempotency_key = {:key}', { key: idempotencyKey }),
+				{ requestKey: null },
+			).catch(() => null);
+			if (existing) return mapReservation(existing);
+		}
 
-	const nextBalance = balance - reserveAmount;
-	await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
-		credits_balance: nextBalance,
+		const { subscription, balance: nextBalance } = await applyBalanceDeltaLocked(
+			workspaceKey,
+			-reserveAmount,
+			{ requireNotSuspended: true },
+		);
+
+		let reservation;
+		try {
+			reservation = await pocketbaseClient.collection('credit_reservations').create({
+				workspace_key: workspaceKey,
+				workspace_name: subscription.workspace_name || workspaceKey,
+				amount: reserveAmount,
+				feature: String(feature || '').slice(0, 80),
+				status: 'reserved',
+				reason: reason || `Reserve ${feature || 'credits'}`,
+				reference_id: referenceId || '',
+				idempotency_key: idempotencyKey || undefined,
+				expires_at: new Date(Date.now() + ttlMs).toISOString(),
+				metadata: metadata || {},
+				created_by_user: actorUserId || undefined,
+			});
+		} catch (error) {
+			await applyBalanceDeltaLocked(workspaceKey, reserveAmount, { allowNegative: true }).catch(() => null);
+			throw error;
+		}
+
+		await pocketbaseClient.collection('credit_transactions').create({
+			workspace_key: workspaceKey,
+			workspace_name: subscription.workspace_name || workspaceKey,
+			amount: -reserveAmount,
+			type: 'adjust',
+			reason: `Reservation ${reservation.id}`,
+			balance: nextBalance,
+			created_by: actorUserId || 'system',
+			feature: String(feature || '').slice(0, 80),
+			reservation_id: reservation.id,
+			metadata: { reservation: true, ...(metadata || {}) },
+		}).catch(() => null);
+
+		return mapReservation(reservation);
 	});
-
-	const reservation = await pocketbaseClient.collection('credit_reservations').create({
-		workspace_key: workspaceKey,
-		workspace_name: subscription.workspace_name || workspaceKey,
-		amount: reserveAmount,
-		feature: String(feature || '').slice(0, 80),
-		status: 'reserved',
-		reason: reason || `Reserve ${feature || 'credits'}`,
-		reference_id: referenceId || '',
-		idempotency_key: idempotencyKey || undefined,
-		expires_at: new Date(Date.now() + ttlMs).toISOString(),
-		metadata: metadata || {},
-		created_by_user: actorUserId || undefined,
-	});
-
-	await pocketbaseClient.collection('credit_transactions').create({
-		workspace_key: workspaceKey,
-		workspace_name: subscription.workspace_name || workspaceKey,
-		amount: -reserveAmount,
-		type: 'adjust',
-		reason: `Reservation ${reservation.id}`,
-		balance: nextBalance,
-		created_by: actorUserId || 'system',
-		feature: String(feature || '').slice(0, 80),
-		reservation_id: reservation.id,
-		metadata: { reservation: true, ...(metadata || {}) },
-	}).catch(() => null);
-
-	return mapReservation(reservation);
 }
 
 export async function commitReservation(reservationId, { actor = 'system', metadata = {} } = {}) {
@@ -545,38 +637,47 @@ export async function commitReservation(reservationId, { actor = 'system', metad
 		return mapReservation(reservation);
 	}
 
-	const subscription = await getSubscription(reservation.workspace_key);
-	const usedTotal = (Number(subscription?.credits_used_total) || 0) + (Number(reservation.amount) || 0);
-	if (subscription) {
-		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
-			credits_used_total: usedTotal,
+	return withWorkspaceCreditLock(reservation.workspace_key, async () => {
+		const fresh = await pocketbaseClient.collection('credit_reservations').getOne(reservationId).catch(() => null);
+		if (!fresh) throw httpError(404, 'Reservation not found', 'NOT_FOUND');
+		if (fresh.status !== 'reserved') {
+			return mapReservation(fresh);
+		}
+
+		const subscription = await getSubscription(fresh.workspace_key);
+		const usedTotal = (Number(subscription?.credits_used_total) || 0) + (Number(fresh.amount) || 0);
+		if (subscription) {
+			await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+				credits_used_total: usedTotal,
+			}).catch(() => null);
+		}
+
+		const updated = await pocketbaseClient.collection('credit_reservations').update(reservationId, {
+			status: 'committed',
+			metadata: { ...(fresh.metadata || {}), ...(metadata || {}), committedBy: actor },
+		});
+
+		const balanceAfter = Number((await getSubscription(fresh.workspace_key))?.credits_balance) || 0;
+		await pocketbaseClient.collection('credit_transactions').create({
+			workspace_key: fresh.workspace_key,
+			workspace_name: fresh.workspace_name,
+			amount: -(Number(fresh.amount) || 0),
+			type: 'burn',
+			reason: `Commit reservation ${reservationId}`,
+			balance: balanceAfter,
+			created_by: actor,
+			feature: fresh.feature || '',
+			reservation_id: reservationId,
+			metadata: metadata || {},
 		}).catch(() => null);
-	}
 
-	const updated = await pocketbaseClient.collection('credit_reservations').update(reservationId, {
-		status: 'committed',
-		metadata: { ...(reservation.metadata || {}), ...(metadata || {}), committedBy: actor },
+		const usage = await getOrCreateUsage(fresh.workspace_key, fresh.workspace_name);
+		await pocketbaseClient.collection('workspace_usage').update(usage.id, {
+			credits_burned: (Number(usage.credits_burned) || 0) + (Number(fresh.amount) || 0),
+		}).catch(() => null);
+
+		return mapReservation(updated);
 	});
-
-	await pocketbaseClient.collection('credit_transactions').create({
-		workspace_key: reservation.workspace_key,
-		workspace_name: reservation.workspace_name,
-		amount: -(Number(reservation.amount) || 0),
-		type: 'burn',
-		reason: `Commit reservation ${reservationId}`,
-		balance: Number(subscription?.credits_balance) || 0,
-		created_by: actor,
-		feature: reservation.feature || '',
-		reservation_id: reservationId,
-		metadata: metadata || {},
-	}).catch(() => null);
-
-	const usage = await getOrCreateUsage(reservation.workspace_key, reservation.workspace_name);
-	await pocketbaseClient.collection('workspace_usage').update(usage.id, {
-		credits_burned: (Number(usage.credits_burned) || 0) + (Number(reservation.amount) || 0),
-	}).catch(() => null);
-
-	return mapReservation(updated);
 }
 
 export async function releaseReservation(reservationId, { actor = 'system' } = {}) {
@@ -586,32 +687,42 @@ export async function releaseReservation(reservationId, { actor = 'system' } = {
 		return mapReservation(reservation);
 	}
 
-	const subscription = await getSubscription(reservation.workspace_key);
-	const refund = Number(reservation.amount) || 0;
-	const nextBalance = (Number(subscription?.credits_balance) || 0) + refund;
-	if (subscription) {
-		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
-			credits_balance: nextBalance,
+	return withWorkspaceCreditLock(reservation.workspace_key, async () => {
+		const fresh = await pocketbaseClient.collection('credit_reservations').getOne(reservationId).catch(() => null);
+		if (!fresh) throw httpError(404, 'Reservation not found', 'NOT_FOUND');
+		if (fresh.status !== 'reserved') {
+			return mapReservation(fresh);
+		}
+
+		const refund = Number(fresh.amount) || 0;
+		const { balance: nextBalance } = await applyBalanceDeltaLocked(fresh.workspace_key, refund, {
+			allowNegative: true,
 		});
-	}
 
-	const updated = await pocketbaseClient.collection('credit_reservations').update(reservationId, {
-		status: 'released',
+		let updated;
+		try {
+			updated = await pocketbaseClient.collection('credit_reservations').update(reservationId, {
+				status: 'released',
+			});
+		} catch (error) {
+			await applyBalanceDeltaLocked(fresh.workspace_key, -refund, { allowNegative: true }).catch(() => null);
+			throw error;
+		}
+
+		await pocketbaseClient.collection('credit_transactions').create({
+			workspace_key: fresh.workspace_key,
+			workspace_name: fresh.workspace_name,
+			amount: refund,
+			type: 'refund',
+			reason: `Release reservation ${reservationId}`,
+			balance: nextBalance,
+			created_by: actor,
+			feature: fresh.feature || '',
+			reservation_id: reservationId,
+		}).catch(() => null);
+
+		return mapReservation(updated);
 	});
-
-	await pocketbaseClient.collection('credit_transactions').create({
-		workspace_key: reservation.workspace_key,
-		workspace_name: reservation.workspace_name,
-		amount: refund,
-		type: 'refund',
-		reason: `Release reservation ${reservationId}`,
-		balance: nextBalance,
-		created_by: actor,
-		feature: reservation.feature || '',
-		reservation_id: reservationId,
-	}).catch(() => null);
-
-	return mapReservation(updated);
 }
 
 export async function refundCredits({
@@ -627,29 +738,31 @@ export async function refundCredits({
 	if (!workspaceKey || !refundAmount) {
 		throw httpError(422, 'workspaceKey and positive amount are required', 'VALIDATION_ERROR');
 	}
-	const subscription = await getSubscription(workspaceKey);
-	if (!subscription) throw httpError(404, 'Workspace subscription not found', 'NOT_FOUND');
-	const nextBalance = (Number(subscription.credits_balance) || 0) + refundAmount;
-	await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
-		credits_balance: nextBalance,
+
+	return withWorkspaceCreditLock(workspaceKey, async () => {
+		const { subscription, balance: nextBalance } = await applyBalanceDeltaLocked(
+			workspaceKey,
+			refundAmount,
+			{ allowNegative: true },
+		);
+		const tx = await pocketbaseClient.collection('credit_transactions').create({
+			workspace_key: workspaceKey,
+			workspace_name: subscription.workspace_name || workspaceKey,
+			amount: refundAmount,
+			type: 'refund',
+			reason,
+			balance: nextBalance,
+			created_by: actor,
+			feature: String(feature || '').slice(0, 80),
+			reference_id: referenceId || '',
+			metadata: metadata || {},
+		});
+		return {
+			transactionId: tx.id,
+			balance: nextBalance,
+			amount: refundAmount,
+		};
 	});
-	const tx = await pocketbaseClient.collection('credit_transactions').create({
-		workspace_key: workspaceKey,
-		workspace_name: subscription.workspace_name || workspaceKey,
-		amount: refundAmount,
-		type: 'refund',
-		reason,
-		balance: nextBalance,
-		created_by: actor,
-		feature: String(feature || '').slice(0, 80),
-		reference_id: referenceId || '',
-		metadata: metadata || {},
-	});
-	return {
-		transactionId: tx.id,
-		balance: nextBalance,
-		amount: refundAmount,
-	};
 }
 
 export async function resetMonthlyCredits({
@@ -657,60 +770,63 @@ export async function resetMonthlyCredits({
 	actor = 'system',
 	force = false,
 } = {}) {
-	const subscription = await getSubscription(workspaceKey);
-	if (!subscription) throw httpError(404, 'Workspace subscription not found', 'NOT_FOUND');
+	return withWorkspaceCreditLock(workspaceKey, async () => {
+		const subscription = await getSubscription(workspaceKey);
+		if (!subscription) throw httpError(404, 'Workspace subscription not found', 'NOT_FOUND');
 
-	const settings = await getPlatformSettings().catch(() => null);
-	const resetDay = Number(settings?.credits?.resetDayOfMonth) || 1;
-	const now = new Date();
-	if (!force && now.getUTCDate() !== resetDay) {
-		return { skipped: true, reason: `Reset day is ${resetDay}` };
-	}
+		const settings = await getPlatformSettings().catch(() => null);
+		const resetDay = Number(settings?.credits?.resetDayOfMonth) || 1;
+		const now = new Date();
+		if (!force && now.getUTCDate() !== resetDay) {
+			return { skipped: true, reason: `Reset day is ${resetDay}` };
+		}
 
-	const plan = subscription.expand?.plan
-		|| (subscription.plan
-			? await pocketbaseClient.collection('plans').getOne(subscription.plan).catch(() => null)
-			: null);
-	const monthly = Number(plan?.credits) || 0;
-	const bonus = Number(plan?.bonus_credits) || 0;
-	const keepPurchased = settings?.credits?.keepPurchasedOnReset !== false;
-	const purchased = keepPurchased ? (Number(subscription.purchased_credits) || 0) : 0;
-	const nextBalance = monthly + bonus + purchased;
+		const plan = subscription.expand?.plan
+			|| (subscription.plan
+				? await pocketbaseClient.collection('plans').getOne(subscription.plan).catch(() => null)
+				: null);
+		const monthly = Number(plan?.credits) || 0;
+		const bonus = Number(plan?.bonus_credits) || 0;
+		const keepPurchased = settings?.credits?.keepPurchasedOnReset !== false;
+		const purchased = keepPurchased ? (Number(subscription.purchased_credits) || 0) : 0;
+		const nextBalance = Math.max(0, monthly + bonus + purchased);
+		const previousBalance = Number(subscription.credits_balance) || 0;
 
-	await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
-		credits_balance: nextBalance,
-		bonus_credits_balance: bonus,
-		last_credit_reset_at: now.toISOString(),
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			credits_balance: nextBalance,
+			bonus_credits_balance: bonus,
+			last_credit_reset_at: now.toISOString(),
+		});
+
+		await pocketbaseClient.collection('credit_transactions').create({
+			workspace_key: workspaceKey,
+			workspace_name: subscription.workspace_name || workspaceKey,
+			amount: nextBalance - previousBalance,
+			type: 'grant',
+			reason: 'Monthly credit reset',
+			balance: nextBalance,
+			created_by: actor,
+			feature: 'monthly_reset',
+			metadata: { monthly, bonus, purchased },
+		}).catch(() => null);
+
+		await writeBillingEvent({
+			workspaceKey,
+			workspaceName: subscription.workspace_name,
+			eventType: 'reset',
+			actor,
+			message: `Monthly reset → ${nextBalance} credits`,
+			metadata: { monthly, bonus, purchased },
+		});
+
+		return {
+			skipped: false,
+			balance: nextBalance,
+			monthly,
+			bonus,
+			purchased,
+		};
 	});
-
-	await pocketbaseClient.collection('credit_transactions').create({
-		workspace_key: workspaceKey,
-		workspace_name: subscription.workspace_name || workspaceKey,
-		amount: nextBalance - (Number(subscription.credits_balance) || 0),
-		type: 'grant',
-		reason: 'Monthly credit reset',
-		balance: nextBalance,
-		created_by: actor,
-		feature: 'monthly_reset',
-		metadata: { monthly, bonus, purchased },
-	}).catch(() => null);
-
-	await writeBillingEvent({
-		workspaceKey,
-		workspaceName: subscription.workspace_name,
-		eventType: 'reset',
-		actor,
-		message: `Monthly reset → ${nextBalance} credits`,
-		metadata: { monthly, bonus, purchased },
-	});
-
-	return {
-		skipped: false,
-		balance: nextBalance,
-		monthly,
-		bonus,
-		purchased,
-	};
 }
 
 export async function setCreditsSuspended(workspaceKey, suspended, actor = 'admin') {
