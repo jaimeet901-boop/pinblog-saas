@@ -30,6 +30,7 @@ import { ensureWorkspaceEnterpriseSchema } from './utils/ensure-workspace-enterp
 import { ensureWorkspaceOwnershipSchema } from './utils/ensure-workspace-ownership-schema.js';
 import { ensureWebsiteLifecycleSchema } from './utils/ensure-website-lifecycle-schema.js';
 import { ensureFacebookOAuthSchema } from './utils/ensure-facebook-oauth-schema.js';
+import { ensureUsersPrivilegedRules } from './utils/ensure-users-privileged-rules.js';
 import { startBillingAutomationWorker, stopBillingAutomationWorker } from './services/billing/index.js';
 import pocketbaseClient from './utils/pocketbaseClient.js';
 
@@ -156,6 +157,9 @@ app.listen(port, () => {
 	});
 	ensureFacebookOAuthSchema(pocketbaseClient).catch((error) => {
 		logger.warn('Facebook Hub/OAuth schema ensure skipped:', error?.message || error);
+	});
+	ensureUsersPrivilegedRules(pocketbaseClient).catch((error) => {
+		logger.warn('Users privileged-field rules ensure skipped:', error?.message || error);
 	});
 	ensurePlatformSettingsSeeded().catch((error) => {
 		logger.warn('Platform settings seed skipped:', error?.message || error);

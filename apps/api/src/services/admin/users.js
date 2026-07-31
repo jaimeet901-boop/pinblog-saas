@@ -201,7 +201,8 @@ export async function updateAdminUser(id, payload = {}, actor = {}) {
 	if (payload.plan != null) updates.plan = String(payload.plan).trim().toLowerCase();
 	if (payload.role != null) {
 		const role = String(payload.role).toLowerCase();
-		updates.role = role === 'admin' ? 'admin' : 'user';
+		// Schema select values are member|admin (API DTO uses user|admin).
+		updates.role = role === 'admin' || role === 'super_admin' ? 'admin' : 'member';
 	}
 	if (payload.status != null) updates.status = String(payload.status).toLowerCase();
 	const updated = await pocketbaseClient.collection('users').update(id, updates);
