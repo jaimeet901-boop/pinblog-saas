@@ -7,6 +7,7 @@ import apiServerClient from '@/lib/apiServerClient';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { buildPublicFooterLinks } from '@/lib/platformIdentity';
 import { renderMarkdownToHtml } from '@/lib/markdown';
+import { sanitizeRichHtml } from '@/lib/sanitizeHtml';
 import './auth/AuthShell.css';
 import './PrivacyPolicyPage.css';
 
@@ -66,7 +67,10 @@ export default function LegalPage({ slug: slugProp }) {
 		return () => { cancelled = true; };
 	}, [slug]);
 
-	const html = useMemo(() => renderMarkdownToHtml(page?.content || ''), [page?.content]);
+	const html = useMemo(
+		() => sanitizeRichHtml(renderMarkdownToHtml(page?.content || '')),
+		[page?.content],
+	);
 	const pageTitle = page?.seoTitle || page?.title || SLUG_FALLBACK_TITLE[slug] || 'Legal';
 	const seoOverrides = useMemo(() => ({
 		browserTitle: pageTitle,

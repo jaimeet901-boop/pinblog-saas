@@ -5,6 +5,7 @@ import {
 import { AdminHero, StatusPill } from '@/components/admin/AdminUi';
 import apiServerClient from '@/lib/apiServerClient';
 import { renderMarkdownToHtml } from '@/lib/markdown';
+import { sanitizeRichHtml } from '@/lib/sanitizeHtml';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { DEFAULT_PLATFORM_NAME } from '@/lib/platformIdentity';
@@ -143,7 +144,10 @@ export default function AdminLegalPagesPage() {
 		else setVersions([]);
 	}, [selectedSlug, isNew, loadVersions]);
 
-	const previewHtml = useMemo(() => renderMarkdownToHtml(form.content), [form.content]);
+	const previewHtml = useMemo(
+		() => sanitizeRichHtml(renderMarkdownToHtml(form.content)),
+		[form.content],
+	);
 	const existingSlugs = useMemo(() => new Set(items.map((item) => item.slug)), [items]);
 	const showQuickStartPanel = !loading && (items.length === 0 || quickStart.some((item) => !item.created));
 

@@ -1,7 +1,10 @@
 /**
- * Lightweight Markdown → safe HTML for legal pages (no external deps).
+ * Lightweight Markdown → safe HTML for legal pages (no markdown external deps).
  * Supports headings, bold/italic, links, lists, paragraphs, and horizontal rules.
+ * Final output is DOMPurify-sanitized before any dangerouslySetInnerHTML consumer.
  */
+import { sanitizeRichHtml } from './sanitizeHtml.js';
+
 export function renderMarkdownToHtml(markdown) {
 	const source = String(markdown || '').replace(/\r\n/g, '\n');
 	if (!source.trim()) return '';
@@ -81,5 +84,5 @@ export function renderMarkdownToHtml(markdown) {
 
 	flushParagraph();
 	closeList();
-	return html.join('\n');
+	return sanitizeRichHtml(html.join('\n'));
 }

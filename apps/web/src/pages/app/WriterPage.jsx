@@ -36,6 +36,7 @@ import {
 	shouldClearDirtyAfterPublish,
 	shouldWarnOnLeave,
 } from '@/lib/writer-leave-protection';
+import { sanitizeRichHtml } from '@/lib/sanitizeHtml';
 import './WriterPage.css';
 const initForm = {
 	keyword: '',
@@ -1236,7 +1237,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 
 	const renderedHtml = useMemo(() => {
 		if (!article) return '';
-		return composeHtml(article).replace(/<script[\s\S]*?<\/script>/gi, '');
+		return sanitizeRichHtml(composeHtml(article));
 	}, [article]);
 
 	return (
