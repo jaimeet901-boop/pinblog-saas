@@ -16,10 +16,10 @@ function Field({ label, children }) {
 	);
 }
 
-function TextInput({ label, value, onChange, type = 'text' }) {
+function TextInput({ label, value, onChange, type = 'text', placeholder = '' }) {
 	return (
 		<Field label={label}>
-			<input type={type} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
+			<input type={type} value={value ?? ''} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
 		</Field>
 	);
 }
@@ -495,15 +495,22 @@ export default function AdminSettingsPage() {
 					</div>
 				</Section>
 
-				<Section title="Email Settings">
+				<Section title="Email Settings" hint="Platform metadata. Password reset uses PocketBase Mail — configure and test under Mail Diagnostics.">
 					<div className="admin-config-grid">
 						<Field label="SMTP Status">
 							<div className="pt-2"><StatusPill status={settings.email?.smtpStatus || 'pending'} /></div>
 						</Field>
+						<TextInput label="SMTP Host" value={settings.email?.smtpHost} onChange={(value) => patch('email', 'smtpHost', value)} />
+						<TextInput label="SMTP Port" value={settings.email?.smtpPort} onChange={(value) => patch('email', 'smtpPort', value)} />
+						<TextInput label="SMTP Username" value={settings.email?.smtpUsername} onChange={(value) => patch('email', 'smtpUsername', value)} />
+						<TextInput label="SMTP Password" value={settings.email?.smtpPassword || ''} onChange={(value) => patch('email', 'smtpPassword', value)} placeholder={settings.email?.smtpPasswordSet ? '•••• leave blank to keep' : ''} />
 						<TextInput label="Sender Name" value={settings.email?.senderName} onChange={(value) => patch('email', 'senderName', value)} />
 						<TextInput label="Sender Email" value={settings.email?.senderEmail} onChange={(value) => patch('email', 'senderEmail', value)} />
 						<TextInput label="Daily Limit" value={settings.email?.dailyLimit} onChange={(value) => patch('email', 'dailyLimit', value)} />
 						<TextInput label="Queue Limit" value={settings.email?.queueLimit} onChange={(value) => patch('email', 'queueLimit', value)} />
+					</div>
+					<div className="mt-3">
+						<Link to="/admin/mail" className="admin-btn">Open Mail Diagnostics</Link>
 					</div>
 				</Section>
 

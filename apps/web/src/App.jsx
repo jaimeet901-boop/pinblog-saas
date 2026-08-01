@@ -27,6 +27,7 @@ import ImagesPage from '@/pages/app/ImagesPage';
 import SubscriptionPage from '@/pages/app/SubscriptionPage';
 import SettingsPage from '@/pages/app/SettingsPage';
 import ProfilePage from '@/pages/app/ProfilePage';
+import AccountPasswordPage from '@/pages/app/AccountPasswordPage';
 import AdminPage from '@/pages/app/AdminPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 
@@ -54,6 +55,7 @@ const AdminWebsitesPage = lazy(() => import('@/pages/admin/AdminWebsitesPage'));
 const AdminPinterestPage = lazy(() => import('@/pages/admin/AdminPinterestPage'));
 const AdminFacebookPage = lazy(() => import('@/pages/admin/AdminFacebookPage'));
 const AdminAuthenticationProvidersPage = lazy(() => import('@/pages/admin/AdminAuthenticationProvidersPage'));
+const AdminMailPage = lazy(() => import('@/pages/admin/AdminMailPage'));
 const AdminAnalyticsPage = lazy(() => import('@/pages/admin/AdminAnalyticsPage'));
 const AdminQueuePage = lazy(() => import('@/pages/admin/AdminQueuePage'));
 const AdminJobsPage = lazy(() => import('@/pages/admin/AdminJobsPage'));
@@ -152,6 +154,7 @@ function App() {
 						<Route path="/app/subscription" element={<Shell><SubscriptionPage /></Shell>} />
 						<Route path="/app/settings" element={<Shell><SettingsPage /></Shell>} />
 						<Route path="/app/profile" element={<Shell><ProfilePage /></Shell>} />
+						<Route path="/app/account/password" element={<Shell><AccountPasswordPage /></Shell>} />
 						<Route path="/app/admin" element={<Shell admin><AdminPage /></Shell>} />
 
 						{/* Super User Admin Console ÔÇö separate application area */}
@@ -178,6 +181,7 @@ function App() {
 							<Route path="pinterest" element={<AdminLazy><AdminPinterestPage /></AdminLazy>} />
 							<Route path="facebook" element={<AdminLazy><AdminFacebookPage /></AdminLazy>} />
 							<Route path="authentication-providers" element={<AdminLazy><AdminAuthenticationProvidersPage /></AdminLazy>} />
+							<Route path="mail" element={<AdminLazy><AdminMailPage /></AdminLazy>} />
 							<Route path="analytics" element={<AdminLazy><AdminAnalyticsPage /></AdminLazy>} />
 							<Route path="queue" element={<AdminLazy><AdminQueuePage /></AdminLazy>} />
 							<Route path="jobs" element={<AdminLazy><AdminJobsPage /></AdminLazy>} />

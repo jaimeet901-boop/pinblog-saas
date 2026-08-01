@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
 	Link2, Loader2, Save, Unlink, User, Building2, Globe, Pin,
 	Bell, Shield, Palette, SlidersHorizontal, Settings2, RotateCcw,
 	ExternalLink, RefreshCw, Download, Upload, AlertTriangle, BookOpen,
-	LifeBuoy, Mail, Crown, Coins, HardDrive, Users,
+	LifeBuoy, Mail, Crown, Coins, HardDrive, Users, KeyRound,
 } from 'lucide-react';
-import pb from '@/lib/pocketbaseClient';
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Input, Select, Textarea } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
@@ -15,6 +14,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { mailtoHref } from '@/lib/platformIdentity';
+import GoogleSetPasswordBanner from '@/components/GoogleSetPasswordBanner';
 import './SettingsPage.css';
 
 const TABS = [
@@ -75,8 +75,12 @@ export default function SettingsPage() {
 	const { theme, toggle } = useTheme();
 	const { supportEmail, contactEmail, platformName } = usePlatformIdentity();
 	const isSuperAdmin = user?.role === 'admin';
+	const [searchParams, setSearchParams] = useSearchParams();
 
-	const [tab, setTab] = useState('general');
+	const initialTab = TABS.some((item) => item.id === searchParams.get('tab'))
+		? searchParams.get('tab')
+		: 'general';
+	const [tab, setTabState] = useState(initialTab);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [providerAction, setProviderAction] = useState('');
@@ -88,7 +92,6 @@ export default function SettingsPage() {
 	const [name, setName] = useState(user?.name || '');
 	const [prefs, setPrefs] = useState(() => ({ ...defaultPrefs }));
 	const [baseline, setBaseline] = useState(() => ({ name: user?.name || '', prefs: { ...defaultPrefs } }));
-	const [passwordForm, setPasswordForm] = useState({ oldPassword: '', password: '', passwordConfirm: '' });
 	const [members, setMembers] = useState([]);
 	const [memberSeats, setMemberSeats] = useState({ used: 0, limit: 1 });
 	const [teamBusy, setTeamBusy] = useState(false);
@@ -96,6 +99,13 @@ export default function SettingsPage() {
 	const [inviteRole, setInviteRole] = useState('viewer');
 	const [activityItems, setActivityItems] = useState([]);
 
+	const setTab = (next) => {
+		setTabState(next);
+		const params = new URLSearchParams(searchParams);
+		if (next && next !== 'general') params.set('tab', next);
+		else params.delete('tab');
+		setSearchParams(params, { replace: true });
+	};
 	const enabledProviders = useMemo(() => getEnabledProviderNames(authMethods), [authMethods]);
 	const connectedProviders = useMemo(() => new Set((externalAuths || []).map((item) => item.provider)), [externalAuths]);
 
@@ -398,32 +408,6 @@ export default function SettingsPage() {
 			toast({ variant: 'destructive', title: `${OAUTH_PROVIDERS[provider].label} disconnect failed`, description: normalizePocketBaseError(error, 'Could not disconnect this provider.') });
 		} finally {
 			setProviderAction('');
-		}
-	};
-
-	const changePassword = async (event) => {
-		event.preventDefault();
-		if (!passwordForm.oldPassword || !passwordForm.password) {
-			toast({ variant: 'destructive', title: 'Missing fields', description: 'Enter your current and new password.' });
-			return;
-		}
-		if (passwordForm.password !== passwordForm.passwordConfirm) {
-			toast({ variant: 'destructive', title: 'Passwords do not match', description: 'Confirm the new password carefully.' });
-			return;
-		}
-		setSaving(true);
-		try {
-			await pb.collection('users').update(user.id, {
-				oldPassword: passwordForm.oldPassword,
-				password: passwordForm.password,
-				passwordConfirm: passwordForm.passwordConfirm,
-			});
-			setPasswordForm({ oldPassword: '', password: '', passwordConfirm: '' });
-			toast({ title: 'Password updated' });
-		} catch (error) {
-			toast({ variant: 'destructive', title: 'Error', description: normalizePocketBaseError(error, 'Could not change password.') });
-		} finally {
-			setSaving(false);
 		}
 	};
 
@@ -942,14 +926,20 @@ export default function SettingsPage() {
 
 						{tab === 'security' ? (
 							<div className="set-section">
+								<GoogleSetPasswordBanner className="mb-1" />
 								<div className="set-card">
-									<h3>Change password</h3>
-									<form className="mt-3 grid gap-3" onSubmit={changePassword}>
-										<Input label="Current password" type="password" value={passwordForm.oldPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, oldPassword: e.target.value }))} />
-										<Input label="New password" type="password" value={passwordForm.password} onChange={(e) => setPasswordForm((prev) => ({ ...prev, password: e.target.value }))} />
-										<Input label="Confirm new password" type="password" value={passwordForm.passwordConfirm} onChange={(e) => setPasswordForm((prev) => ({ ...prev, passwordConfirm: e.target.value }))} />
-										<Button type="submit" disabled={saving}><Shield size={14} /> Update password</Button>
-									</form>
+									<h3>Password</h3>
+									<p className="hint">
+										Change your email sign-in password, or set one if you signed in with Google and don’t have a usable password yet.
+									</p>
+									<div className="mt-3 flex flex-wrap gap-2">
+										<Link to="/app/account/password">
+											<Button size="sm"><Shield size={14} /> Change password</Button>
+										</Link>
+										<Link to="/app/account/password?mode=set">
+											<Button size="sm" variant="outline"><KeyRound size={14} /> Set password</Button>
+										</Link>
+									</div>
 								</div>
 								<div className="set-card">
 									<h3>Two-factor authentication</h3>

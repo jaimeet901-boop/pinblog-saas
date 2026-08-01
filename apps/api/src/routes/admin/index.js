@@ -22,6 +22,7 @@ import settingsRouter from './settings.js';
 import brandAssetsRouter from './brand-assets.js';
 import legalPagesRouter from './legal-pages.js';
 import billingRouter from './billing.js';
+import mailRouter from './mail.js';
 
 const router = Router();
 
@@ -57,5 +58,6 @@ router.use('/settings/brand-assets', brandAssetsRouter);
 router.use('/settings', settingsRouter);
 router.use('/legal-pages', legalPagesRouter);
 router.use('/billing', billingRouter);
+router.use('/mail', mailRouter);
 
 export default router;

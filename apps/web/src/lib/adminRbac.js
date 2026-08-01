@@ -42,6 +42,7 @@ export const ADMIN_NAV = [
 	{ to: '/admin/pinterest', label: 'Pinterest Accounts' },
 	{ to: '/admin/facebook', label: 'Facebook Accounts' },
 	{ to: '/admin/authentication-providers', label: 'Authentication Providers' },
+	{ to: '/admin/mail', label: 'Mail Diagnostics' },
 	{ to: '/admin/analytics', label: 'Analytics' },
 	{ to: '/admin/queue', label: 'Queue Monitor' },
 	{ to: '/admin/jobs', label: 'Jobs' },

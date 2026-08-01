@@ -13,6 +13,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import WorkspaceOnboardingWizard from '@/components/WorkspaceOnboardingWizard';
+import GoogleSetPasswordBanner from '@/components/GoogleSetPasswordBanner';
 import './DashboardPage.css';
 
 const QUICK_ACTIONS = [
@@ -162,6 +163,7 @@ export default function DashboardPage() {
 	return (
 		<div className="dash-atelier">
 			<WorkspaceOnboardingWizard />
+			<GoogleSetPasswordBanner className="mb-4" />
 
 			<section className="dash-hero">
 				<p className="dash-hero__eyebrow">{platformName} Command Center</p>

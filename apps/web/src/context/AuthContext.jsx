@@ -59,12 +59,17 @@ export function AuthProvider({ children }) {
 			plan: 'free',
 			role: 'member',
 		});
-		await pb.collection('users').authWithPassword(email, password);
+		// Mirror OAuth: update React auth state before the signup page navigates to /app.
+		// Relying only on authStore.onChange can leave isAuthed stale for one render
+		// (ProtectedRoute then bounces to /login even though create+auth succeeded).
+		const authData = await pb.collection('users').authWithPassword(email, password);
+		setUser(authData?.record || pb.authStore.record);
 		try {
 			await pb.collection('users').requestVerification(email);
 		} catch (_) {
 			/* ignore */
 		}
+		return authData;
 	}, []);
 
 	const loginWithOAuth = useCallback(async (provider, popupWindow = null) => {

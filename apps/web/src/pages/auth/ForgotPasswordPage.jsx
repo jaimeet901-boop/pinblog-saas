@@ -20,6 +20,8 @@ export default function ForgotPasswordPage() {
 		try {
 			await pb.collection('users').requestPasswordReset(email);
 			setSent(true);
+			// PocketBase always returns 204 for enumeration protection — delivery is not guaranteed.
+			// Admins: verify SMTP under /admin/mail (Mail Diagnostics).
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Error', description: err?.message || 'Could not send reset email.' });
 		} finally {
