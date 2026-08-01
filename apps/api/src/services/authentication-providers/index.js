@@ -28,3 +28,7 @@ export {
 
 export { applyAuthenticationProvidersToPocketBase } from './apply-to-pocketbase.js';
 export { testProviderCredentials } from './test-connection.js';
+export {
+	AUTH_OAUTH2_MAPPED_FIELDS,
+	normalizeAuthOAuth2MappedFields,
+} from './oauth2-mapped-fields.js';

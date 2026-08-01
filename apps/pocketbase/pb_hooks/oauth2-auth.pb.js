@@ -65,6 +65,18 @@ onBootstrap((e) => {
 		};
 	}
 
+	/** Never map provider id → record primary key (Google IDs fail PB id validation). */
+	function safeMappedFields(existing) {
+		const current = existing && typeof existing === 'object' ? existing : {};
+		const next = {
+			id: '',
+			name: current.name || 'name',
+			username: current.username || 'username',
+			avatarURL: current.avatarURL === 'avatarURL' ? 'avatar' : (current.avatarURL || 'avatar'),
+		};
+		return next;
+	}
+
 	try {
 		const users = findCollectionSafe('users');
 		if (!users) {
@@ -75,10 +87,23 @@ onBootstrap((e) => {
 		const existingOAuth2 = users.oauth2 || {};
 		const existingProviders = Array.isArray(existingOAuth2.providers) ? existingOAuth2.providers : [];
 		const hasGoogle = existingProviders.some((provider) => provider && provider.name === 'google' && provider.clientId);
+		const mappedFields = safeMappedFields(existingOAuth2.mappedFields);
+		const mappedNeedsRepair = String(existingOAuth2?.mappedFields?.id || '') === 'id'
+			|| String(existingOAuth2?.mappedFields?.avatarURL || '') === 'avatarURL';
 
-		// If Admin/API already configured Google, do not overwrite with empty env.
+		// If Admin/API already configured Google, do not overwrite providers with empty env.
+		// Still repair dangerous mappedFields (id→id breaks Google signup).
 		if (hasGoogle) {
-			$app.logger().info('PocketBase OAuth2 Google already configured — skipping env bootstrap');
+			if (mappedNeedsRepair) {
+				users.oauth2 = {
+					...existingOAuth2,
+					mappedFields,
+				};
+				$app.save(users);
+				$app.logger().info('PocketBase OAuth2 mappedFields repaired (cleared id→id mapping)');
+			} else {
+				$app.logger().info('PocketBase OAuth2 Google already configured — skipping env bootstrap');
+			}
 			return;
 		}
 
@@ -127,12 +152,7 @@ onBootstrap((e) => {
 		users.oauth2 = {
 			...existingOAuth2,
 			enabled: true,
-			mappedFields: {
-				id: 'id',
-				name: 'name',
-				username: 'username',
-				avatarURL: 'avatarURL',
-			},
+			mappedFields,
 			providers: [...preservedProviders, ...providers],
 		};
 

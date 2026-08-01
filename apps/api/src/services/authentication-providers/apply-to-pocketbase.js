@@ -7,6 +7,7 @@ import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import logger from '../../utils/logger.js';
 import { AUTH_PROVIDER_IDS } from './catalog.js';
 import { listEnabledAuthenticationCredentials } from './credentials.js';
+import { normalizeAuthOAuth2MappedFields } from './oauth2-mapped-fields.js';
 
 function buildPocketBaseProvider(credentials) {
 	return {
@@ -42,12 +43,8 @@ export async function applyAuthenticationProvidersToPocketBase() {
 	const oauth2 = {
 		...existingOAuth2,
 		enabled: nextProviders.length > 0 ? true : Boolean(existingOAuth2.enabled && preserved.length > 0),
-		mappedFields: existingOAuth2.mappedFields || {
-			id: 'id',
-			name: 'name',
-			username: 'username',
-			avatarURL: 'avatarURL',
-		},
+		// Always normalize — never keep mappedFields.id = "id" (breaks Google signup).
+		mappedFields: normalizeAuthOAuth2MappedFields(existingOAuth2.mappedFields),
 		providers: nextProviders,
 	};
 

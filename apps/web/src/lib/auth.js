@@ -143,11 +143,17 @@ export function normalizePocketBaseError(error, fallback = 'Something went wrong
 }
 
 export function buildOAuthCreateData(user) {
-	return {
-		name: String(user?.name || '').trim(),
+	// Omit empty name so PocketBase can map the Google profile name.
+	// Empty name in createData blocks MappedFields.name population.
+	const data = {
 		plan: 'free',
 		role: 'member',
 	};
+	const name = String(user?.name || '').trim();
+	if (name) {
+		data.name = name;
+	}
+	return data;
 }
 
 export function getEnabledProviderNames(authMethods) {
