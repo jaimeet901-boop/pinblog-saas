@@ -91,16 +91,35 @@ onBootstrap((e) => {
 		const mappedNeedsRepair = String(existingOAuth2?.mappedFields?.id || '') === 'id'
 			|| String(existingOAuth2?.mappedFields?.avatarURL || '') === 'avatarURL';
 
+		const GOOGLE_USERINFO_V3 = 'https://www.googleapis.com/oauth2/v3/userinfo';
+		const providersNeedUserInfoRepair = existingProviders.some((provider) => (
+			provider
+			&& provider.name === 'google'
+			&& String(provider.userInfoURL || '').includes('/oauth2/v2/userinfo')
+		));
+
 		// If Admin/API already configured Google, do not overwrite providers with empty env.
-		// Still repair dangerous mappedFields (id→id breaks Google signup).
+		// Still repair dangerous mappedFields and legacy Google userInfo v2 URL.
 		if (hasGoogle) {
-			if (mappedNeedsRepair) {
+			if (mappedNeedsRepair || providersNeedUserInfoRepair) {
+				const repairedProviders = existingProviders.map((provider) => {
+					if (!provider || provider.name !== 'google') return provider;
+					const url = String(provider.userInfoURL || '');
+					if (url.includes('/oauth2/v2/userinfo') || !url) {
+						return { ...provider, userInfoURL: GOOGLE_USERINFO_V3 };
+					}
+					return provider;
+				});
 				users.oauth2 = {
 					...existingOAuth2,
 					mappedFields,
+					providers: repairedProviders,
 				};
 				$app.save(users);
-				$app.logger().info('PocketBase OAuth2 mappedFields repaired (cleared id→id mapping)');
+				$app.logger().info('PocketBase OAuth2 Google config repaired', {
+					mappedFields: mappedNeedsRepair,
+					userInfoV3: providersNeedUserInfoRepair,
+				});
 			} else {
 				$app.logger().info('PocketBase OAuth2 Google already configured — skipping env bootstrap');
 			}
@@ -117,7 +136,7 @@ onBootstrap((e) => {
 				clientSecret: googleClientSecret,
 				authURL: 'https://accounts.google.com/o/oauth2/v2/auth',
 				tokenURL: 'https://oauth2.googleapis.com/token',
-				userInfoURL: 'https://www.googleapis.com/oauth2/v2/userinfo',
+				userInfoURL: GOOGLE_USERINFO_V3,
 				displayName: 'Google',
 			}));
 		}

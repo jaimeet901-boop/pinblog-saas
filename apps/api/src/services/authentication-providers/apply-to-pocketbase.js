@@ -10,13 +10,18 @@ import { listEnabledAuthenticationCredentials } from './credentials.js';
 import { normalizeAuthOAuth2MappedFields } from './oauth2-mapped-fields.js';
 
 function buildPocketBaseProvider(credentials) {
+	let userInfoURL = credentials.userInfoURL || '';
+	// PocketBase Google FetchAuthUser expects v3 JSON (sub, email_verified).
+	if (credentials.id === 'google' && String(userInfoURL).includes('/oauth2/v2/userinfo')) {
+		userInfoURL = 'https://www.googleapis.com/oauth2/v3/userinfo';
+	}
 	return {
 		name: credentials.id,
 		clientId: credentials.clientId,
 		clientSecret: credentials.clientSecret,
 		authURL: credentials.authURL || '',
 		tokenURL: credentials.tokenURL || '',
-		userInfoURL: credentials.userInfoURL || '',
+		userInfoURL,
 		displayName: credentials.displayName || credentials.id,
 		pkce: credentials.pkce !== false,
 	};

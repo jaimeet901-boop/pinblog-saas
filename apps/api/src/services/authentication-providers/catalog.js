@@ -40,7 +40,9 @@ export const AUTH_PROVIDER_CATALOG = Object.freeze([
 		pocketBaseNative: true,
 		authURL: 'https://accounts.google.com/o/oauth2/v2/auth',
 		tokenURL: 'https://oauth2.googleapis.com/token',
-		userInfoURL: 'https://www.googleapis.com/oauth2/v2/userinfo',
+		// PocketBase Google parser expects v3 fields (sub, email_verified).
+		// v2 returns id/verified_email → empty oauth email and failed signup.
+		userInfoURL: 'https://www.googleapis.com/oauth2/v3/userinfo',
 		defaultScopes: 'openid email profile',
 		pkce: true,
 		envClientId: 'GOOGLE_CLIENT_ID',

@@ -15,6 +15,8 @@ describe('authentication providers catalog', () => {
 		assert.equal(google.configurable, true);
 		assert.equal(google.pocketBaseNative, true);
 		assert.match(google.authURL, /accounts\.google\.com/);
+		assert.match(google.userInfoURL, /oauth2\/v3\/userinfo/);
+		assert.match(google.defaultScopes, /email/);
 		const configurable = AUTH_PROVIDER_CATALOG.filter((entry) => entry.configurable);
 		assert.equal(configurable.length, 1);
 		assert.equal(configurable[0].id, 'google');
