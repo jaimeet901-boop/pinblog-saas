@@ -155,3 +155,49 @@ export function decryptFacebookSecret(value) {
 	error.status = 500;
 	throw error;
 }
+
+function getAuthSecretMaterials() {
+	const keys = [
+		process.env.AUTH_SECRETS_KEY,
+		process.env.PB_ENCRYPTION_KEY,
+		process.env.WORDPRESS_SECRETS_KEY,
+		process.env.PINTEREST_SECRETS_KEY,
+	].filter(Boolean);
+	return [...new Set(keys)].map((secret) => createHash('sha256').update(secret).digest());
+}
+
+/** Prefer AUTH_SECRETS_KEY; fall back to shared platform keys. */
+export function encryptAuthSecret(plainValue) {
+	if (typeof plainValue !== 'string' || !plainValue) {
+		return '';
+	}
+	return encryptWithMaterial(plainValue, getSecretMaterial(['AUTH_SECRETS_KEY', 'PB_ENCRYPTION_KEY']));
+}
+
+export function decryptAuthSecret(value) {
+	if (typeof value !== 'string' || !value) {
+		return '';
+	}
+
+	if (!isEncryptedSecret(value)) {
+		return value;
+	}
+
+	const materials = getAuthSecretMaterials();
+	let lastError = null;
+	for (const material of materials) {
+		try {
+			return decryptWithMaterial(value, material);
+		} catch (error) {
+			lastError = error;
+		}
+	}
+
+	if (lastError) {
+		throw lastError;
+	}
+
+	const error = new Error('Unable to decrypt authentication provider secret');
+	error.status = 500;
+	throw error;
+}

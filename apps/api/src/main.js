@@ -19,6 +19,7 @@ import { startAnalyticsRefreshWorker, stopAnalyticsRefreshWorker } from './servi
 import { startAuditRetentionWorker, stopAuditRetentionWorker } from './services/audit/retention.js';
 import { startHealthMonitorWorker, stopHealthMonitorWorker } from './services/health/worker.js';
 import { ensurePinterestAppCredentialsSeeded } from './services/pinterest-app-credentials.js';
+import { ensureAuthenticationProvidersSeeded } from './services/authentication-providers/credentials.js';
 import { ensureFacebookAppCredentialsSeeded } from './services/facebook/app-credentials.js';
 import { ensurePlatformSettingsSeeded } from './services/platform-settings.js';
 import { ensureOfficialPinTemplatesSeeded } from './services/official-pin-templates-seed.js';
@@ -146,6 +147,9 @@ app.listen(port, () => {
 	});
 	ensureFacebookAppCredentialsSeeded().catch((error) => {
 		logger.warn('Facebook OAuth credentials seed skipped:', error?.message || error);
+	});
+	ensureAuthenticationProvidersSeeded().catch((error) => {
+		logger.warn('Authentication providers seed skipped:', error?.message || error);
 	});
 	// Schema: migrations are authoritative; startup ensures are compat gap-fill only.
 	runStartupSchemaCompat(pocketbaseClient);

@@ -1,16 +1,20 @@
 /// <reference path="../pb_data/types.d.ts" />
 
 /**
- * Configure OAuth2 providers for the users auth collection.
+ * Configure OAuth2 login providers for the users auth collection.
+ *
+ * Authority:
+ * - Preferred: Admin "Authentication Providers" (API applies users.oauth2 on save/startup).
+ * - Fallback: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (and optional PINTEREST_*) env on PB boot.
+ *
+ * Publishing OAuth (Pinterest Hub / Facebook Hub) is unrelated — never configure those here.
  *
  * IMPORTANT:
  * - Must NOT run at module load time (DAO is not ready → nil panic).
  * - Must call e.next() first inside onBootstrap before any DB access.
- * - Must never assume collections exist (fresh DB / migrations pending).
  * - Failures are logged and swallowed so PocketBase always boots.
  */
 onBootstrap((e) => {
-	// Complete bootstrap first so the DB and collections DAO are available.
 	e.next();
 
 	function getEnv(name) {
@@ -38,7 +42,7 @@ onBootstrap((e) => {
 				}
 			}
 		} catch (_) {
-			// Collections DAO may still be unavailable; treat as missing.
+			/* Collections DAO may still be unavailable */
 		}
 
 		try {
@@ -68,6 +72,16 @@ onBootstrap((e) => {
 			return;
 		}
 
+		const existingOAuth2 = users.oauth2 || {};
+		const existingProviders = Array.isArray(existingOAuth2.providers) ? existingOAuth2.providers : [];
+		const hasGoogle = existingProviders.some((provider) => provider && provider.name === 'google' && provider.clientId);
+
+		// If Admin/API already configured Google, do not overwrite with empty env.
+		if (hasGoogle) {
+			$app.logger().info('PocketBase OAuth2 Google already configured — skipping env bootstrap');
+			return;
+		}
+
 		const providers = [];
 		const googleClientId = getEnv('GOOGLE_CLIENT_ID');
 		const googleClientSecret = getEnv('GOOGLE_CLIENT_SECRET');
@@ -83,9 +97,11 @@ onBootstrap((e) => {
 			}));
 		}
 
+		// Optional legacy env login provider (not Admin Authentication Providers catalog).
 		const pinterestClientId = getEnv('PINTEREST_CLIENT_ID');
 		const pinterestClientSecret = getEnv('PINTEREST_CLIENT_SECRET');
-		if (pinterestClientId && pinterestClientSecret) {
+		const hasPinterestLogin = existingProviders.some((provider) => provider && provider.name === 'pinterest');
+		if (!hasPinterestLogin && pinterestClientId && pinterestClientSecret) {
 			providers.push(providerConfig({
 				name: 'pinterest',
 				clientId: pinterestClientId,
@@ -101,9 +117,12 @@ onBootstrap((e) => {
 			return;
 		}
 
-		const existingOAuth2 = users.oauth2 || {};
-		const existingProviders = Array.isArray(existingOAuth2.providers) ? existingOAuth2.providers : [];
-		const preservedProviders = existingProviders.filter((provider) => provider && !['google', 'pinterest'].includes(provider.name));
+		const preservedProviders = existingProviders.filter((provider) => {
+			if (!provider || !provider.name) return false;
+			if (provider.name === 'google' && googleClientId) return false;
+			if (provider.name === 'pinterest' && pinterestClientId) return false;
+			return true;
+		});
 
 		users.oauth2 = {
 			...existingOAuth2,
@@ -118,12 +137,12 @@ onBootstrap((e) => {
 		};
 
 		$app.save(users);
-		$app.logger().info('PocketBase OAuth2 providers configured for users collection');
+		$app.logger().info('PocketBase OAuth2 providers configured from env fallback for users collection');
 	} catch (error) {
 		try {
 			$app.logger().error('Failed to configure PocketBase OAuth2 providers', 'error', String(error?.message || error || ''));
 		} catch (_) {
-			// Never block startup if logging also fails.
+			/* Never block startup if logging also fails. */
 		}
 	}
 });

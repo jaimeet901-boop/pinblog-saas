@@ -8,6 +8,7 @@ import { listStartupSchemaCompatEntries } from './schema-compat-registry.js';
 const ensureLoaders = {
 	ensureUsersPrivilegedRules: () => import('./ensure-users-privileged-rules.js'),
 	ensureFacebookOAuthSchema: () => import('./ensure-facebook-oauth-schema.js'),
+	ensureAuthenticationProvidersSchema: () => import('./ensure-authentication-providers-schema.js'),
 	ensureWordpressIntegrationSchema: () => import('./ensure-wordpress-integration-schema.js'),
 	ensureArticleLifecycleSchema: () => import('./ensure-article-lifecycle-schema.js'),
 	ensureCreditsEngineSchema: () => import('./ensure-credits-engine-schema.js'),

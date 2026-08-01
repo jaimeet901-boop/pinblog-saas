@@ -50,6 +50,15 @@ export const SCHEMA_COMPAT_REGISTRY = Object.freeze([
 		concern: 'Facebook Hub / OAuth collections',
 	}),
 	Object.freeze({
+		id: 'authentication-providers',
+		ensureModule: 'ensure-authentication-providers-schema.js',
+		ensureExport: 'ensureAuthenticationProvidersSchema',
+		migrationIds: ['1785600000_authentication_providers'],
+		hookPath: 'pb_hooks/oauth2-auth.pb.js',
+		mode: 'startup',
+		concern: 'Login authentication providers (Google first; Apple/Microsoft/GitHub/Discord reserved)',
+	}),
+	Object.freeze({
 		id: 'wordpress-integration',
 		ensureModule: 'ensure-wordpress-integration-schema.js',
 		ensureExport: 'ensureWordpressIntegrationSchema',

@@ -4,7 +4,7 @@ import {
 	LayoutDashboard, Users, Building2, CreditCard, Coins, Cpu, Boxes, Globe, Pin, Facebook,
 	BarChart3, ListOrdered, Briefcase, ScrollText, Bell, Settings, Activity,
 	Menu, X, LogOut, ArrowLeftRight, ArrowRightLeft, Shield, ChevronRight, Palette, Scale,
-	Wallet, HeartPulse, Map, Receipt, Webhook, LineChart, Archive, IdCard,
+	Wallet, HeartPulse, Map, Receipt, Webhook, LineChart, Archive, IdCard, KeyRound,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
@@ -33,6 +33,7 @@ const ICONS = {
 	'/admin/websites': Globe,
 	'/admin/pinterest': Pin,
 	'/admin/facebook': Facebook,
+	'/admin/authentication-providers': KeyRound,
 	'/admin/analytics': BarChart3,
 	'/admin/queue': ListOrdered,
 	'/admin/jobs': Briefcase,
