@@ -150,7 +150,7 @@ export default function SignupPage() {
 		setLoading(true);
 		setFieldErrors(EMPTY_ERRORS);
 		try {
-			await signup(form.name.trim(), form.email.trim(), form.password);
+			await signup(form.name.trim(), form.email, form.password);
 			const inviteToken = searchParams.get('invite');
 			if (inviteToken) {
 				try {

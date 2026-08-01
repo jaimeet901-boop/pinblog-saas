@@ -6,6 +6,7 @@ import { Button, Input, Spinner } from '@/components/kit';
 import pb from '@/lib/pocketbaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import { isValidEmail, normalizeEmail } from '@/lib/auth';
 
 export default function ForgotPasswordPage() {
 	const { toast } = useToast();
@@ -13,12 +14,19 @@ export default function ForgotPasswordPage() {
 	const [email, setEmail] = useState('');
 	const [loading, setLoading] = useState(false);
 	const [sent, setSent] = useState(false);
+	const [submittedEmail, setSubmittedEmail] = useState('');
 
 	const submit = async (e) => {
 		e.preventDefault();
+		const normalized = normalizeEmail(email);
+		if (!isValidEmail(normalized)) {
+			toast({ variant: 'destructive', title: 'Check your email', description: 'Enter a valid email address.' });
+			return;
+		}
 		setLoading(true);
 		try {
-			await pb.collection('users').requestPasswordReset(email);
+			await pb.collection('users').requestPasswordReset(normalized);
+			setSubmittedEmail(normalized);
 			setSent(true);
 			// PocketBase always returns 204 for enumeration protection — delivery is not guaranteed.
 			// Admins: verify SMTP under /admin/mail (Mail Diagnostics).
@@ -43,7 +51,7 @@ export default function ForgotPasswordPage() {
 					</div>
 					<p className="font-medium text-foreground">Check your inbox</p>
 					<p className="mt-1.5 text-sm text-muted-foreground">
-						If an account exists for <span className="font-medium text-foreground">{email}</span>, a reset link is on its way.
+						If an account exists for <span className="font-medium text-foreground">{submittedEmail || email}</span>, a reset link is on its way.
 					</p>
 				</div>
 			) : (

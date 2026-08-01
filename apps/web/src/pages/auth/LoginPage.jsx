@@ -6,7 +6,7 @@ import { Button, Input, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { useToast } from '@/hooks/use-toast';
-import { OAUTH_PROVIDERS, getAuthPageOAuthProviders, isValidEmail, normalizePocketBaseError } from '@/lib/auth';
+import { OAUTH_PROVIDERS, getAuthPageOAuthProviders, isValidEmail, normalizeEmail, normalizePocketBaseError } from '@/lib/auth';
 import { R0_AUTH } from '@/lib/marketing/r0Copy';
 
 const REMEMBER_KEY = 'chef-ia-remember-email';
@@ -112,11 +112,12 @@ export default function LoginPage() {
 
 		setLoading(true);
 		setFieldErrors({ email: '', password: '', form: '' });
+		const normalized = normalizeEmail(email);
 		try {
-			await login(email, password);
+			await login(normalized, password);
 			try {
 				if (rememberMe) {
-					localStorage.setItem(REMEMBER_KEY, email.trim());
+					localStorage.setItem(REMEMBER_KEY, normalized);
 				} else {
 					localStorage.removeItem(REMEMBER_KEY);
 				}

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import pb from '@/lib/pocketbaseClient';
-import { buildOAuthCreateData, openOAuthWindow } from '@/lib/auth';
+import { buildOAuthCreateData, normalizeEmail, openOAuthWindow } from '@/lib/auth';
 
 const AuthContext = createContext(null);
 
@@ -46,14 +46,15 @@ export function AuthProvider({ children }) {
 	}, [syncExternalAuths, user?.id]);
 
 	const login = useCallback(
-		(email, password) => pb.collection('users').authWithPassword(email, password),
+		(email, password) => pb.collection('users').authWithPassword(normalizeEmail(email), password),
 		[],
 	);
 
 	const signup = useCallback(async (name, email, password) => {
+		const normalized = normalizeEmail(email);
 		await pb.collection('users').create({
 			name,
-			email,
+			email: normalized,
 			password,
 			passwordConfirm: password,
 			plan: 'free',
@@ -62,10 +63,10 @@ export function AuthProvider({ children }) {
 		// Mirror OAuth: update React auth state before the signup page navigates to /app.
 		// Relying only on authStore.onChange can leave isAuthed stale for one render
 		// (ProtectedRoute then bounces to /login even though create+auth succeeded).
-		const authData = await pb.collection('users').authWithPassword(email, password);
+		const authData = await pb.collection('users').authWithPassword(normalized, password);
 		setUser(authData?.record || pb.authStore.record);
 		try {
-			await pb.collection('users').requestVerification(email);
+			await pb.collection('users').requestVerification(normalized);
 		} catch (_) {
 			/* ignore */
 		}
