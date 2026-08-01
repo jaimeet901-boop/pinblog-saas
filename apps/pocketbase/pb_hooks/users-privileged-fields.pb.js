@@ -5,47 +5,33 @@
  *
  * API rules remain the primary control. Superuser (Express Admin / billing /
  * credits engine) continues to write privileged fields normally.
+ *
+ * IMPORTANT (PocketBase JSVM): each hook handler runs in an isolated scope.
+ * Top-level functions/consts are NOT visible inside handlers — inline helpers
+ * (or require()) or this throws ReferenceError (e.g. isUsersCollection).
  */
 
-const PRIVILEGED_FIELDS = [
-	"role",
-	"plan",
-	"status",
-	"ai_credits_used",
-	"image_credits_used",
-	"verified",
-	"credits",
-];
-
-function isUsersCollection(e) {
-	try {
-		return e?.collection?.name === "users";
-	} catch (_) {
+onRecordCreateRequest((e) => {
+	function isSuperuserRequest() {
+		try {
+			if (typeof e.hasSuperuserAuth === "function" && e.hasSuperuserAuth()) {
+				return true;
+			}
+		} catch (_) {
+			/* ignore */
+		}
+		try {
+			const auth = e.auth;
+			if (auth && typeof auth.isSuperuser === "function" && auth.isSuperuser()) {
+				return true;
+			}
+		} catch (_) {
+			/* ignore */
+		}
 		return false;
 	}
-}
 
-function isSuperuserRequest(e) {
-	try {
-		if (typeof e.hasSuperuserAuth === "function" && e.hasSuperuserAuth()) {
-			return true;
-		}
-	} catch (_) {
-		/* ignore */
-	}
-	try {
-		const auth = e.auth;
-		if (auth && typeof auth.isSuperuser === "function" && auth.isSuperuser()) {
-			return true;
-		}
-	} catch (_) {
-		/* ignore */
-	}
-	return false;
-}
-
-onRecordCreateRequest((e) => {
-	if (!isUsersCollection(e) || isSuperuserRequest(e)) {
+	if (isSuperuserRequest()) {
 		e.next();
 		return;
 	}
@@ -68,10 +54,39 @@ onRecordCreateRequest((e) => {
 	}
 
 	e.next();
-});
+}, "users");
 
 onRecordUpdateRequest((e) => {
-	if (!isUsersCollection(e) || isSuperuserRequest(e)) {
+	const PRIVILEGED_FIELDS = [
+		"role",
+		"plan",
+		"status",
+		"ai_credits_used",
+		"image_credits_used",
+		"verified",
+		"credits",
+	];
+
+	function isSuperuserRequest() {
+		try {
+			if (typeof e.hasSuperuserAuth === "function" && e.hasSuperuserAuth()) {
+				return true;
+			}
+		} catch (_) {
+			/* ignore */
+		}
+		try {
+			const auth = e.auth;
+			if (auth && typeof auth.isSuperuser === "function" && auth.isSuperuser()) {
+				return true;
+			}
+		} catch (_) {
+			/* ignore */
+		}
+		return false;
+	}
+
+	if (isSuperuserRequest()) {
 		e.next();
 		return;
 	}
@@ -91,4 +106,4 @@ onRecordUpdateRequest((e) => {
 	}
 
 	e.next();
-});
+}, "users");
