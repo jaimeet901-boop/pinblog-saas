@@ -573,3 +573,46 @@ export async function testProviderConnection(id) {
 		provider,
 	};
 }
+
+/**
+ * Persist lightweight runtime outcome onto ai_providers (last success/failure/latency).
+ * Best-effort — never throws to the caller.
+ */
+export async function recordProviderRuntimeOutcome(code, {
+	ok,
+	latencyMs = 0,
+	errorMessage = '',
+} = {}) {
+	const normalized = String(code || '').trim().toLowerCase();
+	if (!normalized) return null;
+
+	try {
+		const records = await pocketbaseClient.collection('ai_providers').getFullList({
+			filter: pocketbaseClient.filter('code = {:code}', { code: normalized }),
+			requestKey: null,
+		});
+		const record = records[0];
+		if (!record) return null;
+
+		const checkedAt = new Date().toISOString();
+		const updates = {
+			last_checked: checkedAt,
+			last_latency_ms: Number.isFinite(Number(latencyMs)) ? Number(latencyMs) : (record.last_latency_ms || 0),
+		};
+
+		if (ok) {
+			updates.status = 'connected';
+			updates.health = 'healthy';
+			updates.last_error = '';
+			updates.last_success_at = checkedAt;
+		} else {
+			updates.health = 'degraded';
+			updates.last_error = String(errorMessage || 'Runtime request failed').slice(0, 500);
+		}
+
+		await pocketbaseClient.collection('ai_providers').update(record.id, updates);
+		return true;
+	} catch {
+		return null;
+	}
+}

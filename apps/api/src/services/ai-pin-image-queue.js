@@ -373,17 +373,6 @@ async function processJob(job) {
 		throw new Error('Image provider API key is not configured');
 	}
 
-	await consumeCredits(pocketbaseClient, {
-		userId: job.owner,
-		workspaceKey: job.workspace_key || job.workspaceKey || '',
-		ai: 0,
-		image: 1,
-	}).catch((error) => {
-		if (error?.status === 402) {
-			throw error;
-		}
-	});
-
 	const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
 	const preferredModelId = normalizeText(
 		promptPayload.model
@@ -422,6 +411,18 @@ async function processJob(job) {
 	if (!generated) {
 		throw new Error('Image provider returned no output');
 	}
+
+	await consumeCredits(pocketbaseClient, {
+		userId: job.owner,
+		workspaceKey: job.workspace_key || job.workspaceKey || '',
+		ai: 0,
+		image: 1,
+	}).catch((error) => {
+		if (error?.status === 402) {
+			throw error;
+		}
+	});
+
 	const imageUrl = await uploadGeneratedImage({ owner: job.owner, ...generated });
 
 	await setJobTerminalState({

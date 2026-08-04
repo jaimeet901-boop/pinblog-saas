@@ -344,36 +344,48 @@ export async function resolveTextModelIdForProvider(providerCode, options = {}) 
 	const code = String(providerCode || '').trim().toLowerCase();
 	await ensureModelCatalogSeeded();
 
-	const preferredModelId = normalizeGeminiModelId(options.preferredModelId || '');
+	const preferredRaw = String(options.preferredModelId || '').trim();
+	const preferredModelId = code === 'gemini'
+		? normalizeGeminiModelId(preferredRaw)
+		: preferredRaw;
 	const { items } = await listModels({ provider: code, capability: 'text' });
 	const usable = items.filter((item) => (
 		item.enabled
 		&& item.status !== 'deprecated'
 		&& item.status !== 'disabled'
-		&& !isRetiredGeminiModel(item.modelId)
+		&& (code !== 'gemini' || !isRetiredGeminiModel(item.modelId))
 	));
 
-	if (preferredModelId && !isRetiredGeminiModel(preferredModelId)) {
+	const normalizeId = (modelId) => (
+		code === 'gemini' ? normalizeGeminiModelId(modelId) : String(modelId || '').trim()
+	);
+
+	if (preferredModelId && (code !== 'gemini' || !isRetiredGeminiModel(preferredModelId))) {
 		const preferred = usable.find((item) => (
-			normalizeGeminiModelId(item.modelId) === preferredModelId
+			normalizeId(item.modelId) === preferredModelId
 			|| String(item.name || '').toLowerCase() === preferredModelId.toLowerCase()
+			|| String(item.displayName || '').toLowerCase() === preferredModelId.toLowerCase()
 		));
 		if (preferred) {
-			return { modelId: normalizeGeminiModelId(preferred.modelId), source: 'admin_models_preferred' };
+			return { modelId: normalizeId(preferred.modelId), source: 'admin_models_preferred' };
 		}
 	}
 
 	const defaultModel = usable.find((item) => item.isDefault);
 	if (defaultModel?.modelId) {
-		return { modelId: normalizeGeminiModelId(defaultModel.modelId), source: 'admin_models_default' };
+		return { modelId: normalizeId(defaultModel.modelId), source: 'admin_models_default' };
 	}
 
 	if (usable[0]?.modelId) {
-		return { modelId: normalizeGeminiModelId(usable[0].modelId), source: 'admin_models_first' };
+		return { modelId: normalizeId(usable[0].modelId), source: 'admin_models_first' };
 	}
 
 	if (code === 'gemini') {
 		return { modelId: GEMINI_STABLE_FALLBACK_MODEL, source: 'stable_fallback' };
+	}
+
+	if (code === 'openai') {
+		return { modelId: 'gpt-4o-mini', source: 'stable_fallback' };
 	}
 
 	return { modelId: '', source: 'none' };

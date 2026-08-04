@@ -75,6 +75,9 @@ const integratedAiClient = {
 		if (typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()) {
 			formData.append('idempotencyKey', body.idempotencyKey.trim().slice(0, 120));
 		}
+		if (typeof body.creditFeature === 'string' && body.creditFeature.trim()) {
+			formData.append('creditFeature', body.creditFeature.trim().slice(0, 64));
+		}
 
 		images.forEach((image) => {
 			formData.append('images', image);

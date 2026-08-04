@@ -13,6 +13,7 @@ export const DEFAULT_CREDIT_COSTS = Object.freeze({
 	ai_analyze: 1,
 	ai_prompt: 1,
 	ai_writer: 2,
+	ai_pin_copy: 1,
 	ai_image: 1,
 	pin_publish: 1,
 	wordpress_publish: 1,
@@ -526,7 +527,12 @@ export async function consumeWorkspaceCredits({
 		};
 		if (feature === 'ai_image' || feature === 'image') {
 			usagePatch.images = (Number(usage.images) || 0) + 1;
-		} else if (feature === 'ai_analyze' || feature === 'ai_prompt' || feature === 'ai_writer') {
+		} else if (
+			feature === 'ai_analyze'
+			|| feature === 'ai_prompt'
+			|| feature === 'ai_writer'
+			|| feature === 'ai_pin_copy'
+		) {
 			usagePatch.tokens = (Number(usage.tokens) || 0) + burnAmount;
 		} else if (feature === 'pin_publish' || feature === 'wordpress_publish') {
 			usagePatch.publishing = (Number(usage.publishing) || 0) + 1;

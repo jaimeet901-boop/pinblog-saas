@@ -3,16 +3,18 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
 	Image as ImageIcon, Wand2, Loader2, Download, Save, ChevronDown,
 	Sparkles, Settings2, Layers, Copy, RefreshCw, Trash2, Search,
-	Star, Pin, LayoutTemplate, Palette, Upload, Coins, Heart,
+	Star, Pin, LayoutTemplate, Palette, Upload, Heart,
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
-import { generateText } from '@/lib/aiGenerate';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import { useActiveWebsite } from '@/context/ActiveWebsiteContext';
 import { Badge, Button, Input, Select, Spinner, Textarea } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import './ImagesPage.css';
+
+/** Legacy text-stream image generation is disabled until this page uses Image Runtime. */
+const LEGACY_IMAGE_GENERATION_DISABLED = true;
 
 const FORMATS = [
 	{ id: 'square', label: 'Square', ratio: '1:1', box: 'aspect-square' },
@@ -85,11 +87,6 @@ function loadFavorites() {
 	}
 }
 
-function estimateCredits({ quality, count }) {
-	const qualityFactor = quality === 'high' ? 1.6 : quality === 'standard' ? 1.1 : 0.85;
-	return Number((qualityFactor * Math.max(1, count)).toFixed(1));
-}
-
 function startOfDay(date = new Date()) {
 	const d = new Date(date);
 	d.setHours(0, 0, 0, 0);
@@ -138,11 +135,6 @@ export default function ImagesPage() {
 	const selected = gallery.find((item) => item.id === selectedId) || null;
 	const selectedBrand = brandKits.find((item) => item.id === brandKitId) || null;
 	const selectedTemplate = templates.find((item) => item.id === templateId) || null;
-	const isDirty = prompt !== baselinePrompt;
-	const creditEstimate = useMemo(
-		() => estimateCredits({ quality, count: Number(imageCount) || 1 }),
-		[quality, imageCount],
-	);
 
 	useEffect(() => {
 		const fromQuery = String(searchParams.get('websiteId') || '').trim();
@@ -233,41 +225,22 @@ export default function ImagesPage() {
 
 	const generate = async (event) => {
 		event?.preventDefault?.();
+		if (LEGACY_IMAGE_GENERATION_DISABLED) {
+			toast({
+				title: 'Use AI Pins for image generation',
+				description: 'Studio image generation runs through the Image Runtime in AI Pins. Legacy generation on this page is disabled.',
+			});
+			return;
+		}
 		if (!prompt.trim()) {
 			toast({ variant: 'destructive', title: 'Prompt required', description: 'Describe the image you want to create.' });
 			return;
 		}
-		setLoading(true);
-		setGallery([]);
-		setSelectedId('');
-		try {
-			// Keep the existing generation workflow / prompt shape unchanged.
-			const p = `Generate a vibrant, appetizing Pinterest food image. Aspect ratio ${fmt.ratio}. Subject: ${prompt}. Bright, high-quality food photography, styled for Pinterest.`;
-			const { images } = await generateText(p);
-			if (!images.length) throw new Error('No image was generated. Try again.');
-			const now = Date.now();
-			const mapped = images.map((url, index) => ({
-				id: `gen-${now}-${index}`,
-				url,
-				prompt,
-				format,
-				ratio: fmt.ratio,
-				createdAt: new Date(now).toISOString(),
-				brandKitId: brandKitId || '',
-				brandKitName: selectedBrand?.name || '',
-				templateId: templateId || '',
-				templateName: selectedTemplate?.name || '',
-				source: 'session',
-			}));
-			setGallery(mapped);
-			setSelectedId(mapped[0].id);
-			setBaselinePrompt(prompt);
-		} catch (err) {
-			toast({ variant: 'destructive', title: 'Generation failed', description: err?.message });
-		} finally {
-			setLoading(false);
-			setGenStep(GEN_STEPS.length - 1);
-		}
+		toast({
+			variant: 'destructive',
+			title: 'Generation unavailable',
+			description: 'Legacy image generation is disabled.',
+		});
 	};
 
 	const savePin = async (image = selected) => {
@@ -436,24 +409,17 @@ export default function ImagesPage() {
 			<div className="img-atelier__actions">
 				<div className="flex flex-wrap items-center gap-2">
 					<span className="text-sm font-medium">{prompt.trim() ? 'Prompt studio' : 'New image'}</span>
-					{isDirty ? (
-						<span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
-							Unsaved changes
-						</span>
-					) : (
-						<span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] text-muted-foreground">Ready</span>
-					)}
-					<span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-semibold text-primary">
-						<Coins size={12} /> ~{creditEstimate} credits
+					<span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+						Generation moved to AI Pins
 					</span>
-					<span className="hidden text-[11px] text-muted-foreground sm:inline">Ctrl+S</span>
+					<span className="hidden text-[11px] text-muted-foreground sm:inline">Prompt studio + library only</span>
 				</div>
 				<div className="flex flex-wrap gap-2">
-					<Button size="sm" onClick={generate} disabled={loading}>
-						{loading ? <Spinner className="h-4 w-4" /> : <Wand2 size={14} />}
+					<Button size="sm" onClick={generate} disabled>
+						<Wand2 size={14} />
 						Generate
 					</Button>
-					<Button size="sm" variant="outline" onClick={generate} disabled={loading || !prompt.trim()}>
+					<Button size="sm" variant="outline" onClick={generate} disabled>
 						<RefreshCw size={14} /> Regenerate
 					</Button>
 					<Button size="sm" variant="outline" onClick={() => downloadImage()} disabled={!selected}>
@@ -587,13 +553,12 @@ export default function ImagesPage() {
 							</div>
 						</Section>
 
-						<Button type="submit" disabled={loading} className="w-full">
-							{loading ? (
-								<><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
-							) : (
-								<><Wand2 size={16} /> Generate image</>
-							)}
+						<Button type="submit" disabled className="w-full">
+							<Wand2 size={16} /> Generate in AI Pins
 						</Button>
+						<p className="mt-2 text-center text-[11px] text-muted-foreground">
+							Legacy generation is disabled. Open AI Pins to run Image Runtime jobs.
+						</p>
 					</form>
 				</aside>
 
@@ -634,13 +599,15 @@ export default function ImagesPage() {
 							<div className="img-empty__icon">
 								<ImageIcon size={26} strokeWidth={1.6} />
 							</div>
-							<p className="font-display text-xl font-semibold">Generate images for your pins</p>
+							<p className="font-display text-xl font-semibold">Generate images in AI Pins</p>
 							<p className="mt-2 max-w-md text-sm text-muted-foreground">
-								Write a prompt and create Pinterest-ready imagery here. When you have an image, use it in AI Pins for the active website.
+								This page keeps prompt studio and library tools. AI image generation uses the Image Runtime inside AI Pins.
 							</p>
-							<Button className="mt-5" onClick={generate} disabled={!prompt.trim()}>
-								<Wand2 size={15} /> Start generating
-							</Button>
+							<Link to={pinsHref}>
+								<Button className="mt-5">
+									<Pin size={15} /> Open AI Pins
+								</Button>
+							</Link>
 						</div>
 					) : null}
 

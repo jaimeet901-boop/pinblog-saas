@@ -71,6 +71,7 @@ const EMPTY_FORM_BASE = {
 		ai_analyze: 1,
 		ai_prompt: 1,
 		ai_writer: 2,
+		ai_pin_copy: 1,
 		ai_image: 1,
 		pin_publish: 1,
 		wordpress_publish: 1,

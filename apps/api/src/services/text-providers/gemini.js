@@ -1,10 +1,31 @@
 /**
- * Google Gemini text adapter — direct Generative Language API (no external Integrated AI proxy).
+ * Google Gemini text adapter — Generative Language API behind the Universal Text Runtime.
  * Uses Admin Provider Registry credentials (ai_providers + ai_provider_secrets).
+ * Behavior of streamText is preserved; generateText / validate / healthCheck / countTokens added.
  */
 
 import logger from '../../utils/logger.js';
+import { estimateTokenCount } from './contract.js';
+import { normalizeProviderCapabilities, capabilitiesToFlags } from './capabilities.js';
 import { normalizeGeminiModelId } from './gemini-models.js';
+
+const capabilitiesDetailed = normalizeProviderCapabilities('gemini', {
+	text: true,
+	image: true,
+	streaming: true,
+	vision: true,
+	embeddings: false,
+	functionCalling: true,
+	maxTokens: 1048576,
+});
+
+export const meta = {
+	code: 'gemini',
+	name: 'Google Gemini',
+	capabilities: capabilitiesToFlags(capabilitiesDetailed),
+	capabilitiesDetailed,
+	implemented: true,
+};
 
 function joinUrl(base, path) {
 	const normalizedBase = String(base || '').replace(/\/+$/, '');
@@ -265,5 +286,65 @@ export async function* streamText({ runtime, systemPrompt, messages }) {
 		} catch {
 			// ignore
 		}
+	}
+}
+
+/**
+ * Non-streaming generateText — collects streamText chunks (same Gemini API path).
+ */
+export async function generateText({ runtime, systemPrompt, messages, options }) {
+	void options;
+	let text = '';
+	for await (const chunk of streamText({ runtime, systemPrompt, messages })) {
+		if (chunk?.type === 'content' && typeof chunk.text === 'string') {
+			text += chunk.text;
+		}
+	}
+	return { text, usage: null };
+}
+
+export function countTokens({ text }) {
+	return estimateTokenCount(text);
+}
+
+export async function validate({ runtime }) {
+	if (!runtime?.apiKey) {
+		return { ok: false, message: 'Gemini API key missing' };
+	}
+	if (!normalizeGeminiModelId(runtime.model)) {
+		return { ok: false, message: 'Gemini model missing' };
+	}
+	return { ok: true };
+}
+
+export async function healthCheck({ runtime }) {
+	const started = Date.now();
+	const result = await validate({ runtime });
+	if (!result.ok) {
+		return { ...result, latencyMs: Date.now() - started };
+	}
+
+	try {
+		const baseUrl = runtime.baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
+		const model = normalizeGeminiModelId(runtime.model);
+		const url = `${joinUrl(baseUrl, `models/${encodeURIComponent(model)}`)}`;
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), Math.min(10000, Number(runtime.timeoutMs) || 10000));
+		const response = await fetch(url, {
+			headers: { 'x-goog-api-key': runtime.apiKey },
+			signal: controller.signal,
+		});
+		clearTimeout(timer);
+		return {
+			ok: response.ok,
+			latencyMs: Date.now() - started,
+			message: response.ok ? 'ok' : `HTTP ${response.status}`,
+		};
+	} catch (error) {
+		return {
+			ok: false,
+			latencyMs: Date.now() - started,
+			message: error?.message || 'health check failed',
+		};
 	}
 }

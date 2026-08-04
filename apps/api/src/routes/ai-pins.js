@@ -7,7 +7,7 @@ import { ensureAiPinsPublishFields } from '../utils/ensure-ai-pins-publish-field
 import { listWebsiteArticles } from '../services/website-article-discovery.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
 import { analyzeArticleForPin, generateImagePromptForPin, PIN_STYLES } from '../services/ai-pin-analysis.js';
-import { consumeCredits, getUserCreditUsage, recordGenerationHistory } from '../services/ai-pin-credits.js';
+import { consumeBillableAiFeature, getUserCreditUsage, recordGenerationHistory } from '../services/ai-pin-credits.js';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { uploadFiles } from '../middleware/file-upload.js';
 import { normalizeDestinationUrl } from '../utils/pin-publish-destination.js';
@@ -354,7 +354,6 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 	const articleRecord = await getOwnedWebsiteArticle({ articleId, req });
 	const ownerId = workspaceOwnerId(req);
 
-	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, workspaceKey: req.workspaceKey, ai: 1, image: 0 });
 	const article = mapArticle(articleRecord);
 	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
 		ownerId,
@@ -381,14 +380,24 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		throw error;
 	}
 
+	const charged = await consumeBillableAiFeature(pocketbaseClient, {
+		userId: req.pocketbaseUserId,
+		workspaceKey: req.workspaceKey,
+		feature: 'ai_analyze',
+		source: analysis?.source,
+		reason: 'AI pin analysis',
+		referenceId: articleId,
+		metadata: { route: 'ai-pins/analyze', style },
+	});
+
 	await recordGenerationHistory(pocketbaseClient, stampCreateOwnership(req, {
 		owner: ownerId,
 		articleId,
 		websiteId: article.websiteId || '',
 		event_type: 'analyze',
 		analysis,
-		metadata: { style },
-		ai_credits_used: 1,
+		metadata: { style, billed: Boolean(charged), resultSource: analysis?.source || null },
+		ai_credits_used: charged ? 1 : 0,
 		image_credits_used: 0,
 	}));
 
@@ -424,7 +433,6 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 	const articleRecord = await getOwnedWebsiteArticle({ articleId, req });
 	const ownerId = workspaceOwnerId(req);
 
-	await consumeCredits(pocketbaseClient, { userId: req.pocketbaseUserId, workspaceKey: req.workspaceKey, ai: 1, image: 0 });
 	const article = mapArticle(articleRecord);
 	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
 		ownerId,
@@ -432,6 +440,7 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		message: 'AI prompt generation started',
 		force: true,
 	});
+	const analysisProvided = Boolean(analysis);
 	let resolvedAnalysis;
 	let promptResult;
 	try {
@@ -458,6 +467,31 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		throw error;
 	}
 
+	let analyzeCharged = null;
+	if (!analysisProvided) {
+		analyzeCharged = await consumeBillableAiFeature(pocketbaseClient, {
+			userId: req.pocketbaseUserId,
+			workspaceKey: req.workspaceKey,
+			feature: 'ai_analyze',
+			source: resolvedAnalysis?.source,
+			reason: 'AI pin analysis (during prompt)',
+			referenceId: articleId,
+			metadata: { route: 'ai-pins/prompts', style },
+		});
+	}
+
+	const promptCharged = await consumeBillableAiFeature(pocketbaseClient, {
+		userId: req.pocketbaseUserId,
+		workspaceKey: req.workspaceKey,
+		feature: 'ai_prompt',
+		source: promptResult?.source,
+		reason: 'AI image prompt generation',
+		referenceId: articleId,
+		metadata: { route: 'ai-pins/prompts', style: promptResult?.style || style },
+	});
+
+	const aiCreditsUsed = (analyzeCharged ? 1 : 0) + (promptCharged ? 1 : 0);
+
 	await recordGenerationHistory(pocketbaseClient, stampCreateOwnership(req, {
 		owner: ownerId,
 		articleId,
@@ -465,8 +499,14 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		event_type: 'prompt',
 		prompt: promptResult.imagePrompt,
 		analysis: resolvedAnalysis,
-		metadata: { style: promptResult.style, source: promptResult.source },
-		ai_credits_used: 1,
+		metadata: {
+			style: promptResult.style,
+			source: promptResult.source,
+			analysisSource: resolvedAnalysis?.source || null,
+			billedAnalyze: Boolean(analyzeCharged),
+			billedPrompt: Boolean(promptCharged),
+		},
+		ai_credits_used: aiCreditsUsed,
 		image_credits_used: 0,
 	}));
 

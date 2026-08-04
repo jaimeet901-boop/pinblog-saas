@@ -9,6 +9,9 @@ import {
 	getWallet,
 	ensureWorkspaceWallet,
 } from './credits-engine.js';
+import { isBillableAiResultSource } from './ai-billing-policy.js';
+
+export { isBillableAiResultSource } from './ai-billing-policy.js';
 
 const PLAN_CREDITS = {
 	free: { ai: 50, image: 20 },
@@ -98,6 +101,49 @@ export async function consumeFeatureCredits(pocketbaseClientArg, {
 		idempotencyKey,
 		metadata,
 	});
+}
+
+/**
+ * Charge a specific AI feature only after successful provider generation.
+ * No-op for heuristic/template-only fallbacks.
+ */
+export async function consumeBillableAiFeature(pocketbaseClient, {
+	userId,
+	workspaceKey = '',
+	feature,
+	source,
+	units = 1,
+	reason = '',
+	referenceId = '',
+	idempotencyKey = '',
+	metadata = {},
+} = {}) {
+	if (!isBillableAiResultSource(source)) {
+		return null;
+	}
+	const key = String(workspaceKey || '').trim() || workspaceKeyForUser(userId);
+	const result = await consumeFeatureCredits(pocketbaseClient, {
+		userId,
+		workspaceKey: key,
+		feature,
+		units,
+		reason: reason || `Consume ${feature}`,
+		referenceId,
+		idempotencyKey,
+		metadata: { ...metadata, resultSource: source },
+	});
+
+	const user = await pocketbaseClient.collection('users').getOne(userId).catch(() => null);
+	if (user) {
+		const aiBump = feature === 'ai_image' ? 0 : Math.max(1, Number(units) || 1);
+		const imageBump = feature === 'ai_image' ? Math.max(1, Number(units) || 1) : 0;
+		await pocketbaseClient.collection('users').update(userId, {
+			ai_credits_used: Number(user.ai_credits_used || 0) + aiBump,
+			image_credits_used: Number(user.image_credits_used || 0) + imageBump,
+		}).catch(() => null);
+	}
+
+	return result;
 }
 
 export async function consumeCredits(pocketbaseClient, {

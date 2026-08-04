@@ -949,7 +949,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 			const publishedAt = new Date().toISOString();
 
 			if (data.queued && !publishedUrl) {
-				toast({
+			toast({
 					title: 'Publish queued',
 					description: 'WordPress job is processing in the background. Check history shortly.',
 				});
@@ -996,7 +996,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 			await loadRecentDrafts();
 		} catch (err) {
 			if (!extras.silent) {
-				toast({ variant: 'destructive', title: 'WordPress error', description: err?.message });
+			toast({ variant: 'destructive', title: 'WordPress error', description: err?.message });
 			}
 			if (extras.throwOnError) throw err;
 		} finally {
@@ -1252,7 +1252,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 	return (
 		<div className="wr-atelier">
 			<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-				<div>
+		<div>
 					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">AI Writer</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
@@ -1397,36 +1397,36 @@ Respond ONLY with the JSON object described in your instructions.`;
 									))
 								)}
 							</Select>
-							<Input label="Main keyword" required value={form.keyword} onChange={set('keyword')} placeholder="easy vegan lasagna" />
-							<Input label="Secondary keywords" value={form.secondary} onChange={set('secondary')} placeholder="plant-based, dairy-free" />
-							<div className="grid grid-cols-2 gap-3">
-								<Input label="Country" value={form.country} onChange={set('country')} />
-								<Select label="Language" value={form.language} onChange={set('language')}>
+						<Input label="Main keyword" required value={form.keyword} onChange={set('keyword')} placeholder="easy vegan lasagna" />
+						<Input label="Secondary keywords" value={form.secondary} onChange={set('secondary')} placeholder="plant-based, dairy-free" />
+						<div className="grid grid-cols-2 gap-3">
+							<Input label="Country" value={form.country} onChange={set('country')} />
+							<Select label="Language" value={form.language} onChange={set('language')}>
 									{['English', 'French', 'Spanish', 'German', 'Italian', 'Portuguese', 'Dutch', 'Arabic'].map((l) => (
 										<option key={l}>{l}</option>
 									))}
-								</Select>
-							</div>
+							</Select>
+						</div>
 						</Section>
 
 						<Section id="content" open={openSections.content} onToggle={toggleSection}>
-							<Select label="Article length" value={form.length} onChange={set('length')}>
-								<option>Short (600-900 words)</option>
-								<option>Medium (1000-1500 words)</option>
-								<option>Long (1800-2500 words)</option>
-							</Select>
-							<div className="grid grid-cols-2 gap-3">
-								<Select label="Tone" value={form.tone} onChange={set('tone')}>
+						<Select label="Article length" value={form.length} onChange={set('length')}>
+							<option>Short (600-900 words)</option>
+							<option>Medium (1000-1500 words)</option>
+							<option>Long (1800-2500 words)</option>
+						</Select>
+						<div className="grid grid-cols-2 gap-3">
+							<Select label="Tone" value={form.tone} onChange={set('tone')}>
 									{['Friendly', 'Professional', 'Casual', 'Enthusiastic', 'Authoritative'].map((t) => (
 										<option key={t}>{t}</option>
 									))}
-								</Select>
+							</Select>
 								<Select label="Number of headings" value={form.headings} onChange={set('headings')}>
 									{['3', '4', '5', '6', '7'].map((n) => (
 										<option key={n}>{n}</option>
 									))}
-								</Select>
-							</div>
+							</Select>
+						</div>
 							<Select label="Reading level" value={form.readingLevel} onChange={set('readingLevel')}>
 								{['General', 'Beginner', 'Intermediate', 'Advanced'].map((level) => (
 									<option key={level}>{level}</option>
@@ -1489,7 +1489,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 									>
 										{imageBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload size={14} />}
 										{article?.featured_image ? 'Replace Image' : 'Upload Featured Image'}
-									</Button>
+						</Button>
 									{article?.featured_image ? (
 										<Button type="button" size="sm" variant="ghost" disabled={imageBusy} onClick={removeFeaturedImage}>
 											<Trash2 size={14} /> Remove Image
@@ -1763,10 +1763,10 @@ Respond ONLY with the JSON object described in your instructions.`;
 					{article && !generating ? (
 						<div className="space-y-4">
 							<div className="grid gap-3">
-								<Input label="SEO title" value={article.seo_title || ''} onChange={(e) => upd('seo_title', e.target.value)} />
-								<Textarea label="Meta description" rows={2} value={article.meta_description || ''} onChange={(e) => upd('meta_description', e.target.value)} />
-								<Input label="Slug" value={article.slug || ''} onChange={(e) => upd('slug', e.target.value)} />
-							</div>
+							<Input label="SEO title" value={article.seo_title || ''} onChange={(e) => upd('seo_title', e.target.value)} />
+							<Textarea label="Meta description" rows={2} value={article.meta_description || ''} onChange={(e) => upd('meta_description', e.target.value)} />
+							<Input label="Slug" value={article.slug || ''} onChange={(e) => upd('slug', e.target.value)} />
+										</div>
 
 							<article className="wr-doc">
 								<h1 className="wr-doc__title">{article.seo_title || form.keyword}</h1>
@@ -1795,7 +1795,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 										});
 									}}
 								/>
-							</div>
+								</div>
 
 							<div className="wr-inline-tools">
 								{INLINE_TOOLS.map((tool) => {
@@ -1812,19 +1812,19 @@ Respond ONLY with the JSON object described in your instructions.`;
 				</section>
 
 				<aside className="wr-atelier__assist p-4 space-y-3">
-					<div>
+								<div>
 						<h2 className="font-display text-lg font-semibold">AI Assistant</h2>
 						<p className="text-[11px] text-muted-foreground">SEO, outline, and social previews.</p>
-					</div>
+									</div>
 
 					<div className="wr-assist-card">
 						<div className="wr-assist-card__title"><span>SEO Score</span><Search size={13} /></div>
 						<div className="wr-score">
 							<span className="wr-score__value">{insights.seo}</span>
 							<span className="text-xs text-muted-foreground">/ 100</span>
-						</div>
+								</div>
 						<div className="wr-meter"><span style={{ width: `${insights.seo}%` }} /></div>
-					</div>
+								</div>
 
 					<div className="wr-assist-card">
 						<div className="wr-assist-card__title"><span>Keyword Usage</span><Hash size={13} /></div>
@@ -1861,14 +1861,14 @@ Respond ONLY with the JSON object described in your instructions.`;
 						<div className="wr-chip-list">
 							{insights.missing.map((item) => <span key={item} className="wr-chip">{item}</span>)}
 						</div>
-					</div>
+							</div>
 
 					<div className="wr-assist-card">
 						<div className="wr-assist-card__title"><span>Meta Title Preview</span></div>
 						<div className="wr-preview-box">
 							<div className="wr-preview-box__label">Google-style title</div>
 							{article?.seo_title || 'Your SEO title will preview here'}
-						</div>
+								</div>
 					</div>
 
 					<div className="wr-assist-card">
@@ -1931,9 +1931,9 @@ Respond ONLY with the JSON object described in your instructions.`;
 										</p>
 									</button>
 								))}
+										</div>
+								)}
 							</div>
-						)}
-					</div>
 
 					<div className="wr-assist-card">
 						<div className="wr-assist-card__title"><span>Recent Drafts</span><FileText size={13} /></div>
@@ -1950,8 +1950,8 @@ Respond ONLY with the JSON object described in your instructions.`;
 									</button>
 								))}
 							</div>
-						)}
-					</div>
+					)}
+				</div>
 				</aside>
 			</div>
 

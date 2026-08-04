@@ -18,8 +18,9 @@ const router = Router();
 
 const NO_AI_PROVIDER_MESSAGE = 'No AI provider configured. Please configure an AI provider in Admin Settings.';
 const WRITER_FEATURE_KEY = 'aiWriter';
-/** Credit catalog key — cost resolved only inside the Credit Engine. */
+/** Credit catalog keys — cost resolved only inside the Credit Engine. */
 const WRITER_CREDIT_FEATURE = 'ai_writer';
+const PIN_COPY_CREDIT_FEATURE = 'ai_pin_copy';
 
 function httpError(status, message) {
 	const error = new Error(message);
@@ -280,37 +281,51 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 
 	const singleShotRaw = String(req.body?.singleShot ?? '').trim().toLowerCase();
 	const singleShot = singleShotRaw === '1' || singleShotRaw === 'true' || singleShotRaw === 'yes';
+	const creditFeatureRaw = String(req.body?.creditFeature || '').trim().toLowerCase();
+
+	/** @type {'ai_writer'|'ai_pin_copy'|null} */
+	let creditFeature = null;
+	if (singleShot) {
+		creditFeature = WRITER_CREDIT_FEATURE;
+	} else if (creditFeatureRaw === PIN_COPY_CREDIT_FEATURE) {
+		creditFeature = PIN_COPY_CREDIT_FEATURE;
+	}
 
 	/** @type {{ id: string|null } | null} */
-	let writerReservation = null;
+	let creditReservation = null;
 
-	// Writer path only (singleShot): plan gate + Credit Engine reservation.
-	// Non-singleShot callers (pin copy, image studio text path) keep prior behavior.
-	if (singleShot) {
+	// Writer (singleShot) and Pin Copy: plan gate + Credit Engine reservation/settlement.
+	if (creditFeature) {
 		await assertFeatureAccess(req, WRITER_FEATURE_KEY, {
-			message: 'AI Writer requires a plan upgrade. Open Subscription to unlock article generation.',
+			message: creditFeature === PIN_COPY_CREDIT_FEATURE
+				? 'AI Pin Copy requires a plan upgrade. Open Subscription to unlock AI text generation.'
+				: 'AI Writer requires a plan upgrade. Open Subscription to unlock article generation.',
 		});
 
 		const workspaceKey = String(req.workspaceKey || '').trim();
 		if (!workspaceKey) {
-			throw httpError(422, 'Workspace context is required for AI Writer generation');
+			throw httpError(422, 'Workspace context is required for AI generation credits');
 		}
 
 		const rawIdempotency = typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey.trim() : '';
-		const idempotencyKey = (rawIdempotency || `ai-writer:${req.pocketbaseUserId}:${randomUUID()}`).slice(0, 120);
+		const defaultPrefix = creditFeature === PIN_COPY_CREDIT_FEATURE ? 'ai-pin-copy' : 'ai-writer';
+		const idempotencyKey = (rawIdempotency || `${defaultPrefix}:${req.pocketbaseUserId}:${randomUUID()}`).slice(0, 120);
 
-		writerReservation = await beginFeatureReservation({
+		creditReservation = await beginFeatureReservation({
 			workspaceKey,
-			feature: WRITER_CREDIT_FEATURE,
+			feature: creditFeature,
 			units: 1,
-			reason: 'AI Writer article generation',
+			reason: creditFeature === PIN_COPY_CREDIT_FEATURE
+				? 'AI Pin copy generation'
+				: 'AI Writer article generation',
 			actorUserId: req.pocketbaseUserId,
 			referenceId: String(req.body?.referenceId || '').slice(0, 120),
 			idempotencyKey,
 			ttlMs: 20 * 60 * 1000,
 			metadata: {
 				source: 'integrated-ai/stream',
-				singleShot: true,
+				singleShot: Boolean(singleShot),
+				creditFeature,
 				planFeatureKey: WRITER_FEATURE_KEY,
 			},
 			wallet: {
@@ -330,17 +345,18 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 			userPromptLength: userPromptText.length,
 			customPromptIncluded,
 			singleShot,
-			writerReservationId: writerReservation?.id || null,
+			creditFeature,
+			creditReservationId: creditReservation?.id || null,
 			userPromptPreview: String(userPromptText || '').slice(0, 300),
 		});
 	}
 
-	const settleWriterCredits = async ({ success }) => {
-		if (!writerReservation?.id) return;
-		await settleFeatureReservation(writerReservation.id, {
+	const settleCredits = async ({ success }) => {
+		if (!creditReservation?.id) return;
+		await settleFeatureReservation(creditReservation.id, {
 			success: Boolean(success),
 			actor: req.pocketbaseUserId || 'system',
-			metadata: { source: 'integrated-ai/stream', feature: WRITER_CREDIT_FEATURE },
+			metadata: { source: 'integrated-ai/stream', feature: creditFeature },
 			bumpLegacyAiCounterForUserId: success ? req.pocketbaseUserId : '',
 		});
 	};
@@ -352,11 +368,11 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 			systemPrompt: SystemPrompt,
 			userMessage,
 			singleShot,
-			onGenerationSettled: singleShot ? settleWriterCredits : null,
+			onGenerationSettled: creditReservation ? settleCredits : null,
 		});
 	} catch (error) {
-		if (writerReservation?.id) {
-			await settleFeatureReservation(writerReservation.id, {
+		if (creditReservation?.id) {
+			await settleFeatureReservation(creditReservation.id, {
 				success: false,
 				actor: req.pocketbaseUserId || 'system',
 			}).catch(() => null);
@@ -368,8 +384,8 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 	res.setHeader('Cache-Control', 'no-cache');
 	res.setHeader('Connection', 'keep-alive');
 	res.setHeader('X-Accel-Buffering', 'no');
-	if (writerReservation?.id) {
-		res.setHeader('X-Credit-Reservation', writerReservation.id);
+	if (creditReservation?.id) {
+		res.setHeader('X-Credit-Reservation', creditReservation.id);
 	}
 
 	sseStream.pipe(res, { end: false });
