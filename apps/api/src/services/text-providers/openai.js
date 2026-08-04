@@ -80,9 +80,11 @@ function buildRequestBody({ runtime, systemPrompt, messages, stream, options }) 
 	return body;
 }
 
-async function postChatCompletions({ runtime, body }) {
+async function postChatCompletions({ runtime, body, options }) {
 	const baseUrl = runtime.baseUrl || 'https://api.openai.com/v1';
-	const timeoutMs = Number(runtime.timeoutMs) || 60000;
+	const timeoutMs = Number(options?.timeoutMs) > 0
+		? Number(options.timeoutMs)
+		: (Number(runtime.timeoutMs) || 60000);
 	const url = joinUrl(baseUrl, 'chat/completions');
 
 	const controller = new AbortController();
@@ -136,7 +138,7 @@ export async function* streamText({ runtime, systemPrompt, messages, options }) 
 		modelSource: runtime.modelSource || 'unknown',
 	});
 
-	const { response, timer } = await postChatCompletions({ runtime, body });
+	const { response, timer } = await postChatCompletions({ runtime, body, options });
 
 	if (!response.ok) {
 		clearTimeout(timer);
@@ -214,7 +216,7 @@ export async function generateText({ runtime, systemPrompt, messages, options })
 		modelSource: runtime.modelSource || 'unknown',
 	});
 
-	const { response, timer } = await postChatCompletions({ runtime, body });
+	const { response, timer } = await postChatCompletions({ runtime, body, options });
 	clearTimeout(timer);
 
 	if (!response.ok) {

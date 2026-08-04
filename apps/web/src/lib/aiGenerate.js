@@ -1,4 +1,10 @@
 import { integratedAiClient } from '@/lib/integratedAiClient';
+import {
+	buildContinuationPrompt,
+	countArticleWords,
+	mergeArticleContinuation,
+	resolveWriterLengthPreset,
+} from '@/lib/writerArticleLength.js';
 
 function inferStreamPhase(fullText, previousPhase) {
 	const text = String(fullText || '');
@@ -23,17 +29,22 @@ function cancelledError(partialText = '') {
 	return err;
 }
 
-/**
- * Streams a text response from the AI backend and returns the full accumulated text.
- * Pass singleShot: true for one-off generation (Writer) — skips shared chat history.
- *
- * onStatus phases (client-only; does not change API contract):
- * connecting | outline | writing | finalizing
- *
- * Pass AbortSignal to cancel. No automatic reconnect.
- * There is no dedicated cancel API — aborting fetch closes the SSE (server settles via existing flow).
- */
-export async function generateText(prompt, {
+// Attempts to extract a JSON object from an AI text response.
+export function extractJson(text) {
+	if (!text) return null;
+	let t = text.trim().replace(/^```(json)?/i, '').replace(/```$/, '').trim();
+	const start = t.indexOf('{');
+	const end = t.lastIndexOf('}');
+	if (start === -1 || end === -1) return null;
+	try {
+		return JSON.parse(t.slice(start, end + 1));
+	} catch {
+		return null;
+	}
+}
+
+async function streamOnce({
+	prompt,
 	onChunk,
 	onStatus,
 	signal,
@@ -41,7 +52,11 @@ export async function generateText(prompt, {
 	singleShot,
 	idempotencyKey,
 	creditFeature,
-} = {}) {
+	articleLength,
+	minWords,
+	maxWords,
+	writerContinuation,
+}) {
 	if (signal?.aborted) {
 		throw cancelledError('');
 	}
@@ -73,6 +88,10 @@ export async function generateText(prompt, {
 				...(singleShot ? { singleShot: true } : {}),
 				...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
 				...(creditFeature ? { creditFeature: String(creditFeature) } : {}),
+				...(articleLength ? { articleLength: String(articleLength) } : {}),
+				...(minWords != null ? { minWords: String(minWords) } : {}),
+				...(maxWords != null ? { maxWords: String(maxWords) } : {}),
+				...(writerContinuation ? { writerContinuation: true } : {}),
 			},
 			images: [],
 			signal,
@@ -167,16 +186,111 @@ export async function generateText(prompt, {
 	}
 }
 
-// Attempts to extract a JSON object from an AI text response.
-export function extractJson(text) {
-	if (!text) return null;
-	let t = text.trim().replace(/^```(json)?/i, '').replace(/```$/, '').trim();
-	const start = t.indexOf('{');
-	const end = t.lastIndexOf('}');
-	if (start === -1 || end === -1) return null;
-	try {
-		return JSON.parse(t.slice(start, end + 1));
-	} catch {
-		return null;
+/**
+ * Streams a text response from the AI backend and returns the full accumulated text.
+ * Pass singleShot: true for one-off generation (Writer) — skips shared chat history.
+ *
+ * When articleLength/minWords/maxWords are provided, enforces length via backend prompts
+ * and performs at most one continuation merge if the first draft is under minWords.
+ */
+export async function generateText(prompt, {
+	onChunk,
+	onStatus,
+	signal,
+	customPrompt,
+	singleShot,
+	idempotencyKey,
+	creditFeature,
+	articleLength,
+	minWords,
+	maxWords,
+	skipLengthContinuation = false,
+} = {}) {
+	const preset = articleLength || minWords || maxWords
+		? resolveWriterLengthPreset(articleLength || '')
+		: null;
+	const resolvedMin = Number(minWords) > 0 ? Number(minWords) : (preset?.minWords || null);
+	const resolvedMax = Number(maxWords) > 0 ? Number(maxWords) : (preset?.maxWords || null);
+	const resolvedLengthId = preset?.id || (articleLength ? String(articleLength) : null);
+
+	const first = await streamOnce({
+		prompt,
+		onChunk,
+		onStatus,
+		signal,
+		customPrompt,
+		singleShot,
+		idempotencyKey,
+		creditFeature,
+		articleLength: resolvedLengthId,
+		minWords: resolvedMin,
+		maxWords: resolvedMax,
+		writerContinuation: false,
+	});
+
+	if (skipLengthContinuation || !resolvedMin || !singleShot) {
+		return first;
 	}
+
+	const article = extractJson(first.text);
+	if (!article) {
+		return first;
+	}
+
+	const currentWords = countArticleWords(article);
+	if (currentWords >= resolvedMin) {
+		return {
+			...first,
+			article,
+			wordCount: currentWords,
+			continued: false,
+		};
+	}
+
+	if (signal?.aborted) {
+		throw cancelledError(first.text);
+	}
+
+	onStatus?.('writing');
+	const continuationPrompt = buildContinuationPrompt(article, {
+		minWords: resolvedMin,
+		maxWords: resolvedMax || preset?.maxWords || resolvedMin,
+		currentWords,
+	});
+
+	const continuation = await streamOnce({
+		prompt: continuationPrompt,
+		onChunk: (text) => {
+			// Show continuation stream separately; final merge happens after parse.
+			onChunk?.(text);
+		},
+		onStatus,
+		signal,
+		customPrompt: '',
+		singleShot: true,
+		idempotencyKey: idempotencyKey
+			? `${String(idempotencyKey).slice(0, 100)}:cont`
+			: undefined,
+		creditFeature: undefined,
+		articleLength: resolvedLengthId,
+		minWords: resolvedMin,
+		maxWords: resolvedMax,
+		writerContinuation: true,
+	});
+
+	const patch = extractJson(continuation.text);
+	const merged = mergeArticleContinuation(article, patch);
+	const mergedText = JSON.stringify(merged);
+	const mergedWords = countArticleWords(merged);
+	onChunk?.(mergedText);
+	onStatus?.('finalizing');
+
+	return {
+		text: mergedText,
+		images: [...(first.images || []), ...(continuation.images || [])],
+		article: merged,
+		wordCount: mergedWords,
+		continued: true,
+		initialWordCount: currentWords,
+	};
 }

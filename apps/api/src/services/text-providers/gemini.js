@@ -142,9 +142,10 @@ function extractTextFromSsePayload(payload) {
  *   runtime: import('./index.js').TextProviderRuntime,
  *   systemPrompt: string,
  *   messages: import('./index.js').ChatMessage[],
+ *   options?: object,
  * }} params
  */
-export async function* streamText({ runtime, systemPrompt, messages }) {
+export async function* streamText({ runtime, systemPrompt, messages, options }) {
 	const baseUrl = runtime.baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
 	const model = normalizeGeminiModelId(runtime.model);
 	if (!model) {
@@ -154,7 +155,9 @@ export async function* streamText({ runtime, systemPrompt, messages }) {
 		throw error;
 	}
 
-	const timeoutMs = Number(runtime.timeoutMs) || 60000;
+	const timeoutMs = Number(options?.timeoutMs) > 0
+		? Number(options.timeoutMs)
+		: (Number(runtime.timeoutMs) || 60000);
 	const contents = await buildGeminiContents(messages, timeoutMs);
 
 	if (contents.length === 0) {
@@ -168,14 +171,21 @@ export async function* streamText({ runtime, systemPrompt, messages }) {
 		modelSource: runtime.modelSource || 'unknown',
 		endpoint: 'streamGenerateContent',
 		baseUrl,
+		maxOutputTokens: Number(options?.maxTokens) > 0 ? Number(options.maxTokens) : null,
+		timeoutMs,
 	});
 
 	const url = `${joinUrl(baseUrl, `models/${encodeURIComponent(model)}:streamGenerateContent`)}?alt=sse`;
+	const generationConfig = {
+		temperature: Number(options?.temperature) >= 0 ? Number(options.temperature) : 0.7,
+	};
+	if (Number(options?.maxTokens) > 0) {
+		generationConfig.maxOutputTokens = Number(options.maxTokens);
+	}
+
 	const body = {
 		contents,
-		generationConfig: {
-			temperature: 0.7,
-		},
+		generationConfig,
 	};
 
 	const system = String(systemPrompt || '').trim();
@@ -293,9 +303,8 @@ export async function* streamText({ runtime, systemPrompt, messages }) {
  * Non-streaming generateText — collects streamText chunks (same Gemini API path).
  */
 export async function generateText({ runtime, systemPrompt, messages, options }) {
-	void options;
 	let text = '';
-	for await (const chunk of streamText({ runtime, systemPrompt, messages })) {
+	for await (const chunk of streamText({ runtime, systemPrompt, messages, options })) {
 		if (chunk?.type === 'content' && typeof chunk.text === 'string') {
 			text += chunk.text;
 		}

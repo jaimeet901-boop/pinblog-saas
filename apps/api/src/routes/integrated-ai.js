@@ -12,6 +12,10 @@ import {
 	settleFeatureReservation,
 } from '../services/credits-engine.js';
 import { assertFeatureAccess } from '../services/plan-access-guard.js';
+import {
+	buildLengthEnforcementPrompt,
+	normalizeWriterLengthParams,
+} from '../services/writer-article-length.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
@@ -281,20 +285,51 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 
 	const singleShotRaw = String(req.body?.singleShot ?? '').trim().toLowerCase();
 	const singleShot = singleShotRaw === '1' || singleShotRaw === 'true' || singleShotRaw === 'yes';
+	const writerContinuationRaw = String(req.body?.writerContinuation ?? '').trim().toLowerCase();
+	const writerContinuation = writerContinuationRaw === '1'
+		|| writerContinuationRaw === 'true'
+		|| writerContinuationRaw === 'yes';
 	const creditFeatureRaw = String(req.body?.creditFeature || '').trim().toLowerCase();
+
+	const hasStructuredLength = Boolean(
+		String(req.body?.articleLength || '').trim()
+		|| String(req.body?.minWords || '').trim()
+		|| String(req.body?.maxWords || '').trim(),
+	);
+	const lengthParams = hasStructuredLength
+		? normalizeWriterLengthParams({
+			articleLength: req.body?.articleLength,
+			minWords: req.body?.minWords,
+			maxWords: req.body?.maxWords,
+		})
+		: null;
+
+	const lengthEnforcement = lengthParams
+		? buildLengthEnforcementPrompt(lengthParams)
+		: '';
+	const effectiveSystemPrompt = lengthEnforcement
+		? `${SystemPrompt}\n\n${lengthEnforcement}`
+		: SystemPrompt;
 
 	/** @type {'ai_writer'|'ai_pin_copy'|null} */
 	let creditFeature = null;
-	if (singleShot) {
+	if (singleShot && !writerContinuation) {
 		creditFeature = WRITER_CREDIT_FEATURE;
 	} else if (creditFeatureRaw === PIN_COPY_CREDIT_FEATURE) {
 		creditFeature = PIN_COPY_CREDIT_FEATURE;
+	}
+
+	if (writerContinuation) {
+		await assertFeatureAccess(req, WRITER_FEATURE_KEY, {
+			message: 'AI Writer requires a plan upgrade. Open Subscription to unlock article generation.',
+		});
 	}
 
 	/** @type {{ id: string|null } | null} */
 	let creditReservation = null;
 
 	// Writer (singleShot) and Pin Copy: plan gate + Credit Engine reservation/settlement.
+	// Continuations reuse the same Writer session and skip a second credit charge.
 	if (creditFeature) {
 		await assertFeatureAccess(req, WRITER_FEATURE_KEY, {
 			message: creditFeature === PIN_COPY_CREDIT_FEATURE
@@ -341,12 +376,18 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 
 	if (process.env.NODE_ENV !== 'production') {
 		logger.info('[integrated-ai/stream] prompt debug', {
-			systemPromptLength: SystemPrompt.length,
+			systemPromptLength: effectiveSystemPrompt.length,
 			userPromptLength: userPromptText.length,
 			customPromptIncluded,
 			singleShot,
+			writerContinuation,
 			creditFeature,
 			creditReservationId: creditReservation?.id || null,
+			articleLength: lengthParams?.id || null,
+			minWords: lengthParams?.minWords || null,
+			maxWords: lengthParams?.maxWords || null,
+			maxTokens: lengthParams?.maxTokens || null,
+			timeoutMs: lengthParams?.timeoutMs || null,
 			userPromptPreview: String(userPromptText || '').slice(0, 300),
 		});
 	}
@@ -361,13 +402,22 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 		});
 	};
 
+	const generationOptions = lengthParams
+		? {
+			maxTokens: lengthParams.maxTokens,
+			timeoutMs: lengthParams.timeoutMs,
+			requestType: 'stream',
+		}
+		: null;
+
 	let sseStream;
 	try {
 		sseStream = await stream({
 			userId: req.pocketbaseUserId,
-			systemPrompt: SystemPrompt,
+			systemPrompt: effectiveSystemPrompt,
 			userMessage,
-			singleShot,
+			singleShot: singleShot || writerContinuation,
+			generationOptions,
 			onGenerationSettled: creditReservation ? settleCredits : null,
 		});
 	} catch (error) {

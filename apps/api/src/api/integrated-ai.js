@@ -246,6 +246,7 @@ function estimateInputTokens(characterCount) {
  *   systemPrompt: string,
  *   userMessage: ContentBlock[],
  *   singleShot?: boolean,
+ *   generationOptions?: { maxTokens?: number, timeoutMs?: number, temperature?: number, requestType?: string },
  *   onGenerationSettled?: (result: { success: boolean, contentEventCount: number }) => Promise<void>|void,
  * }} params
  * @returns {Promise<import('node:stream').Readable>}
@@ -255,6 +256,7 @@ export async function stream({
 	systemPrompt,
 	userMessage,
 	singleShot = false,
+	generationOptions = null,
 	onGenerationSettled = null,
 }) {
 	// Single-shot (Writer / one-off generate): system + current user turn only.
@@ -293,6 +295,9 @@ export async function stream({
 			for await (const chunk of streamTextWithRegistry({
 				systemPrompt,
 				messages,
+				options: generationOptions && typeof generationOptions === 'object'
+					? generationOptions
+					: {},
 			})) {
 				if (firstTokenAt == null) {
 					firstTokenAt = Date.now();
