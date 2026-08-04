@@ -106,7 +106,13 @@ export async function resolveStudioPinCopy({
 
 	try {
 		const prompt = typeof buildPrompt === 'function' ? buildPrompt() : '';
-		const { text } = await generateText(prompt);
+		const idempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
+			? `ai-pin-copy:${crypto.randomUUID()}`
+			: `ai-pin-copy:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+		const { text } = await generateText(prompt, {
+			creditFeature: 'ai_pin_copy',
+			idempotencyKey,
+		});
 		const parsed = typeof parsePins === 'function' ? parsePins(text) : [];
 		const list = Array.isArray(parsed) ? parsed.filter(Boolean) : [];
 

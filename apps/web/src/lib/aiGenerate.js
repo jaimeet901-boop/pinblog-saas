@@ -40,6 +40,7 @@ export async function generateText(prompt, {
 	customPrompt,
 	singleShot,
 	idempotencyKey,
+	creditFeature,
 } = {}) {
 	if (signal?.aborted) {
 		throw cancelledError('');
@@ -71,6 +72,7 @@ export async function generateText(prompt, {
 				...(customPrompt ? { customPrompt: String(customPrompt) } : {}),
 				...(singleShot ? { singleShot: true } : {}),
 				...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
+				...(creditFeature ? { creditFeature: String(creditFeature) } : {}),
 			},
 			images: [],
 			signal,

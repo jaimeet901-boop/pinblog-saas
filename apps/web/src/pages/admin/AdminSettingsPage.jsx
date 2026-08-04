@@ -204,6 +204,12 @@ export default function AdminSettingsPage() {
 	};
 
 	const reset = async () => {
+		const confirmed = window.confirm(
+			'Reset all Global Platform Settings to defaults?\n\n'
+			+ 'This overwrites the live platform_settings record in PocketBase and cannot be undone from this screen.',
+		);
+		if (!confirmed) return;
+
 		setSaving(true);
 		try {
 			const response = await apiServerClient.fetch('/admin/v1/settings/reset', { method: 'POST' });
@@ -237,6 +243,12 @@ export default function AdminSettingsPage() {
 
 	const importConfig = async (file) => {
 		if (!file) return;
+		const confirmed = window.confirm(
+			`Import platform configuration from "${file.name}"?\n\n`
+			+ 'This overwrites live Global Settings in PocketBase. Export a backup first if you need to roll back.',
+		);
+		if (!confirmed) return;
+
 		try {
 			const text = await file.text();
 			const document = JSON.parse(text);
@@ -661,6 +673,7 @@ export default function AdminSettingsPage() {
 							ai_analyze: 1,
 							ai_prompt: 1,
 							ai_writer: 2,
+							ai_pin_copy: 1,
 							ai_image: 1,
 							pin_publish: 1,
 							wordpress_publish: 1,

@@ -1,6 +1,6 @@
-import { getDecryptedOpenAIKey } from './user-settings.js';
 import logger from '../utils/logger.js';
 import { DEFAULT_PLATFORM_SETTINGS } from './platform-settings.js';
+import { generateTextWithRegistry } from './text-providers/index.js';
 
 export const PIN_STYLES = Array.isArray(DEFAULT_PLATFORM_SETTINGS.content?.pinStyles)
 	&& DEFAULT_PLATFORM_SETTINGS.content.pinStyles.length > 0
@@ -63,7 +63,7 @@ function heuristicAnalysis(article, style = '') {
 	};
 }
 
-async function analyzeWithOpenAI({ apiKey, article, style }) {
+async function analyzeWithTextRuntime({ article, style }) {
 	const prompt = `Analyze this blog article for Pinterest marketing.
 Return ONLY valid JSON with keys:
 title, seoDescription, cta, keywords (array), hashtags (array), pinterestCategory, targetAudience.
@@ -74,33 +74,18 @@ URL: ${article.url || ''}
 Category: ${article.category || ''}
 Author: ${article.author || ''}`;
 
-	const response = await fetch('https://api.openai.com/v1/chat/completions', {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${apiKey}`,
-		},
-		body: JSON.stringify({
-			model: process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini',
+	const { text, provider } = await generateTextWithRegistry({
+		systemPrompt: 'You are a Pinterest SEO strategist. Reply with JSON only.',
+		messages: [{ role: 'user', content: prompt }],
+		options: {
 			temperature: 0.4,
-			messages: [
-				{ role: 'system', content: 'You are a Pinterest SEO strategist. Reply with JSON only.' },
-				{ role: 'user', content: prompt },
-			],
-			response_format: { type: 'json_object' },
-		}),
+			responseFormat: 'json',
+		},
 	});
 
-	if (!response.ok) {
-		const details = await response.text().catch(() => 'OpenAI analysis failed');
-		throw new Error(details || 'OpenAI analysis failed');
-	}
-
-	const payload = await response.json();
-	const content = payload?.choices?.[0]?.message?.content || '';
-	const parsed = extractJsonObject(content);
+	const parsed = extractJsonObject(text);
 	if (!parsed) {
-		throw new Error('OpenAI analysis returned invalid JSON');
+		throw new Error('Text runtime analysis returned invalid JSON');
 	}
 
 	return {
@@ -112,23 +97,20 @@ Author: ${article.author || ''}`;
 		pinterestCategory: String(parsed.pinterestCategory || article.category || style).slice(0, 120),
 		targetAudience: String(parsed.targetAudience || '').slice(0, 200),
 		style: resolvePinStyle(style),
-		source: 'openai',
+		source: provider?.code || 'text-runtime',
 	};
 }
 
 export async function analyzeArticleForPin({ owner, article, style = '' }) {
 	const selectedStyle = resolvePinStyle(style);
-	const apiKey = await getDecryptedOpenAIKey(owner).catch(() => '');
 
-	if (apiKey) {
-		try {
-			return await analyzeWithOpenAI({ apiKey, article, style: selectedStyle });
-		} catch (error) {
-			logger.warn('AI pin analysis OpenAI failed; using heuristic fallback', {
-				owner,
-				message: error?.message || null,
-			});
-		}
+	try {
+		return await analyzeWithTextRuntime({ article, style: selectedStyle });
+	} catch (error) {
+		logger.warn('AI pin analysis text runtime failed; using heuristic fallback', {
+			owner,
+			message: error?.message || null,
+		});
 	}
 
 	return heuristicAnalysis(article, selectedStyle);
@@ -145,44 +127,29 @@ export async function generateImagePromptForPin({ owner, article, analysis, styl
 		`Clean composition, high contrast text-safe areas, mobile-first readability, no watermarks.`,
 	].filter(Boolean).join(' ');
 
-	const apiKey = await getDecryptedOpenAIKey(owner).catch(() => '');
-	if (!apiKey) {
-		return {
-			imagePrompt: base,
-			style: selectedStyle,
-			source: 'template',
-		};
-	}
-
 	try {
-		const response = await fetch('https://api.openai.com/v1/chat/completions', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${apiKey}`,
-			},
-			body: JSON.stringify({
-				model: process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini',
+		const { text, provider } = await generateTextWithRegistry({
+			systemPrompt: 'You write optimized image-generation prompts. Reply with JSON { "imagePrompt": "..." } only.',
+			messages: [{
+				role: 'user',
+				content: `Improve this Pinterest image prompt for style ${selectedStyle}:\n${base}`,
+			}],
+			options: {
 				temperature: 0.6,
-				messages: [
-					{ role: 'system', content: 'You write optimized image-generation prompts. Reply with JSON { "imagePrompt": "..." } only.' },
-					{ role: 'user', content: `Improve this Pinterest image prompt for style ${selectedStyle}:\n${base}` },
-				],
-				response_format: { type: 'json_object' },
-			}),
+				responseFormat: 'json',
+			},
 		});
-		if (!response.ok) {
-			throw new Error('Prompt generation failed');
-		}
-		const payload = await response.json();
-		const parsed = extractJsonObject(payload?.choices?.[0]?.message?.content || '');
+		const parsed = extractJsonObject(text);
 		return {
 			imagePrompt: String(parsed?.imagePrompt || base).slice(0, 4000),
 			style: selectedStyle,
-			source: 'openai',
+			source: provider?.code || 'text-runtime',
 		};
 	} catch (error) {
-		logger.warn('Prompt generation fallback', { message: error?.message || null });
+		logger.warn('Prompt generation fallback', {
+			owner,
+			message: error?.message || null,
+		});
 		return {
 			imagePrompt: base,
 			style: selectedStyle,
