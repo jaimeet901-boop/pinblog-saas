@@ -78,6 +78,18 @@ const integratedAiClient = {
 		if (typeof body.creditFeature === 'string' && body.creditFeature.trim()) {
 			formData.append('creditFeature', body.creditFeature.trim().slice(0, 64));
 		}
+		if (typeof body.articleLength === 'string' && body.articleLength.trim()) {
+			formData.append('articleLength', body.articleLength.trim().slice(0, 64));
+		}
+		if (body.minWords != null && String(body.minWords).trim()) {
+			formData.append('minWords', String(body.minWords).trim().slice(0, 16));
+		}
+		if (body.maxWords != null && String(body.maxWords).trim()) {
+			formData.append('maxWords', String(body.maxWords).trim().slice(0, 16));
+		}
+		if (body.writerContinuation === true || body.writerContinuation === 1 || body.writerContinuation === '1') {
+			formData.append('writerContinuation', '1');
+		}
 
 		images.forEach((image) => {
 			formData.append('images', image);

@@ -9,6 +9,11 @@ import {
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { generateText, extractJson } from '@/lib/aiGenerate';
+import {
+	WRITER_LENGTH_OPTIONS,
+	autoHeadingCount,
+	resolveWriterLengthPreset,
+} from '@/lib/writerArticleLength';
 import { uploadImageBlob } from '@/services/ai-pins/imageLifecycle';
 import { useWorkspaceWebsites } from '@/hooks/useWorkspaceWebsites';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
@@ -44,9 +49,9 @@ const initForm = {
 	secondary: '',
 	country: 'United States',
 	language: 'English',
-	length: 'Medium (1000-1500 words)',
+	length: resolveWriterLengthPreset('medium').label,
 	tone: 'Friendly',
-	headings: '4',
+	headings: autoHeadingCount(resolveWriterLengthPreset('medium')),
 	readingLevel: 'General',
 	seoLevel: 'Balanced',
 	creativity: 55,
@@ -511,6 +516,15 @@ export default function WriterPage() {
 	}, [stream, generating]);
 
 	const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+	const setLength = (e) => {
+		const nextLength = e.target.value;
+		const preset = resolveWriterLengthPreset(nextLength);
+		setForm((f) => ({
+			...f,
+			length: preset.label,
+			headings: autoHeadingCount(preset),
+		}));
+	};
 	const setOption = (k) => (value) => setOptions((prev) => ({ ...prev, [k]: value }));
 	const toggleSection = (id) => setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
 	const upd = (k, v) => setArticle((a) => ({ ...a, [k]: v }));
@@ -606,15 +620,19 @@ export default function WriterPage() {
 
 		const creativity = creativityGuidance(form.creativity);
 		const seo = seoLevelGuidance(form.seoLevel);
+		const lengthPreset = resolveWriterLengthPreset(form.length);
+		const headingTarget = autoHeadingCount(lengthPreset);
 
 		return `Write a complete SEO-optimized food blog article.
 Main keyword: ${form.keyword}
 Secondary keywords: ${form.secondary || 'none'}
 Country: ${form.country}
 Language: ${form.language}
-Article length: ${form.length}
+Article length: ${lengthPreset.label}
+Required word count: ${lengthPreset.minWords}-${lengthPreset.maxWords} words (introduction + sections + FAQ + conclusion).
+NEVER stop before ${lengthPreset.minWords} words. Expand sections and add H2/H3 headings as needed.
 Tone: ${form.tone}
-Number of H2/H3 headings: ${form.headings}
+Number of H2/H3 headings: ${headingTarget} (use ${lengthPreset.minHeadings}-${lengthPreset.maxHeadings} headings; add more if needed for word count)
 Reading level: ${form.readingLevel} — write so a ${String(form.readingLevel || 'General').toLowerCase()} audience can follow easily.
 SEO level: ${form.seoLevel}. ${seo}
 Creativity: ${form.creativity}/100 — keep the writing ${creativity}.
@@ -695,6 +713,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 
 		try {
 			setGenPhase('connecting');
+			const lengthPreset = resolveWriterLengthPreset(form.length);
 			const { text } = await generateText(buildPrompt(), {
 				signal: controller.signal,
 				onChunk: (next) => {
@@ -710,6 +729,9 @@ Respond ONLY with the JSON object described in your instructions.`;
 				customPrompt: form.customPrompt,
 				singleShot: true,
 				idempotencyKey,
+				articleLength: lengthPreset.id,
+				minWords: lengthPreset.minWords,
+				maxWords: lengthPreset.maxWords,
 			});
 			if (cancelRequestedRef.current || controller.signal.aborted) {
 				throw Object.assign(new Error('Generation cancelled'), { errorCode: 'GENERATION_CANCELLED' });
@@ -1410,10 +1432,10 @@ Respond ONLY with the JSON object described in your instructions.`;
 						</Section>
 
 						<Section id="content" open={openSections.content} onToggle={toggleSection}>
-						<Select label="Article length" value={form.length} onChange={set('length')}>
-							<option>Short (600-900 words)</option>
-							<option>Medium (1000-1500 words)</option>
-							<option>Long (1800-2500 words)</option>
+						<Select label="Article length" value={form.length} onChange={setLength}>
+							{WRITER_LENGTH_OPTIONS.map((preset) => (
+								<option key={preset.id} value={preset.label}>{preset.label}</option>
+							))}
 						</Select>
 						<div className="grid grid-cols-2 gap-3">
 							<Select label="Tone" value={form.tone} onChange={set('tone')}>
@@ -1421,11 +1443,12 @@ Respond ONLY with the JSON object described in your instructions.`;
 										<option key={t}>{t}</option>
 									))}
 							</Select>
-								<Select label="Number of headings" value={form.headings} onChange={set('headings')}>
-									{['3', '4', '5', '6', '7'].map((n) => (
-										<option key={n}>{n}</option>
-									))}
-							</Select>
+								<Input
+									label="Headings (auto)"
+									value={`${form.headings} (auto for ${resolveWriterLengthPreset(form.length).id.toUpperCase()})`}
+									readOnly
+									disabled
+								/>
 						</div>
 							<Select label="Reading level" value={form.readingLevel} onChange={set('readingLevel')}>
 								{['General', 'Beginner', 'Intermediate', 'Advanced'].map((level) => (
