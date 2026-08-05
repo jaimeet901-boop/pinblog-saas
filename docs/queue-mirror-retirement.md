@@ -1,7 +1,7 @@
 # Queue Mirror Retirement — Phase 9d Plan
 
-**Status:** Phase 9d-0 (docs/inventory), **9d-1** (mirror write flag + metrics breakdown), and **9d-2** (admin dual-read foundation) implemented.  
-**Runtime default:** Mirrors **enabled** when `QUEUE_MIRRORS_ENABLED` is unset. Admin dual-read **disabled** when `ADMIN_QUEUE_DUAL_READ_ENABLED` is unset. No mirror call sites removed.
+**Status:** Phase 9d-0 (docs/inventory), **9d-1** (mirror write flag + metrics breakdown), **9d-2** (admin dual-read foundation), and **9d-3** (admin channel controls) implemented.  
+**Runtime default:** Mirrors **enabled** when `QUEUE_MIRRORS_ENABLED` is unset. Admin dual-read and channel controls **disabled** when their flags are unset. No mirror call sites removed.
 
 Companion doc: [queue-ownership.md](./queue-ownership.md)
 
@@ -281,11 +281,24 @@ When enabled:
 
 Not in 9d-2: admin controls, events on synthetic ids, frontend changes.
 
-### Phase 9d-3 — Admin controls on channel refs (planned)
+### Phase 9d-3 — Admin channel controls (implemented)
 
 | Commit | Scope |
 |--------|-------|
-| 9d-3 | `queue/controls.js`, admin routes, possibly frontend |
+| 9d-3 | `queue/admin-controls/*`, `routes/admin/queue.js` mutate + events routing, unit tests |
+
+Env flag: `ADMIN_QUEUE_CHANNEL_CONTROLS_ENABLED` (default **off**).
+
+When enabled:
+
+- Mutating routes resolve synthetic `{collection}:{id}`, mirrored, or native ids
+- Native jobs → existing `queue/controls.js`
+- Channel jobs → calendar mutation adapters (Pinterest/WordPress) + AI image helpers
+- Optional mirror sync via existing `mirror*Job()` when `QUEUE_MIRRORS_ENABLED` is on
+- Channel delete blocked (422)
+- Events route resolves channel events (Pinterest) or `queue_job_events`
+
+Recommended staging: `ADMIN_QUEUE_DUAL_READ_ENABLED=true` + `ADMIN_QUEUE_CHANNEL_CONTROLS_ENABLED=true` + `QUEUE_MIRRORS_ENABLED=false`.
 
 ### Phase 9d-4 — Per-channel mirror removal (planned, one channel per commit)
 
@@ -316,7 +329,7 @@ Not in 9d-2: admin controls, events on synthetic ids, frontend changes.
 | 9d-0 | docs, `scripts/inventory-queue-mirrors.mjs` |
 | 9d-1 | `mirrors.js`, `metrics.js`, `health/monitor.js`, `ownership.js`, `.env.example`, docs |
 | 9d-2 | `routes/admin/queue.js`, new `admin-read/*` |
-| 9d-3 | `controls.js`, `routes/admin/queue.js`, `AdminQueuePage.jsx` |
+| 9d-3 | `admin-controls/*`, `routes/admin/queue.js` (mutate + events) |
 | 9d-4a | `routes/pinterest.js`, `publish-pipeline.js`, `pinterest-publish-queue.js` |
 | 9d-4b | `wordpress-publish.js`, `wordpress-publish-queue.js` |
 | 9d-4c | `routes/ai-pin-images.js`, `ai-pin-image-queue.js` |

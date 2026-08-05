@@ -117,21 +117,21 @@ These are **not** replacements for channel publish pollers.
 
 ### Phase 9d — Mirror retirement (preparation)
 
-**Status:** 9d-0, 9d-1, and **9d-2** complete. **Mirror writes remain active by default.** Full mirror retirement (9d-3+) is **NOT READY**.
+**Status:** 9d-0, 9d-1, **9d-2**, and **9d-3** complete. **Mirror writes remain active by default.** Full mirror retirement (9d-4+) is **NOT READY**.
 
 | Sub-phase | Scope | Runtime change |
 |-----------|-------|----------------|
 | **9d-0** (implemented) | `docs/queue-mirror-retirement.md`, optional `scripts/inventory-queue-mirrors.mjs` | None |
 | **9d-1** (implemented) | `QUEUE_MIRRORS_ENABLED` + `breakdown.native` / `breakdown.mirroredChannel` | Optional mirror write pause; default enabled |
 | **9d-2** (implemented) | Admin dual-read (`ADMIN_QUEUE_DUAL_READ_ENABLED`) | Flag-gated read path; default disabled |
-| **9d-3** (planned) | Admin controls on channel refs | Required before mirror removal |
+| **9d-3** (implemented) | Admin channel controls (`ADMIN_QUEUE_CHANNEL_CONTROLS_ENABLED`) | Flag-gated mutate routing; default disabled |
 | **9d-4** (planned) | Remove mirror call sites (one channel per commit) | High risk |
 | **9d-5** (planned) | Calendar optional mirror lookup removal | Low risk |
 | **9d-6** (planned) | Cleanup stale `queue_jobs`, retire channel mirror exports | Last |
 
 Full inventory, dependency graph, staging, and commit roadmap: **[queue-mirror-retirement.md](./queue-mirror-retirement.md)**
 
-**Validation verdict:** Mirror retirement is **NOT READY** until admin dual-read and control routing are implemented and staging-soaked.
+**Validation verdict:** Mirror retirement is **NOT READY** until staging soak with dual-read + channel controls enabled and mirrors disabled.
 
 ### Channel poller flags
 
@@ -164,9 +164,20 @@ Gates `mirrorPinterestJob`, `mirrorWordpressJob`, and `mirrorImageJob` only. `ge
 | unset, `false`, `0` | **Disabled** — `queue_jobs` only (current production behavior) |
 | `true`, `1` | Dual-read — merge native `queue_jobs` + channel collections |
 
-Unknown values default to **disabled**. Requires process restart to toggle. Read path only — cancel/retry/pause still require `queue_jobs.id` until Phase 9d-3.
+Unknown values default to **disabled**. Requires process restart to toggle. Read path only when channel controls are disabled — enable `ADMIN_QUEUE_CHANNEL_CONTROLS_ENABLED` for synthetic id mutate support (9d-3).
 
 Module: `apps/api/src/services/queue/admin-read/`. Additive DTO fields when enabled: `readSource`, `queueJobId`. Channel-only rows use synthetic id `{sourceCollection}:{sourceId}`.
+
+### Admin channel controls flag (`ADMIN_QUEUE_CHANNEL_CONTROLS_ENABLED`)
+
+| Value | Admin Queue mutate path |
+|-------|-------------------------|
+| unset, `false`, `0` | **Disabled** — all controls require `queue_jobs.id` (current production behavior) |
+| `true`, `1` | Resolve synthetic / channel ids → mutate channel SoT via trusted adapters |
+
+Unknown values default to **disabled**. Requires process restart. Works with dual-read synthetic ids. Channel delete is blocked (422); cancel instead. Optional mirror refresh when `QUEUE_MIRRORS_ENABLED` is on.
+
+Module: `apps/api/src/services/queue/admin-controls/`.
 
 ---
 

@@ -1,28 +1,33 @@
 import { Router } from 'express';
 import { httpError } from '../../middleware/require-admin.js';
 import {
-	cancelQueueJob,
 	computeQueueSummary,
-	deleteQueueJob,
 	enqueueJob,
 	getQueueEngineStatus,
-	getQueueJob,
 	isQueuePaused,
-	listQueueEvents,
 	listRecentActivity,
 	listWorkers,
-	mapQueueJobDetail,
-	pauseQueueJob,
-	requeueDeadLetter,
-	resumeQueueJob,
-	retryQueueJob,
 	setQueuePaused,
 } from '../../services/queue/index.js';
 import {
 	getAdminQueueJobDetail,
 	listAdminQueueJobs,
 } from '../../services/queue/admin-read/index.js';
+import {
+	isAdminQueueChannelControlsEnabled,
+	listAdminQueueJobEvents,
+	mapAdminQueueJobControlResponse,
+} from '../../services/queue/admin-controls/index.js';
 import { resolveTrustedEnqueueOwnership } from '../../services/queue/job-ownership.js';
+import { getQueueJob, listQueueEvents, mapQueueJobDetail } from '../../services/queue/jobs.js';
+import {
+	cancelQueueJob,
+	deleteQueueJob,
+	pauseQueueJob,
+	requeueDeadLetter,
+	resumeQueueJob,
+	retryQueueJob,
+} from '../../services/queue/controls.js';
 
 const router = Router();
 
@@ -75,6 +80,11 @@ router.get('/jobs/:id', asyncHandler(async (req, res) => {
 }));
 
 router.get('/jobs/:id/events', asyncHandler(async (req, res) => {
+	if (isAdminQueueChannelControlsEnabled()) {
+		const events = await listAdminQueueJobEvents(req.params.id, 100);
+		res.json({ items: events });
+		return;
+	}
 	const job = await getQueueJob(req.params.id);
 	if (!job) throw httpError(404, 'Job not found', 'NOT_FOUND');
 	const events = await listQueueEvents(job.id, 100);
@@ -119,33 +129,57 @@ router.post('/jobs', asyncHandler(async (req, res) => {
 }));
 
 router.post('/jobs/:id/retry', asyncHandler(async (req, res) => {
-	const updated = await retryQueueJob(req.params.id);
-	res.json(await mapQueueJobDetail(updated));
+	if (!isAdminQueueChannelControlsEnabled()) {
+		const updated = await retryQueueJob(req.params.id);
+		res.json(await mapQueueJobDetail(updated));
+		return;
+	}
+	res.json(await mapAdminQueueJobControlResponse('retry', req.params.id));
 }));
 
 router.post('/jobs/:id/cancel', asyncHandler(async (req, res) => {
-	const updated = await cancelQueueJob(req.params.id, { actorId: req.adminUser?.id });
-	res.json(await mapQueueJobDetail(updated));
+	if (!isAdminQueueChannelControlsEnabled()) {
+		const updated = await cancelQueueJob(req.params.id, { actorId: req.adminUser?.id });
+		res.json(await mapQueueJobDetail(updated));
+		return;
+	}
+	res.json(await mapAdminQueueJobControlResponse('cancel', req.params.id, { actorId: req.adminUser?.id }));
 }));
 
 router.post('/jobs/:id/pause', asyncHandler(async (req, res) => {
-	const updated = await pauseQueueJob(req.params.id);
-	res.json(await mapQueueJobDetail(updated));
+	if (!isAdminQueueChannelControlsEnabled()) {
+		const updated = await pauseQueueJob(req.params.id);
+		res.json(await mapQueueJobDetail(updated));
+		return;
+	}
+	res.json(await mapAdminQueueJobControlResponse('pause', req.params.id));
 }));
 
 router.post('/jobs/:id/resume', asyncHandler(async (req, res) => {
-	const updated = await resumeQueueJob(req.params.id);
-	res.json(await mapQueueJobDetail(updated));
+	if (!isAdminQueueChannelControlsEnabled()) {
+		const updated = await resumeQueueJob(req.params.id);
+		res.json(await mapQueueJobDetail(updated));
+		return;
+	}
+	res.json(await mapAdminQueueJobControlResponse('resume', req.params.id));
 }));
 
 router.post('/jobs/:id/requeue', asyncHandler(async (req, res) => {
-	const updated = await requeueDeadLetter(req.params.id);
-	res.json(await mapQueueJobDetail(updated));
+	if (!isAdminQueueChannelControlsEnabled()) {
+		const updated = await requeueDeadLetter(req.params.id);
+		res.json(await mapQueueJobDetail(updated));
+		return;
+	}
+	res.json(await mapAdminQueueJobControlResponse('requeue', req.params.id));
 }));
 
 router.delete('/jobs/:id', asyncHandler(async (req, res) => {
-	const result = await deleteQueueJob(req.params.id);
-	res.json(result);
+	if (!isAdminQueueChannelControlsEnabled()) {
+		const result = await deleteQueueJob(req.params.id);
+		res.json(result);
+		return;
+	}
+	res.json(await mapAdminQueueJobControlResponse('delete', req.params.id));
 }));
 
 router.post('/pause', asyncHandler(async (req, res) => {

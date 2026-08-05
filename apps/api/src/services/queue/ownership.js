@@ -75,6 +75,14 @@ export const ADMIN_QUEUE_DUAL_READ = Object.freeze({
 	defaultEnabled: false,
 });
 
+/** Admin Queue channel control routing (Phase 9d-3 flag). */
+export const ADMIN_QUEUE_CHANNEL_CONTROLS = Object.freeze({
+	module: 'services/queue/admin-controls/index.js',
+	envFlag: 'ADMIN_QUEUE_CHANNEL_CONTROLS_ENABLED',
+	statusHelper: 'getAdminQueueChannelControlsStatus',
+	defaultEnabled: false,
+});
+
 /** Where operators and product surfaces read queue state. */
 export const QUEUE_CONSUMERS = Object.freeze([
 	Object.freeze({
@@ -82,6 +90,7 @@ export const QUEUE_CONSUMERS = Object.freeze([
 		surface: '/admin/queue',
 		primaryStore: 'queue_jobs',
 		dualReadFlag: 'ADMIN_QUEUE_DUAL_READ_ENABLED',
+		channelControlsFlag: 'ADMIN_QUEUE_CHANNEL_CONTROLS_ENABLED',
 		note: 'Unified admin monitor; dual-read merges channel collections when flag enabled',
 	}),
 	Object.freeze({
@@ -111,6 +120,7 @@ export const QUEUE_OWNERSHIP_MODEL = Object.freeze({
 	adminObservabilityStore: 'queue_jobs',
 	channelMirrors: CHANNEL_MIRRORS,
 	adminDualRead: ADMIN_QUEUE_DUAL_READ,
+	adminChannelControls: ADMIN_QUEUE_CHANNEL_CONTROLS,
 	nativeProcessor: NATIVE_ENGINE,
 	channelExecutors: CHANNEL_EXECUTORS,
 	consumers: QUEUE_CONSUMERS,
