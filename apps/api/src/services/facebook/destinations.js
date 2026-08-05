@@ -110,6 +110,84 @@ export function mapFacebookDestination(page = {}, account = {}, options = {}) {
 	return Object.fromEntries(Object.entries(dto).filter(([key]) => DTO_KEYS.has(key)));
 }
 
+/** Legacy GET /facebook/pages item shape (backward compatible with mapPage). */
+export const LEGACY_PAGE_DTO_KEYS = Object.freeze([
+	'id',
+	'accountId',
+	'pageId',
+	'name',
+	'category',
+	'thumbnailUrl',
+	'fanCount',
+	'isDefault',
+	'connected',
+	'websiteId',
+	'updatedAt',
+]);
+
+/**
+ * Project canonical destination DTO to legacy page list item (GET /facebook/pages).
+ *
+ * @param {object} page Raw facebook_pages record
+ * @param {object} [account]
+ */
+export function mapLegacyPageItem(page = {}, account = {}) {
+	const dto = mapFacebookDestination(page, account);
+	return {
+		id: dto.id,
+		accountId: dto.accountId || String(page.account || '').trim(),
+		pageId: dto.pageId,
+		name: dto.name,
+		category: dto.category,
+		thumbnailUrl: dto.thumbnailUrl,
+		fanCount: dto.fanCount,
+		isDefault: dto.isDefault,
+		connected: dto.connected,
+		websiteId: dto.websiteId,
+		updatedAt: page.updated ?? page.updatedAt ?? dto.updatedAt ?? '',
+	};
+}
+
+function destinationHttpError(status, message, errorCode = 'FACEBOOK_DESTINATION_ERROR') {
+	const error = new Error(message);
+	error.status = status;
+	error.errorCode = errorCode;
+	return error;
+}
+
+/**
+ * Ensure a workspace-owned Facebook account exists and is connected (destination read validation).
+ *
+ * @param {{ owner: string, accountId: string, req?: object, deps?: object }} input
+ */
+export async function assertFacebookAccountConnected({ owner, accountId, req = null, deps = null } = {}) {
+	const id = String(accountId || '').trim();
+	if (!owner || !id) {
+		throw destinationHttpError(404, 'Facebook account not found', 'FACEBOOK_ACCOUNT_NOT_FOUND');
+	}
+
+	const { getOwnedFacebookAccountById } = await resolveDestinationDeps(deps || {});
+	const account = await getOwnedFacebookAccountById({ owner, accountId: id, req });
+	if (!account) {
+		throw destinationHttpError(404, 'Facebook account not found', 'FACEBOOK_ACCOUNT_NOT_FOUND');
+	}
+
+	const status = String(account.status || '').trim().toLowerCase();
+	const usable = Boolean(account.connected) && (!status || status === 'connected');
+	if (!usable) {
+		if (status === 'expired') {
+			throw destinationHttpError(
+				401,
+				'Facebook account token has expired. Please reconnect.',
+				'FACEBOOK_TOKEN_EXPIRED',
+			);
+		}
+		throw destinationHttpError(422, 'Facebook account is not connected', 'FACEBOOK_ACCOUNT_NOT_CONNECTED');
+	}
+
+	return account;
+}
+
 /**
  * Build list envelope from account + page rows (pure).
  */

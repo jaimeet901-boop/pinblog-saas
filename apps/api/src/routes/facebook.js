@@ -17,6 +17,12 @@ import {
 	setDefaultFacebookPage,
 	syncFacebookPagesForOwner,
 } from '../services/facebook/api.js';
+import {
+	assertFacebookAccountConnected,
+	getFacebookDestination,
+	listFacebookDestinations,
+	mapLegacyPageItem,
+} from '../services/facebook/destinations.js';
 
 const router = Router();
 
@@ -195,7 +201,36 @@ router.get('/pages', asyncHandler(async (req, res) => {
 		filter,
 		sort: 'name',
 	});
-	res.json({ items: pages.map(mapPage) });
+	res.json({ items: pages.map((page) => mapLegacyPageItem(page, account)) });
+}));
+
+router.get('/destinations', asyncHandler(async (req, res) => {
+	const owner = getOwner(req);
+	const accountId = String(req.query.accountId || '').trim();
+	if (!accountId) throw httpError(422, 'accountId is required');
+
+	const account = await getOwnedFacebookAccountById({ owner, accountId, req });
+	if (!account) throw httpError(404, 'Facebook account not found');
+
+	if (String(req.query.sync || '') === '1') {
+		const connectedAccount = await assertFacebookAccountConnected({ owner, accountId, req });
+		await syncFacebookPagesForOwner({ owner, account: connectedAccount });
+	}
+
+	const result = await listFacebookDestinations({ owner, accountId, req });
+	if (!result) throw httpError(404, 'Facebook account not found');
+	res.json(result);
+}));
+
+router.get('/destinations/:destinationId', asyncHandler(async (req, res) => {
+	const owner = getOwner(req);
+	const destination = await getFacebookDestination({
+		owner,
+		destinationId: req.params.destinationId,
+		req,
+	});
+	if (!destination) throw httpError(404, 'Facebook destination not found');
+	res.json(destination);
 }));
 
 router.post('/pages/sync', asyncHandler(async (req, res) => {
