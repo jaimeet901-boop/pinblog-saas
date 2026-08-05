@@ -12,7 +12,6 @@ import {
 	sanitizeCollectionPayload,
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
-import { mirrorImageJob } from './queue/mirrors.js';
 import { claimJobByCas } from './queue/claim.js';
 import { assertJobPinOwnership } from './queue/job-ownership.js';
 import { isImmediateImageFallbackError } from '../constants/image-source-strategy.js';
@@ -132,14 +131,6 @@ async function setJobTerminalState({
 	});
 
 	await pocketbaseClient.collection('ai_pin_image_jobs').update(job.id, payload);
-
-	await mirrorImageJob({
-		...job,
-		status,
-		image_url: imageUrl,
-		last_error: lastError,
-		completed_at: completedAt,
-	}, status === 'failed' ? 'Image generation failed' : 'Image generation completed').catch(() => null);
 
 	if (job.ai_pin && !skipPinUpdate) {
 		try {
@@ -582,8 +573,6 @@ async function processDueJobs() {
 			if (String(fullJob.claim_token || '') !== String(claimed.claim_token || '')) {
 				continue;
 			}
-
-			await mirrorImageJob(fullJob, 'Image worker claimed job').catch(() => null);
 
 			if (fullJob.ai_pin) {
 				try {

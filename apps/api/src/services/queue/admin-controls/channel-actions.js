@@ -8,7 +8,6 @@ import {
 	getOwnedPinterestAccountById,
 } from '../../pinterest-api.js';
 import {
-	mirrorImageJob,
 	isQueueMirrorsEnabled,
 } from '../mirrors.js';
 import { httpError, updateQueueJob } from '../jobs.js';
@@ -77,7 +76,7 @@ async function refreshMirror(target, eventMessage = '') {
 		return null;
 	}
 	if (target.sourceCollection === 'ai_pin_image_jobs') {
-		return mirrorImageJob(job, eventMessage);
+		return null;
 	}
 	return null;
 }
