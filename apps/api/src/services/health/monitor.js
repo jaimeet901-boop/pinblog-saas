@@ -15,6 +15,7 @@ import {
 	worstStatus,
 } from './helpers.js';
 import { computeQueueSummary, listWorkers } from '../queue/index.js';
+import { getQueueOwnershipSnapshot } from '../queue/ownership.js';
 import { listProviders } from '../ai-providers.js';
 import { getEnv } from '../../utils/env.js';
 import { listSystemLogLines } from '../audit/query.js';
@@ -133,6 +134,11 @@ async function probeQueueService() {
 				failed: summary.failed,
 				dlq: summary.failed,
 				latency: summary.health?.avgQueueTime,
+				ownership: getQueueOwnershipSnapshot(),
+				executors: {
+					channel: ['pinterest-publish-queue', 'wordpress-publish-queue', 'ai-pin-image-queue'],
+					native: 'queue-engine',
+				},
 			},
 			last_checked: new Date().toISOString(),
 		},
@@ -658,6 +664,7 @@ export async function runHealthCheck({ persist = true } = {}) {
 			dlq: queueProbe.summary.failed,
 			latency: queueProbe.summary.health?.avgQueueTime,
 			workersOnline: queueProbe.summary.workersOnline,
+			ownership: getQueueOwnershipSnapshot(),
 		},
 		workers,
 		meta: {
