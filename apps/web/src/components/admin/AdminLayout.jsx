@@ -4,7 +4,7 @@ import {
 	LayoutDashboard, Users, Building2, CreditCard, Coins, Cpu, Boxes, Globe, Pin, Facebook,
 	BarChart3, ListOrdered, Briefcase, ScrollText, Bell, Settings, Activity,
 	Menu, X, LogOut, ArrowLeftRight, ArrowRightLeft, Shield, ChevronRight, Palette, Scale,
-	Wallet, HeartPulse, Map, Receipt, Webhook, LineChart, Archive, IdCard, KeyRound,
+	Wallet, HeartPulse, Map, Receipt, LineChart, Archive, IdCard, KeyRound,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
@@ -25,7 +25,6 @@ const ICONS = {
 	'/admin/billing/price-mapping': Map,
 	'/admin/billing/failover': ArrowRightLeft,
 	'/admin/billing/events': Receipt,
-	'/admin/billing/webhooks': Webhook,
 	'/admin/billing/monitoring': LineChart,
 	'/admin/billing/backup': Archive,
 	'/admin/providers': Cpu,

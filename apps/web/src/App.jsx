@@ -74,7 +74,6 @@ const AdminBillingFailoverPage = lazy(() => import('@/pages/admin/billing/AdminB
 const AdminBillingMonitoringPage = lazy(() => import('@/pages/admin/billing/AdminBillingMonitoringPage'));
 const AdminBillingEventsPage = lazy(() => import('@/pages/admin/billing/AdminBillingEventsPage'));
 const AdminBillingDisasterRecoveryPage = lazy(() => import('@/pages/admin/billing/AdminBillingDisasterRecoveryPage'));
-const AdminBillingPlaceholderPage = lazy(() => import('@/pages/admin/billing/AdminBillingPlaceholderPage'));
 
 function Shell({ children, admin }) {
 	return (
@@ -172,7 +171,6 @@ function App() {
 							<Route path="billing/price-mapping" element={<AdminLazy><AdminBillingPriceMappingPage /></AdminLazy>} />
 							<Route path="billing/failover" element={<AdminLazy><AdminBillingFailoverPage /></AdminLazy>} />
 							<Route path="billing/events" element={<AdminLazy><AdminBillingEventsPage /></AdminLazy>} />
-							<Route path="billing/webhooks" element={<AdminLazy><AdminBillingPlaceholderPage title="Webhook Monitor" description="billing_idempotency monitor arrives in a later phase." phaseKey="webhooks" /></AdminLazy>} />
 							<Route path="billing/monitoring" element={<AdminLazy><AdminBillingMonitoringPage /></AdminLazy>} />
 							<Route path="billing/backup" element={<AdminLazy><AdminBillingDisasterRecoveryPage /></AdminLazy>} />
 							<Route path="providers" element={<AdminLazy><AdminProvidersPage /></AdminLazy>} />

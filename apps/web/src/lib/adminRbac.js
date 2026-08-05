@@ -32,7 +32,6 @@ export const ADMIN_NAV = [
 	{ to: '/admin/billing/price-mapping', label: 'Price Mapping' },
 	{ to: '/admin/billing/failover', label: 'Failover & Recovery' },
 	{ to: '/admin/billing/events', label: 'Payment Events' },
-	{ to: '/admin/billing/webhooks', label: 'Webhook Monitor' },
 	{ to: '/admin/billing/monitoring', label: 'Billing Monitoring' },
 	{ to: '/admin/billing/backup', label: 'Disaster Recovery' },
 	{ to: '/admin/billing', label: 'Billing Dashboard', end: true },
