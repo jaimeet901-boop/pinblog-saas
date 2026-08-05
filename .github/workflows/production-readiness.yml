@@ -30,6 +30,10 @@ jobs:
       - name: Lint Web
         run: npm run lint --prefix apps/web
 
+      - name: Schema governance (registry ↔ migration parity)
+        run: node --test src/utils/schema-compat-registry.test.js
+        working-directory: apps/api
+
       - name: Test API
         run: npm run test --prefix apps/api
 

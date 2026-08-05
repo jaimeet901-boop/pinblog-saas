@@ -13,6 +13,7 @@ import {
 	listStartupSchemaCompatEntries,
 	listLazySchemaCompatEntries,
 	migrationFilenamesForEntry,
+	validateSchemaCompatRegistry,
 } from './schema-compat-registry.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -31,6 +32,22 @@ test('schema-authority policy doc exists and declares migrations primary', () =>
 	assert.match(doc, /Primary/i);
 	assert.match(doc, /Compat only/i);
 	assert.match(doc, /schema-compat-registry/);
+	assert.match(doc, /Retirement criteria/i);
+	assert.match(doc, /runStartupSchemaCompat/);
+});
+
+test('validateSchemaCompatRegistry passes for the frozen registry', () => {
+	const result = validateSchemaCompatRegistry();
+	assert.equal(result.ok, true, result.errors.join('; '));
+});
+
+test('registry startup and lazy modes partition all entries', () => {
+	const startup = listStartupSchemaCompatEntries();
+	const lazy = listLazySchemaCompatEntries();
+	assert.equal(startup.length + lazy.length, SCHEMA_COMPAT_REGISTRY.length);
+	for (const entry of lazy) {
+		assert.equal(entry.mode, 'lazy');
+	}
 });
 
 test('every registry entry has existing migration files (migrations authoritative)', () => {
@@ -124,6 +141,13 @@ test('runStartupSchemaCompat is the single startup runner for registry entries',
 			runner,
 			new RegExp(`${entry.ensureExport}:`),
 			`runner missing loader for ${entry.ensureExport}`,
+		);
+	}
+	for (const entry of listLazySchemaCompatEntries()) {
+		assert.doesNotMatch(
+			runner,
+			new RegExp(`${entry.ensureExport}:`),
+			`lazy ensure ${entry.id} must not load at startup`,
 		);
 	}
 });

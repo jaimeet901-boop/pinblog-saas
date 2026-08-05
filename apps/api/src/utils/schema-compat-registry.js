@@ -165,3 +165,46 @@ export function listAllEnsureModuleFilenames() {
 export function migrationFilenamesForEntry(entry) {
 	return (entry?.migrationIds || []).map((id) => `${id}.js`);
 }
+
+/** @type {readonly SchemaCompatMode[]} */
+export const SCHEMA_COMPAT_MODES = Object.freeze(['startup', 'lazy']);
+
+/**
+ * Pure registry governance checks (no I/O). Used by tests and CI guard.
+ * @param {readonly SchemaCompatEntry[]} [registry]
+ */
+export function validateSchemaCompatRegistry(registry = SCHEMA_COMPAT_REGISTRY) {
+	const errors = [];
+	const ids = new Set();
+	const ensureModules = new Set();
+
+	for (const entry of registry) {
+		if (!entry?.id) {
+			errors.push('registry entry missing id');
+			continue;
+		}
+		if (ids.has(entry.id)) {
+			errors.push(`duplicate registry id: ${entry.id}`);
+		}
+		ids.add(entry.id);
+
+		if (!SCHEMA_COMPAT_MODES.includes(entry.mode)) {
+			errors.push(`${entry.id}: invalid mode "${entry.mode}"`);
+		}
+		if (!entry.ensureModule) {
+			errors.push(`${entry.id}: missing ensureModule`);
+		} else if (ensureModules.has(entry.ensureModule)) {
+			errors.push(`${entry.id}: duplicate ensureModule ${entry.ensureModule}`);
+		} else {
+			ensureModules.add(entry.ensureModule);
+		}
+		if (!entry.ensureExport) {
+			errors.push(`${entry.id}: missing ensureExport`);
+		}
+		if (!Array.isArray(entry.migrationIds) || entry.migrationIds.length === 0) {
+			errors.push(`${entry.id}: migrationIds must be non-empty`);
+		}
+	}
+
+	return { ok: errors.length === 0, errors };
+}
