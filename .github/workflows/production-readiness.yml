@@ -30,6 +30,9 @@ jobs:
       - name: Lint Web
         run: npm run lint --prefix apps/web
 
+      - name: Test API
+        run: npm run test --prefix apps/api
+
       - name: Build Web
         run: npm run build --prefix apps/web
 
