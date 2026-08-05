@@ -16,6 +16,12 @@ import {
 import { DEFAULT_SCOPES, analyzeGrantedScopes, mergeRequiredScopes } from './pinterest-scopes.js';
 import { ensureUserWorkspace } from './workspace-context.js';
 import logger from '../utils/logger.js';
+import {
+	buildPinterestOAuthRedirectUrl,
+	finalizePinterestOAuthWebAppBase,
+	resolveWebAppBaseFromEnv,
+	resolveWebAppBaseFromIdentity,
+} from './pinterest-oauth-url.js';
 
 const PINTEREST_API_BASE = 'https://api.pinterest.com/v5';
 const PINTEREST_AUTH_BASE = 'https://www.pinterest.com/oauth';
@@ -58,131 +64,32 @@ function normalizeDate(value) {
 	return date.toISOString();
 }
 
-function isPlaceholderWebUrl(value) {
-	const raw = String(value || '').trim();
-	if (!raw) return true;
-	// Substring guard first — catches quoted/malformed env values before URL parsing.
-	if (/your-domain\.com|example\.com/i.test(raw)) return true;
-	try {
-		const host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase();
-		return !host
-			|| host === 'your-domain.com'
-			|| host.endsWith('.your-domain.com')
-			|| host === 'example.com'
-			|| host.endsWith('.example.com');
-	} catch {
-		return true;
-	}
-}
-
-function normalizeWebAppBase(value) {
-	return String(value || '').trim().replace(/^['"]|['"]$/g, '').replace(/\/$/, '');
-}
-
-function deriveWebAppBaseFromApiUrl() {
-	const candidates = [
-		process.env.API_PUBLIC_URL,
-		process.env.PINTEREST_REDIRECT_URI,
-	];
-	for (const candidate of candidates) {
-		const raw = normalizeWebAppBase(candidate);
-		if (!raw || isPlaceholderWebUrl(raw)) continue;
-		try {
-			return new URL(raw.includes('://') ? raw : `https://${raw}`).origin;
-		} catch {
-			// keep looking
-		}
-	}
-	return '';
-}
-
-/** Canonical production frontend origin fallback (post-OAuth browser return). */
-export const PINTEREST_OAUTH_FRONTEND_BASE = 'https://tbuy.store';
-
-function collectEnvWebAppCandidates() {
-	return [
-		process.env.WEB_APP_URL,
-		process.env.APP_WEB_URL,
-		process.env.PUBLIC_APP_URL,
-		process.env.APP_PUBLIC_URL,
-		...(String(process.env.CORS_ORIGIN || '').split(',')),
-		deriveWebAppBaseFromApiUrl(),
-	]
-		.map(normalizeWebAppBase)
-		.filter(Boolean);
-}
-
-function firstValidWebAppOrigin(candidates = []) {
-	for (const candidate of candidates) {
-		if (!candidate || isPlaceholderWebUrl(candidate)) continue;
-		try {
-			return new URL(candidate.includes('://') ? candidate : `https://${candidate}`).origin;
-		} catch {
-			// keep looking
-		}
-	}
-	return '';
-}
-
 /**
  * Frontend origin used for Pinterest OAuth browser redirects (/app/pinterest).
- * Chain: Environment → Platform Identity domains.appUrl → safe fallback.
- * Rejects template placeholders like your-domain.com.
+ * Chain: Environment → Platform Identity domains.appUrl → dev localhost or fail closed in production.
  */
 export async function getWebAppBaseUrl() {
-	const fromEnv = firstValidWebAppOrigin(collectEnvWebAppCandidates());
+	const fromEnv = resolveWebAppBaseFromEnv(process.env);
 	if (fromEnv) return fromEnv;
 
 	try {
 		const { getPublicPlatformIdentity } = await import('./platform-settings.js');
 		const identity = await getPublicPlatformIdentity();
-		const fromIdentity = firstValidWebAppOrigin([
-			identity?.appUrl,
-			identity?.canonicalUrl,
-			identity?.primaryDomain ? `https://${String(identity.primaryDomain).replace(/^https?:\/\//i, '')}` : '',
-		]);
+		const fromIdentity = resolveWebAppBaseFromIdentity(identity);
 		if (fromIdentity) return fromIdentity;
 	} catch {
-		/* keep fallback */
+		/* no platform identity */
 	}
 
-	if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') {
-		return PINTEREST_OAUTH_FRONTEND_BASE;
-	}
-
-	return 'http://localhost:3000';
+	return finalizePinterestOAuthWebAppBase(process.env.NODE_ENV);
 }
 
 /**
- * Absolute URL for post-OAuth browser return.
- * Prefer env, then Platform Identity domains.appUrl, then production fallback.
- * Never trusts WEB_APP_URL / CORS placeholders like your-domain.com.
+ * Absolute URL for post-OAuth browser return (/app/pinterest with query params).
  */
 export async function buildPinterestOAuthAppRedirect(query = {}) {
-	const resolved = await getWebAppBaseUrl();
-	const localOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(resolved);
-	let base = resolved || PINTEREST_OAUTH_FRONTEND_BASE;
-
-	if (!localOrigin && (isPlaceholderWebUrl(base) || /your-domain\.com/i.test(base))) {
-		base = PINTEREST_OAUTH_FRONTEND_BASE;
-	}
-
-	const url = new URL('/app/pinterest', base.endsWith('/') ? base : `${base}/`);
-	for (const [key, value] of Object.entries(query || {})) {
-		if (value == null || value === '') continue;
-		url.searchParams.set(key, String(value));
-	}
-
-	const href = url.toString();
-	if (/your-domain\.com/i.test(href)) {
-		const safe = new URL('/app/pinterest', `${PINTEREST_OAUTH_FRONTEND_BASE}/`);
-		for (const [key, value] of Object.entries(query || {})) {
-			if (value == null || value === '') continue;
-			safe.searchParams.set(key, String(value));
-		}
-		return safe.toString();
-	}
-	return href;
+	const base = await getWebAppBaseUrl();
+	return buildPinterestOAuthRedirectUrl(base, query);
 }
 
 export async function getPinterestRedirectUri() {
