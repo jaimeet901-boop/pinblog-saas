@@ -1,5 +1,9 @@
 FROM node:20-bookworm-slim AS base
 
+# API environment in Docker is injected at runtime by docker-compose.prod.yml
+# `env_file: ./apps/api/.env` on the api service. Do not add `--env-file` here:
+# the .env file is not copied into the image, and compose already sets process env.
+
 WORKDIR /app
 COPY package*.json ./
 COPY apps/api/package*.json ./apps/api/

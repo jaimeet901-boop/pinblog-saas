@@ -14,6 +14,18 @@
 - Ensure Gemini is enabled with a valid API key in Admin → Providers.
 - Optional legacy vars `INTEGRATED_AI_API_URL` / `INTEGRATED_AI_API_KEY` / `WEBSITE_ID` are unused by the current text path.
 
+### API environment loading (deploy parity)
+
+All paths read configuration from `apps/api/.env`, but the loading mechanism differs by runtime:
+
+| Runtime | How env is loaded |
+|---------|-------------------|
+| **Docker Compose** | `docker-compose.prod.yml` `env_file: ./apps/api/.env` injects variables into the API container process. `Dockerfile.api` runs `node src/main.js` without `--env-file` because the file is not copied into the image. |
+| **PM2** | `ecosystem.config.cjs` sets `cwd: ./apps/api` and `node_args: '--env-file=.env'`. Start from repo root: `pm2 start ecosystem.config.cjs`. |
+| **Root / local npm** | `npm run start --prefix apps/api` runs `node --env-file=.env src/main.js` (see `apps/api/package.json`). Root `npm test` delegates to the same workspace test script. |
+
+Do not add `--env-file` to `Dockerfile.api` while Compose also uses `env_file`; that would duplicate or conflict with injected env. For PM2 and local starts, ensure `apps/api/.env` exists before starting the API.
+
 ## 3) TLS certificates
 - In CloudPanel mode, TLS certificates are managed by CloudPanel nginx.
 - No certificate files are required inside Docker nginx.
