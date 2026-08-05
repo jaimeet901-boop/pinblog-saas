@@ -1,11 +1,11 @@
 # Queue Mirror Retirement — Phase 9d Plan
 
-**Status:** Preparation (Phase 9d-0) — documentation and inventory only.  
-**Runtime:** Unchanged. Mirrors remain active. No mirror call sites removed.
+**Status:** Phase 9d-0 (docs/inventory) and **9d-1** (mirror write flag + metrics breakdown) implemented.  
+**Runtime default:** Mirrors **enabled** when `QUEUE_MIRRORS_ENABLED` is unset. No mirror call sites removed.
 
 Companion doc: [queue-ownership.md](./queue-ownership.md)
 
-Machine-readable ownership catalog: `apps/api/src/services/queue/ownership.js`
+Machine-readable ownership catalog: `apps/api/src/services/queue/ownership.js` (`channelMirrors.envFlag`)
 
 Manual inventory script (optional, never auto-run): `scripts/inventory-queue-mirrors.mjs`
 
@@ -179,11 +179,16 @@ Removing mirrors without replacing this path breaks admin operations.
 
 ## Rollback strategy
 
-### During future mirror write flag (9d-1, not yet implemented)
+### During mirror write flag (9d-1 — implemented)
+
+| Env | Effect |
+|-----|--------|
+| unset / `true` / `1` | Mirror writes unchanged (default) |
+| `false` / `0` | `mirrorPinterestJob`, `mirrorWordpressJob`, `mirrorImageJob` return early — no upsert, events, or audit |
 
 | Action | Effect |
 |--------|--------|
-| Set mirror flag enabled / unset | Mirror writes resume on next job event |
+| Set `QUEUE_MIRRORS_ENABLED=true` or unset | Mirror writes resume on next job event |
 | Restart API | Required after env change |
 
 ### During mirror call-site removal (9d-4+, future)
@@ -207,14 +212,14 @@ Removing mirrors without replacing this path breaks admin operations.
 ### Environment
 
 - Staging PocketBase with representative mirrored rows and active channel jobs
-- Independent control of poller flags (9b/9c) and future mirror flag (9d-1)
+- Independent control of poller flags (9b/9c) and mirror flag `QUEUE_MIRRORS_ENABLED` (9d-1)
 
 ### Staging matrix (future phases)
 
 | Step | Config | Expected |
 |------|--------|----------|
 | S1 | All defaults | Baseline — admin shows channel jobs via mirrors |
-| S2 | Future: mirrors off | New jobs not mirrored; existing mirror rows still in admin |
+| S2 | `QUEUE_MIRRORS_ENABLED=false` | New jobs not mirrored; existing mirror rows still in admin; `breakdown.mirroredChannel` stops growing |
 | S3 | S2 + create jobs | Channel SoT updates; admin missing new jobs until dual-read |
 | S4 | Re-enable mirrors | New jobs mirror again |
 | S5 | Dual-read on (9d-2+) | Admin shows channel jobs without new mirror writes |
@@ -240,19 +245,24 @@ Removing mirrors without replacing this path breaks admin operations.
 
 ## Commit roadmap
 
-### Phase 9d-0 — Preparation (this phase)
+### Phase 9d-0 — Preparation (implemented)
 
 | Commit | Scope | Runtime change |
 |--------|-------|----------------|
 | 9d-0 | `docs/queue-mirror-retirement.md`, `docs/queue-ownership.md`, optional inventory script | **None** |
 
-### Phase 9d-1 — Mirror write flag + metrics breakdown (planned, not authorized)
+### Phase 9d-1 — Mirror write flag + metrics breakdown (implemented)
 
 | Commit | Files | Runtime change |
 |--------|-------|----------------|
-| 9d-1a | `queue/mirrors.js`, `.env.example`, docs | Additive flag; default = unchanged |
-| 9d-1b | `queue/metrics.js`, `health/monitor.js`, docs | Additive health breakdown |
-| 9d-1c | `queue/ownership.js`, optional `mirror-status.js` | Catalog metadata |
+| 9d-1 | `queue/mirrors.js`, `queue/metrics.js`, `health/monitor.js`, `queue/ownership.js`, `.env.example`, docs | Additive flag; **default unchanged** |
+
+**9d-1 deliverables:**
+
+- `isQueueMirrorsEnabled()` / `getQueueMirrorsStatus()`
+- Gate on three public mirror functions only
+- `computeQueueSummary().breakdown`: `{ native, mirroredChannel }`
+- Health payload: additive `breakdown` + `mirrors` fields
 
 ### Phase 9d-2 — Admin dual-read (planned)
 
@@ -295,8 +305,8 @@ Env flag design: `ADMIN_QUEUE_DUAL_READ_ENABLED` (default off).
 
 | Phase | Files |
 |-------|-------|
-| 9d-1a | `mirrors.js`, `.env.example`, docs |
-| 9d-1b | `metrics.js`, `health/monitor.js` |
+| 9d-0 | docs, `scripts/inventory-queue-mirrors.mjs` |
+| 9d-1 | `mirrors.js`, `metrics.js`, `health/monitor.js`, `ownership.js`, `.env.example`, docs |
 | 9d-2 | `routes/admin/queue.js`, new `admin-read/*` |
 | 9d-3 | `controls.js`, `routes/admin/queue.js`, `AdminQueuePage.jsx` |
 | 9d-4a | `routes/pinterest.js`, `publish-pipeline.js`, `pinterest-publish-queue.js` |

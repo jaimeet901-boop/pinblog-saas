@@ -1,9 +1,49 @@
 import { mapSourceStatusToQueue } from './types.js';
 import { upsertMirroredJob } from './jobs.js';
 import { writeQueueAudit } from '../audit/write.js';
+import logger from '../../utils/logger.js';
+
+let envDisabledLogged = false;
+
+/**
+ * Channel mirror write gate (Phase 9d-1). Unset defaults to enabled.
+ */
+export function isQueueMirrorsEnabled() {
+	const raw = String(process.env.QUEUE_MIRRORS_ENABLED ?? '').trim().toLowerCase();
+	if (!raw) {
+		return true;
+	}
+	if (raw === '1' || raw === 'true') {
+		return true;
+	}
+	if (raw === '0' || raw === 'false') {
+		return false;
+	}
+	return true;
+}
+
+export function getQueueMirrorsStatus() {
+	const enabled = isQueueMirrorsEnabled();
+	return {
+		enabled,
+		disabledByEnv: !enabled,
+	};
+}
+
+function gateMirrorWrites() {
+	if (isQueueMirrorsEnabled()) {
+		return true;
+	}
+	if (!envDisabledLogged) {
+		logger.info('Queue channel mirrors disabled by QUEUE_MIRRORS_ENABLED');
+		envDisabledLogged = true;
+	}
+	return false;
+}
 
 export async function mirrorWordpressJob(job, eventMessage = '') {
 	if (!job?.id) return null;
+	if (!gateMirrorWrites()) return null;
 	let status = mapSourceStatusToQueue('publish_jobs', job.status);
 	if (
 		(job.status === 'queued' || job.status === 'scheduled')
@@ -62,6 +102,7 @@ export async function mirrorWordpressJob(job, eventMessage = '') {
 
 export async function mirrorPinterestJob(job, pin = null, eventMessage = '') {
 	if (!job?.id) return null;
+	if (!gateMirrorWrites()) return null;
 	let status = mapSourceStatusToQueue('pinterest_publish_jobs', job.status);
 	if (job.status === 'scheduled' && Number(job.attempt_count || 0) > 0) {
 		status = 'retrying';
@@ -124,6 +165,7 @@ export async function mirrorPinterestJob(job, pin = null, eventMessage = '') {
 
 export async function mirrorImageJob(job, eventMessage = '') {
 	if (!job?.id) return null;
+	if (!gateMirrorWrites()) return null;
 	return upsertMirroredJob({
 		sourceCollection: 'ai_pin_image_jobs',
 		sourceId: job.id,

@@ -139,6 +139,8 @@ async function probeQueueService() {
 					channel: ['pinterest-publish-queue', 'wordpress-publish-queue', 'ai-pin-image-queue'],
 					native: 'queue-engine',
 				},
+				breakdown: summary.breakdown,
+				mirrors: summary.mirrors,
 			},
 			last_checked: new Date().toISOString(),
 		},
@@ -665,6 +667,8 @@ export async function runHealthCheck({ persist = true } = {}) {
 			latency: queueProbe.summary.health?.avgQueueTime,
 			workersOnline: queueProbe.summary.workersOnline,
 			ownership: getQueueOwnershipSnapshot(),
+			breakdown: queueProbe.summary.breakdown,
+			mirrors: queueProbe.summary.mirrors,
 		},
 		workers,
 		meta: {

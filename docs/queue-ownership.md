@@ -113,15 +113,16 @@ These are **not** replacements for channel publish pollers.
 | **9b** (implemented) | `PINTEREST_QUEUE_ENABLED` — Pinterest poller only | Optional execution pause; scheduling unchanged |
 | **9c** (implemented) | `WORDPRESS_QUEUE_ENABLED`, `AI_PIN_IMAGE_QUEUE_ENABLED` | Optional execution pause; enqueue unchanged |
 | **9d** (preparation) | Mirror retirement — docs + inventory | **None** (9d-0); see [queue-mirror-retirement.md](./queue-mirror-retirement.md) |
+| **9d-1** (implemented) | `QUEUE_MIRRORS_ENABLED` + metrics breakdown | Optional mirror write pause; default enabled |
 
 ### Phase 9d — Mirror retirement (preparation)
 
-**Status:** Phase 9d-0 complete when retirement doc and inventory script land. **Mirror writes remain active.**
+**Status:** 9d-0 and 9d-1 complete. **Mirror writes remain active by default.** Full mirror retirement (9d-2+) is **NOT READY**.
 
 | Sub-phase | Scope | Runtime change |
 |-----------|-------|----------------|
-| **9d-0** (preparation) | `docs/queue-mirror-retirement.md`, optional `scripts/inventory-queue-mirrors.mjs` | None |
-| **9d-1** (planned) | `QUEUE_MIRRORS_ENABLED` + metrics breakdown | Additive flags; default unchanged |
+| **9d-0** (implemented) | `docs/queue-mirror-retirement.md`, optional `scripts/inventory-queue-mirrors.mjs` | None |
+| **9d-1** (implemented) | `QUEUE_MIRRORS_ENABLED` + `breakdown.native` / `breakdown.mirroredChannel` | Optional mirror write pause; default enabled |
 | **9d-2** (planned) | Admin dual-read (`ADMIN_QUEUE_DUAL_READ_ENABLED`) | Flag-gated read path |
 | **9d-3** (planned) | Admin controls on channel refs | Required before mirror removal |
 | **9d-4** (planned) | Remove mirror call sites (one channel per commit) | High risk |
@@ -146,6 +147,15 @@ Full inventory, dependency graph, staging, and commit roadmap: **[queue-mirror-r
 | `false`, `0` | Poller does not start — jobs accumulate until re-enabled + restart |
 
 Status helpers expose `enabled` and `disabledByEnv`. Requires process restart to toggle.
+
+### Mirror write flag (`QUEUE_MIRRORS_ENABLED`)
+
+| Value | Mirror writes | Channel collections / pollers |
+|-------|---------------|-------------------------------|
+| unset, `true`, `1` | Active (default) | Unchanged |
+| `false`, `0` | No new mirror upserts | Unchanged — admin may not see new channel jobs until dual-read (9d-2) |
+
+Gates `mirrorPinterestJob`, `mirrorWordpressJob`, and `mirrorImageJob` only. `getQueueMirrorsStatus()` and `computeQueueSummary().breakdown` expose native vs mirrored channel counts.
 
 ---
 

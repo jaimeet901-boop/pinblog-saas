@@ -41,6 +41,18 @@ export const CHANNEL_EXECUTORS = Object.freeze([
 	}),
 ]);
 
+/** Channel mirror layer — observability upserts into queue_jobs (Phase 9d-1 flag). */
+export const CHANNEL_MIRRORS = Object.freeze({
+	module: 'services/queue/mirrors.js',
+	envFlag: 'QUEUE_MIRRORS_ENABLED',
+	functions: Object.freeze([
+		'mirrorPinterestJob',
+		'mirrorWordpressJob',
+		'mirrorImageJob',
+	]),
+	statusHelper: 'getQueueMirrorsStatus',
+});
+
 /** Native queue_jobs types processed by queue/engine.js (not channel executors). */
 export const NATIVE_ENGINE = Object.freeze({
 	processorModule: 'services/queue/engine.js',
@@ -85,8 +97,10 @@ export const QUEUE_CONSUMERS = Object.freeze([
 
 export const QUEUE_OWNERSHIP_MODEL = Object.freeze({
 	documentation: 'docs/queue-ownership.md',
+	mirrorRetirement: 'docs/queue-mirror-retirement.md',
 	executionSourceOfTruth: 'channel job collections (pinterest_publish_jobs, publish_jobs, ai_pin_image_jobs)',
 	adminObservabilityStore: 'queue_jobs',
+	channelMirrors: CHANNEL_MIRRORS,
 	nativeProcessor: NATIVE_ENGINE,
 	channelExecutors: CHANNEL_EXECUTORS,
 	consumers: QUEUE_CONSUMERS,

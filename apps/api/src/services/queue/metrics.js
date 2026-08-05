@@ -1,9 +1,12 @@
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { formatDuration, QUEUE_DEPTH_STATUSES } from './types.js';
 import { listWorkers } from './workers.js';
+import { getQueueMirrorsStatus } from './mirrors.js';
 
 const CONTROL_KEY = 'global_control';
 const SNAPSHOT_KEY = 'live_snapshot';
+const NATIVE_JOBS_FILTER = 'source_collection = ""';
+const MIRRORED_JOBS_FILTER = 'source_collection != ""';
 
 async function getMetricRow(bucketKey) {
 	return pocketbaseClient.collection('queue_metrics').getFirstListItem(
@@ -47,6 +50,91 @@ async function countFilter(filter) {
 	return Number(result.totalItems) || 0;
 }
 
+async function countByStatusScoped(status, { mirrored = false } = {}) {
+	const sourceFilter = mirrored ? MIRRORED_JOBS_FILTER : NATIVE_JOBS_FILTER;
+	return countFilter(pocketbaseClient.filter(`status = {:status} && ${sourceFilter}`, { status }));
+}
+
+async function countCompletedTodayScoped({ mirrored = false } = {}) {
+	const sourceFilter = mirrored ? MIRRORED_JOBS_FILTER : NATIVE_JOBS_FILTER;
+	return countFilter(pocketbaseClient.filter(
+		`status = "completed" && completed_at >= {:today} && ${sourceFilter}`,
+		{ today: startOfTodayIso() },
+	));
+}
+
+async function computeQueueBreakdown() {
+	const [
+		nativeRunning,
+		nativeQueued,
+		nativeWaiting,
+		nativePending,
+		nativeRetrying,
+		nativeFailed,
+		nativePaused,
+		nativeCompletedToday,
+		mirroredRunning,
+		mirroredQueued,
+		mirroredWaiting,
+		mirroredPending,
+		mirroredRetrying,
+		mirroredFailed,
+		mirroredPaused,
+		mirroredCompletedToday,
+	] = await Promise.all([
+		countByStatusScoped('running', { mirrored: false }),
+		countByStatusScoped('queued', { mirrored: false }),
+		countByStatusScoped('waiting', { mirrored: false }),
+		countByStatusScoped('pending', { mirrored: false }),
+		countByStatusScoped('retrying', { mirrored: false }),
+		countByStatusScoped('failed', { mirrored: false }),
+		countByStatusScoped('paused', { mirrored: false }),
+		countCompletedTodayScoped({ mirrored: false }),
+		countByStatusScoped('running', { mirrored: true }),
+		countByStatusScoped('queued', { mirrored: true }),
+		countByStatusScoped('waiting', { mirrored: true }),
+		countByStatusScoped('pending', { mirrored: true }),
+		countByStatusScoped('retrying', { mirrored: true }),
+		countByStatusScoped('failed', { mirrored: true }),
+		countByStatusScoped('paused', { mirrored: true }),
+		countCompletedTodayScoped({ mirrored: true }),
+	]);
+
+	const pack = (running, queued, waiting, pending, retrying, failed, paused, completedToday) => ({
+		running,
+		queued: queued + waiting + pending + retrying + paused,
+		waiting,
+		pending,
+		retrying,
+		failed,
+		paused,
+		completedToday,
+	});
+
+	return {
+		native: pack(
+			nativeRunning,
+			nativeQueued,
+			nativeWaiting,
+			nativePending,
+			nativeRetrying,
+			nativeFailed,
+			nativePaused,
+			nativeCompletedToday,
+		),
+		mirroredChannel: pack(
+			mirroredRunning,
+			mirroredQueued,
+			mirroredWaiting,
+			mirroredPending,
+			mirroredRetrying,
+			mirroredFailed,
+			mirroredPaused,
+			mirroredCompletedToday,
+		),
+	};
+}
+
 function startOfTodayIso() {
 	const now = new Date();
 	now.setHours(0, 0, 0, 0);
@@ -68,6 +156,7 @@ export async function computeQueueSummary() {
 		longestWaiting,
 		oldestRunning,
 		pausedFlag,
+		breakdown,
 	] = await Promise.all([
 		countByStatus('running'),
 		countByStatus('queued'),
@@ -96,6 +185,7 @@ export async function computeQueueSummary() {
 			requestKey: null,
 		}).catch(() => ({ items: [] })),
 		isQueuePaused(),
+		computeQueueBreakdown(),
 	]);
 
 	const durations = (recentCompleted.items || [])
@@ -133,6 +223,8 @@ export async function computeQueueSummary() {
 		workersOnline: `${onlineWorkers.length} / ${Math.max(workers.length, onlineWorkers.length)}`,
 		jobsPerMinute: completedLastMinute,
 		paused: pausedFlag,
+		breakdown,
+		mirrors: getQueueMirrorsStatus(),
 		metrics: {
 			jobsPerMinute: completedLastMinute,
 			averageDurationMs: avgMs,
