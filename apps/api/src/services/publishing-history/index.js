@@ -1,6 +1,7 @@
 /**
  * Publishing History normalization layer (Phase 1).
  * Option B: derive unified model from specialized job collections.
+ * Pure exports only — runtime I/O (listPublishingHistory) lives in list.js.
  */
 
 export {
@@ -33,10 +34,9 @@ export {
 	assemblePublishingHistoryResponse,
 	buildPublishingHistoryCounts,
 	computeSourceFetchCap,
-	listPublishingHistory,
 	matchesPublishingHistoryFilters,
 	nativeStatusExtraFilter,
 	paginatePublishingHistoryItems,
 	parsePublishingHistoryQuery,
 	sortPublishingHistoryItems,
-} from './list.js';
+} from './list-pure.js';

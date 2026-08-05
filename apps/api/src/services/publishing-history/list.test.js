@@ -18,7 +18,7 @@ import {
 	paginatePublishingHistoryItems,
 	parsePublishingHistoryQuery,
 	sortPublishingHistoryItems,
-} from './list.js';
+} from './list-pure.js';
 import { normalizePinterestPublishJob, normalizeWordpressPublishJob } from './index.js';
 
 function sampleItems() {
