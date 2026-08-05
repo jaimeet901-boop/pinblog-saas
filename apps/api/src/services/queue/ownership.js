@@ -17,7 +17,6 @@ export const CHANNEL_EXECUTORS = Object.freeze([
 		jobType: 'pinterest_publishing',
 		sourceCollection: 'pinterest_publish_jobs',
 		executorModule: 'services/pinterest-publish-queue.js',
-		mirrorModule: 'services/queue/mirrors.js#mirrorPinterestJob',
 		startedFrom: 'main.js#startPinterestPublishQueue',
 		envFlag: 'PINTEREST_QUEUE_ENABLED',
 	}),
@@ -26,7 +25,6 @@ export const CHANNEL_EXECUTORS = Object.freeze([
 		jobType: 'wordpress_publishing',
 		sourceCollection: 'publish_jobs',
 		executorModule: 'services/wordpress-publish-queue.js',
-		mirrorModule: 'services/queue/mirrors.js#mirrorWordpressJob',
 		startedFrom: 'main.js#startWordpressPublishQueue',
 		envFlag: 'WORDPRESS_QUEUE_ENABLED',
 	}),
@@ -35,22 +33,17 @@ export const CHANNEL_EXECUTORS = Object.freeze([
 		jobType: 'image_generation',
 		sourceCollection: 'ai_pin_image_jobs',
 		executorModule: 'services/ai-pin-image-queue.js',
-		mirrorModule: 'services/queue/mirrors.js#mirrorImageJob',
 		startedFrom: 'main.js#startAIPinImageQueue',
 		envFlag: 'AI_PIN_IMAGE_QUEUE_ENABLED',
 	}),
 ]);
 
-/** Channel mirror layer — observability upserts into queue_jobs (Phase 9d-1 flag). */
+/** Channel mirror write layer — retired Phase 9d-6. Legacy rows remain in queue_jobs. */
 export const CHANNEL_MIRRORS = Object.freeze({
-	module: 'services/queue/mirrors.js',
-	envFlag: 'QUEUE_MIRRORS_ENABLED',
-	functions: Object.freeze([
-		'mirrorPinterestJob',
-		'mirrorWordpressJob',
-		'mirrorImageJob',
-	]),
+	retired: true,
 	statusHelper: 'getQueueMirrorsStatus',
+	module: 'services/queue/mirror-status.js',
+	note: 'Mirror writes removed in 9d-4; findBySource reads legacy rows until cleanup',
 });
 
 /** Native queue_jobs types processed by queue/engine.js (not channel executors). */
@@ -97,7 +90,7 @@ export const QUEUE_CONSUMERS = Object.freeze([
 		id: 'calendar',
 		surface: '/app/calendar',
 		primaryStore: 'channel job collections',
-		note: 'Channel collections are scheduling SoT; queue_jobs mirrors are optional enrichment only',
+		note: 'Channel collections are scheduling SoT; legacy queue_jobs rows optional enrichment only',
 	}),
 	Object.freeze({
 		id: 'publishing-history',
@@ -117,7 +110,7 @@ export const QUEUE_OWNERSHIP_MODEL = Object.freeze({
 	documentation: 'docs/queue-ownership.md',
 	mirrorRetirement: 'docs/queue-mirror-retirement.md',
 	executionSourceOfTruth: 'channel job collections (pinterest_publish_jobs, publish_jobs, ai_pin_image_jobs)',
-	adminObservabilityStore: 'queue_jobs',
+	adminObservabilityStore: 'queue_jobs (native) + channel collections (dual-read)',
 	channelMirrors: CHANNEL_MIRRORS,
 	adminDualRead: ADMIN_QUEUE_DUAL_READ,
 	adminChannelControls: ADMIN_QUEUE_CHANNEL_CONTROLS,

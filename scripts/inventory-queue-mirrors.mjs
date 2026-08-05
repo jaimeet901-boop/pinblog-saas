@@ -1,8 +1,7 @@
 /**
- * READ-ONLY Phase 9d inventory: queue_jobs mirrors vs channel job collections.
+ * READ-ONLY Phase 9d stale mirror inventory: legacy queue_jobs rows vs channel collections.
  *
- * Always prints a static mirror architecture snapshot.
- * When PocketBase credentials are present, also prints live row counts and orphan samples.
+ * Mirror writes were retired in 9d-4/9d-6. This script counts existing rows only.
  *
  * NEVER run automatically — invoke manually only:
  *   node --env-file=apps/api/.env scripts/inventory-queue-mirrors.mjs
@@ -15,45 +14,30 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
-const CHANNEL_MIRROR_MAP = [
+const CHANNEL_COLLECTIONS = [
 	{
 		channel: 'pinterest',
 		sourceCollection: 'pinterest_publish_jobs',
 		queueType: 'pinterest_publishing',
-		mirrorFn: 'mirrorPinterestJob',
-		callSites: [
-			'apps/api/src/routes/pinterest.js',
-			'apps/api/src/services/publish-pipeline.js',
-			'apps/api/src/services/pinterest-publish-queue.js',
-		],
 	},
 	{
 		channel: 'wordpress',
 		sourceCollection: 'publish_jobs',
 		queueType: 'wordpress_publishing',
-		mirrorFn: 'mirrorWordpressJob',
-		callSites: [
-			'apps/api/src/services/wordpress-publish.js',
-			'apps/api/src/services/wordpress-publish-queue.js',
-		],
 	},
 	{
 		channel: 'ai-image',
 		sourceCollection: 'ai_pin_image_jobs',
 		queueType: 'image_generation',
-		mirrorFn: 'mirrorImageJob',
-		callSites: [
-			'apps/api/src/routes/ai-pin-images.js',
-			'apps/api/src/services/ai-pin-image-queue.js',
-		],
 	},
 ];
 
-const CRITICAL_CONSUMERS = [
-	{ id: 'admin-queue', module: 'apps/api/src/routes/admin/queue.js', dependency: 'critical' },
-	{ id: 'admin-controls', module: 'apps/api/src/services/queue/controls.js', dependency: 'critical' },
-	{ id: 'health-metrics', module: 'apps/api/src/services/queue/metrics.js', dependency: 'partial' },
-	{ id: 'calendar-enrichment', module: 'apps/api/src/services/calendar/projections/queue-mirror-source.js', dependency: 'optional' },
+const LEGACY_READ_PATHS = [
+	{ id: 'findBySource', module: 'apps/api/src/services/queue/jobs.js' },
+	{ id: 'admin-dual-read', module: 'apps/api/src/services/queue/admin-read/index.js' },
+	{ id: 'admin-controls-sync', module: 'apps/api/src/services/queue/admin-controls/channel-actions.js#syncMirrorQueueJob' },
+	{ id: 'calendar-enrichment', module: 'apps/api/src/services/calendar/projections/queue-mirror-source.js' },
+	{ id: 'metrics-breakdown', module: 'apps/api/src/services/queue/metrics.js#mirroredChannel' },
 ];
 
 function printSection(title) {
@@ -106,16 +90,15 @@ async function fetchAll(pb, collection, options = {}) {
 	return items;
 }
 
-printSection('Static mirror inventory (Phase 9d-0)');
+printSection('Stale mirror inventory (Phase 9d-6)');
 console.log(JSON.stringify({
-	phase: '9d-0',
-	runtimeChanged: false,
-	coreModule: 'apps/api/src/services/queue/mirrors.js',
-	upsertHelper: 'apps/api/src/services/queue/jobs.js#upsertMirroredJob',
-	channels: CHANNEL_MIRROR_MAP,
-	criticalConsumers: CRITICAL_CONSUMERS,
+	phase: '9d-6',
+	mirrorWrites: 'retired',
+	mirrorStatusModule: 'apps/api/src/services/queue/mirror-status.js',
+	legacyReadPaths: LEGACY_READ_PATHS,
+	channels: CHANNEL_COLLECTIONS,
 	retirementDoc: 'docs/queue-mirror-retirement.md',
-	validationVerdict: 'NOT READY — admin depends on mirrors; dual-read required first',
+	note: 'Use this script to plan optional stale queue_jobs row cleanup',
 }, null, 2));
 
 const PB_BASE_URL = String(process.env.PB_BASE_URL || '').trim();
@@ -125,7 +108,7 @@ const PB_SUPERUSER_PASSWORD = String(process.env.PB_SUPERUSER_PASSWORD || '').tr
 if (!PB_BASE_URL || !PB_SUPERUSER_EMAIL || !PB_SUPERUSER_PASSWORD) {
 	printSection('Live inventory');
 	console.log('Skipped: set PB_BASE_URL / PB_SUPERUSER_EMAIL / PB_SUPERUSER_PASSWORD to count live rows.');
-	console.log('\nPhase 9d-0 static inventory complete.');
+	console.log('\nPhase 9d-6 static inventory complete.');
 	process.exit(0);
 }
 
@@ -142,7 +125,7 @@ try {
 	process.exit(0);
 }
 
-printSection('Live queue_jobs (mirrored vs native)');
+printSection('Live queue_jobs (legacy mirrored vs native)');
 const queueJobs = await fetchAll(pb, 'queue_jobs', { sort: '-updated' }).catch((error) => {
 	console.error('Failed to list queue_jobs:', error?.message || error);
 	return null;
@@ -158,7 +141,7 @@ if (queueJobs) {
 
 	console.log(JSON.stringify({
 		total: queueJobs.length,
-		mirroredChannel: mirrored.length,
+		legacyMirroredChannel: mirrored.length,
 		native: native.length,
 		byMirrorCollection,
 		byMirrorStatus,
@@ -176,7 +159,7 @@ if (queueJobs) {
 }
 
 printSection('Channel collection counts');
-for (const channel of CHANNEL_MIRROR_MAP) {
+for (const channel of CHANNEL_COLLECTIONS) {
 	const rows = await fetchAll(pb, channel.sourceCollection, { sort: '-updated' }).catch(() => null);
 	if (!rows) {
 		console.log(`${channel.sourceCollection}: (list failed)`);
@@ -189,7 +172,7 @@ for (const channel of CHANNEL_MIRROR_MAP) {
 	}, null, 2));
 }
 
-printSection('Orphan mirror sample (mirror without channel row)');
+printSection('Orphan mirror sample (legacy queue_jobs row without channel row)');
 if (queueJobs) {
 	const mirrored = queueJobs.filter((row) => String(row.source_collection || '').trim());
 	const orphans = [];
@@ -217,4 +200,4 @@ if (queueJobs) {
 	}, null, 2));
 }
 
-console.log('\nPhase 9d-0 live inventory complete.');
+console.log('\nPhase 9d-6 live inventory complete.');

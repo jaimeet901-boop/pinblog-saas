@@ -1,7 +1,7 @@
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { formatDuration, QUEUE_DEPTH_STATUSES } from './types.js';
 import { listWorkers } from './workers.js';
-import { getQueueMirrorsStatus } from './mirrors.js';
+import { getQueueMirrorsStatus } from './mirror-status.js';
 
 const CONTROL_KEY = 'global_control';
 const SNAPSHOT_KEY = 'live_snapshot';
@@ -291,14 +291,11 @@ export async function listRecentActivity(limit = 12) {
 		at: event.at || event.created,
 	}));
 
-	const { isQueueMirrorsEnabled } = await import('./mirrors.js');
-	if (!isQueueMirrorsEnabled()) {
-		const { listRecentPinterestActivityItems } = await import('./admin-events/pinterest-events.js');
-		const pinItems = await listRecentPinterestActivityItems(limit);
-		items = [...items, ...pinItems]
-			.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-			.slice(0, limit);
-	}
+	const { listRecentPinterestActivityItems } = await import('./admin-events/pinterest-events.js');
+	const pinItems = await listRecentPinterestActivityItems(limit);
+	items = [...items, ...pinItems]
+		.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+		.slice(0, limit);
 
 	return items;
 }

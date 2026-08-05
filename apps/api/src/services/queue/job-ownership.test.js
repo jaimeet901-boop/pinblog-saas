@@ -2,7 +2,7 @@
  * Phase 4.2 — ownership validation unit + static regression.
  * Run: node apps/api/src/services/queue/job-ownership.test.js
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -152,15 +152,22 @@ check(
 	&& adminQueue.includes('owner: ownership.owner'),
 );
 
-const mirrors = read('apps/api/src/services/queue/mirrors.js');
+const mirrors = read('apps/api/src/services/queue/mirror-status.js');
 check(
-	'Mirrors do not fall back workspaceKey to job.owner',
-	!mirrors.includes('workspaceKey: job.owner')
-	&& !mirrors.includes('workspaceKey: job.workspace_key || job.owner'),
+	'Channel mirror writes are retired',
+	mirrors.includes('retired: true')
+	&& !existsSync(path.join(root, 'apps/api/src/services/queue/mirrors.js')),
 );
 check(
-	'Mirrors stamp from job.workspace_key',
-	mirrors.includes("workspaceKey: job.workspace_key || ''"),
+	'Mirror status helper returns retired payload',
+	mirrors.includes('getQueueMirrorsStatus')
+	&& mirrors.includes('retired: true'),
+);
+
+const adminNormalize = read('apps/api/src/services/queue/admin-read/normalize.js');
+check(
+	'Admin dual-read normalizes channel jobs from workspace_key',
+	adminNormalize.includes("workspace_key: job.workspace_key || ''"),
 );
 
 const wpPublish = read('apps/api/src/services/wordpress-publish.js');

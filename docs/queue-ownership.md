@@ -18,7 +18,7 @@ Health exposure: `/api/health` → `queue.ownership` and core service `queue.met
 |-------|----------------|------|
 | **Execution (channel jobs)** | `pinterest_publish_jobs`, `publish_jobs`, `ai_pin_image_jobs` | Real publish/generation work |
 | **Execution (native jobs)** | `queue_jobs` types processed by `queue/engine.js` | Webhooks, analytics refresh, health checks, etc. |
-| **Observability mirror** | `queue_jobs` rows upserted by `queue/mirrors.js` | Admin queue monitor; mirrors channel state |
+| **Legacy observability rows** | `queue_jobs` with `source_collection` set | Historical mirror rows; **no new writes** (9d-6) |
 | **Scheduling (Calendar)** | Channel job collections | **Never** `queue_jobs` alone |
 | **Publishing History** | Channel collections + history tables | Read model |
 
@@ -36,13 +36,27 @@ These modules **poll PocketBase channel collections** and perform external I/O (
 
 Each flag gates **legacy poller startup only**. When unset or `true`/`1`, behavior is unchanged. When `false`/`0`, the poller does not start (no timer, no stuck recovery); enqueue APIs and calendar mutations still create and update channel job collections.
 
-After create/update, executors (and some routes) call mirror helpers to reflect state into `queue_jobs` for the admin UI.
+Channel jobs are **not** mirrored into `queue_jobs` (mirror writes retired 9d-6). Enable admin dual-read for channel-native admin views.
+
+---
+
+## Producers (job creation)
+
+| Producer | Creates |
+|----------|---------|
+| `routes/pinterest.js` | `pinterest_publish_jobs` |
+| `services/publish-pipeline.js` | `pinterest_publish_jobs` (workflow) |
+| `services/wordpress-publish.js` | `publish_jobs` |
+| `routes/ai-pin-images.js` | `ai_pin_image_jobs` |
+| `services/analytics/refresh.js` | native `queue_jobs` |
+| `services/article-lifecycle.js`, `pin-generation.js`, `template-export.js` | native `queue_jobs` |
+| `routes/admin/queue.js` | native `queue_jobs` (admin) |
 
 ---
 
 ## Native queue engine
 
-`apps/api/src/services/queue/engine.js` polls **`queue_jobs`** but processes **native types only**:
+`apps/api/src/services/queue/engine.js` polls **`queue_jobs`** but processes **native types only`:
 
 - `webhook_delivery`
 - `email_notification`
@@ -57,25 +71,11 @@ Started from `main.js` → `startQueueEngine()`.
 
 ---
 
-## Producers (job creation)
-
-| Producer | Creates | Typical mirror |
-|----------|---------|----------------|
-| `routes/pinterest.js` | `pinterest_publish_jobs` | `mirrorPinterestJob` |
-| `services/publish-pipeline.js` | `pinterest_publish_jobs` (workflow) | via pipeline |
-| `services/wordpress-publish.js` | `publish_jobs` | `mirrorWordpressJob` |
-| `routes/ai-pin-images.js` | `ai_pin_image_jobs` | `mirrorImageJob` |
-| `services/analytics/refresh.js` | native `queue_jobs` | direct enqueue |
-| `services/article-lifecycle.js`, `pin-generation.js`, `template-export.js` | native `queue_jobs` | direct enqueue |
-| `routes/admin/queue.js` | native `queue_jobs` (admin) | — |
-
----
-
 ## Consumers (read surfaces)
 
 | Consumer | Reads | Notes |
 |----------|-------|-------|
-| Admin Queue Monitor | `queue_jobs` via `/admin/queue/*` | Includes mirrored channel jobs |
+| Admin Queue Monitor | `queue_jobs` + channel collections (dual-read) | Enable `ADMIN_QUEUE_DUAL_READ_ENABLED` |
 | Calendar | Channel collections | `queue_jobs` optional enrichment; **not SoT** |
 | Publishing History | Channel collections | Read model |
 | Health monitor | `computeQueueSummary()` + ownership catalog | Observability |
@@ -95,13 +95,15 @@ These are **not** replacements for channel publish pollers.
 
 ---
 
-## Mirror layer
+## Legacy mirror rows (retired writes)
 
-`apps/api/src/services/queue/mirrors.js` upserts mirrored rows in `queue_jobs` when channel jobs change. Mirrors:
+Channel mirror **writes** were removed in Phase **9d-4/9d-6**. Existing `queue_jobs` rows with `source_collection` set remain readable via `findBySource()` for:
 
-- Do **not** execute external publishes
-- May fail silently (`.catch(() => null)`) — admin view can lag channel SoT
-- Must not be retired until Phase **9d** proves single-processor safety
+- Admin dual-read legacy merge
+- Optional calendar enrichment
+- Metrics `breakdown.mirroredChannel` counts
+
+No new mirror rows are created. Optional DB cleanup: run `scripts/inventory-queue-mirrors.mjs`.
 
 ---
 
@@ -112,26 +114,25 @@ These are **not** replacements for channel publish pollers.
 | **9a** | Ownership docs + health visibility | **None** |
 | **9b** (implemented) | `PINTEREST_QUEUE_ENABLED` — Pinterest poller only | Optional execution pause; scheduling unchanged |
 | **9c** (implemented) | `WORDPRESS_QUEUE_ENABLED`, `AI_PIN_IMAGE_QUEUE_ENABLED` | Optional execution pause; enqueue unchanged |
-| **9d** (preparation) | Mirror retirement — docs + inventory | **None** (9d-0); see [queue-mirror-retirement.md](./queue-mirror-retirement.md) |
-| **9d-1** (implemented) | `QUEUE_MIRRORS_ENABLED` + metrics breakdown | Optional mirror write pause; default enabled |
+| **9d-4** (implemented) | Remove mirror write call sites | Mirror writes stopped |
+| **9d-6** (implemented) | Remove `mirrors.js`, `upsertMirroredJob`, `QUEUE_MIRRORS_ENABLED` | Cleanup only |
 
-### Phase 9d — Mirror retirement (preparation)
+### Phase 9d — Mirror retirement
 
-**Status:** 9d-0, 9d-1, **9d-2**, and **9d-3** complete. **Mirror writes remain active by default.** Full mirror retirement (9d-4+) is **NOT READY**.
+**Status:** **Complete** through 9d-6. Enable admin dual-read + channel controls in production.
 
-| Sub-phase | Scope | Runtime change |
-|-----------|-------|----------------|
-| **9d-0** (implemented) | `docs/queue-mirror-retirement.md`, optional `scripts/inventory-queue-mirrors.mjs` | None |
-| **9d-1** (implemented) | `QUEUE_MIRRORS_ENABLED` + `breakdown.native` / `breakdown.mirroredChannel` | Optional mirror write pause; default enabled |
-| **9d-2** (implemented) | Admin dual-read (`ADMIN_QUEUE_DUAL_READ_ENABLED`) | Flag-gated read path; default disabled |
-| **9d-3** (implemented) | Admin channel controls (`ADMIN_QUEUE_CHANNEL_CONTROLS_ENABLED`) | Flag-gated mutate routing; default disabled |
-| **9d-4** (planned) | Remove mirror call sites (one channel per commit) | High risk |
-| **9d-5** (planned) | Calendar optional mirror lookup removal | Low risk |
-| **9d-6** (planned) | Cleanup stale `queue_jobs`, retire channel mirror exports | Last |
+| Sub-phase | Scope | Status |
+|-----------|-------|--------|
+| **9d-0** | Docs + inventory script | Done |
+| **9d-1** | Metrics breakdown (`native` / `mirroredChannel`) | Done |
+| **9d-2** | Admin dual-read | Done |
+| **9d-3** | Admin channel controls | Done |
+| **9d-4a/b/c** | Per-channel mirror write removal | Done |
+| **9d-6** | Final mirror module cleanup | Done |
 
-Full inventory, dependency graph, staging, and commit roadmap: **[queue-mirror-retirement.md](./queue-mirror-retirement.md)**
+Full inventory and staging notes: **[queue-mirror-retirement.md](./queue-mirror-retirement.md)**
 
-**Validation verdict:** Mirror retirement is **NOT READY** until staging soak with dual-read + channel controls enabled and mirrors disabled.
+**Production recommendation:** `ADMIN_QUEUE_DUAL_READ_ENABLED=true` + `ADMIN_QUEUE_CHANNEL_CONTROLS_ENABLED=true`
 
 ### Channel poller flags
 
@@ -147,15 +148,6 @@ Full inventory, dependency graph, staging, and commit roadmap: **[queue-mirror-r
 | `false`, `0` | Poller does not start — jobs accumulate until re-enabled + restart |
 
 Status helpers expose `enabled` and `disabledByEnv`. Requires process restart to toggle.
-
-### Mirror write flag (`QUEUE_MIRRORS_ENABLED`)
-
-| Value | Mirror writes | Channel collections / pollers |
-|-------|---------------|-------------------------------|
-| unset, `true`, `1` | Active (default) | Unchanged |
-| `false`, `0` | No new mirror upserts | Unchanged — admin may not see new channel jobs until dual-read (9d-2) |
-
-Gates `mirrorPinterestJob`, `mirrorWordpressJob`, and `mirrorImageJob` only. `getQueueMirrorsStatus()` and `computeQueueSummary().breakdown` expose native vs mirrored channel counts.
 
 ### Admin dual-read flag (`ADMIN_QUEUE_DUAL_READ_ENABLED`)
 
@@ -175,7 +167,7 @@ Module: `apps/api/src/services/queue/admin-read/`. Additive DTO fields when enab
 | unset, `false`, `0` | **Disabled** — all controls require `queue_jobs.id` (current production behavior) |
 | `true`, `1` | Resolve synthetic / channel ids → mutate channel SoT via trusted adapters |
 
-Unknown values default to **disabled**. Requires process restart. Works with dual-read synthetic ids. Channel delete is blocked (422); cancel instead. Optional mirror refresh when `QUEUE_MIRRORS_ENABLED` is on.
+Unknown values default to **disabled**. Requires process restart. Works with dual-read synthetic ids. Channel delete is blocked (422); cancel instead. Legacy mirror rows sync via `syncMirrorQueueJob` when `queueJobId` exists.
 
 Module: `apps/api/src/services/queue/admin-controls/`.
 

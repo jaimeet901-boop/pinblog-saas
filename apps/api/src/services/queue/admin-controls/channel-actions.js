@@ -7,9 +7,6 @@ import {
 	getOwnedPinterestAccount,
 	getOwnedPinterestAccountById,
 } from '../../pinterest-api.js';
-import {
-	isQueueMirrorsEnabled,
-} from '../mirrors.js';
 import { httpError, updateQueueJob } from '../jobs.js';
 import { nextRetryAt } from '../types.js';
 import { isQueuePaused } from '../metrics.js';
@@ -62,23 +59,6 @@ function createAdminWordpressAdapter(jobOwner) {
 		sanitize: sanitizeCollectionPayload,
 		resolveScheduledAtUtc,
 	});
-}
-
-async function refreshMirror(target, eventMessage = '') {
-	if (!isQueueMirrorsEnabled()) return null;
-	const job = await getChannelJobRecord(target.sourceCollection, target.sourceId);
-	if (!job) return null;
-
-	if (target.sourceCollection === 'pinterest_publish_jobs') {
-		return null;
-	}
-	if (target.sourceCollection === 'publish_jobs') {
-		return null;
-	}
-	if (target.sourceCollection === 'ai_pin_image_jobs') {
-		return null;
-	}
-	return null;
 }
 
 async function getChannelJobRecord(sourceCollection, sourceId) {
@@ -231,7 +211,6 @@ async function pauseChannelCollectionJob(target) {
 		worker_id: '',
 		claim_token: '',
 	}, 'Job paused');
-	await refreshMirror(target, 'Job paused');
 	return updated;
 }
 
@@ -278,7 +257,6 @@ async function resumeChannelCollectionJob(target) {
 		paused_at: '',
 		next_retry_at: '',
 	}, 'Job resumed');
-	await refreshMirror(target, 'Job resumed');
 	return updated;
 }
 
@@ -347,7 +325,6 @@ export async function cancelChannelJob(target, { actorId } = {}) {
 			worker_id: '',
 			claim_token: '',
 		}, `Cancelled by ${actorId || 'admin'}`);
-		await refreshMirror(target, `Cancelled by ${actorId || 'admin'}`);
 		return updated;
 	} catch (error) {
 		adminHttpError(error);
@@ -383,7 +360,6 @@ export async function retryChannelJob(target) {
 			worker_id: '',
 			claim_token: '',
 		}, 'Retry queued');
-		await refreshMirror(target, 'Retry queued');
 		return getChannelJobRecord(target.sourceCollection, target.sourceId);
 	} catch (error) {
 		adminHttpError(error);
@@ -429,7 +405,6 @@ export async function requeueChannelJob(target) {
 			worker_id: '',
 			claim_token: '',
 		}, 'Requeued from dead letter');
-		await refreshMirror(target, 'Requeued from dead letter');
 		return getChannelJobRecord(target.sourceCollection, target.sourceId);
 	} catch (error) {
 		adminHttpError(error);

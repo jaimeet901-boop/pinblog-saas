@@ -1,7 +1,6 @@
 export {
 	appendQueueEvent,
 	enqueueJob,
-	upsertMirroredJob,
 	updateQueueJob,
 	getQueueJob,
 	listQueueEvents,
@@ -15,4 +14,4 @@ export * from './workers.js';
 export * from './metrics.js';
 export * from './controls.js';
 export * from './engine.js';
-export * from './mirrors.js';
+export { getQueueMirrorsStatus } from './mirror-status.js';

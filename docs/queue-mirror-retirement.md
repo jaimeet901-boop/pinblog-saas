@@ -1,51 +1,51 @@
 # Queue Mirror Retirement — Phase 9d Plan
 
-**Status:** Phase 9d-0 (docs/inventory), **9d-1** (mirror write flag + metrics breakdown), **9d-2** (admin dual-read foundation), and **9d-3** (admin channel controls) implemented.  
-**Runtime default:** Mirrors **enabled** when `QUEUE_MIRRORS_ENABLED` is unset. Admin dual-read and channel controls **disabled** when their flags are unset. No mirror call sites removed.
+**Status:** Phases **9d-0** through **9d-6** complete. Channel mirror **writes** are retired. Legacy `queue_jobs` rows with `source_collection` remain readable until optional DB cleanup.
 
 Companion doc: [queue-ownership.md](./queue-ownership.md)
 
-Machine-readable ownership catalog: `apps/api/src/services/queue/ownership.js` (`channelMirrors.envFlag`)
+Machine-readable ownership catalog: `apps/api/src/services/queue/ownership.js` (`channelMirrors.retired`)
 
-Manual inventory script (optional, never auto-run): `scripts/inventory-queue-mirrors.mjs`
+Manual stale-row inventory (optional, never auto-run): `scripts/inventory-queue-mirrors.mjs`
 
 ---
 
 ## Purpose
 
-Chef IA maintains **two observability layers** for channel work:
+Chef IA previously maintained **two observability layers** for channel work:
 
 1. **Channel collections** (source of truth for execution and scheduling)
-2. **`queue_jobs` mirrors** (upserted by `apps/api/src/services/queue/mirrors.js` for Admin Queue)
+2. **`queue_jobs` legacy mirror rows** (historical upserts for Admin Queue)
 
-Phase **9d** retires the mirror write path once admin and health can operate on channel-native reads. Phase **9d-0** documents the inventory and roadmap only.
+Phase **9d-4** removed all mirror write call sites. Phase **9d-6** removed `mirrors.js`, `upsertMirroredJob()`, and `QUEUE_MIRRORS_ENABLED`. Admin dual-read and channel controls operate on channel collections directly.
 
 ---
 
-## Validation verdict (read-only, pre-9d-0)
+## Current validation verdict
 
 | Check | Result |
 |-------|--------|
-| Admin Queue depends on mirrored `queue_jobs` | **Yes — critical** |
-| Unified engine executes channel types | **No** — `source_collection` jobs excluded |
-| Calendar depends on mirrors | **Optional enrichment only** |
-| Publishing History depends on mirrors | **No** |
-| Safe to remove mirrors today | **No** |
+| Mirror write call sites | **Removed** (9d-4a/b/c) |
+| Mirror module / upsert helper | **Removed** (9d-6) |
+| Admin dual-read on channel SoT | **Available** (`ADMIN_QUEUE_DUAL_READ_ENABLED`) |
+| Legacy `queue_jobs` rows | **Readable** via `findBySource` until cleanup |
+| Safe to delete legacy DB rows | **Optional** — use inventory script first |
 
-**Phase 9d mirror retirement is NOT READY** until admin dual-read and control routing exist (future 9d-2+).
+**Recommended production flags:** `ADMIN_QUEUE_DUAL_READ_ENABLED=true` + `ADMIN_QUEUE_CHANNEL_CONTROLS_ENABLED=true`
 
 ---
 
-## Mirror inventory
+## Historical mirror inventory (pre-9d-6)
 
-### Core module
+### Retired write module (removed)
 
 | Module | Role |
 |--------|------|
-| `apps/api/src/services/queue/mirrors.js` | `mirrorPinterestJob`, `mirrorWordpressJob`, `mirrorImageJob` |
-| `apps/api/src/services/queue/jobs.js` | `upsertMirroredJob()`, `findBySource()` |
+| ~~`apps/api/src/services/queue/mirrors.js`~~ | ~~`mirrorPinterestJob`, `mirrorWordpressJob`, `mirrorImageJob`~~ |
+| ~~`upsertMirroredJob()` in `jobs.js`~~ | ~~Upsert helper~~ |
+| `findBySource()` in `jobs.js` | **Kept** — legacy row lookup |
 
-All channel mirrors upsert rows in `queue_jobs` with:
+Legacy mirror rows in `queue_jobs` used:
 
 - `source_collection` — channel PocketBase collection name
 - `source_id` — channel job record id
