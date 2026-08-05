@@ -22,6 +22,7 @@ import {
 	getFacebookDestination,
 	listFacebookDestinations,
 	mapLegacyPageItem,
+	validateFacebookDestinationPost,
 } from '../services/facebook/destinations.js';
 
 const router = Router();
@@ -219,6 +220,23 @@ router.get('/destinations', asyncHandler(async (req, res) => {
 
 	const result = await listFacebookDestinations({ owner, accountId, req });
 	if (!result) throw httpError(404, 'Facebook account not found');
+	res.json(result);
+}));
+
+router.post('/destinations/validate', asyncHandler(async (req, res) => {
+	const owner = getOwner(req);
+	const body = req.body || {};
+	const accountId = String(body.accountId || '').trim();
+	const pageId = String(body.pageId || '').trim();
+	const post = body.post && typeof body.post === 'object' ? body.post : {};
+
+	const result = await validateFacebookDestinationPost({
+		owner,
+		accountId,
+		pageId,
+		post,
+		req,
+	});
 	res.json(result);
 }));
 

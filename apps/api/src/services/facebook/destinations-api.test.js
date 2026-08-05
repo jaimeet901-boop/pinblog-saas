@@ -11,6 +11,7 @@ import {
 	listFacebookDestinations,
 	mapFacebookDestination,
 	mapLegacyPageItem,
+	validateFacebookDestinationPost,
 	LEGACY_PAGE_DTO_KEYS,
 } from './destinations.js';
 
@@ -53,13 +54,27 @@ function createTestDeps({ account = baseAccount, pages = null, page = basePage, 
 		andWorkspaceScope: (_req, filter) => filter,
 		recordBelongsToWorkspace: () => workspaceOk,
 		pocketbaseClient: {
-			filter: (template) => template,
+			filter: (template, params = {}) => {
+				let result = String(template);
+				for (const [key, value] of Object.entries(params)) {
+					result = result.replace(new RegExp(`\\{:${key}\\}`, 'g'), String(value));
+				}
+				return result;
+			},
 			collection: (name) => {
 				if (name !== 'facebook_pages') throw new Error(`unexpected collection ${name}`);
 				return {
 					getFullList: async () => pageRows.map((item) => ({ ...item })),
 					getOne: async (id) => {
 						const match = pageRows.find((item) => item.id === id);
+						return match ? { ...match } : Promise.reject(new Error('not found'));
+					},
+					getFirstListItem: async (filter) => {
+						const filterStr = String(filter);
+						const match = pageRows.find((item) => (
+							filterStr.includes(String(item.page_id))
+							&& filterStr.includes(String(item.account))
+						));
 						return match ? { ...match } : Promise.reject(new Error('not found'));
 					},
 				};
@@ -223,16 +238,148 @@ describe('facebook F3-3 destination read API helpers', () => {
 	});
 });
 
-describe('facebook F3-3 route wiring', () => {
-	it('registers destination read routes and preserves legacy pages route', () => {
+describe('facebook F3-4 destination validation API', () => {
+	const validPost = {
+		message: 'Hello from Chef IA',
+		imageUrl: 'https://cdn.example.com/post.jpg',
+		linkUrl: 'https://example.com/recipe',
+	};
+
+	it('returns ok for a valid request', async () => {
+		const result = await validateFacebookDestinationPost({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: '123456789',
+			post: validPost,
+			deps: createTestDeps(),
+		});
+		assert.equal(result.ok, true);
+		assert.deepEqual(result.errors, []);
+		assert.equal(result.normalized.accountId, 'acc_1');
+		assert.equal(result.normalized.pageId, '123456789');
+		assert.equal(result.normalized.message, validPost.message);
+		assert.equal(result.normalized.imageUrl, validPost.imageUrl);
+		assert.equal(result.normalized.linkUrl, validPost.linkUrl);
+	});
+
+	it('returns errors for invalid message length', async () => {
+		const result = await validateFacebookDestinationPost({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: '123456789',
+			post: { ...validPost, message: 'x'.repeat(63207) },
+			deps: createTestDeps(),
+		});
+		assert.equal(result.ok, false);
+		assert.ok(result.errors.some((err) => err.includes('Message exceeds')));
+	});
+
+	it('returns errors for invalid image URL', async () => {
+		const result = await validateFacebookDestinationPost({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: '123456789',
+			post: { ...validPost, imageUrl: 'not-a-url' },
+			deps: createTestDeps(),
+		});
+		assert.equal(result.ok, false);
+		assert.ok(result.errors.includes('Image URL must be a valid http(s) URL'));
+	});
+
+	it('returns errors for invalid link URL', async () => {
+		const result = await validateFacebookDestinationPost({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: '123456789',
+			post: { ...validPost, linkUrl: 'ftp://bad.example' },
+			deps: createTestDeps(),
+		});
+		assert.equal(result.ok, false);
+		assert.ok(result.errors.includes('Link URL must be a valid http(s) URL'));
+	});
+
+	it('returns errors when destination is not found', async () => {
+		const result = await validateFacebookDestinationPost({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: 'missing_page',
+			post: validPost,
+			deps: createTestDeps({ pages: [] }),
+		});
+		assert.equal(result.ok, false);
+		assert.ok(result.errors.includes('Facebook destination not found'));
+	});
+
+	it('returns errors for disconnected account', async () => {
+		const result = await validateFacebookDestinationPost({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: '123456789',
+			post: validPost,
+			deps: createTestDeps({
+				account: { ...baseAccount, connected: false, status: 'disconnected' },
+			}),
+		});
+		assert.equal(result.ok, false);
+		assert.ok(result.errors.some((err) => err.includes('Destination not ready: Facebook account is not connected')));
+	});
+
+	it('returns errors when destination is not ready', async () => {
+		const result = await validateFacebookDestinationPost({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: '123456789',
+			post: validPost,
+			deps: createTestDeps({
+				page: { ...basePage, tasks: [] },
+				account: { ...baseAccount, page_tokens: {} },
+			}),
+		});
+		assert.equal(result.ok, false);
+		assert.ok(result.errors.some((err) => err.includes('Destination not ready:')));
+	});
+
+	it('returns errors when accountId is missing', async () => {
+		const result = await validateFacebookDestinationPost({
+			owner: 'user_1',
+			accountId: '',
+			pageId: '123456789',
+			post: validPost,
+			deps: createTestDeps(),
+		});
+		assert.equal(result.ok, false);
+		assert.ok(result.errors.includes('Facebook account is required'));
+	});
+
+	it('returns errors when pageId is missing', async () => {
+		const result = await validateFacebookDestinationPost({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: '',
+			post: validPost,
+			deps: createTestDeps(),
+		});
+		assert.equal(result.ok, false);
+		assert.ok(result.errors.includes('Facebook Page is required'));
+	});
+});
+
+describe('facebook F3 route wiring', () => {
+	it('registers destination read routes and validation route', () => {
 		const route = readFileSync(path.join(root, 'apps/api/src/routes/facebook.js'), 'utf8');
 		assert.match(route, /router\.get\('\/pages'/);
 		assert.match(route, /router\.get\('\/destinations'/);
+		assert.match(route, /router\.post\('\/destinations\/validate'/);
 		assert.match(route, /router\.get\('\/destinations\/:destinationId'/);
 		assert.match(route, /mapLegacyPageItem/);
 		assert.match(route, /listFacebookDestinations/);
 		assert.match(route, /getFacebookDestination/);
+		assert.match(route, /validateFacebookDestinationPost/);
 		assert.match(route, /assertFacebookAccountConnected/);
-		assert.doesNotMatch(route, /router\.(post|put|patch|delete)\('\/destinations/);
+		const validateRouteIndex = route.indexOf("router.post('/destinations/validate'");
+		const paramRouteIndex = route.indexOf("router.get('/destinations/:destinationId'");
+		assert.ok(validateRouteIndex >= 0 && paramRouteIndex >= 0);
+		assert.ok(validateRouteIndex < paramRouteIndex, 'validate route must register before :destinationId');
+		assert.doesNotMatch(route, /router\.(post|put|patch|delete)\('\/publish/);
 	});
 });

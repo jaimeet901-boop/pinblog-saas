@@ -4,7 +4,7 @@
  */
 
 import { analyzeGrantedScopes, REQUIRED_PAGE_SCOPES } from './scopes.js';
-import { validateFacebookDestinationReady } from './validators.js';
+import { validateFacebookDestinationReady, validateFacebookPostForPublish } from './validators.js';
 
 const DTO_KEYS = new Set([
 	'id',
@@ -314,4 +314,144 @@ export async function getFacebookDestination({ owner, destinationId, req = null,
 	if (!account) return null;
 
 	return mapFacebookDestination(page, account);
+}
+
+/**
+ * Resolve a facebook_pages row by account + Meta page id (read-only).
+ */
+async function findFacebookPageByAccountAndPageId({
+	owner,
+	accountId,
+	pageId,
+	req = null,
+	deps = null,
+} = {}) {
+	const accountIdStr = String(accountId || '').trim();
+	const pageIdStr = String(pageId || '').trim();
+	if (!owner || !accountIdStr || !pageIdStr) return null;
+
+	const { pocketbaseClient: pb, andWorkspaceScope } = await resolveDestinationDeps(deps || {});
+	const filter = req
+		? andWorkspaceScope(req, pb.filter('account = {:account} && page_id = {:pageId}', {
+			account: accountIdStr,
+			pageId: pageIdStr,
+		}))
+		: pb.filter('owner = {:owner} && account = {:account} && page_id = {:pageId}', {
+			owner,
+			account: accountIdStr,
+			pageId: pageIdStr,
+		});
+
+	return pb.collection('facebook_pages').getFirstListItem(filter, { requestKey: null }).catch(() => null);
+}
+
+/**
+ * Server-side post + destination validation (read-only preflight).
+ *
+ * @param {{
+ *   owner: string,
+ *   accountId: string,
+ *   pageId: string,
+ *   post?: object,
+ *   req?: object,
+ *   deps?: object,
+ * }} input
+ */
+export async function validateFacebookDestinationPost({
+	owner,
+	accountId,
+	pageId,
+	post = {},
+	req = null,
+	deps = null,
+} = {}) {
+	const accountIdStr = String(accountId || '').trim();
+	const pageIdStr = String(pageId || '').trim();
+	const postPayload = post && typeof post === 'object' ? post : {};
+
+	if (!accountIdStr || !pageIdStr) {
+		return validateFacebookPostForPublish({
+			post: { ...postPayload, accountId: accountIdStr, pageId: pageIdStr },
+		});
+	}
+
+	const { getOwnedFacebookAccountById } = await resolveDestinationDeps(deps || {});
+	const account = await getOwnedFacebookAccountById({ owner, accountId: accountIdStr, req });
+	if (!account) {
+		return {
+			ok: false,
+			errors: ['Facebook account not found'],
+			warnings: [],
+			normalized: {
+				message: String(postPayload.message || '').trim(),
+				linkUrl: '',
+				imageUrl: '',
+				pageId: pageIdStr,
+				accountId: accountIdStr,
+			},
+		};
+	}
+
+	let pageRecord = await findFacebookPageByAccountAndPageId({
+		owner,
+		accountId: accountIdStr,
+		pageId: pageIdStr,
+		req,
+		deps,
+	});
+
+	if (!pageRecord) {
+		const byRecordId = await getFacebookDestination({
+			owner,
+			destinationId: pageIdStr,
+			req,
+			deps,
+		});
+		if (byRecordId && byRecordId.accountId === accountIdStr) {
+			const { pocketbaseClient: pb } = await resolveDestinationDeps(deps || {});
+			pageRecord = await pb.collection('facebook_pages').getOne(byRecordId.id, { requestKey: null }).catch(() => null);
+		}
+	}
+
+	if (!pageRecord) {
+		return {
+			ok: false,
+			errors: ['Facebook destination not found'],
+			warnings: [],
+			normalized: {
+				message: String(postPayload.message || '').trim(),
+				linkUrl: '',
+				imageUrl: '',
+				pageId: pageIdStr,
+				accountId: accountIdStr,
+			},
+		};
+	}
+
+	const destination = await getFacebookDestination({
+		owner,
+		destinationId: pageRecord.id,
+		req,
+		deps,
+	});
+
+	const hasPageToken = destination?.permissions?.hasPageToken
+		?? accountHasPageToken(account, pageRecord.page_id || pageIdStr);
+
+	return validateFacebookPostForPublish({
+		post: {
+			...postPayload,
+			accountId: accountIdStr,
+			pageId: String(pageRecord.page_id || pageIdStr).trim(),
+		},
+		account,
+		page: pageRecord,
+		hasPageToken,
+		destinationReadiness: destination?.publishReadiness
+			? {
+				ready: destination.publishReadiness.ready,
+				reasons: destination.publishReadiness.reasons || [],
+			}
+			: undefined,
+	});
 }
