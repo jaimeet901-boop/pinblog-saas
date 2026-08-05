@@ -9,7 +9,6 @@ import {
 } from '../../pinterest-api.js';
 import {
 	mirrorImageJob,
-	mirrorWordpressJob,
 	isQueueMirrorsEnabled,
 } from '../mirrors.js';
 import { httpError, updateQueueJob } from '../jobs.js';
@@ -75,7 +74,7 @@ async function refreshMirror(target, eventMessage = '') {
 		return null;
 	}
 	if (target.sourceCollection === 'publish_jobs') {
-		return mirrorWordpressJob(job, eventMessage);
+		return null;
 	}
 	if (target.sourceCollection === 'ai_pin_image_jobs') {
 		return mirrorImageJob(job, eventMessage);

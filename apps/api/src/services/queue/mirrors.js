@@ -1,6 +1,5 @@
 import { mapSourceStatusToQueue } from './types.js';
 import { upsertMirroredJob } from './jobs.js';
-import { writeQueueAudit } from '../audit/write.js';
 import logger from '../../utils/logger.js';
 
 let envDisabledLogged = false;
@@ -88,15 +87,6 @@ export async function mirrorWordpressJob(job, eventMessage = '') {
 		workerId: job.status === 'publishing' ? 'worker-wordpress-publish' : '',
 		eventMessage,
 	});
-	if (mirrored && (job.status === 'published' || job.status === 'failed')) {
-		await writeQueueAudit({
-			job: mirrored,
-			action: job.status === 'published' ? 'WordPress publish completed' : 'WordPress publish failed',
-			severity: job.status === 'published' ? 'success' : 'error',
-			result: job.status === 'published' ? 'ok' : 'failed',
-			message: eventMessage || job.last_error || '',
-		}).catch(() => null);
-	}
 	return mirrored;
 }
 

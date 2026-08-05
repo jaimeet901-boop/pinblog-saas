@@ -3,7 +3,6 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { httpError } from '../middleware/require-admin.js';
 import { mapWpStatus } from './wordpress-client.js';
 import { resolvePublishSite } from './wordpress-sites.js';
-import { mirrorWordpressJob } from './queue/mirrors.js';
 import { newWorkflowId } from './publish-pipeline.js';
 import { logWorkflowStep } from './workspace-notify.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
@@ -169,7 +168,6 @@ export async function enqueueWordpressPublish(ownerOrCtx, payload = {}) {
 
 	const job = await pocketbaseClient.collection('publish_jobs').create(createBody);
 
-	await mirrorWordpressJob(job, 'WordPress publish job enqueued').catch(() => null);
 	await logWorkflowStep({
 		ownerId,
 		action: 'workflow.enqueued',

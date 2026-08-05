@@ -7,7 +7,7 @@ import {
 } from './wordpress-client.js';
 import { getSiteCredentialsPlain } from './wordpress-sites.js';
 import { writePublishHistory } from './wordpress-publish.js';
-import { mirrorWordpressJob } from './queue/mirrors.js';
+import { writeQueueAudit } from './audit/write.js';
 import {
 	continueChefIaPublishWorkflow,
 	notifyWordpressPublishFailure,
@@ -45,6 +45,32 @@ export function isWordpressQueueEnabled() {
 	return true;
 }
 
+async function writeWordpressPublishQueueAudit(job, eventMessage = '') {
+	if (!job?.id) return null;
+	if (job.status !== 'published' && job.status !== 'failed') return null;
+	return writeQueueAudit({
+		job: {
+			id: job.id,
+			owner: job.owner,
+			workspace_key: job.workspace_key || '',
+			type: 'wordpress_publishing',
+			provider: 'WordPress',
+			status: job.status,
+			source_collection: 'publish_jobs',
+			source_id: job.id,
+			correlation_id: job.workflow_id ? `workflow_${job.workflow_id}` : `wordpress_${job.id}`,
+			priority: 'normal',
+			progress: job.status === 'published' ? 100 : 0,
+			credits: 0,
+			duration_ms: 0,
+		},
+		action: job.status === 'published' ? 'WordPress publish completed' : 'WordPress publish failed',
+		severity: job.status === 'published' ? 'success' : 'error',
+		result: job.status === 'published' ? 'ok' : 'failed',
+		message: eventMessage || job.last_error || '',
+	}).catch(() => null);
+}
+
 function nextRetryDate(attemptCount = 1) {
 	const capped = Math.max(1, Math.min(10, attemptCount));
 	const delays = [0, 30_000, 120_000, 300_000];
@@ -74,7 +100,6 @@ async function claimJob(jobId) {
 	if (!verified || verified.status !== 'publishing' || verified.claim_token !== claimToken) {
 		return null;
 	}
-	await mirrorWordpressJob(verified, 'Worker claimed WordPress job').catch(() => null);
 	return verified;
 }
 
@@ -223,7 +248,7 @@ async function processJob(job) {
 		dead_letter: false,
 	});
 
-	await mirrorWordpressJob({
+	await writeWordpressPublishQueueAudit({
 		...job,
 		status: 'published',
 		progress: 100,
@@ -232,7 +257,7 @@ async function processJob(job) {
 		completed_at: completedAt,
 		last_error: '',
 		dead_letter: false,
-	}, 'WordPress publish completed').catch(() => null);
+	}, 'WordPress publish completed');
 
 	await writePublishHistory({
 		ownerId,
@@ -300,14 +325,6 @@ async function failOrRetry(job, error) {
 			progress: 0,
 			claim_token: '',
 		});
-		await mirrorWordpressJob({
-			...job,
-			status: job.scheduled_at ? 'scheduled' : 'queued',
-			attempt_count: attempt,
-			next_retry_at: nextRetryDate(attempt),
-			last_error: error.message,
-			progress: 0,
-		}, 'WordPress publish retry scheduled').catch(() => null);
 		await notifyWordpressPublishFailure({ job, error, retrying: true }).catch(() => null);
 		return;
 	}
@@ -322,7 +339,7 @@ async function failOrRetry(job, error) {
 		dead_letter: true,
 		claim_token: '',
 	});
-	await mirrorWordpressJob({
+	await writeWordpressPublishQueueAudit({
 		...job,
 		status: 'failed',
 		attempt_count: attempt,
@@ -330,7 +347,7 @@ async function failOrRetry(job, error) {
 		completed_at: completedAt,
 		progress: 100,
 		dead_letter: true,
-	}, 'WordPress publish failed').catch(() => null);
+	}, 'WordPress publish failed');
 
 	await writePublishHistory({
 		ownerId: job.owner,
