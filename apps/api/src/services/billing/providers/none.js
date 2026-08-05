@@ -52,6 +52,6 @@ export class NoneBillingProvider extends BillingProvider {
 	}
 
 	async verifyWebhook() {
-		return { ok: true, provider: 'none' };
+		return { ok: false, error: 'none_provider_webhooks_disabled', provider: 'none' };
 	}
 }
