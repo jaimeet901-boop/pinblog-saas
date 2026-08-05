@@ -26,6 +26,24 @@ let failedTotal = 0;
 let lastRunAt = '';
 let lastSuccessAt = '';
 let lastErrorMessage = '';
+let envDisabledLogged = false;
+
+/**
+ * WordPress legacy poller gate (Phase 9c). Unset defaults to enabled.
+ */
+export function isWordpressQueueEnabled() {
+	const raw = String(process.env.WORDPRESS_QUEUE_ENABLED ?? '').trim().toLowerCase();
+	if (!raw) {
+		return true;
+	}
+	if (raw === '1' || raw === 'true') {
+		return true;
+	}
+	if (raw === '0' || raw === 'false') {
+		return false;
+	}
+	return true;
+}
 
 function nextRetryDate(attemptCount = 1) {
 	const capped = Math.max(1, Math.min(10, attemptCount));
@@ -404,6 +422,15 @@ async function tick() {
 
 export function startWordpressPublishQueue() {
 	if (workerTimer) return;
+
+	if (!isWordpressQueueEnabled()) {
+		if (!envDisabledLogged) {
+			logger.info('WordPress publish queue disabled by WORDPRESS_QUEUE_ENABLED');
+			envDisabledLogged = true;
+		}
+		return;
+	}
+
 	logger.info('[wordpress-queue] starting worker');
 	tick();
 	workerTimer = setInterval(tick, POLL_INTERVAL_MS);
@@ -417,8 +444,11 @@ export function stopWordpressPublishQueue() {
 }
 
 export function getWordpressQueueStats() {
+	const enabled = isWordpressQueueEnabled();
 	return {
 		running,
+		enabled,
+		disabledByEnv: !enabled,
 		processedTotal,
 		failedTotal,
 		lastRunAt,

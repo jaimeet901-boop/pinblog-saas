@@ -30,6 +30,24 @@ let failedTotal = 0;
 let lastRunAt = '';
 let lastSuccessAt = '';
 let lastErrorMessage = '';
+let envDisabledLogged = false;
+
+/**
+ * AI pin image legacy poller gate (Phase 9c). Unset defaults to enabled.
+ */
+export function isAIPinImageQueueEnabled() {
+	const raw = String(process.env.AI_PIN_IMAGE_QUEUE_ENABLED ?? '').trim().toLowerCase();
+	if (!raw) {
+		return true;
+	}
+	if (raw === '1' || raw === 'true') {
+		return true;
+	}
+	if (raw === '0' || raw === 'false') {
+		return false;
+	}
+	return true;
+}
 
 function normalizeText(value, max = 0) {
 	const text = typeof value === 'string' ? value.trim() : '';
@@ -747,9 +765,12 @@ async function recoverStuckProcessingJobs({ onlyOlderThanMs = 0 } = {}) {
 }
 
 export function getAIPinImageQueueStatus() {
+	const enabled = isAIPinImageQueueEnabled();
 	return {
 		running,
 		active: Boolean(workerTimer),
+		enabled,
+		disabledByEnv: !enabled,
 		pollIntervalMs: POLL_INTERVAL_MS,
 		batchSize: MAX_JOBS_PER_TICK,
 		processedTotal,
@@ -787,6 +808,14 @@ async function ensureImageJobClaimFields() {
 
 export function startAIPinImageQueue() {
 	if (workerTimer) {
+		return;
+	}
+
+	if (!isAIPinImageQueueEnabled()) {
+		if (!envDisabledLogged) {
+			logger.info('AI pin image queue disabled by AI_PIN_IMAGE_QUEUE_ENABLED');
+			envDisabledLogged = true;
+		}
 		return;
 	}
 

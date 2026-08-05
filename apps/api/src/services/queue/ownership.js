@@ -28,6 +28,7 @@ export const CHANNEL_EXECUTORS = Object.freeze([
 		executorModule: 'services/wordpress-publish-queue.js',
 		mirrorModule: 'services/queue/mirrors.js#mirrorWordpressJob',
 		startedFrom: 'main.js#startWordpressPublishQueue',
+		envFlag: 'WORDPRESS_QUEUE_ENABLED',
 	}),
 	Object.freeze({
 		id: 'ai-pin-image',
@@ -36,6 +37,7 @@ export const CHANNEL_EXECUTORS = Object.freeze([
 		executorModule: 'services/ai-pin-image-queue.js',
 		mirrorModule: 'services/queue/mirrors.js#mirrorImageJob',
 		startedFrom: 'main.js#startAIPinImageQueue',
+		envFlag: 'AI_PIN_IMAGE_QUEUE_ENABLED',
 	}),
 ]);
 
