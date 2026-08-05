@@ -112,7 +112,25 @@ These are **not** replacements for channel publish pollers.
 | **9a** | Ownership docs + health visibility | **None** |
 | **9b** (implemented) | `PINTEREST_QUEUE_ENABLED` — Pinterest poller only | Optional execution pause; scheduling unchanged |
 | **9c** (implemented) | `WORDPRESS_QUEUE_ENABLED`, `AI_PIN_IMAGE_QUEUE_ENABLED` | Optional execution pause; enqueue unchanged |
-| **9d** | Mirror retirement | High risk; last |
+| **9d** (preparation) | Mirror retirement — docs + inventory | **None** (9d-0); see [queue-mirror-retirement.md](./queue-mirror-retirement.md) |
+
+### Phase 9d — Mirror retirement (preparation)
+
+**Status:** Phase 9d-0 complete when retirement doc and inventory script land. **Mirror writes remain active.**
+
+| Sub-phase | Scope | Runtime change |
+|-----------|-------|----------------|
+| **9d-0** (preparation) | `docs/queue-mirror-retirement.md`, optional `scripts/inventory-queue-mirrors.mjs` | None |
+| **9d-1** (planned) | `QUEUE_MIRRORS_ENABLED` + metrics breakdown | Additive flags; default unchanged |
+| **9d-2** (planned) | Admin dual-read (`ADMIN_QUEUE_DUAL_READ_ENABLED`) | Flag-gated read path |
+| **9d-3** (planned) | Admin controls on channel refs | Required before mirror removal |
+| **9d-4** (planned) | Remove mirror call sites (one channel per commit) | High risk |
+| **9d-5** (planned) | Calendar optional mirror lookup removal | Low risk |
+| **9d-6** (planned) | Cleanup stale `queue_jobs`, retire channel mirror exports | Last |
+
+Full inventory, dependency graph, staging, and commit roadmap: **[queue-mirror-retirement.md](./queue-mirror-retirement.md)**
+
+**Validation verdict:** Mirror retirement is **NOT READY** until admin dual-read and control routing are implemented and staging-soaked.
 
 ### Channel poller flags
 
