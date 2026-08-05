@@ -31,6 +31,8 @@ These modules **poll PocketBase channel collections** and perform external I/O (
 | Channel | Collection | Executor | Started from |
 |---------|------------|----------|--------------|
 | Pinterest publish | `pinterest_publish_jobs` | `apps/api/src/services/pinterest-publish-queue.js` | `main.js` → `startPinterestPublishQueue()` |
+
+**Phase 9b — Pinterest poller flag:** `PINTEREST_QUEUE_ENABLED` gates legacy poller startup only. When unset or `true`/`1`, behavior is unchanged. When `false`/`0`, the poller does not start (no timer, no stuck recovery); schedule/publish APIs and calendar mutations still create and update `pinterest_publish_jobs`.
 | WordPress publish | `publish_jobs` | `apps/api/src/services/wordpress-publish-queue.js` | `main.js` → `startWordpressPublishQueue()` |
 | AI pin image | `ai_pin_image_jobs` | `apps/api/src/services/ai-pin-image-queue.js` | `main.js` → `startAIPinImageQueue()` |
 
@@ -107,10 +109,19 @@ These are **not** replacements for channel publish pollers.
 
 | Sub-phase | Scope | Runtime change |
 |-----------|-------|----------------|
-| **9a** (this doc) | Ownership docs + health visibility | **None** |
-| **9b** | Pinterest poller env flag | Optional pause (future) |
+| **9a** | Ownership docs + health visibility | **None** |
+| **9b** (implemented) | `PINTEREST_QUEUE_ENABLED` — Pinterest poller only | Optional execution pause; scheduling unchanged |
 | **9c** | WordPress + AI image flags | Optional pause (future) |
 | **9d** | Mirror retirement | High risk; last |
+
+### Pinterest poller flag (`PINTEREST_QUEUE_ENABLED`)
+
+| Value | Poller | Job creation / calendar |
+|-------|--------|-------------------------|
+| unset, `true`, `1` | Runs (default) | Unchanged |
+| `false`, `0` | Does not start | Unchanged — jobs accumulate until re-enabled + restart |
+
+Health/status: `getPinterestQueueStatus()` exposes `enabled` and `disabledByEnv`. Requires process restart to toggle.
 
 ---
 

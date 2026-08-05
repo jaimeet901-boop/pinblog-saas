@@ -19,6 +19,7 @@ export const CHANNEL_EXECUTORS = Object.freeze([
 		executorModule: 'services/pinterest-publish-queue.js',
 		mirrorModule: 'services/queue/mirrors.js#mirrorPinterestJob',
 		startedFrom: 'main.js#startPinterestPublishQueue',
+		envFlag: 'PINTEREST_QUEUE_ENABLED',
 	}),
 	Object.freeze({
 		id: 'wordpress-publish',

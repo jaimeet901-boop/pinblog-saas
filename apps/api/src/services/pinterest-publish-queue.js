@@ -40,6 +40,24 @@ let failedTotal = 0;
 let lastRunAt = '';
 let lastSuccessAt = '';
 let lastErrorMessage = '';
+let envDisabledLogged = false;
+
+/**
+ * Pinterest legacy poller gate (Phase 9b). Unset defaults to enabled.
+ */
+export function isPinterestQueueEnabled() {
+	const raw = String(process.env.PINTEREST_QUEUE_ENABLED ?? '').trim().toLowerCase();
+	if (!raw) {
+		return true;
+	}
+	if (raw === '1' || raw === 'true') {
+		return true;
+	}
+	if (raw === '0' || raw === 'false') {
+		return false;
+	}
+	return true;
+}
 
 function httpError(status, message, extras = {}) {
 	const error = new Error(message);
@@ -714,9 +732,12 @@ async function recoverStuckPublishingJobs() {
 }
 
 export function getPinterestQueueStatus() {
+	const enabled = isPinterestQueueEnabled();
 	return {
 		running,
 		active: Boolean(workerTimer),
+		enabled,
+		disabledByEnv: !enabled,
 		pollIntervalMs: POLL_INTERVAL_MS,
 		batchSize: MAX_JOBS_PER_TICK,
 		processedTotal,
@@ -729,6 +750,14 @@ export function getPinterestQueueStatus() {
 
 export function startPinterestPublishQueue() {
 	if (workerTimer) {
+		return;
+	}
+
+	if (!isPinterestQueueEnabled()) {
+		if (!envDisabledLogged) {
+			logger.info('Pinterest publish queue disabled by PINTEREST_QUEUE_ENABLED');
+			envDisabledLogged = true;
+		}
 		return;
 	}
 
