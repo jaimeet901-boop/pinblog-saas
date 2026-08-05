@@ -117,13 +117,13 @@ These are **not** replacements for channel publish pollers.
 
 ### Phase 9d — Mirror retirement (preparation)
 
-**Status:** 9d-0 and 9d-1 complete. **Mirror writes remain active by default.** Full mirror retirement (9d-2+) is **NOT READY**.
+**Status:** 9d-0, 9d-1, and **9d-2** complete. **Mirror writes remain active by default.** Full mirror retirement (9d-3+) is **NOT READY**.
 
 | Sub-phase | Scope | Runtime change |
 |-----------|-------|----------------|
 | **9d-0** (implemented) | `docs/queue-mirror-retirement.md`, optional `scripts/inventory-queue-mirrors.mjs` | None |
 | **9d-1** (implemented) | `QUEUE_MIRRORS_ENABLED` + `breakdown.native` / `breakdown.mirroredChannel` | Optional mirror write pause; default enabled |
-| **9d-2** (planned) | Admin dual-read (`ADMIN_QUEUE_DUAL_READ_ENABLED`) | Flag-gated read path |
+| **9d-2** (implemented) | Admin dual-read (`ADMIN_QUEUE_DUAL_READ_ENABLED`) | Flag-gated read path; default disabled |
 | **9d-3** (planned) | Admin controls on channel refs | Required before mirror removal |
 | **9d-4** (planned) | Remove mirror call sites (one channel per commit) | High risk |
 | **9d-5** (planned) | Calendar optional mirror lookup removal | Low risk |
@@ -156,6 +156,17 @@ Status helpers expose `enabled` and `disabledByEnv`. Requires process restart to
 | `false`, `0` | No new mirror upserts | Unchanged — admin may not see new channel jobs until dual-read (9d-2) |
 
 Gates `mirrorPinterestJob`, `mirrorWordpressJob`, and `mirrorImageJob` only. `getQueueMirrorsStatus()` and `computeQueueSummary().breakdown` expose native vs mirrored channel counts.
+
+### Admin dual-read flag (`ADMIN_QUEUE_DUAL_READ_ENABLED`)
+
+| Value | Admin Queue read path |
+|-------|------------------------|
+| unset, `false`, `0` | **Disabled** — `queue_jobs` only (current production behavior) |
+| `true`, `1` | Dual-read — merge native `queue_jobs` + channel collections |
+
+Unknown values default to **disabled**. Requires process restart to toggle. Read path only — cancel/retry/pause still require `queue_jobs.id` until Phase 9d-3.
+
+Module: `apps/api/src/services/queue/admin-read/`. Additive DTO fields when enabled: `readSource`, `queueJobId`. Channel-only rows use synthetic id `{sourceCollection}:{sourceId}`.
 
 ---
 

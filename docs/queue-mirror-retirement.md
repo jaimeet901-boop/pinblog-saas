@@ -1,7 +1,7 @@
 # Queue Mirror Retirement — Phase 9d Plan
 
-**Status:** Phase 9d-0 (docs/inventory) and **9d-1** (mirror write flag + metrics breakdown) implemented.  
-**Runtime default:** Mirrors **enabled** when `QUEUE_MIRRORS_ENABLED` is unset. No mirror call sites removed.
+**Status:** Phase 9d-0 (docs/inventory), **9d-1** (mirror write flag + metrics breakdown), and **9d-2** (admin dual-read foundation) implemented.  
+**Runtime default:** Mirrors **enabled** when `QUEUE_MIRRORS_ENABLED` is unset. Admin dual-read **disabled** when `ADMIN_QUEUE_DUAL_READ_ENABLED` is unset. No mirror call sites removed.
 
 Companion doc: [queue-ownership.md](./queue-ownership.md)
 
@@ -264,14 +264,22 @@ Removing mirrors without replacing this path breaks admin operations.
 - `computeQueueSummary().breakdown`: `{ native, mirroredChannel }`
 - Health payload: additive `breakdown` + `mirrors` fields
 
-### Phase 9d-2 — Admin dual-read (planned)
+### Phase 9d-2 — Admin dual-read (implemented)
 
 | Commit | Scope |
 |--------|-------|
-| 9d-2a | New `queue/admin-read/*`, `routes/admin/queue.js` (flag-gated read path) |
-| 9d-2b | Unit tests for merge/dedupe |
+| 9d-2 | `queue/admin-read/*`, `routes/admin/queue.js` (flag-gated read path), unit tests |
 
-Env flag design: `ADMIN_QUEUE_DUAL_READ_ENABLED` (default off).
+Env flag: `ADMIN_QUEUE_DUAL_READ_ENABLED` (default **off**).
+
+When enabled:
+
+- `GET /admin/queue/jobs` merges native `queue_jobs` + channel collections
+- `GET /admin/queue/jobs/:id` resolves synthetic `{collection}:{id}` or native id
+- Channel rows preferred over mirrored `queue_jobs` with matching `source_collection` + `source_id`
+- Orphan mirrors (channel deleted) omitted from list
+
+Not in 9d-2: admin controls, events on synthetic ids, frontend changes.
 
 ### Phase 9d-3 — Admin controls on channel refs (planned)
 

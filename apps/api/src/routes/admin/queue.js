@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { httpError } from '../../middleware/require-admin.js';
 import {
 	cancelQueueJob,
@@ -13,14 +12,16 @@ import {
 	listRecentActivity,
 	listWorkers,
 	mapQueueJobDetail,
-	mapQueueJobDto,
-	normalizeJobType,
 	pauseQueueJob,
 	requeueDeadLetter,
 	resumeQueueJob,
 	retryQueueJob,
 	setQueuePaused,
 } from '../../services/queue/index.js';
+import {
+	getAdminQueueJobDetail,
+	listAdminQueueJobs,
+} from '../../services/queue/admin-read/index.js';
 import { resolveTrustedEnqueueOwnership } from '../../services/queue/job-ownership.js';
 
 const router = Router();
@@ -29,12 +30,6 @@ function asyncHandler(fn) {
 	return (req, res, next) => {
 		Promise.resolve(fn(req, res, next)).catch(next);
 	};
-}
-
-function normalizePositiveInt(value, fallback, max = 100) {
-	const n = Number.parseInt(value, 10);
-	if (!Number.isFinite(n) || n < 1) return fallback;
-	return Math.min(max, n);
 }
 
 router.get('/summary', asyncHandler(async (req, res) => {
@@ -69,60 +64,14 @@ router.get('/workers', asyncHandler(async (req, res) => {
 }));
 
 router.get('/jobs', asyncHandler(async (req, res) => {
-	const page = normalizePositiveInt(req.query.page, 1);
-	const perPage = normalizePositiveInt(req.query.perPage, 20, 100);
-	const q = String(req.query.q || req.query.search || '').trim().toLowerCase();
-	const status = String(req.query.status || '').trim();
-	const priority = String(req.query.priority || '').trim();
-	const provider = String(req.query.provider || '').trim();
-	const workspace = String(req.query.workspace || '').trim();
-	const dateRange = String(req.query.date || req.query.dateRange || '').trim();
-	const typeRaw = String(req.query.type || req.query.jobType || '').trim();
-	const type = normalizeJobType(typeRaw);
-
-	const parts = [];
-	if (status) parts.push(pocketbaseClient.filter('status = {:status}', { status }));
-	if (priority) parts.push(pocketbaseClient.filter('priority = {:priority}', { priority }));
-	if (provider) parts.push(pocketbaseClient.filter('provider ~ {:provider}', { provider }));
-	if (type) parts.push(pocketbaseClient.filter('type = {:type}', { type }));
-	if (workspace) {
-		parts.push(pocketbaseClient.filter('(workspace_label ~ {:ws} || workspace_key ~ {:ws})', { ws: workspace }));
-	}
-	if (dateRange === 'today') {
-		const start = new Date();
-		start.setHours(0, 0, 0, 0);
-		parts.push(pocketbaseClient.filter('created >= {:start}', { start: start.toISOString() }));
-	}
-
-	const filter = parts.length ? parts.join(' && ') : '';
-	const result = await pocketbaseClient.collection('queue_jobs').getList(page, perPage, {
-		filter: filter || undefined,
-		sort: '-created',
-		expand: 'owner,workspace',
-		requestKey: null,
-	}).catch(() => ({ items: [], page, perPage, totalItems: 0, totalPages: 0 }));
-
-	let items = (result.items || []).map((job) => mapQueueJobDto(job));
-	if (q) {
-		items = items.filter((job) => {
-			const haystack = [job.id, job.type, job.workspace, job.owner, job.provider, job.worker].join(' ').toLowerCase();
-			return haystack.includes(q);
-		});
-	}
-
-	res.json({
-		page: result.page || page,
-		perPage: result.perPage || perPage,
-		totalItems: q ? items.length : result.totalItems,
-		totalPages: q ? Math.max(1, Math.ceil(items.length / perPage)) : result.totalPages,
-		items: q ? items.slice(0, perPage) : items,
-	});
+	const result = await listAdminQueueJobs(req.query);
+	res.json(result);
 }));
 
 router.get('/jobs/:id', asyncHandler(async (req, res) => {
-	const job = await getQueueJob(req.params.id);
-	if (!job) throw httpError(404, 'Job not found', 'NOT_FOUND');
-	res.json(await mapQueueJobDetail(job));
+	const detail = await getAdminQueueJobDetail(req.params.id);
+	if (!detail) throw httpError(404, 'Job not found', 'NOT_FOUND');
+	res.json(detail);
 }));
 
 router.get('/jobs/:id/events', asyncHandler(async (req, res) => {

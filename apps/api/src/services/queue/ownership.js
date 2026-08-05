@@ -67,13 +67,22 @@ export const NATIVE_ENGINE = Object.freeze({
 	]),
 });
 
+/** Admin Queue dual-read layer — channel SoT + native queue_jobs (Phase 9d-2 flag). */
+export const ADMIN_QUEUE_DUAL_READ = Object.freeze({
+	module: 'services/queue/admin-read/index.js',
+	envFlag: 'ADMIN_QUEUE_DUAL_READ_ENABLED',
+	statusHelper: 'getAdminQueueDualReadStatus',
+	defaultEnabled: false,
+});
+
 /** Where operators and product surfaces read queue state. */
 export const QUEUE_CONSUMERS = Object.freeze([
 	Object.freeze({
 		id: 'admin-queue',
 		surface: '/admin/queue',
 		primaryStore: 'queue_jobs',
-		note: 'Unified admin monitor; includes mirrored channel jobs',
+		dualReadFlag: 'ADMIN_QUEUE_DUAL_READ_ENABLED',
+		note: 'Unified admin monitor; dual-read merges channel collections when flag enabled',
 	}),
 	Object.freeze({
 		id: 'calendar',
@@ -101,6 +110,7 @@ export const QUEUE_OWNERSHIP_MODEL = Object.freeze({
 	executionSourceOfTruth: 'channel job collections (pinterest_publish_jobs, publish_jobs, ai_pin_image_jobs)',
 	adminObservabilityStore: 'queue_jobs',
 	channelMirrors: CHANNEL_MIRRORS,
+	adminDualRead: ADMIN_QUEUE_DUAL_READ,
 	nativeProcessor: NATIVE_ENGINE,
 	channelExecutors: CHANNEL_EXECUTORS,
 	consumers: QUEUE_CONSUMERS,
