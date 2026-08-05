@@ -1,5 +1,7 @@
 import logger from '../../../utils/logger.js';
-import { mapQueueJobDto, mapQueueJobDetail, listQueueEvents, getQueueJob, findBySource } from '../jobs.js';
+import { mapQueueJobDto, mapQueueJobDetail, getQueueJob, findBySource } from '../jobs.js';
+import { loadAdminControlTarget } from '../admin-controls/load-target.js';
+import { resolveAdminDetailEvents } from '../admin-events/index.js';
 import { normalizeJobType } from '../types.js';
 import { isAdminQueueDualReadEnabled, getAdminQueueDualReadStatus } from './flag.js';
 import { buildNativeQueueFilter, listNativeQueueJobsPaginated, listNativeQueueJobsBatch } from './native-source.js';
@@ -189,8 +191,8 @@ export async function getAdminQueueJobDetail(id) {
 	const record = await resolveDualReadRecord(id);
 	if (!record) return null;
 
-	const eventJobId = record._queueJobId || null;
-	const events = eventJobId ? await listQueueEvents(eventJobId, 100) : [];
+	const target = await loadAdminControlTarget(id);
+	const events = target ? await resolveAdminDetailEvents(target, 100) : [];
 	const dto = mapQueueJobDto(record, { events, includeDetail: true });
 	return attachReadMeta(dto, record);
 }

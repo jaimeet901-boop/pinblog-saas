@@ -21,7 +21,7 @@ import {
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
 import { writePinterestPublishHistory } from './pinterest-publish-history.js';
-import { mirrorPinterestJob } from './queue/mirrors.js';
+import { writeQueueAudit } from './audit/write.js';
 import { promoteWaitingProviderPinterestJobs } from './publish-pipeline.js';
 import { notifyWorkspaceUser, logWorkflowStep } from './workspace-notify.js';
 import { enqueueAnalyticsRefresh } from './analytics/refresh.js';
@@ -76,6 +76,32 @@ async function appendPublishEvent({ owner, jobId, eventType, message, payload = 
 	}).catch(() => {});
 }
 
+async function writePinterestPublishQueueAudit(job, eventMessage = '') {
+	if (!job?.id) return null;
+	if (job.status !== 'published' && job.status !== 'failed') return null;
+	return writeQueueAudit({
+		job: {
+			id: job.id,
+			owner: job.owner,
+			workspace_key: job.workspace_key || '',
+			type: 'pinterest_publishing',
+			provider: 'Pinterest',
+			status: job.status,
+			source_collection: 'pinterest_publish_jobs',
+			source_id: job.id,
+			correlation_id: job.workflow_id ? `workflow_${job.workflow_id}` : `pinterest_${job.id}`,
+			priority: 'high',
+			progress: job.status === 'published' ? 100 : 0,
+			credits: 0,
+			duration_ms: 0,
+		},
+		action: job.status === 'published' ? 'Pinterest pin published' : 'Pinterest publish failed',
+		severity: job.status === 'published' ? 'success' : 'error',
+		result: job.status === 'published' ? 'ok' : 'failed',
+		message: eventMessage || job.last_error || '',
+	}).catch(() => null);
+}
+
 function nextRetryDate({ retryAfter = 0, attemptCount = 1 }) {
 	const cappedAttempt = Math.max(1, Math.min(10, attemptCount));
 	const fromRateLimit = retryAfter > 0 ? retryAfter * 1000 : 0;
@@ -120,7 +146,6 @@ async function claimScheduledJob(jobId) {
 		return null;
 	}
 
-	await mirrorPinterestJob(verified, null, 'Worker claimed Pinterest job').catch(() => null);
 	return verified;
 }
 
@@ -404,7 +429,7 @@ async function processJob(job) {
 		metadata: { pinterestPinId },
 	}).catch(() => null);
 
-	await mirrorPinterestJob({
+	await writePinterestPublishQueueAudit({
 		...job,
 		status: 'published',
 		attempt_count: (job.attempt_count || 0) + 1,
@@ -412,7 +437,7 @@ async function processJob(job) {
 		pinterest_pin_id: pinterestPinId,
 		pinterest_pin_url: pinterestPinUrl,
 		last_error: '',
-	}, pin, 'Pinterest pin published').catch(() => null);
+	}, 'Pinterest pin published');
 
 	const isRetrySuccess = Number(job.attempt_count || 0) > 0;
 	await notifyWorkspaceUser({
@@ -569,13 +594,15 @@ async function processDueJobs() {
 
 				await pocketbaseClient.collection('pinterest_publish_jobs').update(locked.id, retryPayload);
 
-				await mirrorPinterestJob({
-					...locked,
-					status: shouldRetry ? 'scheduled' : 'failed',
-					attempt_count: nextAttempts,
-					last_error: storedError,
-					next_retry_at: nextRetryAt,
-				}, null, shouldRetry ? 'Pinterest publish retry scheduled' : 'Pinterest publish failed').catch(() => null);
+				if (!shouldRetry) {
+					await writePinterestPublishQueueAudit({
+						...locked,
+						status: 'failed',
+						attempt_count: nextAttempts,
+						last_error: storedError,
+						next_retry_at: nextRetryAt,
+					}, 'Pinterest publish failed');
+				}
 
 				await markPinStatus(locked.ai_pin, {
 					status: shouldRetry ? 'scheduled' : 'failed',

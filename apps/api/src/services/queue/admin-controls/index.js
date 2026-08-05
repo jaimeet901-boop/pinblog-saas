@@ -6,15 +6,14 @@ import {
 	resumeQueueJob,
 	retryQueueJob,
 } from '../controls.js';
-import { getQueueJob, httpError, listQueueEvents, mapQueueJobDetail } from '../jobs.js';
+import { getQueueJob, httpError, mapQueueJobDetail } from '../jobs.js';
 import { getAdminQueueJobDetail } from '../admin-read/index.js';
+import { resolveAdminApiEventsFromTarget } from '../admin-events/index.js';
 import { isAdminQueueChannelControlsEnabled } from './flag.js';
 import { loadAdminControlTarget } from './load-target.js';
-import { CONTROL_ROUTE } from './resolve-target.js';
 import {
 	cancelChannelJob,
 	deleteChannelJob,
-	listChannelJobEvents,
 	pauseChannelJob,
 	requeueChannelJob,
 	resumeChannelJob,
@@ -125,31 +124,5 @@ export async function listAdminQueueJobEvents(requestedId, limit = 100) {
 	if (!target) {
 		throw httpError(404, 'Job not found', 'NOT_FOUND');
 	}
-
-	if (target.route === CONTROL_ROUTE.NATIVE && target.queueJobId) {
-		const events = await listQueueEvents(target.queueJobId, limit);
-		return events.map((event) => ({
-			id: event.id,
-			level: event.level,
-			message: event.message,
-			at: event.at || event.created,
-			payload: event.payload || null,
-		}));
-	}
-
-	const channelEvents = await listChannelJobEvents(target, limit);
-	if (channelEvents.length) return channelEvents;
-
-	if (target.queueJobId) {
-		const events = await listQueueEvents(target.queueJobId, limit);
-		return events.map((event) => ({
-			id: event.id,
-			level: event.level,
-			message: event.message,
-			at: event.at || event.created,
-			payload: event.payload || null,
-		}));
-	}
-
-	return [];
+	return resolveAdminApiEventsFromTarget(target, limit);
 }

@@ -46,7 +46,6 @@ import { attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation } from 
 import { analyzeGrantedScopes, DEFAULT_SCOPES, mergeRequiredScopes } from '../services/pinterest-scopes.js';
 import { getPinterestAppCredentials } from '../services/pinterest-app-credentials.js';
 import { listPublishProviders, setPublishProvider, getPublishProvider, PinterestPublishProvider } from '../services/publish-providers/index.js';
-import { mirrorPinterestJob } from '../services/queue/mirrors.js';
 import { ensureAiPinsPublishFields } from '../utils/ensure-ai-pins-publish-fields.js';
 import {
 	getWorkspaceActor,
@@ -391,8 +390,6 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 			message: 'Pin scheduled for publishing',
 			payload: { scheduledAt, timezone, boardId: board.board_id, accountId: account.id },
 		});
-
-		await mirrorPinterestJob(job, pin, 'Pinterest publish job scheduled').catch(() => null);
 
 		jobs.push(job);
 	}

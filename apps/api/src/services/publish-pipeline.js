@@ -9,7 +9,6 @@ import {
 	getPinterestAppCredentials,
 	isPinterestOAuthReady,
 } from './pinterest-app-credentials.js';
-import { mirrorPinterestJob } from './queue/mirrors.js';
 import { notifyWorkspaceUser, logWorkflowStep } from './workspace-notify.js';
 import { enqueueAnalyticsRefresh } from './analytics/refresh.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
@@ -362,10 +361,6 @@ export async function continueChefIaPublishWorkflow({
 		},
 	}).catch(() => null);
 
-	await mirrorPinterestJob(pinterestJob, pin, waitingProvider
-		? 'Pinterest job waiting for provider'
-		: 'Pinterest job queued from WordPress workflow').catch(() => null);
-
 	await pocketbaseClient.collection('publish_jobs').update(job.id, {
 		workflow_id: workflowId,
 		enqueue_pinterest: true,
@@ -487,8 +482,6 @@ export async function promoteWaitingProviderPinterestJobs({ limit = 20 } = {}) {
 			message: 'Pinterest credentials available — job promoted to scheduled',
 			payload: { boardId: board.board_id },
 		}).catch(() => null);
-
-		await mirrorPinterestJob(updated, null, 'Pinterest provider ready — job scheduled').catch(() => null);
 
 		await notifyWorkspaceUser({
 			ownerId: job.owner,

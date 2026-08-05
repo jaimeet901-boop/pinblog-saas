@@ -282,7 +282,7 @@ export async function listRecentActivity(limit = 12) {
 		requestKey: null,
 	}).catch(() => ({ items: [] }));
 
-	return (events.items || []).map((event) => ({
+	let items = (events.items || []).map((event) => ({
 		id: event.id,
 		text: event.message,
 		kind: event.expand?.job?.type || event.level || 'Jobs',
@@ -290,6 +290,17 @@ export async function listRecentActivity(limit = 12) {
 		jobId: event.job,
 		at: event.at || event.created,
 	}));
+
+	const { isQueueMirrorsEnabled } = await import('./mirrors.js');
+	if (!isQueueMirrorsEnabled()) {
+		const { listRecentPinterestActivityItems } = await import('./admin-events/pinterest-events.js');
+		const pinItems = await listRecentPinterestActivityItems(limit);
+		items = [...items, ...pinItems]
+			.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+			.slice(0, limit);
+	}
+
+	return items;
 }
 
 function formatRelativeSafe(value) {

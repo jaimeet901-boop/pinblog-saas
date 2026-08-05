@@ -151,15 +151,6 @@ export async function mirrorPinterestJob(job, pin = null, eventMessage = '') {
 		workerId: job.status === 'publishing' ? 'worker-pinterest-publish' : '',
 		eventMessage,
 	});
-	if (mirrored && (job.status === 'published' || job.status === 'failed')) {
-		await writeQueueAudit({
-			job: mirrored,
-			action: job.status === 'published' ? 'Pinterest pin published' : 'Pinterest publish failed',
-			severity: job.status === 'published' ? 'success' : 'error',
-			result: job.status === 'published' ? 'ok' : 'failed',
-			message: eventMessage || job.last_error || '',
-		}).catch(() => null);
-	}
 	return mirrored;
 }
 

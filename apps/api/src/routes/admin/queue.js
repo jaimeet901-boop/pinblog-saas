@@ -18,6 +18,8 @@ import {
 	listAdminQueueJobEvents,
 	mapAdminQueueJobControlResponse,
 } from '../../services/queue/admin-controls/index.js';
+import { isAdminQueueDualReadEnabled } from '../../services/queue/admin-read/index.js';
+import { resolveAdminQueueJobEvents } from '../../services/queue/admin-events/index.js';
 import { resolveTrustedEnqueueOwnership } from '../../services/queue/job-ownership.js';
 import { getQueueJob, listQueueEvents, mapQueueJobDetail } from '../../services/queue/jobs.js';
 import {
@@ -80,8 +82,11 @@ router.get('/jobs/:id', asyncHandler(async (req, res) => {
 }));
 
 router.get('/jobs/:id/events', asyncHandler(async (req, res) => {
-	if (isAdminQueueChannelControlsEnabled()) {
-		const events = await listAdminQueueJobEvents(req.params.id, 100);
+	if (isAdminQueueChannelControlsEnabled() || isAdminQueueDualReadEnabled()) {
+		const events = isAdminQueueChannelControlsEnabled()
+			? await listAdminQueueJobEvents(req.params.id, 100)
+			: await resolveAdminQueueJobEvents(req.params.id, 100);
+		if (events === null) throw httpError(404, 'Job not found', 'NOT_FOUND');
 		res.json({ items: events });
 		return;
 	}
