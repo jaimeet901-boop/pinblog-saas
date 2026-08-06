@@ -44,6 +44,11 @@ describe('facebook F4-3 publish API route wiring', () => {
 
 		assert.match(route, /router\.post\('\/publish'/);
 		assert.match(route, /router\.post\('\/schedule'/);
+		assert.match(route, /router\.patch\('\/jobs\/:jobId'/);
+		assert.match(route, /router\.post\('\/jobs\/:jobId\/cancel'/);
+		assert.match(route, /router\.post\('\/jobs\/:jobId\/retry'/);
+		assert.match(route, /router\.post\('\/jobs\/:jobId\/publish-now'/);
+		assert.match(route, /job-mutations\.js|rescheduleFacebookPublishJob/);
 		assert.match(route, /router\.get\('\/jobs'/);
 		assert.match(route, /router\.get\('\/jobs\/:jobId'/);
 		assert.match(route, /prepareFacebookPublishJob/);

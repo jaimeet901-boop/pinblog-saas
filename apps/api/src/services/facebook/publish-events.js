@@ -8,6 +8,9 @@ import { sanitizeFacebookGraphErrorPayload } from './graph-publish.js';
 /** Canonical facebook_publish_events.event_type values for execution lifecycle. */
 export const FACEBOOK_PUBLISH_EVENT_TYPES = Object.freeze({
 	CREATED: 'created',
+	SCHEDULE_UPDATED: 'schedule_updated',
+	CANCELLED: 'cancelled',
+	RETRY_MANUAL: 'retry_manual',
 	CLAIMED: 'claimed',
 	PUBLISHED: 'published',
 	FAILED: 'failed',
@@ -20,10 +23,13 @@ export const FACEBOOK_PUBLISH_CREATED_EVENT_TYPE = FACEBOOK_PUBLISH_EVENT_TYPES.
 /** Monotonic sequence for lifecycle ordering (lower = earlier). */
 export const FACEBOOK_PUBLISH_EVENT_SEQUENCE = Object.freeze({
 	[FACEBOOK_PUBLISH_EVENT_TYPES.CREATED]: 10,
+	[FACEBOOK_PUBLISH_EVENT_TYPES.SCHEDULE_UPDATED]: 12,
+	[FACEBOOK_PUBLISH_EVENT_TYPES.RETRY_MANUAL]: 12,
 	[FACEBOOK_PUBLISH_EVENT_TYPES.CLAIMED]: 20,
 	[FACEBOOK_PUBLISH_EVENT_TYPES.PUBLISHED]: 30,
 	[FACEBOOK_PUBLISH_EVENT_TYPES.RETRY_SCHEDULED]: 30,
 	[FACEBOOK_PUBLISH_EVENT_TYPES.FAILED]: 30,
+	[FACEBOOK_PUBLISH_EVENT_TYPES.CANCELLED]: 35,
 });
 
 export const FACEBOOK_PUBLISH_FAILURE_KINDS = Object.freeze({
@@ -71,6 +77,7 @@ export function buildFacebookPublishEventIdempotencyKey({
 	claimToken = '',
 	attempt = 0,
 	facebookPostId = '',
+	scheduledAt = '',
 } = {}) {
 	const id = String(jobId || '').trim();
 	const type = String(eventType || '').trim();
@@ -79,6 +86,14 @@ export function buildFacebookPublishEventIdempotencyKey({
 	switch (type) {
 	case FACEBOOK_PUBLISH_EVENT_TYPES.CREATED:
 		return `created:${id}`;
+	case FACEBOOK_PUBLISH_EVENT_TYPES.SCHEDULE_UPDATED: {
+		const at = String(scheduledAt || '').trim();
+		return at ? `schedule_updated:${id}:${at}` : `schedule_updated:${id}`;
+	}
+	case FACEBOOK_PUBLISH_EVENT_TYPES.CANCELLED:
+		return `cancelled:${id}`;
+	case FACEBOOK_PUBLISH_EVENT_TYPES.RETRY_MANUAL:
+		return `retry_manual:${id}:attempt:0`;
 	case FACEBOOK_PUBLISH_EVENT_TYPES.CLAIMED: {
 		const token = String(claimToken || '').trim();
 		return token ? `claimed:${id}:${token}` : `claimed:${id}`;
@@ -202,6 +217,90 @@ export function buildFacebookPublishCreatedEventPayload(input = {}) {
 			scheduledAt: scheduledAt || null,
 			timezone: String(timezone || 'UTC').trim() || 'UTC',
 			publishMode: String(publishMode || 'now').trim() || 'now',
+		},
+	});
+}
+
+export function buildFacebookPublishScheduleUpdatedEventPayload({
+	job = {},
+	updates = {},
+	publishNow = false,
+} = {}) {
+	const jobId = String(job.id || '').trim();
+	const scheduledAt = String(
+		updates.scheduled_at
+		|| updates.scheduledAt
+		|| job.scheduled_at
+		|| job.scheduledAt
+		|| '',
+	).trim();
+	const idempotencyKey = buildFacebookPublishEventIdempotencyKey({
+		jobId,
+		eventType: FACEBOOK_PUBLISH_EVENT_TYPES.SCHEDULE_UPDATED,
+		scheduledAt,
+	});
+
+	return buildFacebookPublishEventRecord({
+		owner: job.owner,
+		workspaceId: job.workspace,
+		jobId,
+		eventType: FACEBOOK_PUBLISH_EVENT_TYPES.SCHEDULE_UPDATED,
+		message: publishNow ? 'Facebook publish job moved to immediate queue' : 'Facebook publish job rescheduled',
+		payload: {
+			idempotencyKey,
+			sequence: FACEBOOK_PUBLISH_EVENT_SEQUENCE[FACEBOOK_PUBLISH_EVENT_TYPES.SCHEDULE_UPDATED],
+			scheduledAt: scheduledAt || null,
+			timezone: String(
+				updates.scheduled_timezone
+				|| updates.timezone
+				|| job.scheduled_timezone
+				|| job.timezone
+				|| 'UTC',
+			).trim() || 'UTC',
+			publishNow: Boolean(publishNow),
+			accountId: String(updates.account || job.account || '').trim(),
+			pageId: String(updates.page_id || job.page_id || '').trim(),
+		},
+	});
+}
+
+export function buildFacebookPublishCancelledEventPayload({ job = {} } = {}) {
+	const jobId = String(job.id || '').trim();
+	const idempotencyKey = buildFacebookPublishEventIdempotencyKey({
+		jobId,
+		eventType: FACEBOOK_PUBLISH_EVENT_TYPES.CANCELLED,
+	});
+
+	return buildFacebookPublishEventRecord({
+		owner: job.owner,
+		workspaceId: job.workspace,
+		jobId,
+		eventType: FACEBOOK_PUBLISH_EVENT_TYPES.CANCELLED,
+		message: 'Facebook publish job cancelled',
+		payload: {
+			idempotencyKey,
+			sequence: FACEBOOK_PUBLISH_EVENT_SEQUENCE[FACEBOOK_PUBLISH_EVENT_TYPES.CANCELLED],
+		},
+	});
+}
+
+export function buildFacebookPublishRetryManualEventPayload({ job = {} } = {}) {
+	const jobId = String(job.id || '').trim();
+	const idempotencyKey = buildFacebookPublishEventIdempotencyKey({
+		jobId,
+		eventType: FACEBOOK_PUBLISH_EVENT_TYPES.RETRY_MANUAL,
+	});
+
+	return buildFacebookPublishEventRecord({
+		owner: job.owner,
+		workspaceId: job.workspace,
+		jobId,
+		eventType: FACEBOOK_PUBLISH_EVENT_TYPES.RETRY_MANUAL,
+		message: 'Facebook publish job manually retried',
+		payload: {
+			idempotencyKey,
+			sequence: FACEBOOK_PUBLISH_EVENT_SEQUENCE[FACEBOOK_PUBLISH_EVENT_TYPES.RETRY_MANUAL],
+			scheduledAt: job.scheduled_at || job.scheduledAt || null,
 		},
 	});
 }

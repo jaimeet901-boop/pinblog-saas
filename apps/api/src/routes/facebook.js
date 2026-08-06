@@ -31,6 +31,12 @@ import {
 import { persistFacebookPublishJobWithCreatedEvent } from '../services/facebook/publish-persist.js';
 import { throwForFacebookPublishValidation } from '../services/facebook/publish-validation.js';
 import { scheduleFacebookPublishJobs } from '../services/facebook/schedule.js';
+import {
+	cancelFacebookPublishJob,
+	publishNowFacebookPublishJob,
+	rescheduleFacebookPublishJob,
+	retryFacebookPublishJob,
+} from '../services/facebook/job-mutations.js';
 import { andWorkspaceScope, recordBelongsToWorkspace } from '../services/workspace-ownership.js';
 import { safeGetList } from '../utils/pocketbase-safe-query.js';
 
@@ -406,6 +412,39 @@ router.get('/jobs', asyncHandler(async (req, res) => {
 router.get('/jobs/:jobId', asyncHandler(async (req, res) => {
 	const job = await getOwnedFacebookPublishJob(req, req.params.jobId);
 	res.json(mapFacebookPublishJobDto(job));
+}));
+
+router.patch('/jobs/:jobId', asyncHandler(async (req, res) => {
+	const result = await rescheduleFacebookPublishJob({
+		req,
+		jobId: req.params.jobId,
+		body: req.body || {},
+	});
+	res.json(result.job);
+}));
+
+router.post('/jobs/:jobId/cancel', asyncHandler(async (req, res) => {
+	const result = await cancelFacebookPublishJob({
+		req,
+		jobId: req.params.jobId,
+	});
+	res.json({ ok: true, job: result.job });
+}));
+
+router.post('/jobs/:jobId/retry', asyncHandler(async (req, res) => {
+	const result = await retryFacebookPublishJob({
+		req,
+		jobId: req.params.jobId,
+	});
+	res.json({ ok: true, job: result.job });
+}));
+
+router.post('/jobs/:jobId/publish-now', asyncHandler(async (req, res) => {
+	const result = await publishNowFacebookPublishJob({
+		req,
+		jobId: req.params.jobId,
+	});
+	res.json({ ok: true, job: result.job });
 }));
 
 router.post('/token/refresh', asyncHandler(async (req, res) => {
