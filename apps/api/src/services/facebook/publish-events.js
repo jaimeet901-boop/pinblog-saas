@@ -32,6 +32,14 @@ export const FACEBOOK_PUBLISH_EVENT_SEQUENCE = Object.freeze({
 	[FACEBOOK_PUBLISH_EVENT_TYPES.CANCELLED]: 35,
 });
 
+/** User-initiated lifecycle events (F5-4) — all must use recordFacebookPublishUserEvent(). */
+export const FACEBOOK_PUBLISH_USER_EVENT_TYPES = Object.freeze([
+	FACEBOOK_PUBLISH_EVENT_TYPES.CREATED,
+	FACEBOOK_PUBLISH_EVENT_TYPES.SCHEDULE_UPDATED,
+	FACEBOOK_PUBLISH_EVENT_TYPES.CANCELLED,
+	FACEBOOK_PUBLISH_EVENT_TYPES.RETRY_MANUAL,
+]);
+
 export const FACEBOOK_PUBLISH_FAILURE_KINDS = Object.freeze({
 	TOKEN_EXPIRED: 'token_expired',
 	PERMISSION_DENIED: 'permission_denied',
@@ -218,6 +226,28 @@ export function buildFacebookPublishCreatedEventPayload(input = {}) {
 			timezone: String(timezone || 'UTC').trim() || 'UTC',
 			publishMode: String(publishMode || 'now').trim() || 'now',
 		},
+	});
+}
+
+/**
+ * Build a created event after the job id is known (closes W-1 idempotency gap).
+ *
+ * @param {object} prepared
+ * @param {string} jobId
+ * @param {{ publishMode?: string }} [options]
+ */
+export function buildFacebookPublishCreatedEventForJob(prepared, jobId, { publishMode = 'now' } = {}) {
+	const jobPayload = prepared?.jobPayload || {};
+	return buildFacebookPublishCreatedEventPayload({
+		owner: jobPayload.owner,
+		workspaceId: jobPayload.workspace,
+		jobId,
+		accountId: jobPayload.account,
+		pageId: jobPayload.page_id,
+		aiPinId: jobPayload.ai_pin,
+		scheduledAt: jobPayload.scheduled_at,
+		timezone: jobPayload.scheduled_timezone || jobPayload.timezone || 'UTC',
+		publishMode,
 	});
 }
 
@@ -475,6 +505,40 @@ export async function loadFacebookPublishEventIdempotencyKeys(jobId, deps = {}, 
 }
 
 /**
+ * Idempotent append of a user-initiated facebook_publish_events row (F5-4).
+ * All created / schedule_updated / cancelled / retry_manual events must use this path.
+ *
+ * @returns {Promise<{ skipped: boolean, idempotencyKey: string, record?: object }>}
+ */
+export async function recordFacebookPublishUserEvent({
+	job = {},
+	eventRecord = {},
+	deps = {},
+} = {}) {
+	return recordFacebookPublishEvent({ job, eventRecord, deps });
+}
+
+/**
+ * Record a created event after job persistence (publish + schedule flows).
+ */
+export async function recordFacebookPublishCreatedEvent({
+	job = {},
+	prepared = {},
+	publishMode = 'now',
+	deps = {},
+} = {}) {
+	const eventRecord = buildFacebookPublishCreatedEventForJob(prepared, job.id, { publishMode });
+	return recordFacebookPublishUserEvent({
+		job,
+		eventRecord,
+		deps: {
+			...deps,
+			eventCreateContext: deps.eventCreateContext || 'facebook:publish-created-event',
+		},
+	});
+}
+
+/**
  * Idempotent append of a facebook_publish_events row.
  *
  * @returns {Promise<{ skipped: boolean, idempotencyKey: string, record?: object }>}
@@ -503,7 +567,7 @@ export async function recordFacebookPublishEvent({
 	const { pocketbaseClient, sanitizeCollectionPayload } = await resolveEventDeps(deps);
 	const createPayload = await sanitizeCollectionPayload({
 		collection: 'facebook_publish_events',
-		context: 'facebook:record-publish-event',
+		context: deps.eventCreateContext || 'facebook:record-publish-event',
 		payload: record,
 	}).catch(() => record);
 

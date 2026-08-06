@@ -3,29 +3,9 @@
  */
 
 import { FACEBOOK_JOB_COLLECTION } from './channel-pack.js';
-import { buildFacebookPublishCreatedEventPayload } from './publish-events.js';
+import { recordFacebookPublishCreatedEvent } from './publish-events.js';
 
-/**
- * Build a created event record after the job id is known (closes W-1 idempotency gap).
- *
- * @param {object} prepared
- * @param {string} jobId
- * @param {{ publishMode?: string }} [options]
- */
-export function buildFacebookPublishCreatedEventForJob(prepared, jobId, { publishMode = 'now' } = {}) {
-	const jobPayload = prepared?.jobPayload || {};
-	return buildFacebookPublishCreatedEventPayload({
-		owner: jobPayload.owner,
-		workspaceId: jobPayload.workspace,
-		jobId,
-		accountId: jobPayload.account,
-		pageId: jobPayload.page_id,
-		aiPinId: jobPayload.ai_pin,
-		scheduledAt: jobPayload.scheduled_at,
-		timezone: jobPayload.scheduled_timezone || jobPayload.timezone || 'UTC',
-		publishMode,
-	});
-}
+export { buildFacebookPublishCreatedEventForJob } from './publish-events.js';
 
 /**
  * Persist facebook_publish_jobs row and matching created event.
@@ -51,6 +31,13 @@ export async function persistFacebookPublishJobWithCreatedEvent({
 		({ sanitizeCollectionPayload } = await import('../../utils/pocketbase-safe-query.js'));
 	}
 
+	const resolvedDeps = {
+		...deps,
+		pocketbaseClient,
+		sanitizeCollectionPayload,
+		eventCreateContext: deps.eventCreateContext || 'facebook:publish-created-event',
+	};
+
 	const jobCreatePayload = await sanitizeCollectionPayload({
 		collection: FACEBOOK_JOB_COLLECTION,
 		context: deps.jobCreateContext || 'facebook:create-publish-job',
@@ -59,14 +46,12 @@ export async function persistFacebookPublishJobWithCreatedEvent({
 
 	const job = await pocketbaseClient.collection(FACEBOOK_JOB_COLLECTION).create(jobCreatePayload);
 
-	const eventRecord = buildFacebookPublishCreatedEventForJob(prepared, job.id, { publishMode });
-	const eventCreatePayload = await sanitizeCollectionPayload({
-		collection: 'facebook_publish_events',
-		context: deps.eventCreateContext || 'facebook:publish-created-event',
-		payload: eventRecord,
+	await recordFacebookPublishCreatedEvent({
+		job,
+		prepared,
+		publishMode,
+		deps: resolvedDeps,
 	});
-
-	await pocketbaseClient.collection('facebook_publish_events').create(eventCreatePayload);
 
 	return job;
 }

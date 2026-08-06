@@ -10,7 +10,7 @@ import {
 	buildFacebookPublishCancelledEventPayload,
 	buildFacebookPublishRetryManualEventPayload,
 	buildFacebookPublishScheduleUpdatedEventPayload,
-	recordFacebookPublishEvent,
+	recordFacebookPublishUserEvent,
 } from './publish-events.js';
 import { resolveFacebookScheduleTime } from './schedule.js';
 
@@ -123,7 +123,7 @@ async function updateFacebookPublishJob({
 }
 
 async function emitUserPublishEvent({ job, eventRecord, deps }) {
-	await recordFacebookPublishEvent({
+	await recordFacebookPublishUserEvent({
 		job,
 		eventRecord,
 		deps,

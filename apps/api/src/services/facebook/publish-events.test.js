@@ -2,17 +2,22 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
 	buildFacebookPublishClaimedEventPayload,
+	buildFacebookPublishCancelledEventPayload,
 	buildFacebookPublishCreatedEventPayload,
 	buildFacebookPublishEventIdempotencyKey,
 	buildFacebookPublishFailedEventPayload,
 	buildFacebookPublishPublishedEventPayload,
+	buildFacebookPublishRetryManualEventPayload,
 	buildFacebookPublishRetryScheduledEventPayload,
+	buildFacebookPublishScheduleUpdatedEventPayload,
 	classifyFacebookPublishFailure,
 	compareFacebookPublishEvents,
 	FACEBOOK_PUBLISH_EVENT_TYPES,
+	FACEBOOK_PUBLISH_USER_EVENT_TYPES,
 	FACEBOOK_PUBLISH_FAILURE_KINDS,
 	hasExistingFacebookPublishEventKey,
 	recordFacebookPublishEvent,
+	recordFacebookPublishUserEvent,
 	sanitizeFacebookPublishEventPayload,
 } from './publish-events.js';
 
@@ -189,5 +194,45 @@ describe('facebook F4-5 publish execution events', () => {
 			eventType: 'retry_scheduled',
 			attempt: 2,
 		}), 'retry_scheduled:job_1:attempt:2');
+	});
+
+	it('FACEBOOK_PUBLISH_USER_EVENT_TYPES covers all user-initiated lifecycle events', () => {
+		assert.ok(FACEBOOK_PUBLISH_USER_EVENT_TYPES.includes(FACEBOOK_PUBLISH_EVENT_TYPES.CREATED));
+		assert.ok(FACEBOOK_PUBLISH_USER_EVENT_TYPES.includes(FACEBOOK_PUBLISH_EVENT_TYPES.SCHEDULE_UPDATED));
+		assert.ok(FACEBOOK_PUBLISH_USER_EVENT_TYPES.includes(FACEBOOK_PUBLISH_EVENT_TYPES.CANCELLED));
+		assert.ok(FACEBOOK_PUBLISH_USER_EVENT_TYPES.includes(FACEBOOK_PUBLISH_EVENT_TYPES.RETRY_MANUAL));
+	});
+
+	it('user event builders expose stable idempotency keys', () => {
+		const job = { id: 'job_1', owner: 'user_1', workspace: 'ws_1', scheduled_at: '2026-12-01T12:00:00.000Z' };
+		assert.equal(
+			buildFacebookPublishScheduleUpdatedEventPayload({ job, updates: { scheduled_at: '2026-12-02T12:00:00.000Z' } }).payload.idempotencyKey,
+			'schedule_updated:job_1:2026-12-02T12:00:00.000Z',
+		);
+		assert.equal(
+			buildFacebookPublishCancelledEventPayload({ job }).payload.idempotencyKey,
+			'cancelled:job_1',
+		);
+		assert.equal(
+			buildFacebookPublishRetryManualEventPayload({ job }).payload.idempotencyKey,
+			'retry_manual:job_1:attempt:0',
+		);
+	});
+
+	it('recordFacebookPublishUserEvent delegates to idempotent recorder', async () => {
+		const events = [];
+		const deps = {
+			loadEventIdempotencyKeys: async () => [],
+			createPublishEvent: async (record) => { events.push(record); },
+		};
+
+		await recordFacebookPublishUserEvent({
+			job: baseJob,
+			eventRecord: buildFacebookPublishCancelledEventPayload({ job: baseJob }),
+			deps,
+		});
+
+		assert.equal(events.length, 1);
+		assert.equal(events[0].event_type, FACEBOOK_PUBLISH_EVENT_TYPES.CANCELLED);
 	});
 });

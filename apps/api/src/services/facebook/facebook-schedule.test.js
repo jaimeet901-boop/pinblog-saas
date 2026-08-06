@@ -46,6 +46,13 @@ function createPersistDeps() {
 	const events = [];
 
 	const pocketbaseClient = {
+		filter: (template, params = {}) => {
+			let result = String(template);
+			for (const [key, value] of Object.entries(params)) {
+				result = result.replace(new RegExp(`\\{:${key}\\}`, 'g'), String(value));
+			}
+			return result;
+		},
 		collection: (name) => {
 			if (name === 'facebook_publish_jobs') {
 				return {
@@ -58,6 +65,7 @@ function createPersistDeps() {
 			}
 			if (name === 'facebook_publish_events') {
 				return {
+					getList: async () => ({ items: events }),
 					create: async (payload) => {
 						const row = { id: `evt_${events.length + 1}`, ...payload };
 						events.push(row);
