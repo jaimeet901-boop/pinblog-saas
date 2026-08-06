@@ -80,6 +80,12 @@ describe('parsePublishingHistoryQuery', () => {
 		);
 	});
 
+	it('accepts facebook channel explicitly', () => {
+		const parsed = parsePublishingHistoryQuery({ channel: 'facebook' });
+		assert.deepEqual(parsed.channels, ['facebook']);
+		assert.equal(parsed.filters.channel, 'facebook');
+	});
+
 	it('soft-falls invalid sort to -updatedAt', () => {
 		const parsed = parsePublishingHistoryQuery({ sort: 'nope' });
 		assert.equal(parsed.sort, '-updatedAt');
@@ -141,6 +147,13 @@ describe('nativeStatusExtraFilter', () => {
 	it('skips Pinterest for queued and WordPress for retrying', () => {
 		assert.equal(nativeStatusExtraFilter('pinterest', 'queued'), null);
 		assert.equal(nativeStatusExtraFilter('wordpress', 'retrying'), null);
+	});
+
+	it('maps Facebook statuses to native job filters', () => {
+		assert.equal(nativeStatusExtraFilter('facebook', 'scheduled'), 'status = "scheduled"');
+		assert.equal(nativeStatusExtraFilter('facebook', 'published'), 'status = "published"');
+		assert.equal(nativeStatusExtraFilter('facebook', 'queued'), null);
+		assert.equal(nativeStatusExtraFilter('facebook', 'retrying'), null);
 	});
 });
 

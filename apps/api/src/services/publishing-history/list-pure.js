@@ -296,5 +296,20 @@ export function nativeStatusExtraFilter(channel, normalizedStatus) {
 				return '';
 		}
 	}
+	if (channel === 'facebook') {
+		switch (normalizedStatus) {
+			case 'queued':
+			case 'retrying':
+				return null;
+			case 'scheduled':
+			case 'publishing':
+			case 'published':
+			case 'failed':
+			case 'cancelled':
+				return `status = "${normalizedStatus}"`;
+			default:
+				return '';
+		}
+	}
 	return '';
 }

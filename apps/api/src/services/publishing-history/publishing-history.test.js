@@ -11,6 +11,7 @@ import {
 	PUBLISHING_DESTINATION_KINDS,
 	PUBLISHING_STATUSES,
 	buildPublishingHistoryId,
+	normalizeFacebookPublishJob,
 	normalizePinterestPublishJob,
 	normalizePublishingStatus,
 	normalizeWordpressPublishJob,
@@ -119,6 +120,21 @@ describe('normalizePinterestPublishJob', () => {
 		});
 		assert.equal(item.status, 'publishing');
 		assert.equal(item.nativeStatus, 'waiting_provider');
+	});
+});
+
+describe('normalizeFacebookPublishJob export', () => {
+	it('is exported from the publishing history index', () => {
+		assert.equal(typeof normalizeFacebookPublishJob, 'function');
+		const item = normalizeFacebookPublishJob({
+			id: 'fb1',
+			status: 'published',
+			page_id: '123',
+			created: '2026-07-01T09:00:00.000Z',
+			updated: '2026-07-01T09:00:00.000Z',
+		});
+		assert.equal(item.channel, 'facebook');
+		assert.equal(item.destination.kind, 'page');
 	});
 });
 

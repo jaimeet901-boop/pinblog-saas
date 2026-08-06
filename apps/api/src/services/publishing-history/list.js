@@ -7,6 +7,7 @@ import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { httpError } from '../../middleware/require-admin.js';
 import { andWorkspaceScope } from '../workspace-ownership.js';
 import { PUBLISHING_JOB_COLLECTIONS } from './constants.js';
+import { normalizeFacebookPublishJob } from './normalize-facebook.js';
 import { normalizePinterestPublishJob } from './normalize-pinterest.js';
 import { normalizeWordpressPublishJob } from './normalize-wordpress.js';
 import {
@@ -111,6 +112,25 @@ export async function listPublishingHistory(req, query = {}) {
 				for (const job of items) {
 					normalized.push(normalizeWordpressPublishJob(job, {
 						site: job.expand?.site || null,
+						sourceModule: 'unknown',
+					}));
+				}
+			} else if (channel === 'facebook') {
+				const { items, fetched, totalItems } = await fetchSourceJobs({
+					collection: PUBLISHING_JOB_COLLECTIONS.facebook,
+					req,
+					fetchCap,
+					sort: '-updated,-scheduled_at',
+					expand: 'ai_pin,account',
+					extraFilter: nativeFilter,
+				});
+				anySourceSucceeded = true;
+				if (fetched >= fetchCap || (totalItems > fetchCap && fetched >= fetchCap)) {
+					truncated = true;
+				}
+				for (const job of items) {
+					normalized.push(normalizeFacebookPublishJob(job, {
+						pin: job.expand?.ai_pin || null,
 						sourceModule: 'unknown',
 					}));
 				}

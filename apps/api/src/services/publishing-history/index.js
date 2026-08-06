@@ -26,6 +26,7 @@ export {
 
 export { normalizePinterestPublishJob } from './normalize-pinterest.js';
 export { normalizeWordpressPublishJob } from './normalize-wordpress.js';
+export { normalizeFacebookPublishJob } from './normalize-facebook.js';
 
 export {
 	PUBLISHING_HISTORY_API_VERSION,
