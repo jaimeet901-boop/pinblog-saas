@@ -339,6 +339,10 @@ export async function processJob(job, deps = {}) {
 		}),
 		deps: { ...deps, pocketbaseClient: pb },
 	});
+
+	const burnFacebookPublishCredits = deps.burnFacebookPublishCredits
+		|| (await import('./facebook-publish-credits.js')).burnFacebookPublishCredits;
+	await burnFacebookPublishCredits(job, { facebookPostId: postId, deps });
 }
 
 async function getDuePublishJobs(now, deps = {}) {

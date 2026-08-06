@@ -17,15 +17,17 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
 describe('facebook F2 oauth foundation', () => {
-	it('locks phase F2 with oauth enabled and publish disabled', () => {
+	it('locks phase F2 with oauth enabled and publish live after F4-6', () => {
 		assert.equal(FACEBOOK_CHANNEL_PACK_PHASE, 'F2');
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.connect, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.listPages, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishNow, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishNow, true);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.queueImplemented, true);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.schedule, false);
 		const dto = getFacebookChannelPackDto();
 		assert.equal(dto.oauthImplemented, true);
-		assert.equal(dto.publishImplemented, false);
-		assert.equal(dto.queueImplemented, false);
+		assert.equal(dto.publishImplemented, true);
+		assert.equal(dto.queueImplemented, true);
 	});
 
 	it('merges required Meta page scopes', () => {

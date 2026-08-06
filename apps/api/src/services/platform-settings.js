@@ -205,6 +205,7 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 			ai_image: 1,
 			pin_publish: 1,
 			wordpress_publish: 1,
+			facebook_publish: 1,
 			template_export: 1,
 		},
 		defaultTrial: {

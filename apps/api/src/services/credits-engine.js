@@ -17,6 +17,7 @@ export const DEFAULT_CREDIT_COSTS = Object.freeze({
 	ai_image: 1,
 	pin_publish: 1,
 	wordpress_publish: 1,
+	facebook_publish: 1,
 	template_export: 1,
 });
 
@@ -534,7 +535,11 @@ export async function consumeWorkspaceCredits({
 			|| feature === 'ai_pin_copy'
 		) {
 			usagePatch.tokens = (Number(usage.tokens) || 0) + burnAmount;
-		} else if (feature === 'pin_publish' || feature === 'wordpress_publish') {
+		} else if (
+			feature === 'pin_publish'
+			|| feature === 'wordpress_publish'
+			|| feature === 'facebook_publish'
+		) {
 			usagePatch.publishing = (Number(usage.publishing) || 0) + 1;
 		} else {
 			usagePatch.api_calls = (Number(usage.api_calls) || 0) + 1;

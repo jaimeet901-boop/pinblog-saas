@@ -136,7 +136,7 @@ async function probeQueueService() {
 				latency: summary.health?.avgQueueTime,
 				ownership: getQueueOwnershipSnapshot(),
 				executors: {
-					channel: ['pinterest-publish-queue', 'wordpress-publish-queue', 'ai-pin-image-queue'],
+					channel: ['pinterest-publish-queue', 'wordpress-publish-queue', 'facebook-publish-queue', 'ai-pin-image-queue'],
 					native: 'queue-engine',
 				},
 				breakdown: summary.breakdown,

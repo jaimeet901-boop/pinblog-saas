@@ -1,5 +1,6 @@
 import { getPinterestQueueStatus } from '../services/pinterest-publish-queue.js';
 import { getAIPinImageQueueStatus } from '../services/ai-pin-image-queue.js';
+import { getFacebookQueueStatus } from '../services/facebook/facebook-publish-queue.js';
 import { getEnv } from '../utils/env.js';
 import { getCache, setCache } from '../utils/cache.js';
 
@@ -53,6 +54,7 @@ export default async (req, res) => {
 
     const queue = getPinterestQueueStatus();
     const imageQueue = getAIPinImageQueueStatus();
+    const facebookQueue = getFacebookQueueStatus();
     const ok = database.ok && redis.ok;
 
     res.status(ok ? 200 : 503).json({
@@ -64,6 +66,7 @@ export default async (req, res) => {
             redis,
             queue,
             imageQueue,
+            facebookQueue,
         },
     });
 };

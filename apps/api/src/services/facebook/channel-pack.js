@@ -43,7 +43,8 @@ export const FACEBOOK_CHANNEL_CAPABILITIES = Object.freeze({
 	connect: true,
 	listAccounts: true,
 	listPages: true,
-	publishNow: false, // F4
+	publishNow: true,
+	queueImplemented: true,
 	schedule: false, // F5
 	calendarProject: true,
 	calendarMutate: true,
@@ -69,8 +70,8 @@ export function getFacebookChannelPackDto() {
 		workspaceCapabilities: [...FACEBOOK_WORKSPACE_CAPABILITIES],
 		oauthImplemented: true,
 		graphImplemented: true,
-		publishImplemented: false,
-		queueImplemented: false,
+		publishImplemented: true,
+		queueImplemented: true,
 	};
 }
 

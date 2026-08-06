@@ -29,6 +29,15 @@ export const CHANNEL_EXECUTORS = Object.freeze([
 		envFlag: 'WORDPRESS_QUEUE_ENABLED',
 	}),
 	Object.freeze({
+		id: 'facebook-publish',
+		jobType: 'facebook_publishing',
+		sourceCollection: 'facebook_publish_jobs',
+		executorModule: 'services/facebook/facebook-publish-queue.js',
+		startedFrom: 'main.js#startFacebookPublishQueue',
+		envFlag: 'FACEBOOK_QUEUE_ENABLED',
+		statusHelper: 'getFacebookQueueStatus',
+	}),
+	Object.freeze({
 		id: 'ai-pin-image',
 		jobType: 'image_generation',
 		sourceCollection: 'ai_pin_image_jobs',
@@ -109,7 +118,7 @@ export const QUEUE_CONSUMERS = Object.freeze([
 export const QUEUE_OWNERSHIP_MODEL = Object.freeze({
 	documentation: 'docs/queue-ownership.md',
 	mirrorRetirement: 'docs/queue-mirror-retirement.md',
-	executionSourceOfTruth: 'channel job collections (pinterest_publish_jobs, publish_jobs, ai_pin_image_jobs)',
+	executionSourceOfTruth: 'channel job collections (pinterest_publish_jobs, publish_jobs, facebook_publish_jobs, ai_pin_image_jobs)',
 	adminObservabilityStore: 'queue_jobs (native) + channel collections (dual-read)',
 	channelMirrors: CHANNEL_MIRRORS,
 	adminDualRead: ADMIN_QUEUE_DUAL_READ,
@@ -124,4 +133,19 @@ export const QUEUE_OWNERSHIP_MODEL = Object.freeze({
  */
 export function getQueueOwnershipSnapshot() {
 	return QUEUE_OWNERSHIP_MODEL;
+}
+
+/**
+ * Channel executor runtime catalog for health/ownership surfaces (no I/O).
+ */
+export function getChannelExecutorRuntimeCatalog() {
+	return CHANNEL_EXECUTORS.map((executor) => ({
+		id: executor.id,
+		jobType: executor.jobType,
+		sourceCollection: executor.sourceCollection,
+		executorModule: executor.executorModule,
+		startedFrom: executor.startedFrom,
+		envFlag: executor.envFlag,
+		statusHelper: executor.statusHelper || null,
+	}));
 }

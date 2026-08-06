@@ -71,16 +71,19 @@ describe('facebook channel pack F1-Apply', () => {
 		assert.ok(!viewerBlock.includes('workspace.facebook'));
 	});
 
-	it('registers channel capabilities with OAuth live and publish disabled', () => {
+	it('registers channel capabilities with OAuth live and publish enabled after F4-6', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.connect, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishNow, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishNow, true);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.queueImplemented, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.schedule, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.calendarProject, true);
 		const dto = getFacebookChannelPackDto();
 		assert.equal(dto.oauthImplemented, true);
 		assert.equal(dto.graphImplemented, true);
-		assert.equal(dto.publishImplemented, false);
-		assert.equal(dto.queueImplemented, false);
+		assert.equal(dto.publishImplemented, true);
+		assert.equal(dto.queueImplemented, true);
 	});
 
 	it('ships PocketBase migration with API-only collections', () => {
