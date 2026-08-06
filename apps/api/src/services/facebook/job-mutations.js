@@ -13,6 +13,11 @@ import {
 	recordFacebookPublishUserEvent,
 } from './publish-events.js';
 import { resolveFacebookScheduleTime } from './schedule.js';
+import {
+	syncAiPinForCancel,
+	syncAiPinForReschedule,
+	syncAiPinForRetry,
+} from './pin-sync.js';
 
 function mutationError(status, message, errorCode = 'VALIDATION_ERROR') {
 	const error = new Error(message);
@@ -246,6 +251,8 @@ export async function rescheduleFacebookPublishJob({ req, jobId, body = {}, deps
 		deps: resolved,
 	});
 
+	await syncAiPinForReschedule(updated, { req, deps: resolved });
+
 	return { job: mapFacebookPublishJobDto(updated) };
 }
 
@@ -272,6 +279,8 @@ export async function cancelFacebookPublishJob({ req, jobId, deps = {} } = {}) {
 		eventRecord: buildFacebookPublishCancelledEventPayload({ job: updated }),
 		deps: resolved,
 	});
+
+	await syncAiPinForCancel(updated, { req, deps: resolved });
 
 	return { job: mapFacebookPublishJobDto(updated) };
 }
@@ -306,6 +315,8 @@ export async function retryFacebookPublishJob({ req, jobId, deps = {} } = {}) {
 		deps: resolved,
 	});
 
+	await syncAiPinForRetry(updated, { req, deps: resolved });
+
 	return { job: mapFacebookPublishJobDto(updated) };
 }
 
@@ -338,6 +349,8 @@ export async function publishNowFacebookPublishJob({ req, jobId, deps = {} } = {
 		}),
 		deps: resolved,
 	});
+
+	await syncAiPinForReschedule(updated, { req, deps: resolved });
 
 	return { job: mapFacebookPublishJobDto(updated) };
 }

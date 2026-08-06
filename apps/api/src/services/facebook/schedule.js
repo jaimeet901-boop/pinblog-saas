@@ -10,6 +10,7 @@ import {
 	prepareFacebookPublishJob,
 } from './publish.js';
 import { persistFacebookPublishJobWithCreatedEvent } from './publish-persist.js';
+import { syncAiPinForScheduledJob } from './pin-sync.js';
 import { throwForFacebookPublishValidation } from './publish-validation.js';
 
 export const FACEBOOK_SCHEDULE_MIN_LEAD_MS = 30 * 1000;
@@ -158,6 +159,7 @@ export async function scheduleFacebookPublishJobs({
 				eventCreateContext: 'facebook:schedule-created-event',
 			},
 		});
+		await syncAiPinForScheduledJob(job, { req, deps: deps || {} });
 		jobs.push(mapFacebookPublishJobDto(job));
 	}
 

@@ -73,6 +73,16 @@ function createPersistDeps() {
 					},
 				};
 			}
+			if (name === 'ai_pins') {
+				return {
+					getOne: async () => {
+						throw new Error('not found');
+					},
+					update: async () => {
+						throw new Error('not found');
+					},
+				};
+			}
 			throw new Error(`unexpected collection ${name}`);
 		},
 	};
