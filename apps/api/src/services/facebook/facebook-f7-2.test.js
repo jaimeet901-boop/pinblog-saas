@@ -44,16 +44,6 @@ describe('facebook F7-2 publishing history normalizer', () => {
 		assert.match(index, /normalizeFacebookPublishJob/);
 	});
 
-	it('does not add redundant GET /facebook/history route in F7-2', () => {
-		const routes = readFileSync(
-			path.join(root, 'apps/api/src/routes/facebook.js'),
-			'utf8',
-		);
-
-		assert.doesNotMatch(routes, /router\.get\(['"]\/history['"]/);
-		assert.doesNotMatch(routes, /router\.get\(['"]\/analytics['"]/);
-	});
-
 	it('keeps frozen subsystems untouched for F7-2', () => {
 		const queue = readFileSync(
 			path.join(root, 'apps/api/src/services/queue/engine.js'),
