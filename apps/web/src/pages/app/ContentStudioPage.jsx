@@ -3553,6 +3553,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				selecting={templateHydrating}
 				selectingId={selectedTemplateId}
 				previewArticle={activeArticle || selectedArticles[0] || null}
+				templatePack={studioAssets.templatePack}
 				onSelect={(template) => {
 					void selectGalleryTemplate(template);
 				}}

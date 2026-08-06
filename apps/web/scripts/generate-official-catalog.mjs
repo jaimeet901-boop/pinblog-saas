@@ -1,11 +1,15 @@
 /**
- * One-off generator: build official library from PIN_LAYOUT_CATALOG (first 24).
+ * One-off generator: build official library from PIN_LAYOUT_CATALOG (Pinterest + Facebook).
  * Run: npx vite-node scripts/generate-official-catalog.mjs
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PIN_LAYOUT_CATALOG, applyPinLayoutToTemplateConfig } from '../src/lib/pinLayoutCatalog.js';
+import {
+	PIN_LAYOUT_CATALOG,
+	FACEBOOK_PIN_LAYOUT_CATALOG,
+	applyPinLayoutToTemplateConfig,
+} from '../src/lib/pinLayoutCatalog.js';
 import { createDefaultTemplateConfig } from '../src/lib/pinTemplates.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -69,7 +73,7 @@ function escapeXml(value) {
 }
 
 /** Structural thumbnails — geometry follows layout, not just color. */
-function buildThumb(entry, colors) {
+function buildPortraitThumb(entry, colors) {
 	const [c1, c2, accent] = colors;
 	const L = entry.configuration?.layout || {};
 	const pos = L.textPosition || 'bottom';
@@ -112,33 +116,80 @@ ${ctaSvg}
 	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-const layouts = PIN_LAYOUT_CATALOG.slice(0, 24);
-if (layouts.length < 24) {
-	throw new Error(`Expected 24 layouts, got ${layouts.length}`);
+function buildLandscapeThumb(entry, colors) {
+	const [c1, c2, accent] = colors;
+	const L = entry.configuration?.layout || {};
+	const pos = L.textPosition || 'bottom';
+	const frame = L.frameStyle || 'none';
+	const align = L.textAlign || 'center';
+	const titleY = pos === 'top' ? 48 : pos === 'center' ? 105 : 170;
+	const titleX = align === 'left' ? 36 : 200;
+	const anchor = align === 'left' ? 'start' : 'middle';
+	const label = escapeXml(entry.name);
+	let frameSvg = '';
+	if (frame === 'darkBox' || frame === 'whiteCard' || frame === 'softCard' || frame === 'glassCard') {
+		const fill = frame === 'darkBox' ? 'rgba(12,10,9,0.72)' : 'rgba(255,255,255,0.88)';
+		frameSvg = `<rect x="28" y="${titleY - 24}" width="344" height="72" rx="12" fill="${fill}"/>`;
+	} else if (frame === 'ribbon' || frame === 'bannerStrip') {
+		frameSvg = `<rect x="0" y="${titleY - 12}" width="400" height="56" fill="rgba(12,10,9,0.72)"/>`;
+	} else {
+		frameSvg = `<rect x="24" y="${titleY - 16}" width="352" height="64" rx="12" fill="rgba(12,10,9,0.5)"/>`;
+	}
+	const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="210" viewBox="0 0 400 210">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>
+<rect width="400" height="210" fill="url(#g)"/>
+<circle cx="320" cy="56" r="36" fill="${accent}" opacity="0.18"/>
+${frameSvg}
+<text x="${titleX}" y="${titleY + 12}" text-anchor="${anchor}" fill="${frame === 'whiteCard' || frame === 'softCard' ? '#1c1917' : '#fff'}" font-family="Georgia,serif" font-size="18" font-weight="700">${label}</text>
+<text x="200" y="198" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-family="Segoe UI,sans-serif" font-size="10">Facebook · ${escapeXml(frame)} · ${escapeXml(pos)}</text>
+</svg>`;
+	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-const catalog = layouts.map((layout, index) => {
+function buildCatalogEntry(layout, index, { channel, uuidPrefix, thumbBuilder, tagExtras = [] }) {
 	const configuration = applyPinLayoutToTemplateConfig(createDefaultTemplateConfig(), layout.id);
+	const sourceId = layout.sourceLayoutId || layout.id;
 	const entry = {
-		templateUuid: `chefia-official-${layout.id.replace(/_/g, '-')}`,
+		templateUuid: `${uuidPrefix}-${sourceId.replace(/^fb_/, '').replace(/_/g, '-')}`,
 		name: layout.label,
-		category: CATEGORY_BY_LAYOUT[layout.id] || 'general',
-		tags: layout.tags || [],
+		category: CATEGORY_BY_LAYOUT[sourceId.replace(/^fb_/, '')] || 'general',
+		tags: [...new Set([...(layout.tags || []), ...tagExtras])],
 		layoutId: layout.id,
+		channel,
 		configuration,
 	};
-	entry.thumbnail = buildThumb(entry, THUMB_PALETTE[index % THUMB_PALETTE.length]);
-	// Force typography uniqueness + mirror title alignment into typography.align
+	entry.thumbnail = thumbBuilder(entry, THUMB_PALETTE[index % THUMB_PALETTE.length]);
 	const typo = entry.configuration.typography || {};
 	typo.align = configuration.layout?.textAlign || 'center';
 	typo.titleSize = (typo.fontSize || 72) + (index % 7);
 	typo.fontSize = typo.titleSize;
 	entry.configuration.typography = typo;
 	return entry;
-});
+}
+
+const pinterestLayouts = PIN_LAYOUT_CATALOG.slice(0, 24);
+if (pinterestLayouts.length < 24) {
+	throw new Error(`Expected 24 Pinterest layouts, got ${pinterestLayouts.length}`);
+}
+
+const pinterestCatalog = pinterestLayouts.map((layout, index) => buildCatalogEntry(layout, index, {
+	channel: 'pinterest',
+	uuidPrefix: 'chefia-official',
+	thumbBuilder: buildPortraitThumb,
+	tagExtras: ['pinterest'],
+}));
+
+const facebookCatalog = FACEBOOK_PIN_LAYOUT_CATALOG.map((layout, index) => buildCatalogEntry(layout, index, {
+	channel: 'facebook',
+	uuidPrefix: 'chefia-official-facebook',
+	thumbBuilder: buildLandscapeThumb,
+	tagExtras: ['facebook', 'link-post'],
+}));
+
+const catalog = [...pinterestCatalog, ...facebookCatalog];
 
 const outJs = `/**
- * AUTO-GENERATED from PIN_LAYOUT_CATALOG (24 layouts).
+ * AUTO-GENERATED from PIN_LAYOUT_CATALOG (24 Pinterest + ${facebookCatalog.length} Facebook layouts).
  * Do not hand-edit — run: npx vite-node scripts/generate-official-catalog.mjs
  */
 
@@ -147,6 +198,14 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = ${JSON.stringify(catalog, null, '\t
 export function listOfficialPinTemplateCatalog() {
 	return OFFICIAL_PIN_TEMPLATE_CATALOG;
 }
+
+export function listOfficialPinterestPinTemplateCatalog() {
+	return OFFICIAL_PIN_TEMPLATE_CATALOG.filter((entry) => entry.channel === 'pinterest');
+}
+
+export function listOfficialFacebookPinTemplateCatalog() {
+	return OFFICIAL_PIN_TEMPLATE_CATALOG.filter((entry) => entry.channel === 'facebook');
+}
 `;
 
 const apiPath = path.resolve(__dirname, '../../api/src/services/official-pin-template-catalog.js');
@@ -154,7 +213,6 @@ const webPath = path.resolve(__dirname, '../src/lib/officialPinTemplateCatalog.g
 fs.writeFileSync(apiPath, outJs, 'utf8');
 fs.writeFileSync(webPath, outJs, 'utf8');
 
-// Uniqueness report
 function fingerprint(entry) {
 	const c = entry.configuration;
 	const L = c.layout || {};
@@ -167,13 +225,16 @@ function fingerprint(entry) {
 		cta: [L.ctaPosition, L.showCta, D.roundedLabel, JSON.stringify(c.buttonStyle || {})].join('|'),
 		title: [L.textPosition, L.textAlign, T.align || L.textAlign].join('|'),
 		image: [L.frameStyle, L.foodFocusY, O.style, O.intensity, D.accentStyle, D.brushHighlight].join('|'),
-		full: [L.textPosition, L.textAlign, L.ctaPosition, L.frameStyle, T.fontFamily, T.fontSize, O.style, D.accentStyle, D.brushHighlight, L.foodFocusY].join('|'),
+		full: [L.textPosition, L.textAlign, L.ctaPosition, L.frameStyle, T.fontFamily, T.fontSize, O.style, D.accentStyle, D.brushHighlight, L.foodFocusY, c.canvas?.width, c.canvas?.height].join('|'),
 	};
 }
+
 const fps = catalog.map(fingerprint);
 const check = (key) => new Set(fps.map((f) => f[key])).size;
 console.log(JSON.stringify({
-	count: catalog.length,
+	total: catalog.length,
+	pinterest: pinterestCatalog.length,
+	facebook: facebookCatalog.length,
 	uuidUnique: new Set(catalog.map((e) => e.templateUuid)).size,
 	layoutUnique: check('layout'),
 	typographyUnique: check('typography'),

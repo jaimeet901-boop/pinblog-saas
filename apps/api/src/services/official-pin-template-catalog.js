@@ -1,5 +1,5 @@
 /**
- * AUTO-GENERATED from PIN_LAYOUT_CATALOG (24 layouts).
+ * AUTO-GENERATED from PIN_LAYOUT_CATALOG (24 Pinterest + 8 Facebook layouts).
  * Do not hand-edit — run: npx vite-node scripts/generate-official-catalog.mjs
  */
 
@@ -11,9 +11,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"hero",
 			"short",
-			"bold"
+			"bold",
+			"pinterest"
 		],
 		"layoutId": "centered_hero",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -128,9 +130,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"category": "recipes",
 		"tags": [
 			"editorial",
-			"recipe"
+			"recipe",
+			"pinterest"
 		],
 		"layoutId": "top_title_bottom_cta",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -245,9 +249,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"category": "dinner",
 		"tags": [
 			"box",
-			"contrast"
+			"contrast",
+			"pinterest"
 		],
 		"layoutId": "dark_title_box",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -362,9 +368,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"category": "recipes",
 		"tags": [
 			"card",
-			"clean"
+			"clean",
+			"pinterest"
 		],
 		"layoutId": "white_rounded_card",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -480,9 +488,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"brush",
 			"warm",
-			"food"
+			"food",
+			"pinterest"
 		],
 		"layoutId": "brush_stroke",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -598,9 +608,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"ribbon",
 			"short",
-			"cta"
+			"cta",
+			"pinterest"
 		],
 		"layoutId": "ribbon_banner",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -715,9 +727,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"category": "lifestyle",
 		"tags": [
 			"magazine",
-			"editorial"
+			"editorial",
+			"pinterest"
 		],
 		"layoutId": "magazine",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -833,9 +847,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"minimal",
 			"short",
-			"modern"
+			"modern",
+			"pinterest"
 		],
 		"layoutId": "minimal_modern",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -951,9 +967,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"bold",
 			"short",
-			"impact"
+			"impact",
+			"pinterest"
 		],
 		"layoutId": "bold_typography",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -1069,9 +1087,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"script",
 			"elegant",
-			"dessert"
+			"dessert",
+			"pinterest"
 		],
 		"layoutId": "handwritten_accent",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -1187,9 +1207,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"card",
 			"soft",
-			"clean"
+			"clean",
+			"pinterest"
 		],
 		"layoutId": "soft_card_float",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -1305,9 +1327,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"glass",
 			"modern",
-			"drinks"
+			"drinks",
+			"pinterest"
 		],
 		"layoutId": "glass_panel",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -1422,9 +1446,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"category": "snacks",
 		"tags": [
 			"banner",
-			"short"
+			"short",
+			"pinterest"
 		],
 		"layoutId": "banner_strip",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -1540,9 +1566,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"card",
 			"playful",
-			"breakfast"
+			"breakfast",
+			"pinterest"
 		],
 		"layoutId": "polaroid_memory",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -1658,9 +1686,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"frame",
 			"luxury",
-			"editorial"
+			"editorial",
+			"pinterest"
 		],
 		"layoutId": "inset_frame",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -1776,9 +1806,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"editorial",
 			"long",
-			"dinner"
+			"dinner",
+			"pinterest"
 		],
 		"layoutId": "left_rail_editorial",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -1894,9 +1926,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"hero",
 			"cta",
-			"short"
+			"short",
+			"pinterest"
 		],
 		"layoutId": "top_center_badge",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -2012,9 +2046,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"luxury",
 			"dessert",
-			"food"
+			"food",
+			"pinterest"
 		],
 		"layoutId": "bottom_stack_luxe",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -2130,9 +2166,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"script",
 			"elegant",
-			"short"
+			"short",
+			"pinterest"
 		],
 		"layoutId": "center_script_hero",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -2248,9 +2286,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"card",
 			"clean",
-			"healthy"
+			"healthy",
+			"pinterest"
 		],
 		"layoutId": "healthy_clean_card",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -2366,9 +2406,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"box",
 			"dinner",
-			"savory"
+			"savory",
+			"pinterest"
 		],
 		"layoutId": "dinner_dark_panel",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -2484,9 +2526,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"brush",
 			"bright",
-			"breakfast"
+			"breakfast",
+			"pinterest"
 		],
 		"layoutId": "breakfast_sunburst",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -2602,9 +2646,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"hero",
 			"drinks",
-			"cool"
+			"cool",
+			"pinterest"
 		],
 		"layoutId": "drink_cool_center",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -2720,9 +2766,11 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 		"tags": [
 			"bold",
 			"snacks",
-			"impact"
+			"impact",
+			"pinterest"
 		],
 		"layoutId": "snack_impact_block",
+		"channel": "pinterest",
 		"configuration": {
 			"canvas": {
 				"width": 1000,
@@ -2830,9 +2878,981 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 			}
 		},
 		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%237f1d1d%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23b91c1c%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%23fecaca%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2236%22%20y%3D%22260%22%20width%3D%22328%22%20height%3D%22110%22%20rx%3D%2214%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22300%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3ESnack%20impact%20block%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22335%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%23fecaca%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3Enone%20%C2%B7%20center%20%C2%B7%20below-title%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-facebook-centered-hero",
+		"name": "Centered hero · Link Post",
+		"category": "recipes",
+		"tags": [
+			"hero",
+			"short",
+			"bold",
+			"facebook",
+			"link-post"
+		],
+		"layoutId": "fb_centered_hero",
+		"channel": "facebook",
+		"configuration": {
+			"canvas": {
+				"width": 1200,
+				"height": 630
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "center",
+				"textAlign": "center",
+				"safeMargin": 120,
+				"showDescription": false,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "none",
+				"ctaPosition": "below-title",
+				"brandPlacement": "bottom-bar",
+				"variantId": "fb_centered_hero",
+				"variantLabel": "Centered hero · Link Post",
+				"foodFocusY": 0.38,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "vignette",
+				"intensity": 0.48,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Georgia, \"Times New Roman\", serif",
+				"fontSize": 104,
+				"minFontSize": 52,
+				"fontWeight": 800,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.02,
+				"letterSpacing": -1.8,
+				"maxLines": 2,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "\"Segoe Script\", \"Brush Script MT\", cursive",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 104
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": true,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": true,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "orbits"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#FFFFFF",
+				"textColor": "#1C1917",
+				"borderRadius": 999,
+				"padding": 18,
+				"shadow": true,
+				"opacity": 1,
+				"variant": "pill"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22210%22%20viewBox%3D%220%200%20400%20210%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%231c1917%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%237c2d12%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22210%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22320%22%20cy%3D%2256%22%20r%3D%2236%22%20fill%3D%22%23f59e0b%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2224%22%20y%3D%2289%22%20width%3D%22352%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22117%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2218%22%20font-weight%3D%22700%22%3ECentered%20hero%20%C2%B7%20Link%20Post%3C%2Ftext%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22198%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2210%22%3EFacebook%20%C2%B7%20none%20%C2%B7%20center%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-facebook-top-title-bottom-cta",
+		"name": "Title top · CTA bottom · Link Post",
+		"category": "recipes",
+		"tags": [
+			"editorial",
+			"recipe",
+			"facebook",
+			"link-post"
+		],
+		"layoutId": "fb_top_title_bottom_cta",
+		"channel": "facebook",
+		"configuration": {
+			"canvas": {
+				"width": 1200,
+				"height": 630
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "top",
+				"textAlign": "left",
+				"safeMargin": 104,
+				"showDescription": false,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "none",
+				"ctaPosition": "bottom",
+				"brandPlacement": "bottom-bar",
+				"variantId": "fb_top_title_bottom_cta",
+				"variantLabel": "Title top · CTA bottom · Link Post",
+				"foodFocusY": 0.42,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "gradient",
+				"intensity": 0.62,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Palatino Linotype, Palatino, \"Book Antiqua\", serif",
+				"fontSize": 83,
+				"minFontSize": 42,
+				"fontWeight": 700,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.1,
+				"letterSpacing": -0.6,
+				"maxLines": 3,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "Georgia, \"Times New Roman\", serif",
+				"scriptColor": "#C4A574",
+				"align": "left",
+				"titleSize": 83
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#C4A574",
+				"brushOpacity": 0.82,
+				"roundedLabel": false,
+				"underline": true,
+				"underlineColor": "#F5E6C8",
+				"accentShapes": true,
+				"accentColor": "#F5E6C8",
+				"accentStyle": "corner"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#C4A574",
+				"textColor": "#1C1917",
+				"borderRadius": 18,
+				"padding": 18,
+				"shadow": true,
+				"opacity": 1,
+				"variant": "capsule"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22210%22%20viewBox%3D%220%200%20400%20210%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%230c0a09%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23292524%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22210%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22320%22%20cy%3D%2256%22%20r%3D%2236%22%20fill%3D%22%23e7e5e4%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2224%22%20y%3D%2232%22%20width%3D%22352%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%2236%22%20y%3D%2260%22%20text-anchor%3D%22start%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2218%22%20font-weight%3D%22700%22%3ETitle%20top%20%C2%B7%20CTA%20bottom%20%C2%B7%20Link%20Post%3C%2Ftext%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22198%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2210%22%3EFacebook%20%C2%B7%20none%20%C2%B7%20top%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-facebook-dark-title-box",
+		"name": "Dark title box · Link Post",
+		"category": "dinner",
+		"tags": [
+			"box",
+			"contrast",
+			"facebook",
+			"link-post"
+		],
+		"layoutId": "fb_dark_title_box",
+		"channel": "facebook",
+		"configuration": {
+			"canvas": {
+				"width": 1200,
+				"height": 630
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "center",
+				"textAlign": "center",
+				"safeMargin": 88,
+				"showDescription": false,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "darkBox",
+				"ctaPosition": "below-title",
+				"brandPlacement": "bottom-bar",
+				"variantId": "fb_dark_title_box",
+				"variantLabel": "Dark title box · Link Post",
+				"foodFocusY": 0.4,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "gradient",
+				"intensity": 0.42,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "\"Trebuchet MS\", \"Segoe UI\", sans-serif",
+				"fontSize": 84,
+				"minFontSize": 42,
+				"fontWeight": 700,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.1,
+				"letterSpacing": -0.6,
+				"maxLines": 3,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "\"Segoe Script\", \"Brush Script MT\", cursive",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 84
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": true,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": false,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "none"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#E8B86D",
+				"textColor": "#1C1917",
+				"borderRadius": 999,
+				"padding": 17,
+				"shadow": true,
+				"opacity": 1,
+				"variant": "pill"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22210%22%20viewBox%3D%220%200%20400%20210%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%230f172a%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%231e293b%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22210%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22320%22%20cy%3D%2256%22%20r%3D%2236%22%20fill%3D%22%2338bdf8%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2228%22%20y%3D%2281%22%20width%3D%22344%22%20height%3D%2272%22%20rx%3D%2212%22%20fill%3D%22rgba(12%2C10%2C9%2C0.72)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22117%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2218%22%20font-weight%3D%22700%22%3EDark%20title%20box%20%C2%B7%20Link%20Post%3C%2Ftext%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22198%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2210%22%3EFacebook%20%C2%B7%20darkBox%20%C2%B7%20center%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-facebook-white-rounded-card",
+		"name": "White rounded card · Link Post",
+		"category": "recipes",
+		"tags": [
+			"card",
+			"clean",
+			"facebook",
+			"link-post"
+		],
+		"layoutId": "fb_white_rounded_card",
+		"channel": "facebook",
+		"configuration": {
+			"canvas": {
+				"width": 1200,
+				"height": 630
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "bottom",
+				"textAlign": "center",
+				"safeMargin": 88,
+				"showDescription": false,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": false,
+				"frameStyle": "whiteCard",
+				"ctaPosition": "inside-frame",
+				"brandPlacement": "inside-card",
+				"variantId": "fb_white_rounded_card",
+				"variantLabel": "White rounded card · Link Post",
+				"foodFocusY": 0.36,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "gradient",
+				"intensity": 0.42,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Georgia, \"Times New Roman\", serif",
+				"fontSize": 75,
+				"minFontSize": 38,
+				"fontWeight": 700,
+				"textColor": "#1C1917",
+				"lineHeight": 1.12,
+				"letterSpacing": -0.4,
+				"maxLines": 3,
+				"textShadow": false,
+				"scriptEnabled": false,
+				"scriptFontFamily": "\"Segoe Script\", \"Brush Script MT\", cursive",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 75
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": true,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": false,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "none"
+			},
+			"brandBar": {
+				"enabled": false,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#1C1917",
+				"textColor": "#FFFFFF",
+				"borderRadius": 999,
+				"padding": 18,
+				"shadow": true,
+				"opacity": 1,
+				"variant": "pill"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22210%22%20viewBox%3D%220%200%20400%20210%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%2344403c%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23a8a29e%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22210%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22320%22%20cy%3D%2256%22%20r%3D%2236%22%20fill%3D%22%23fafaf9%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2228%22%20y%3D%22146%22%20width%3D%22344%22%20height%3D%2272%22%20rx%3D%2212%22%20fill%3D%22rgba(255%2C255%2C255%2C0.88)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22182%22%20text-anchor%3D%22middle%22%20fill%3D%22%231c1917%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2218%22%20font-weight%3D%22700%22%3EWhite%20rounded%20card%20%C2%B7%20Link%20Post%3C%2Ftext%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22198%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2210%22%3EFacebook%20%C2%B7%20whiteCard%20%C2%B7%20bottom%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-facebook-brush-stroke",
+		"name": "Brush stroke headline · Link Post",
+		"category": "desserts",
+		"tags": [
+			"brush",
+			"warm",
+			"food",
+			"facebook",
+			"link-post"
+		],
+		"layoutId": "fb_brush_stroke",
+		"channel": "facebook",
+		"configuration": {
+			"canvas": {
+				"width": 1200,
+				"height": 630
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "bottom",
+				"textAlign": "center",
+				"safeMargin": 104,
+				"showDescription": false,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "none",
+				"ctaPosition": "below-title",
+				"brandPlacement": "bottom-bar",
+				"variantId": "fb_brush_stroke",
+				"variantLabel": "Brush stroke headline · Link Post",
+				"foodFocusY": 0.35,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "gradient",
+				"intensity": 0.62,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Georgia, \"Times New Roman\", serif",
+				"fontSize": 96,
+				"minFontSize": 46,
+				"fontWeight": 800,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.05,
+				"letterSpacing": -1.4,
+				"maxLines": 3,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "\"Segoe Script\", \"Brush Script MT\", cursive",
+				"scriptColor": "#C4A574",
+				"align": "center",
+				"titleSize": 96
+			},
+			"decorations": {
+				"brushHighlight": true,
+				"brushColor": "#C4A574",
+				"brushOpacity": 0.82,
+				"roundedLabel": true,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": true,
+				"accentColor": "#F5E6C8",
+				"accentStyle": "arcs"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#FFFFFF",
+				"textColor": "#1C1917",
+				"borderRadius": 999,
+				"padding": 18,
+				"shadow": true,
+				"opacity": 1,
+				"variant": "pill"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22210%22%20viewBox%3D%220%200%20400%20210%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%23431407%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%239a3412%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22210%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22320%22%20cy%3D%2256%22%20r%3D%2236%22%20fill%3D%22%23fdba74%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2224%22%20y%3D%22154%22%20width%3D%22352%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22182%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2218%22%20font-weight%3D%22700%22%3EBrush%20stroke%20headline%20%C2%B7%20Link%20Post%3C%2Ftext%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22198%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2210%22%3EFacebook%20%C2%B7%20none%20%C2%B7%20bottom%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-facebook-ribbon-banner",
+		"name": "Ribbon banner · Link Post",
+		"category": "snacks",
+		"tags": [
+			"ribbon",
+			"short",
+			"cta",
+			"facebook",
+			"link-post"
+		],
+		"layoutId": "fb_ribbon_banner",
+		"channel": "facebook",
+		"configuration": {
+			"canvas": {
+				"width": 1200,
+				"height": 630
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "center",
+				"textAlign": "center",
+				"safeMargin": 88,
+				"showDescription": false,
+				"showSubtitle": false,
+				"showCta": true,
+				"showBrandBar": false,
+				"frameStyle": "ribbon",
+				"ctaPosition": "below-title",
+				"brandPlacement": "corner",
+				"variantId": "fb_ribbon_banner",
+				"variantLabel": "Ribbon banner · Link Post",
+				"foodFocusY": 0.4,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "dark",
+				"intensity": 0.28,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "\"Arial Black\", Gadget, sans-serif",
+				"fontSize": 87,
+				"minFontSize": 42,
+				"fontWeight": 700,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.1,
+				"letterSpacing": -0.6,
+				"maxLines": 3,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "\"Brush Script MT\", \"Segoe Script\", cursive",
+				"scriptColor": "#9F1239",
+				"align": "center",
+				"titleSize": 87
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#9F1239",
+				"brushOpacity": 0.82,
+				"roundedLabel": false,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": true,
+				"accentColor": "#FFE4E6",
+				"accentStyle": "diamonds"
+			},
+			"brandBar": {
+				"enabled": false,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#FFFFFF",
+				"textColor": "#1C1917",
+				"borderRadius": 999,
+				"padding": 18,
+				"shadow": true,
+				"opacity": 1,
+				"variant": "pill"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22210%22%20viewBox%3D%220%200%20400%20210%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%234c0519%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%239f1239%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22210%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22320%22%20cy%3D%2256%22%20r%3D%2236%22%20fill%3D%22%23fecdd3%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%220%22%20y%3D%2293%22%20width%3D%22400%22%20height%3D%2256%22%20fill%3D%22rgba(12%2C10%2C9%2C0.72)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22117%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2218%22%20font-weight%3D%22700%22%3ERibbon%20banner%20%C2%B7%20Link%20Post%3C%2Ftext%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22198%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2210%22%3EFacebook%20%C2%B7%20ribbon%20%C2%B7%20center%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-facebook-magazine",
+		"name": "Magazine editorial · Link Post",
+		"category": "lifestyle",
+		"tags": [
+			"magazine",
+			"editorial",
+			"facebook",
+			"link-post"
+		],
+		"layoutId": "fb_magazine",
+		"channel": "facebook",
+		"configuration": {
+			"canvas": {
+				"width": 1200,
+				"height": 630
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "bottom",
+				"textAlign": "left",
+				"safeMargin": 104,
+				"showDescription": false,
+				"showSubtitle": true,
+				"showCta": false,
+				"showBrandBar": true,
+				"frameStyle": "magazine",
+				"ctaPosition": "none",
+				"brandPlacement": "bottom-bar",
+				"variantId": "fb_magazine",
+				"variantLabel": "Magazine editorial · Link Post",
+				"foodFocusY": 0.38,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "gradient",
+				"intensity": 0.72,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Palatino Linotype, Palatino, \"Book Antiqua\", serif",
+				"fontSize": 88,
+				"minFontSize": 42,
+				"fontWeight": 700,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.1,
+				"letterSpacing": -0.6,
+				"maxLines": 3,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "Georgia, \"Times New Roman\", serif",
+				"scriptColor": "#E8B86D",
+				"align": "left",
+				"titleSize": 88
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": false,
+				"underline": true,
+				"underlineColor": "#A8A29E",
+				"accentShapes": true,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "rule"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(12,10,9,0.72)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#FFFFFF",
+				"textColor": "#1C1917",
+				"borderRadius": 0,
+				"padding": 14,
+				"shadow": false,
+				"opacity": 1,
+				"variant": "square"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22210%22%20viewBox%3D%220%200%20400%20210%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%231c1917%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2357534e%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22210%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22320%22%20cy%3D%2256%22%20r%3D%2236%22%20fill%3D%22%23d6d3d1%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2224%22%20y%3D%22154%22%20width%3D%22352%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%2236%22%20y%3D%22182%22%20text-anchor%3D%22start%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2218%22%20font-weight%3D%22700%22%3EMagazine%20editorial%20%C2%B7%20Link%20Post%3C%2Ftext%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22198%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2210%22%3EFacebook%20%C2%B7%20magazine%20%C2%B7%20bottom%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-facebook-minimal-modern",
+		"name": "Minimal modern · Link Post",
+		"category": "general",
+		"tags": [
+			"minimal",
+			"short",
+			"modern",
+			"facebook",
+			"link-post"
+		],
+		"layoutId": "fb_minimal_modern",
+		"channel": "facebook",
+		"configuration": {
+			"canvas": {
+				"width": 1200,
+				"height": 630
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "bottom",
+				"textAlign": "center",
+				"safeMargin": 120,
+				"showDescription": false,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "none",
+				"ctaPosition": "below-title",
+				"brandPlacement": "bottom-bar",
+				"variantId": "fb_minimal_modern",
+				"variantLabel": "Minimal modern · Link Post",
+				"foodFocusY": 0.4,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "gradient",
+				"intensity": 0.42,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "\"Century Gothic\", \"Apple Gothic\", sans-serif",
+				"fontSize": 66,
+				"minFontSize": 36,
+				"fontWeight": 600,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.16,
+				"letterSpacing": 1.8,
+				"maxLines": 3,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "Georgia, \"Times New Roman\", serif",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 66
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": false,
+				"underline": true,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": true,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "dots"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.26)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#FFFFFF",
+				"textColor": "#1C1917",
+				"borderRadius": 0,
+				"padding": 14,
+				"shadow": false,
+				"opacity": 1,
+				"variant": "square"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22210%22%20viewBox%3D%220%200%20400%20210%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%23171717%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23404040%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22210%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22320%22%20cy%3D%2256%22%20r%3D%2236%22%20fill%3D%22%23f5f5f5%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2224%22%20y%3D%22154%22%20width%3D%22352%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22182%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2218%22%20font-weight%3D%22700%22%3EMinimal%20modern%20%C2%B7%20Link%20Post%3C%2Ftext%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22198%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2210%22%3EFacebook%20%C2%B7%20none%20%C2%B7%20bottom%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
 	}
 ];
 
 export function listOfficialPinTemplateCatalog() {
 	return OFFICIAL_PIN_TEMPLATE_CATALOG;
+}
+
+export function listOfficialPinterestPinTemplateCatalog() {
+	return OFFICIAL_PIN_TEMPLATE_CATALOG.filter((entry) => entry.channel === 'pinterest');
+}
+
+export function listOfficialFacebookPinTemplateCatalog() {
+	return OFFICIAL_PIN_TEMPLATE_CATALOG.filter((entry) => entry.channel === 'facebook');
 }

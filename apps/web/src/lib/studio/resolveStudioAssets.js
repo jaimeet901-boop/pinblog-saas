@@ -12,6 +12,7 @@ import {
 	resolveExportProfilesForProduct,
 	resolvePreviewAspectClass,
 } from '@/lib/studio/exportProfilePack';
+import { resolveTemplatePack } from '@/lib/studio/templatePacks';
 
 /**
  * Resolve studio assets for a product + workspace config.
@@ -28,6 +29,7 @@ export function resolveStudioAssets(product, config = {}) {
 	return {
 		channel,
 		promptPack: resolveChannelPromptPack(config, channel),
+		templatePack: resolveTemplatePack(product),
 		aspectRatios,
 		exportProfiles: resolveExportProfilesForProduct(product),
 		defaultExportProfileId,

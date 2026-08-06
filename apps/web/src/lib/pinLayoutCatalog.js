@@ -9,12 +9,15 @@ import {
 	composeLayoutPatch,
 } from '@/lib/pinDesignTokens';
 
-function layout(id, label, tags, tokenOptions) {
+function layout(id, label, tags, tokenOptions, meta = {}) {
 	return {
 		id,
 		label,
 		tags,
 		patch: composeLayoutPatch(tokenOptions),
+		channel: meta.channel || 'pinterest',
+		canvas: meta.canvas || { width: 1000, height: 1500 },
+		sourceLayoutId: meta.sourceLayoutId || id,
 	};
 }
 
@@ -192,10 +195,48 @@ export const PIN_LAYOUT_CATALOG = [
 		textPosition: 'center', frameStyle: 'bannerStrip', roundedLabel: false, accentStyle: 'rule',
 		safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.4,
 	}),
+	layout('banner_editorial', 'Banner editorial', ['banner', 'editorial'], {
+		fontPairId: 'garamond-script', typeScale: 'display', overlay: 'softDark', cta: 'capsuleWarm',
+		textPosition: 'center', frameStyle: 'bannerStrip', roundedLabel: false, accentStyle: 'rule',
+		safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.4,
+	}),
 ];
 
+/** Landscape link-post layouts for Facebook (F6-4). */
+const FACEBOOK_SOURCE_LAYOUT_IDS = Object.freeze([
+	'centered_hero',
+	'top_title_bottom_cta',
+	'dark_title_box',
+	'white_rounded_card',
+	'brush_stroke',
+	'ribbon_banner',
+	'magazine',
+	'minimal_modern',
+]);
+
+export const FACEBOOK_PIN_LAYOUT_CATALOG = FACEBOOK_SOURCE_LAYOUT_IDS.map((sourceId) => {
+	const source = PIN_LAYOUT_CATALOG.find((item) => item.id === sourceId);
+	if (!source) {
+		throw new Error(`Missing Facebook source layout: ${sourceId}`);
+	}
+	return {
+		id: `fb_${sourceId}`,
+		label: `${source.label} · Link Post`,
+		tags: [...source.tags, 'facebook', 'link-post'],
+		patch: source.patch,
+		channel: 'facebook',
+		canvas: { width: 1200, height: 630 },
+		sourceLayoutId: sourceId,
+	};
+});
+
+export const ALL_PIN_LAYOUT_CATALOG = Object.freeze([
+	...PIN_LAYOUT_CATALOG,
+	...FACEBOOK_PIN_LAYOUT_CATALOG,
+]);
+
 export function getPinLayoutById(id) {
-	return PIN_LAYOUT_CATALOG.find((item) => item.id === id) || null;
+	return ALL_PIN_LAYOUT_CATALOG.find((item) => item.id === id) || null;
 }
 
 export function listPinLayoutIds() {
@@ -246,6 +287,9 @@ export function applyPinLayoutToTemplateConfig(baseConfig, layoutId, { brandKit 
 
 	return normalizeTemplateConfig({
 		...merged,
-		canvas: { width: 1000, height: 1500 },
+		canvas: {
+			width: layoutDef.canvas?.width || 1000,
+			height: layoutDef.canvas?.height || 1500,
+		},
 	});
 }

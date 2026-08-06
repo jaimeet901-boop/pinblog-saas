@@ -18,6 +18,7 @@ import {
 	trackProductEvent,
 } from '@/lib/productAnalytics';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import { matchesTemplatePackEntry } from '@/lib/studio/templatePacks';
 import '@/pages/app/TemplatesPage.css';
 import './PinTemplateChooser.css';
 
@@ -47,6 +48,7 @@ export default function PinTemplateChooser({
 	selecting = false,
 	selectingId = '',
 	previewArticle = null,
+	templatePack = null,
 }) {
 	const { platformName } = usePlatformIdentity();
 	const items = useGalleryStore((s) => s.items);
@@ -63,8 +65,18 @@ export default function PinTemplateChooser({
 
 	const previewTemplate = items.find((item) => item.id === previewTemplateId) || null;
 
+	const visibleItems = useMemo(() => {
+		if (!templatePack) return items;
+		return items.filter((template) => matchesTemplatePackEntry(template, templatePack.key));
+	}, [items, templatePack]);
+
+	const initialGalleryFilters = useMemo(() => ({
+		...SELECT_FILTERS,
+		tag: templatePack?.galleryTag || '',
+	}), [templatePack]);
+
 	const hasFilters = useMemo(() => Boolean(
-		filters.q || filters.category || filters.scope,
+		filters.q || filters.category || filters.scope || filters.tag,
 	), [filters]);
 
 	const articleFingerprint = useMemo(() => {
@@ -85,12 +97,12 @@ export default function PinTemplateChooser({
 			{ dedupeKey: 'template_gallery_view:ai_pins_chooser' },
 		);
 		// Load first; only reset when the chooser actually closes (avoid dropping in-flight results).
-		void loadGalleryFirstPage({ ...SELECT_FILTERS });
+		void loadGalleryFirstPage({ ...initialGalleryFilters });
 		return () => {
 			revokeGalleryLivePreviewUrls();
 			resetGalleryStore();
 		};
-	}, [open]);
+	}, [open, initialGalleryFilters]);
 
 	useEffect(() => {
 		if (!open) return undefined;
@@ -111,7 +123,7 @@ export default function PinTemplateChooser({
 	function applySearch(value) {
 		setQuery(value);
 		setGalleryFilters({
-			...SELECT_FILTERS,
+			...initialGalleryFilters,
 			q: value,
 			category: filters.category || '',
 		});
@@ -119,7 +131,7 @@ export default function PinTemplateChooser({
 
 	function applyCategory(category) {
 		setGalleryFilters({
-			...SELECT_FILTERS,
+			...initialGalleryFilters,
 			q: query,
 			category,
 		});
@@ -156,7 +168,7 @@ export default function PinTemplateChooser({
 							aria-label="Search templates"
 						/>
 					</label>
-					<p className="pin-tpl-chooser__count">{totalItems} designs</p>
+					<p className="pin-tpl-chooser__count">{visibleItems.length} designs</p>
 				</div>
 
 				<div className="pin-tpl-chooser__categories" role="tablist" aria-label="Template categories">
@@ -186,20 +198,20 @@ export default function PinTemplateChooser({
 				{error ? <p className="pin-tpl-chooser__error" role="alert">{error}</p> : null}
 				{loading ? <TemplateGalleryLoading count={9} /> : null}
 
-				{!loading && items.length === 0 ? (
+				{!loading && visibleItems.length === 0 ? (
 					<TemplateGalleryEmpty
 						hasFilters={hasFilters}
 						onCreate={null}
 						onClear={() => {
 							setQuery('');
-							loadGalleryFirstPage({ ...SELECT_FILTERS });
+							loadGalleryFirstPage({ ...initialGalleryFilters });
 						}}
 					/>
 				) : null}
 
-				{!loading && items.length > 0 ? (
+				{!loading && visibleItems.length > 0 ? (
 					<div className="pin-tpl-chooser__grid" key={articleFingerprint}>
-						{items.map((template, index) => (
+						{visibleItems.map((template, index) => (
 							<PinTemplateChooserLiveCard
 								key={`${template.id}:${articleFingerprint}`}
 								template={template}
@@ -215,7 +227,7 @@ export default function PinTemplateChooser({
 				) : null}
 
 				<div ref={sentinelRef} className="pin-tpl-chooser__sentinel">
-					{loadingMore ? 'Loading more…' : hasMore ? 'Scroll for more designs' : items.length ? 'End of library' : null}
+					{loadingMore ? 'Loading more…' : hasMore ? 'Scroll for more designs' : visibleItems.length ? 'End of library' : null}
 				</div>
 
 				<TemplatePreviewModal

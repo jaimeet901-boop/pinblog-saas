@@ -84,6 +84,7 @@ export const AI_PINS_PRODUCT = {
 	studioAssets: {
 		defaultExportProfileId: 'pinterest_standard',
 		exportProfileIds: ['pinterest_standard'],
+		templatePackKey: 'pinterest',
 	},
 };
 
@@ -168,5 +169,6 @@ export const AI_FACEBOOK_PAGES_PRODUCT = {
 	studioAssets: {
 		defaultExportProfileId: 'facebook_post',
 		exportProfileIds: ['facebook_post', 'facebook_story'],
+		templatePackKey: 'facebook',
 	},
 };

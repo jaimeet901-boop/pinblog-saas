@@ -94,7 +94,9 @@ export async function ensureOfficialPinTemplatesSeeded() {
 					marketplace_meta: {
 						tags: entry.tags || [],
 						official: true,
-						library: 'chefia-pin-library-v1',
+						library: entry.channel === 'facebook' ? 'chefia-facebook-library-v1' : 'chefia-pin-library-v1',
+						channel: entry.channel || 'pinterest',
+						pack: entry.channel === 'facebook' ? 'facebook' : 'pinterest',
 					},
 					deleted_at: '',
 				};

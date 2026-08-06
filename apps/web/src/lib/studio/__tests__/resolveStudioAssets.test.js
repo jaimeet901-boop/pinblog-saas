@@ -17,6 +17,7 @@ describe('resolveStudioAssets', () => {
 		expect(assets.resolveExportProfile('pinterest_standard').width).toBe(1000);
 		expect(assets.resolveExportProfile('pinterest_standard').height).toBe(1500);
 		expect(assets.promptPack.copySystem).toBe('Pin system');
+		expect(assets.templatePack.key).toBe('pinterest');
 	});
 
 	it('resolves facebook assets with facebook_post default', () => {
@@ -30,5 +31,7 @@ describe('resolveStudioAssets', () => {
 		expect(assets.resolveExportProfile('facebook_post').width).toBe(1200);
 		expect(assets.resolveExportProfile('facebook_post').height).toBe(630);
 		expect(assets.resolvePreviewAspectClass('story')).toBe('aspect-[9/16]');
+		expect(assets.templatePack.key).toBe('facebook');
+		expect(assets.templatePack.galleryTag).toBe('facebook');
 	});
 });
