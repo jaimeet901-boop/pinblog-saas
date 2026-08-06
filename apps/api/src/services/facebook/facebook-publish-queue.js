@@ -1,5 +1,5 @@
 /**
- * Facebook Channel Pack — publish queue executor (F4-4).
+ * Facebook Channel Pack — publish queue executor (F4-4/5).
  * Polls facebook_publish_jobs, CAS-claims, publishes via Graph client (F4-1).
  */
 
@@ -10,7 +10,15 @@ import {
 	normalizeFacebookGraphError,
 	publishFacebookFeedPost,
 	resolveFacebookPostPublicUrl,
+	sanitizeFacebookGraphErrorPayload,
 } from './graph-publish.js';
+import {
+	buildFacebookPublishClaimedEventPayload,
+	buildFacebookPublishFailedEventPayload,
+	buildFacebookPublishPublishedEventPayload,
+	buildFacebookPublishRetryScheduledEventPayload,
+	recordFacebookPublishEvent,
+} from './publish-events.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.FACEBOOK_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.FACEBOOK_QUEUE_BATCH || '10', 10);
@@ -138,10 +146,24 @@ async function resolveQueueDeps(deps = {}) {
 		publishFacebookFeedPost: deps.publishFacebookFeedPost || publishFacebookFeedPost,
 		validateFacebookDestinationPost,
 		decryptPageTokenMap,
-		appendPublishEvent: deps.appendPublishEvent || appendPublishEvent,
+		recordPublishEvent: deps.recordFacebookPublishEvent || recordFacebookPublishEvent,
 		sanitizePayload: deps.sanitizePayload || sanitizeJobPayload,
 		client: pocketbaseClient,
 	};
+}
+
+async function emitFacebookPublishEvent({ job, eventRecord, deps = {} }) {
+	const { recordPublishEvent } = await resolveQueueDeps(deps);
+	return recordPublishEvent({
+		job,
+		eventRecord,
+		deps: {
+			...deps,
+			pocketbaseClient: deps.pocketbaseClient || deps.client,
+			loadEventIdempotencyKeys: deps.loadEventIdempotencyKeys,
+			createPublishEvent: deps.createPublishEvent,
+		},
+	});
 }
 
 async function sanitizeJobPayload(payload, context = 'facebook-queue:update') {
@@ -151,30 +173,6 @@ async function sanitizeJobPayload(payload, context = 'facebook-queue:update') {
 		context,
 		payload,
 	});
-}
-
-async function appendPublishEvent({ owner, jobId, eventType, message, payload = null, deps = {} }) {
-	const pb = await resolvePocketbaseClient(deps);
-	const { sanitizeCollectionPayload } = await loadSafeQuery();
-	const createPayload = await sanitizeCollectionPayload({
-		collection: 'facebook_publish_events',
-		context: 'facebook-queue:publish-event',
-		payload: {
-			owner,
-			job: jobId,
-			event_type: eventType,
-			message,
-			payload,
-		},
-	}).catch(() => ({
-		owner,
-		job: jobId,
-		event_type: eventType,
-		message,
-		payload,
-	}));
-
-	await pb.collection('facebook_publish_events').create(createPayload).catch(() => {});
 }
 
 /**
@@ -226,7 +224,7 @@ export async function processJob(job, deps = {}) {
 		publishFacebookFeedPost: publishFeed,
 		validateFacebookDestinationPost: validatePost,
 		decryptPageTokenMap: decryptPages,
-		appendPublishEvent: appendEvent,
+		recordPublishEvent,
 		sanitizePayload,
 	} = await resolveQueueDeps(deps);
 
@@ -250,13 +248,15 @@ export async function processJob(job, deps = {}) {
 
 		await pb.collection(FACEBOOK_JOB_COLLECTION).update(job.id, publishPayload);
 
-		await appendEvent({
-			owner,
-			jobId: job.id,
-			eventType: 'published',
-			message: 'Post already published; skipped duplicate create',
-			payload: { facebookPostId: postId, facebookPostUrl: postUrl, idempotent: true },
-			deps: { pocketbaseClient: pb },
+		await emitFacebookPublishEvent({
+			job,
+			eventRecord: buildFacebookPublishPublishedEventPayload({
+				job,
+				facebookPostId: postId,
+				facebookPostUrl: postUrl,
+				idempotent: true,
+			}),
+			deps: { ...deps, pocketbaseClient: pb },
 		});
 		return;
 	}
@@ -330,17 +330,14 @@ export async function processJob(job, deps = {}) {
 
 	await pb.collection(FACEBOOK_JOB_COLLECTION).update(job.id, publishPayload);
 
-	await appendEvent({
-		owner,
-		jobId: job.id,
-		eventType: 'published',
-		message: 'Facebook post published',
-		payload: {
+	await emitFacebookPublishEvent({
+		job,
+		eventRecord: buildFacebookPublishPublishedEventPayload({
+			job,
 			facebookPostId: postId,
 			facebookPostUrl: postUrl,
-			attempt: (job.attempt_count || 0) + 1,
-		},
-		deps: { pocketbaseClient: pb },
+		}),
+		deps: { ...deps, pocketbaseClient: pb },
 	});
 }
 
@@ -385,7 +382,7 @@ export async function processDueJobs(deps = {}) {
 	running = true;
 	lastRunAt = new Date().toISOString();
 	const pb = await resolvePocketbaseClient(deps);
-	const { sanitizePayload, appendPublishEvent: appendEvent } = await resolveQueueDeps(deps);
+	const { sanitizePayload } = await resolveQueueDeps(deps);
 
 	try {
 		const now = new Date().toISOString();
@@ -397,12 +394,13 @@ export async function processDueJobs(deps = {}) {
 				continue;
 			}
 
-			await appendEvent({
-				owner: locked.owner,
-				jobId: locked.id,
-				eventType: 'publishing',
-				message: 'Facebook publish job started',
-				deps: { pocketbaseClient: pb },
+			await emitFacebookPublishEvent({
+				job: locked,
+				eventRecord: buildFacebookPublishClaimedEventPayload({
+					job: locked,
+					claimToken: locked.claim_token,
+				}),
+				deps: { ...deps, pocketbaseClient: pb },
 			});
 
 			try {
@@ -437,23 +435,30 @@ export async function processDueJobs(deps = {}) {
 					attempt_count: nextAttempts,
 					last_error: storedError,
 					next_retry_at: nextRetryAt,
+					...(normalized.raw
+						? { raw_api_error: sanitizeFacebookGraphErrorPayload(normalized.raw) }
+						: {}),
 				}, 'facebook-queue:retry-update');
 
 				await pb.collection(FACEBOOK_JOB_COLLECTION).update(locked.id, retryPayload);
 
-				await appendEvent({
-					owner: locked.owner,
-					jobId: locked.id,
-					eventType: shouldRetry ? 'retry_scheduled' : 'failed',
-					message: storedError,
-					payload: {
-						attempt: nextAttempts,
-						maxAttempts,
-						nextRetryAt,
-						errorCode: normalized.errorCode || null,
-						retryable: normalized.retryable !== false,
-					},
-					deps: { pocketbaseClient: pb },
+				await emitFacebookPublishEvent({
+					job: locked,
+					eventRecord: shouldRetry
+						? buildFacebookPublishRetryScheduledEventPayload({
+							job: locked,
+							normalizedError: normalized,
+							nextRetryAt,
+							attempt: nextAttempts,
+							maxAttempts,
+						})
+						: buildFacebookPublishFailedEventPayload({
+							job: locked,
+							normalizedError: normalized,
+							attempt: nextAttempts,
+							maxAttempts,
+						}),
+					deps: { ...deps, pocketbaseClient: pb },
 				});
 			}
 		}
@@ -519,6 +524,16 @@ export async function recoverStuckPublishingJobs(deps = {}) {
 				facebook_post_url: postUrl,
 			}, 'facebook-queue:recover-published');
 			await pb.collection(FACEBOOK_JOB_COLLECTION).update(job.id, publishPayload).catch(() => null);
+			await emitFacebookPublishEvent({
+				job,
+				eventRecord: buildFacebookPublishPublishedEventPayload({
+					job: { ...job, facebook_post_id: postId, facebook_post_url: postUrl },
+					facebookPostId: postId,
+					facebookPostUrl: postUrl,
+					idempotent: true,
+				}),
+				deps: { ...deps, pocketbaseClient: pb },
+			}).catch(() => null);
 			recovered += 1;
 			return;
 		}
@@ -530,6 +545,21 @@ export async function recoverStuckPublishingJobs(deps = {}) {
 		}, 'facebook-queue:recover-update');
 
 		await pb.collection(FACEBOOK_JOB_COLLECTION).update(job.id, recoveryPayload).catch(() => null);
+		await emitFacebookPublishEvent({
+			job,
+			eventRecord: buildFacebookPublishRetryScheduledEventPayload({
+				job,
+				normalizedError: {
+					message: 'Recovered after stuck publishing state',
+					retryable: true,
+					errorCode: 'FACEBOOK_QUEUE_STUCK_RECOVERY',
+				},
+				nextRetryAt: now,
+				attempt: (job.attempt_count || 0) + 1,
+				maxAttempts: job.max_attempts || 3,
+			}),
+			deps: { ...deps, pocketbaseClient: pb },
+		}).catch(() => null);
 		recovered += 1;
 	}));
 

@@ -5,10 +5,13 @@
 
 import { normalizeDestinationUrl, resolvePinDestinationUrl } from '../../utils/pin-publish-destination.js';
 import { FACEBOOK_JOB_COLLECTION } from './channel-pack.js';
+import {
+	FACEBOOK_PUBLISH_CREATED_EVENT_TYPE,
+	buildFacebookPublishCreatedEventPayload,
+} from './publish-events.js';
 import { validateFacebookDestinationPost } from './destinations.js';
 
-export const FACEBOOK_PUBLISH_DEFAULT_MAX_ATTEMPTS = 3;
-export const FACEBOOK_PUBLISH_CREATED_EVENT_TYPE = 'created';
+export { FACEBOOK_PUBLISH_CREATED_EVENT_TYPE, buildFacebookPublishCreatedEventPayload };
 
 const ACTIVE_JOB_STATUSES = Object.freeze(['scheduled', 'publishing']);
 
@@ -166,38 +169,7 @@ export function buildFacebookPublishJobPayload({
 	return payload;
 }
 
-/**
- * Build a facebook_publish_events create payload (pure; job id optional until insert).
- */
-export function buildFacebookPublishCreatedEventPayload({
-	owner,
-	workspaceId = '',
-	jobId = '',
-	accountId = '',
-	pageId = '',
-	aiPinId = '',
-	scheduledAt = '',
-	timezone = 'UTC',
-} = {}) {
-	const payload = {
-		owner: String(owner || '').trim(),
-		event_type: FACEBOOK_PUBLISH_CREATED_EVENT_TYPE,
-		message: 'Facebook publish job created',
-		payload: {
-			accountId: String(accountId || '').trim(),
-			pageId: String(pageId || '').trim(),
-			aiPinId: String(aiPinId || '').trim(),
-			scheduledAt: scheduledAt || null,
-			timezone: String(timezone || 'UTC').trim() || 'UTC',
-			publishMode: 'now',
-		},
-	};
-
-	if (workspaceId) payload.workspace = workspaceId;
-	if (jobId) payload.job = jobId;
-
-	return payload;
-}
+export const FACEBOOK_PUBLISH_DEFAULT_MAX_ATTEMPTS = 3;
 
 /**
  * Public API DTO for a facebook_publish_jobs row.

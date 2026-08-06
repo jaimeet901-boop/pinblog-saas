@@ -84,6 +84,21 @@ function createJobStore(initialJobs = []) {
 	};
 }
 
+function createEventDeps(store) {
+	return {
+		loadEventIdempotencyKeys: async (jobId) => store.events
+			.filter((evt) => evt.job === jobId)
+			.map((evt) => evt.payload?.idempotencyKey)
+			.filter(Boolean),
+		createPublishEvent: async (record) => {
+			store.events.push({
+				...record,
+				created: new Date().toISOString(),
+			});
+		},
+	};
+}
+
 function baseDeps(overrides = {}) {
 	const store = overrides.store || createJobStore([baseJob]);
 	const validationOk = {
@@ -105,15 +120,7 @@ function baseDeps(overrides = {}) {
 			decryptPageTokenMap: () => ({ 123456789: 'page-token-plain' }),
 			validateFacebookDestinationPost: async () => validationOk,
 			markFacebookAccountStatus: async () => null,
-			appendPublishEvent: async ({ owner, jobId, eventType, message, payload = null }) => {
-				await store.client.collection('facebook_publish_events').create({
-					owner,
-					job: jobId,
-					event_type: eventType,
-					message,
-					payload,
-				});
-			},
+			...createEventDeps(store),
 			publishFacebookFeedPost: async () => ({
 				postId: '123456789_999',
 				postUrl: 'https://www.facebook.com/123456789_999',
@@ -209,6 +216,7 @@ describe('facebook F4-4 publish queue executor', () => {
 
 		const retryEvent = store.events.find((evt) => evt.event_type === 'retry_scheduled');
 		assert.ok(retryEvent);
+		assert.equal(retryEvent.payload.failureKind, 'rate_limited');
 	});
 
 	it('processDueJobs marks terminal failure when retries exhausted or non-retryable', async () => {
@@ -241,6 +249,46 @@ describe('facebook F4-4 publish queue executor', () => {
 		assert.equal(updated.attempt_count, 3);
 		const failedEvent = store.events.find((evt) => evt.event_type === 'failed');
 		assert.ok(failedEvent);
+		assert.equal(failedEvent.payload.failureKind, 'terminal');
+	});
+
+	it('processDueJobs emits claimed before published in order', async () => {
+		const scheduledJob = {
+			...baseJob,
+			id: 'job_order',
+			status: 'scheduled',
+			scheduled_at: '2020-01-01T00:00:00.000Z',
+			claim_token: '',
+			claim_version: 0,
+		};
+		const { store, deps } = baseDeps({ store: createJobStore([scheduledJob]) });
+
+		await processDueJobs({
+			...deps,
+			loadDueJobs: async () => [{ ...scheduledJob }],
+		});
+
+		const types = store.events.map((evt) => evt.event_type);
+		assert.deepEqual(types, ['claimed', 'published']);
+	});
+
+	it('processJob skips duplicate published events for the same post id', async () => {
+		const jobWithPost = {
+			...baseJob,
+			facebook_post_id: '123456789_existing',
+			facebook_post_url: 'https://www.facebook.com/123456789_existing',
+		};
+		const store = createJobStore([jobWithPost]);
+		store.events.push({
+			job: 'job_1',
+			event_type: 'published',
+			payload: { idempotencyKey: 'published:job_1:123456789_existing' },
+		});
+		const { deps } = baseDeps({ store });
+
+		await processJob(jobWithPost, deps);
+		const publishedEvents = store.events.filter((evt) => evt.event_type === 'published');
+		assert.equal(publishedEvents.length, 1);
 	});
 
 	it('claimScheduledJob allows only one concurrent winner (CAS)', async () => {
