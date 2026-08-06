@@ -94,11 +94,11 @@ export const AI_FACEBOOK_PAGES_PRODUCT = {
 	destinationId: 'facebook',
 	routes: {
 		studio: '/app/ai-facebook-pages',
-		history: '/app/ai-pins/history',
+		history: '/app/ai-facebook-pages/history',
 		connect: '/app/facebook',
 		publishingHistory: '/app/pinterest-history',
-		templates: '/app/ai-pins/templates',
-		brandKit: '/app/ai-pins/brand-kit',
+		templates: '/app/ai-facebook-pages/templates',
+		brandKit: '/app/ai-facebook-pages/brand-kit',
 	},
 	labels: {
 		platformName: 'Chef IA',

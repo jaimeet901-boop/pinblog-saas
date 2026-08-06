@@ -36,6 +36,9 @@ describe('facebook F5-6 channel capabilities', () => {
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.queueImplemented).toBe(true);
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory).toBe(false);
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.insights).toBe(false);
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioPromptPack).toBe(true);
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioTemplatePack).toBe(true);
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioExportProfiles).toBe(true);
 	});
 });
 

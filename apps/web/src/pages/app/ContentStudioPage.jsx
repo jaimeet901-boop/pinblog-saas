@@ -195,6 +195,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		publishNow: true,
 		queueImplemented: true,
 	};
+	const showPublishingHistory = destinationCaps.publishingHistory !== false;
 	const { toast } = useToast();
 	const { platformName } = usePlatformIdentity();
 	const navigate = useNavigate();
@@ -3184,7 +3185,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 									}} disabled={savingGenerated}>
 										{savingGenerated ? <Spinner className="h-3.5 w-3.5" /> : null} Save Draft
 									</Button>
-									{showHistory ? (
+									{showPublishingHistory ? (
 										<Link to={routes.publishingHistory}><Button size="sm" variant="ghost"><History size={13} /> History</Button></Link>
 									) : null}
 								</div>
@@ -3295,7 +3296,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 									<Button size="sm" type="button" onClick={() => handleAddToQueue()} disabled={queueing || draftPins.length === 0 || accounts.length === 0}>
 										<ListPlus size={13} /> Add selected to queue
 									</Button>
-									{showHistory ? (
+									{showPublishingHistory ? (
 										<Link to={routes.publishingHistory}><Button size="sm" variant="outline"><History size={13} /> {L.publishingHistoryNav}</Button></Link>
 									) : null}
 								</div>
@@ -3542,7 +3543,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				progress={publishProgress}
 				result={publishResult}
 				onClose={() => setPublishProgressOpen(false)}
-				onOpenHistory={() => navigate(routes.publishingHistory)}
+				onOpenHistory={showPublishingHistory ? () => navigate(routes.publishingHistory) : undefined}
 				labels={L}
 				normalizeResponses={destination.normalizeProgressResult}
 			/>

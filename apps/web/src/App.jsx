@@ -33,6 +33,9 @@ import NotFoundPage from '@/pages/NotFoundPage';
 
 const AIPinsPage = lazy(() => import('@/pages/app/AIPinsPage'));
 const AIFacebookPagesPage = lazy(() => import('@/pages/app/AIFacebookPagesPage'));
+const AIFacebookPagesHistoryPage = lazy(() => import('@/pages/app/AIFacebookPagesHistoryPage'));
+const AIFacebookPagesTemplatesPage = lazy(() => import('@/pages/app/AIFacebookPagesTemplatesPage'));
+const AIFacebookPagesBrandKitPage = lazy(() => import('@/pages/app/AIFacebookPagesBrandKitPage'));
 const FacebookPage = lazy(() => import('@/pages/app/FacebookPage'));
 const TemplatesPage = lazy(() => import('@/pages/app/TemplatesPage'));
 const TemplatesClassicPage = lazy(() => import('@/pages/app/TemplatesClassicPage'));
@@ -137,6 +140,11 @@ function App() {
 						<Route path="/app/websites/:websiteId/articles" element={<Shell><WebsiteArticlesPage /></Shell>} />
 						<Route path="/app/ai-pins" element={<Shell><LazyPage><AIPinsPage /></LazyPage></Shell>} />
 						<Route path="/app/ai-facebook-pages" element={<Shell><LazyPage><AIFacebookPagesPage /></LazyPage></Shell>} />
+						<Route path="/app/ai-facebook-pages/history" element={<Shell><LazyPage><AIFacebookPagesHistoryPage /></LazyPage></Shell>} />
+						<Route path="/app/ai-facebook-pages/templates" element={<Shell><LazyPage><AIFacebookPagesTemplatesPage /></LazyPage></Shell>} />
+						<Route path="/app/ai-facebook-pages/templates/new/edit" element={<Shell><LazyPage><TemplateEditorPage /></LazyPage></Shell>} />
+						<Route path="/app/ai-facebook-pages/templates/:id/edit" element={<Shell><LazyPage><TemplateEditorPage /></LazyPage></Shell>} />
+						<Route path="/app/ai-facebook-pages/brand-kit" element={<Shell><LazyPage><AIFacebookPagesBrandKitPage /></LazyPage></Shell>} />
 						<Route path="/app/facebook" element={<Shell><LazyPage><FacebookPage /></LazyPage></Shell>} />
 						<Route path="/app/ai-pins/templates" element={<Shell><LazyPage><TemplatesPage /></LazyPage></Shell>} />
 						<Route path="/app/ai-pins/templates/classic" element={<Shell><LazyPage><TemplatesClassicPage /></LazyPage></Shell>} />

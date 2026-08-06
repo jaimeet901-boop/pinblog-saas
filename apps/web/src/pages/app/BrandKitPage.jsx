@@ -5,6 +5,7 @@ import {
 	Type, Image as ImageIcon, Settings2, Upload, Wand2,
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
+import { AI_PINS_PRODUCT } from '@/lib/studio/products';
 import { Badge, Button, Input, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
@@ -84,7 +85,8 @@ function ColorField({ label, value, onChange }) {
 	);
 }
 
-export default function BrandKitPage() {
+export default function BrandKitPage({ product = AI_PINS_PRODUCT }) {
+	const L = product.labels;
 	const { toast } = useToast();
 	const { platformName } = usePlatformIdentity();
 	const [items, setItems] = useState([]);
@@ -316,10 +318,10 @@ export default function BrandKitPage() {
 					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">Brand Kit</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-						Define logo, colors, type, and watermark once — then apply them across AI Pins.
+						Define logo, colors, type, and watermark once — then apply them across {L.productShortPlural}.
 					</p>
 				</div>
-				<Link to="/app/ai-pins"><Button variant="outline" size="sm"><Wand2 size={14} /> Back to AI Pins</Button></Link>
+				<Link to={product.routes.studio}><Button variant="outline" size="sm"><Wand2 size={14} /> Back to {L.productShortPlural}</Button></Link>
 			</div>
 
 			<div className="bk-atelier__actions">
@@ -386,7 +388,7 @@ export default function BrandKitPage() {
 								<p className="font-medium">{items.length === 0 ? 'No brand kits yet' : 'No matches'}</p>
 								<p className="mt-1 text-xs text-muted-foreground">
 									{items.length === 0
-										? 'Create your first kit to brand AI Pins with your look.'
+										? `Create your first kit to brand ${L.productShortPlural} with your look.`
 										: 'Try another search term.'}
 								</p>
 								{items.length === 0 ? (

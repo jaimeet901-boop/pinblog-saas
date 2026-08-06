@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import apiServerClient from '@/lib/apiServerClient';
 import { createTemplateThumbnail } from '@/lib/pinTemplates';
 import { createTemplateUuid, hashTemplateConfiguration, nextRevision } from '@/lib/pinTemplateIdentity';
@@ -35,6 +35,10 @@ function mapRecord(record) {
 
 export default function TemplateEditorPage() {
 	const { id } = useParams();
+	const { pathname } = useLocation();
+	const templatesBase = pathname.startsWith('/app/ai-facebook-pages/templates')
+		? '/app/ai-facebook-pages/templates'
+		: '/app/ai-pins/templates';
 	const navigate = useNavigate();
 	const { toast } = useToast();
 	const [loading, setLoading] = useState(true);
@@ -152,7 +156,7 @@ export default function TemplateEditorPage() {
 			});
 
 			if (!state.templateId && saved.id) {
-				navigate(`/app/ai-pins/templates/${saved.id}/edit`, { replace: true });
+				navigate(`${templatesBase}/${saved.id}/edit`, { replace: true });
 			}
 
 			if (!silent) {
@@ -196,7 +200,7 @@ export default function TemplateEditorPage() {
 				<p>{error}</p>
 				<div className="tpl-editor-error-actions">
 					<button type="button" onClick={() => window.location.reload()}>Retry</button>
-					<Link to="/app/ai-pins/templates">Back to gallery</Link>
+					<Link to={templatesBase}>Back to gallery</Link>
 					{upgradePayload ? (
 						<button type="button" onClick={() => setUpgradeOpen(true)}>
 							View upgrade options

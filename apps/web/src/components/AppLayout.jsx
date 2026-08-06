@@ -290,6 +290,9 @@ function ActiveWebsiteSwitcher({ websites, activeWebsiteId, loading, onChange, p
 						'/app/analytics',
 						'/app/pinterest-history',
 						'/app/ai-pins/history',
+						'/app/ai-facebook-pages/history',
+						'/app/ai-facebook-pages/templates',
+						'/app/ai-facebook-pages/brand-kit',
 						'/app/calendar',
 						'/app/pinterest',
 					].some((route) => pathname === route || pathname.startsWith(`${route}/`));

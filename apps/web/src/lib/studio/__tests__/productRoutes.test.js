@@ -1,0 +1,97 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+	AI_FACEBOOK_PAGES_PRODUCT,
+	AI_PINS_PRODUCT,
+} from '@/lib/studio/products';
+import { FACEBOOK_CHANNEL_CAPABILITIES } from '@/lib/facebook/channelCapabilities.js';
+
+const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+
+describe('facebook F6-5 product routes', () => {
+	it('keeps Pinterest routes unchanged', () => {
+		expect(AI_PINS_PRODUCT.routes).toEqual({
+			studio: '/app/ai-pins',
+			history: '/app/ai-pins/history',
+			connect: '/app/pinterest',
+			publishingHistory: '/app/pinterest-history',
+			templates: '/app/ai-pins/templates',
+			brandKit: '/app/ai-pins/brand-kit',
+		});
+	});
+
+	it('routes Facebook Studio sub-pages under ai-facebook-pages', () => {
+		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.studio).toBe('/app/ai-facebook-pages');
+		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.history).toBe('/app/ai-facebook-pages/history');
+		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.templates).toBe('/app/ai-facebook-pages/templates');
+		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.brandKit).toBe('/app/ai-facebook-pages/brand-kit');
+		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.connect).toBe('/app/facebook');
+	});
+
+	it('does not alias Facebook history/templates to Pinterest paths', () => {
+		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.history).not.toContain('/app/ai-pins/');
+		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.templates).not.toContain('/app/ai-pins/');
+		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.brandKit).not.toContain('/app/ai-pins/');
+	});
+});
+
+describe('facebook F6-5 studio asset capabilities', () => {
+	it('enables studio asset flags with publishing history disabled', () => {
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioPromptPack).toBe(true);
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioTemplatePack).toBe(true);
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioExportProfiles).toBe(true);
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory).toBe(false);
+	});
+});
+
+describe('facebook F6-5 route wiring', () => {
+	it('registers thin wrapper pages and shared editor routes', () => {
+		const app = readFileSync(path.join(webRoot, 'src/App.jsx'), 'utf8');
+		const historyWrapper = readFileSync(
+			path.join(webRoot, 'src/pages/app/AIFacebookPagesHistoryPage.jsx'),
+			'utf8',
+		);
+		const templatesWrapper = readFileSync(
+			path.join(webRoot, 'src/pages/app/AIFacebookPagesTemplatesPage.jsx'),
+			'utf8',
+		);
+		const brandKitWrapper = readFileSync(
+			path.join(webRoot, 'src/pages/app/AIFacebookPagesBrandKitPage.jsx'),
+			'utf8',
+		);
+
+		expect(historyWrapper).toMatch(/AIPinHistoryPage/);
+		expect(historyWrapper).toMatch(/AI_FACEBOOK_PAGES_PRODUCT/);
+		expect(templatesWrapper).toMatch(/TemplatesPage/);
+		expect(templatesWrapper).toMatch(/AI_FACEBOOK_PAGES_PRODUCT/);
+		expect(brandKitWrapper).toMatch(/BrandKitPage/);
+		expect(brandKitWrapper).toMatch(/AI_FACEBOOK_PAGES_PRODUCT/);
+
+		expect(app).toMatch(/\/app\/ai-facebook-pages\/templates\/new\/edit/);
+		expect(app).toMatch(/\/app\/ai-facebook-pages\/templates\/:id\/edit/);
+	});
+
+	it('gates publishing history in Content Studio on capability flag', () => {
+		const studio = readFileSync(
+			path.join(webRoot, 'src/pages/app/ContentStudioPage.jsx'),
+			'utf8',
+		);
+
+		expect(studio).toMatch(/showPublishingHistory/);
+		expect(studio).toMatch(/destinationCaps\.publishingHistory !== false/);
+		expect(studio).toMatch(/onOpenHistory=\{showPublishingHistory/);
+	});
+
+	it('preserves website query on Facebook Studio sub-routes', () => {
+		const layout = readFileSync(
+			path.join(webRoot, 'src/components/AppLayout.jsx'),
+			'utf8',
+		);
+
+		expect(layout).toMatch(/\/app\/ai-facebook-pages\/history/);
+		expect(layout).toMatch(/\/app\/ai-facebook-pages\/templates/);
+		expect(layout).toMatch(/\/app\/ai-facebook-pages\/brand-kit/);
+	});
+});

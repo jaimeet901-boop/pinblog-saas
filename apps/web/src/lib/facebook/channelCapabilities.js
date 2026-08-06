@@ -15,6 +15,9 @@ export const FACEBOOK_CHANNEL_CAPABILITIES = Object.freeze({
 	insights: false,
 	publishingHistory: false,
 	analytics: false,
+	studioPromptPack: true,
+	studioTemplatePack: true,
+	studioExportProfiles: true,
 });
 
 export function getFacebookChannelCapabilities() {

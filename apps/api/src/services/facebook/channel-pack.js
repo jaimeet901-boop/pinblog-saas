@@ -50,6 +50,9 @@ export const FACEBOOK_CHANNEL_CAPABILITIES = Object.freeze({
 	calendarMutate: true,
 	insights: false, // F7
 	publishingHistory: false, // F7
+	studioPromptPack: true,
+	studioTemplatePack: true,
+	studioExportProfiles: true,
 });
 
 /** Workspace RBAC capability strings for Facebook (registered in workspace-rbac.js). */

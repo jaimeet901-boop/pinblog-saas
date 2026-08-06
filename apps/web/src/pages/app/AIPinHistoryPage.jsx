@@ -5,6 +5,7 @@ import {
 	Sparkles, LayoutGrid, List, Coins, Clock,
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
+import { AI_PINS_PRODUCT } from '@/lib/studio/products';
 import { Badge, Button, Select } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -90,7 +91,8 @@ function toCsv(rows) {
 	return `${lines.join('\n')}\n`;
 }
 
-export default function AIPinHistoryPage() {
+export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
+	const L = product.labels;
 	const { toast } = useToast();
 	const { user } = useAuth();
 	const { platformName } = usePlatformIdentity();
@@ -119,7 +121,7 @@ export default function AIPinHistoryPage() {
 		if (preferredWebsiteId) setWebsiteFilter(preferredWebsiteId);
 	}, [preferredWebsiteId]);
 
-	const pinsHref = withWebsiteQuery('/app/ai-pins', preferredWebsiteId || websiteFilter);
+	const pinsHref = withWebsiteQuery(product.routes.studio, preferredWebsiteId || websiteFilter);
 
 	const load = async () => {
 		setLoading(true);
@@ -360,7 +362,7 @@ export default function AIPinHistoryPage() {
 						</div>
 					</div>
 					<div className="flex flex-wrap gap-2">
-						<Link to={pinsHref}><Button variant="outline">Back to AI Pins</Button></Link>
+						<Link to={pinsHref}><Button variant="outline">Back to {L.productShortPlural}</Button></Link>
 						<div className="flex items-end gap-2">
 							<Select label="Export" value={exportFormat} onChange={(e) => setExportFormat(e.target.value)}>
 								<option value="csv">CSV</option>
@@ -377,7 +379,7 @@ export default function AIPinHistoryPage() {
 			<div className="hist-stats">
 				{[
 					{ label: 'Total Generations', value: stats.total, hint: null },
-					{ label: 'AI Pins Generated', value: stats.pins, hint: null },
+					{ label: `${L.productShortPlural} Generated`, value: stats.pins, hint: null },
 					{ label: 'Images Generated', value: stats.images, hint: null },
 					{ label: 'Prompt Optimizations', value: stats.optimizations, hint: stats.optimizations === '—' ? 'Placeholder' : null },
 					{ label: 'Credits Used', value: stats.credits, hint: 'This page' },
@@ -490,7 +492,7 @@ export default function AIPinHistoryPage() {
 							<p className="mt-2 max-w-md text-sm text-muted-foreground">
 								Analyze articles or generate pin images to build your history.
 							</p>
-							<Link to={pinsHref} className="mt-5"><Button size="sm"><Pin size={14} /> Create your first AI Pin</Button></Link>
+							<Link to={pinsHref} className="mt-5"><Button size="sm"><Pin size={14} /> Create your first {L.productShort}</Button></Link>
 						</div>
 					) : null}
 
@@ -682,7 +684,7 @@ export default function AIPinHistoryPage() {
 									<Copy size={14} /> Copy Prompt
 								</Button>
 								<Link to={pinsHref}>
-									<Button size="sm" variant="outline" className="w-full"><RefreshCw size={14} /> Regenerate in AI Pins</Button>
+									<Button size="sm" variant="outline" className="w-full"><RefreshCw size={14} /> Regenerate in {L.productShortPlural}</Button>
 								</Link>
 								<Button
 									size="sm"
@@ -690,7 +692,7 @@ export default function AIPinHistoryPage() {
 									disabled={!selected.articleId}
 									onClick={() => {
 										if (selected.articleId) {
-											toast({ title: 'Article linked', description: `Article ID ${selected.articleId} — open from AI Pins article picker.` });
+											toast({ title: 'Article linked', description: `Article ID ${selected.articleId} — open from ${L.productShortPlural} article picker.` });
 										}
 									}}
 								>

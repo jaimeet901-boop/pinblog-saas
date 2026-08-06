@@ -12,6 +12,7 @@ import {
 	buildTemplateEventProps,
 	trackProductEvent,
 } from '@/lib/productAnalytics';
+import { AI_PINS_PRODUCT } from '@/lib/studio/products';
 import {
 	galleryApi,
 	loadGalleryFirstPage,
@@ -31,7 +32,9 @@ function downloadJson(filename, data) {
 	URL.revokeObjectURL(url);
 }
 
-export default function TemplatesPage() {
+export default function TemplatesPage({ product = AI_PINS_PRODUCT }) {
+	const routes = product.routes;
+	const isPinterestProduct = product.destinationId === 'pinterest';
 	const navigate = useNavigate();
 	const { toast } = useToast();
 	const [upgradeModal, setUpgradeModal] = useState(null);
@@ -76,7 +79,7 @@ export default function TemplatesPage() {
 			});
 			const id = created.id || created.item?.id;
 			toast({ title: 'Template created' });
-			if (id) navigate(`/app/ai-pins/templates/${id}/edit`);
+			if (id) navigate(`${routes.templates}/${id}/edit`);
 			else loadGalleryFirstPage();
 		} catch (error) {
 			toast({ title: 'Create failed', description: error.message, variant: 'destructive' });
@@ -194,11 +197,15 @@ export default function TemplatesPage() {
 	return (
 		<div className="tpl-gallery-page">
 			<div className="tpl-gallery-page__links">
-				<Link to="/app/ai-pins/templates/classic" title="Legacy procedural atelier (read-only maintenance)">
-					Classic atelier (legacy)
-				</Link>
-				<span>·</span>
-				<Link to="/app/ai-pins/templates/new/edit">Blank layer editor</Link>
+				{isPinterestProduct ? (
+					<>
+						<Link to={`${routes.templates}/classic`} title="Legacy procedural atelier (read-only maintenance)">
+							Classic atelier (legacy)
+						</Link>
+						<span>·</span>
+					</>
+				) : null}
+				<Link to={`${routes.templates}/new/edit`}>Blank layer editor</Link>
 			</div>
 			<TemplateGallery
 				onCreate={handleCreate}
