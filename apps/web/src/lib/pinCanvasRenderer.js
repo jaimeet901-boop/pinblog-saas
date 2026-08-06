@@ -14,6 +14,8 @@ import {
 import { API_SERVER_URL } from '@/lib/apiServerClient';
 import { getPocketbaseAuthHeader } from '@/lib/pocketbaseClient';
 import { renderDocument } from '@/lib/pinLayerCompositor';
+import { applyExportCanvasSize } from '@/lib/pinExportEngine';
+import { getExportProfile } from '@/lib/pinExportProfiles';
 import { traceImageLifecycle } from '@/services/ai-pins/imageLifecycleTrace.js';
 
 function loadImageFromUrl(url) {
@@ -763,17 +765,26 @@ export async function renderFeaturedPinToBlob({
 	watermarkText = '',
 	websiteDomain = '',
 	traceId = '',
+	exportProfileId = 'pinterest_standard',
 }) {
+	const profile = getExportProfile(exportProfileId);
+	const width = profile.width;
+	const height = profile.height;
+
 	await traceImageLifecycle('3_image_download_start', {
 		traceId,
 		imageUrl: featuredImageUrl,
 		functionName: 'renderFeaturedPinToBlob',
 		fileName: 'apps/web/src/lib/pinCanvasRenderer.js',
 		lineNumber: 757,
+		meta: { exportProfileId: profile.id, width, height },
 	});
 
 	if (isV2TemplateConfig(templateConfig)) {
-		const { bytes, mimeType } = await renderDocument(templateConfig, {
+		const sizedDocument = (templateConfig.canvas?.width === width && templateConfig.canvas?.height === height)
+			? templateConfig
+			: applyExportCanvasSize(templateConfig, width, height);
+		const { bytes, mimeType } = await renderDocument(sizedDocument, {
 			format: 'png',
 			variables: {
 				...context,
@@ -802,8 +813,6 @@ export async function renderFeaturedPinToBlob({
 	}
 
 	let config = resolveFeaturedTemplateConfig(templateConfig);
-	const width = 1000;
-	const height = 1500;
 	const canvas = document.createElement('canvas');
 	canvas.width = width;
 	canvas.height = height;

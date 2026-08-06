@@ -130,6 +130,8 @@
 .ai-pins-ratio__frame.pin { height: 1.55rem; }
 .ai-pins-ratio__frame.classic { height: 1.35rem; }
 .ai-pins-ratio__frame.custom { height: 1.15rem; width: 1.35rem; }
+.ai-pins-ratio__frame.landscape { height: 1rem; width: 1.9rem; }
+.ai-pins-ratio__frame.story { height: 1.55rem; width: 0.87rem; }
 
 .ai-pins-grid {
 	display: grid;

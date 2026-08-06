@@ -43,7 +43,6 @@ import {
 } from '@/lib/pinTemplateIntelligence';
 import { useWorkspaceConfig } from '@/context/WorkspaceConfigContext';
 import {
-	PIN_ASPECT_RATIOS,
 	buildImageQualityOptions,
 	buildPinCountOptions,
 	buildPinPromptFromConfig,
@@ -53,12 +52,12 @@ import {
 	mapStudioCredits,
 	mapStudioPinStyles,
 	mapStudioTemplates,
-	resolveDefaultAspectRatioId,
 	resolveDefaultImageProvider,
 	resolveDefaultImageQualityId,
 	resolveDefaultTextProvider,
 	resolvePublishingConfig,
 } from '@/lib/aiPinsWorkspaceConfig';
+import { resolveStudioAssets } from '@/lib/studio/resolveStudioAssets';
 import { useWorkspaceWebsites } from '@/hooks/useWorkspaceWebsites';
 import {
 	normalizeImageSourceStrategy,
@@ -189,6 +188,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const L = product.labels;
 	const routes = product.routes;
 	const studioChannel = product.destinationId === 'facebook' ? 'facebook' : 'pinterest';
+	const studioAssets = useMemo(() => resolveStudioAssets(product, config), [product, config]);
 	const destination = getDestinationAdapter(product.destinationId);
 	const destinationCaps = destination.channelCapabilities || {
 		schedule: true,
@@ -293,7 +293,15 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const [includeWebsiteUrl, setIncludeWebsiteUrl] = useState(true);
 	const [imageQuality, setImageQuality] = useState(() => resolveDefaultImageQualityId(config));
-	const [aspectRatio, setAspectRatio] = useState(() => resolveDefaultAspectRatioId(config));
+	const [aspectRatio, setAspectRatio] = useState(() => studioAssets.defaultAspectRatioId);
+	const selectedExportProfileId = useMemo(
+		() => studioAssets.resolveExportProfileIdForAspect(aspectRatio),
+		[studioAssets, aspectRatio],
+	);
+	const inspectorPreviewAspectClass = useMemo(
+		() => studioAssets.resolvePreviewAspectClass(aspectRatio),
+		[studioAssets, aspectRatio],
+	);
 	const [imageType, setImageType] = useState('pin');
 	const [promptOnlyText, setPromptOnlyText] = useState('');
 	const [referenceImages, setReferenceImages] = useState([]);
@@ -344,7 +352,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		const defaultAudience = String(config?.content?.defaultPinAudience || '').trim();
 
 		setTimezone((prev) => prev || config?.schedulingDefaults?.timezone || config?.general?.timezone || 'UTC');
-		setAspectRatio(resolveDefaultAspectRatioId(config));
+		setAspectRatio(studioAssets.defaultAspectRatioId);
 		setImageQuality(defaultQualityId);
 		setPanel((prev) => ({
 			...prev,
@@ -363,7 +371,11 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		if (defaultTemplate) setSelectedTemplateId((prev) => prev || defaultTemplate.id);
 		const defaultKit = brandKits.find((item) => item.isDefault) || brandKits[0];
 		if (defaultKit) setSelectedBrandKitId((prev) => prev || defaultKit.id);
-	}, [hasValidConfig, config, imageQualities, pinCounts, templates, brandKits]);
+	}, [hasValidConfig, config, imageQualities, pinCounts, templates, brandKits, studioAssets.defaultAspectRatioId]);
+
+	useEffect(() => {
+		setAspectRatio(studioAssets.defaultAspectRatioId);
+	}, [product.destinationId, studioAssets.defaultAspectRatioId]);
 
 	useEffect(() => {
 		// Sync Admin default provider only when workspace config version changes.
@@ -1330,7 +1342,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						featuredImage: pin.sourceImageUrl || pin.featuredImage || '',
 						contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
 					})),
-					{ brandKit },
+					{ brandKit, exportProfileId: selectedExportProfileId },
 				);
 				applyTemplateComposeResults(composed, { imageSource: 'featured_composed' });
 			}
@@ -1412,7 +1424,10 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			}
 
 			if (withBackground.length > 0) {
-				const composed = await composeAndUploadFeaturedPins(withBackground, { brandKit });
+				const composed = await composeAndUploadFeaturedPins(withBackground, {
+					brandKit,
+					exportProfileId: selectedExportProfileId,
+				});
 				setGeneratedPreviewPins((prev) => prev.map((pin) => {
 					const input = withBackground.find((item) => item.tempId === pin.tempId);
 					const result = composed.find((item) => item.tempId === pin.tempId);
@@ -1462,7 +1477,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 							featuredImage: pin.sourceImageUrl || pin.featuredImage,
 							contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
 						})),
-						{ brandKit },
+						{ brandKit, exportProfileId: selectedExportProfileId },
 					);
 					applyTemplateComposeResults(composed, { imageSource: 'featured_fallback' });
 					toast({
@@ -1555,7 +1570,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		}
 
 		const quality = imageQualities.find((item) => item.id === imageQuality) || imageQualities[0];
-		const ratio = PIN_ASPECT_RATIOS.find((item) => item.id === aspectRatio);
+		const ratio = studioAssets.aspectRatios.find((item) => item.id === aspectRatio);
 		const websiteLabel = activeWebsite?.domain || activeWebsite?.url || activeWebsite?.name || '';
 		const imageSourceStrategy = normalizeImageSourceStrategy(config?.images?.imageSourceStrategy);
 
@@ -1919,7 +1934,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				...pin,
 				featuredImage: background,
 				contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
-			}], { brandKit });
+			}], { brandKit, exportProfileId: selectedExportProfileId });
 			applyTemplateComposeResults(
 				composed.map((item) => ({
 					...item,
@@ -1938,7 +1953,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						...pin,
 						featuredImage: fallback,
 						contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
-					}], { brandKit });
+					}], { brandKit, exportProfileId: selectedExportProfileId });
 					applyTemplateComposeResults(composed, { imageSource: 'featured_fallback' });
 					toast({
 						title: 'Used article image',
@@ -2842,7 +2857,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						<div>
 							<p className="mb-1.5 text-sm font-medium">{L.sizeSection}</p>
 							<div className="grid grid-cols-4 gap-2">
-								{PIN_ASPECT_RATIOS.map((item) => (
+								{studioAssets.aspectRatios.map((item) => (
 									<button
 										key={item.id}
 										type="button"
@@ -3334,7 +3349,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						</div>
 
 						<div className="mb-4 overflow-hidden rounded-2xl border border-border">
-							<div className="aspect-[2/3] bg-secondary">
+							<div className={`${inspectorPreviewAspectClass} bg-secondary`}>
 								{inspectorPin.imageUrl ? (
 									<img src={inspectorPin.imageUrl} alt={inspectorPin.title} className="h-full w-full object-cover" />
 								) : inspectorPin.templateConfig ? (

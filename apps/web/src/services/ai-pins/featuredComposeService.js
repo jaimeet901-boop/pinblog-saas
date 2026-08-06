@@ -10,7 +10,9 @@ import { traceImageLifecycle } from './imageLifecycleTrace.js';
  */
 export async function composeAndUploadFeaturedPins(pins, {
 	brandKit = null,
+	exportProfileId = 'pinterest_standard',
 } = {}) {
+	const profile = String(exportProfileId || 'pinterest_standard').trim() || 'pinterest_standard';
 	const results = [];
 	for (const pin of pins) {
 		const candidates = listArticleImageCandidates(pin);
@@ -59,6 +61,7 @@ export async function composeAndUploadFeaturedPins(pins, {
 					watermarkText: brandKit?.watermarkText || '',
 					websiteDomain: brandKit?.websiteUrl || pin.website || '',
 					traceId: pin.tempId,
+					exportProfileId: profile,
 				});
 
 				if (!blob || blob.size <= 0) {

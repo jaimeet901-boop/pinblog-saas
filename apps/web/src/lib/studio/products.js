@@ -81,6 +81,10 @@ export const AI_PINS_PRODUCT = {
 		itemTitleSeed: 'Pin title seed',
 		targetAccount: 'Target account',
 	},
+	studioAssets: {
+		defaultExportProfileId: 'pinterest_standard',
+		exportProfileIds: ['pinterest_standard'],
+	},
 };
 
 export const AI_FACEBOOK_PAGES_PRODUCT = {
@@ -160,5 +164,9 @@ export const AI_FACEBOOK_PAGES_PRODUCT = {
 		itemStyle: 'Post style',
 		itemTitleSeed: 'Post title seed',
 		targetAccount: 'Target account',
+	},
+	studioAssets: {
+		defaultExportProfileId: 'facebook_post',
+		exportProfileIds: ['facebook_post', 'facebook_story'],
 	},
 };
