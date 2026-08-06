@@ -45,7 +45,7 @@ export const FACEBOOK_CHANNEL_CAPABILITIES = Object.freeze({
 	listPages: true,
 	publishNow: true,
 	queueImplemented: true,
-	schedule: false, // F5
+	schedule: true,
 	calendarProject: true,
 	calendarMutate: true,
 	insights: false, // F7

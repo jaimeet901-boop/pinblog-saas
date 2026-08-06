@@ -8,12 +8,21 @@ import {
 	Unplug,
 	Star,
 	RotateCcw,
+	ListOrdered,
+	CalendarClock,
+	AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/kit';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import { consumeSetupReturnPath } from '@/lib/websites/websiteLifecycle';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import { FACEBOOK_CHANNEL_CAPABILITIES } from '@/lib/facebook/channelCapabilities.js';
+import {
+	cancelFacebookJob,
+	publishNowFacebookJob,
+	retryFacebookJob,
+} from '@/services/ai-facebook';
 import apiServerClient from '@/lib/apiServerClient';
 
 async function readApiError(response) {
@@ -26,10 +35,10 @@ async function readApiError(response) {
 }
 
 /**
- * Facebook Hub — OAuth connect, accounts, Pages sync (F2).
- * Publishing / queue tabs intentionally omitted until F4+.
+ * Facebook Hub — OAuth connect, accounts, Pages sync, and publish queue (F2+).
  */
 export default function FacebookPage() {
+	const capabilities = FACEBOOK_CHANNEL_CAPABILITIES;
 	const { toast } = useToast();
 	const { platformName } = usePlatformIdentity();
 	const navigate = useNavigate();
@@ -45,6 +54,43 @@ export default function FacebookPage() {
 	const [accounts, setAccounts] = useState([]);
 	const [pages, setPages] = useState([]);
 	const [selectedAccountId, setSelectedAccountId] = useState('');
+	const [jobs, setJobs] = useState([]);
+	const [selectedJobId, setSelectedJobId] = useState('');
+	const [jobActionId, setJobActionId] = useState('');
+
+	const hubTabs = useMemo(() => {
+		const tabs = [
+			{ id: 'accounts', label: 'Accounts' },
+			{ id: 'pages', label: 'Pages' },
+		];
+		if (capabilities.queueImplemented) {
+			tabs.push({ id: 'queue', label: 'Publishing Queue', icon: ListOrdered });
+		}
+		if (capabilities.schedule) {
+			tabs.push({ id: 'scheduled', label: 'Scheduled', icon: CalendarClock });
+		}
+		if (capabilities.queueImplemented) {
+			tabs.push({ id: 'failed', label: 'Failed Jobs', icon: AlertTriangle });
+		}
+		return tabs;
+	}, [capabilities.queueImplemented, capabilities.schedule]);
+
+	const queueJobs = useMemo(
+		() => jobs.filter((job) => job.status === 'scheduled' || job.status === 'publishing'),
+		[jobs],
+	);
+	const scheduledJobs = useMemo(
+		() => jobs.filter((job) => job.status === 'scheduled'),
+		[jobs],
+	);
+	const failedJobs = useMemo(
+		() => jobs.filter((job) => job.status === 'failed'),
+		[jobs],
+	);
+	const selectedJob = useMemo(
+		() => jobs.find((job) => job.id === selectedJobId) || queueJobs[0] || scheduledJobs[0] || failedJobs[0] || null,
+		[jobs, selectedJobId, queueJobs, scheduledJobs, failedJobs],
+	);
 
 	const returnToStudio = () => {
 		const returnTo = consumeSetupReturnPath()
@@ -96,9 +142,60 @@ export default function FacebookPage() {
 		}
 	}, [toast]);
 
+	const loadJobs = useCallback(async () => {
+		if (!capabilities.schedule && !capabilities.queueImplemented) {
+			setJobs([]);
+			return;
+		}
+		try {
+			const response = await apiServerClient.fetch('/facebook/jobs?page=1&perPage=100', { method: 'GET' });
+			if (!response.ok) throw new Error(await readApiError(response));
+			const payload = await response.json();
+			const items = Array.isArray(payload.items) ? payload.items : [];
+			setJobs(items);
+			setSelectedJobId((prev) => (items.some((item) => item.id === prev) ? prev : items[0]?.id || ''));
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Failed to load publish jobs', description: error.message });
+			setJobs([]);
+		}
+	}, [capabilities.queueImplemented, capabilities.schedule, toast]);
+
+	const runJobAction = async (action, jobId) => {
+		const targetId = jobId || selectedJob?.id;
+		if (!targetId) {
+			toast({ variant: 'destructive', title: 'No job selected', description: 'Select a queue job first.' });
+			return;
+		}
+		setJobActionId(`${action}-${targetId}`);
+		try {
+			if (action === 'publish') {
+				await publishNowFacebookJob(targetId);
+			} else if (action === 'retry') {
+				await retryFacebookJob(targetId);
+			} else {
+				await cancelFacebookJob(targetId);
+			}
+			toast({
+				title: action === 'publish' ? 'Publish queued' : action === 'retry' ? 'Retry queued' : 'Job cancelled',
+				description: action === 'cancel'
+					? 'The scheduled job was cancelled.'
+					: 'The Facebook queue will process this job shortly.',
+			});
+			await loadJobs();
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Action failed', description: error.message });
+		} finally {
+			setJobActionId('');
+		}
+	};
+
 	useEffect(() => {
 		loadAccounts();
 	}, [loadAccounts]);
+
+	useEffect(() => {
+		loadJobs();
+	}, [loadJobs]);
 
 	useEffect(() => {
 		if (tab === 'pages' && selectedAccountId) {
@@ -263,7 +360,9 @@ export default function FacebookPage() {
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 						{setupMode
 							? 'Connect Facebook to publish your first post. You will return to AI Facebook Pages after connecting.'
-							: 'Connect Facebook accounts, sync Pages, and manage defaults. Publishing arrives in a later phase.'}
+							: capabilities.schedule
+								? 'Connect Facebook accounts, sync Pages, and manage scheduled publishing from AI Facebook Pages or this hub.'
+								: 'Connect Facebook accounts, sync Pages, and manage defaults.'}
 					</p>
 				</div>
 				<Link to={websiteId ? `/app/ai-facebook-pages?websiteId=${encodeURIComponent(websiteId)}` : '/app/ai-facebook-pages'}>
@@ -311,20 +410,16 @@ export default function FacebookPage() {
 			</div>
 
 			<div className="mb-4 flex gap-2 border-b border-border pb-2">
-				<button
-					type="button"
-					className={`text-sm px-3 py-1.5 rounded-md ${tab === 'accounts' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground'}`}
-					onClick={() => setTab('accounts')}
-				>
-					Accounts
-				</button>
-				<button
-					type="button"
-					className={`text-sm px-3 py-1.5 rounded-md ${tab === 'pages' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground'}`}
-					onClick={() => setTab('pages')}
-				>
-					Pages
-				</button>
+				{hubTabs.map((item) => (
+					<button
+						key={item.id}
+						type="button"
+						className={`text-sm px-3 py-1.5 rounded-md ${tab === item.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground'}`}
+						onClick={() => setTab(item.id)}
+					>
+						{item.label}
+					</button>
+				))}
 			</div>
 
 			{loading ? (
@@ -388,7 +483,7 @@ export default function FacebookPage() {
 						))}
 					</div>
 				)
-			) : (
+			) : tab === 'pages' ? (
 				<div className="space-y-3">
 					<label className="block text-sm">
 						<span className="text-muted-foreground">Account</span>
@@ -437,7 +532,74 @@ export default function FacebookPage() {
 						</div>
 					)}
 				</div>
-			)}
+			) : tab === 'queue' ? (
+				<div className="space-y-3">
+					{queueJobs.length === 0 ? (
+						<div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+							No queue jobs yet. Publish or schedule posts from AI Facebook Pages.
+						</div>
+					) : (
+						<div className="grid gap-3">
+							{queueJobs.map((job) => (
+								<article key={job.id} className="rounded-2xl border border-border bg-card p-4">
+									<p className="font-medium">{job.title || job.message || 'Facebook Post'}</p>
+									<p className="text-xs text-muted-foreground">
+										{job.status} · {job.scheduledAt ? new Date(job.scheduledAt).toLocaleString() : '—'} · {job.pageName || 'Page'}
+									</p>
+									<div className="mt-3 flex flex-wrap gap-2">
+										{capabilities.publishNow ? (
+											<Button size="sm" variant="outline" disabled={job.status !== 'scheduled' || jobActionId.startsWith('publish')} onClick={() => runJobAction('publish', job.id)}>Publish now</Button>
+										) : null}
+										<Button size="sm" variant="ghost" disabled={job.status !== 'scheduled' || jobActionId.startsWith('cancel')} onClick={() => runJobAction('cancel', job.id)}>Cancel</Button>
+									</div>
+								</article>
+							))}
+						</div>
+					)}
+				</div>
+			) : tab === 'scheduled' ? (
+				<div className="space-y-3">
+					{scheduledJobs.length === 0 ? (
+						<div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+							No scheduled posts yet. Schedule from AI Facebook Pages.
+						</div>
+					) : (
+						<div className="grid gap-3 md:grid-cols-2">
+							{scheduledJobs.map((job) => (
+								<article key={job.id} className="rounded-2xl border border-border bg-card p-4">
+									<p className="font-medium">{job.title || job.message || 'Facebook Post'}</p>
+									<p className="text-xs text-muted-foreground">
+										{job.scheduledAt ? new Date(job.scheduledAt).toLocaleString() : '—'} · {job.pageName || 'Page'}
+									</p>
+									<div className="mt-3 flex flex-wrap gap-2">
+										<Button size="sm" variant="ghost" onClick={() => runJobAction('cancel', job.id)}>Cancel</Button>
+									</div>
+								</article>
+							))}
+						</div>
+					)}
+				</div>
+			) : tab === 'failed' ? (
+				<div className="space-y-3">
+					{failedJobs.length === 0 ? (
+						<div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+							Failed publish jobs will appear here with retry support.
+						</div>
+					) : (
+						<div className="grid gap-3 md:grid-cols-2">
+							{failedJobs.map((job) => (
+								<article key={job.id} className="rounded-2xl border border-border bg-card p-4">
+									<p className="font-medium">{job.title || job.message || 'Facebook Post'}</p>
+									<p className="text-xs text-red-600">{job.lastError || 'Publish failed'}</p>
+									<Button className="mt-3" size="sm" variant="outline" disabled={jobActionId === `retry-${job.id}`} onClick={() => runJobAction('retry', job.id)}>
+										{jobActionId === `retry-${job.id}` ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Retry
+									</Button>
+								</article>
+							))}
+						</div>
+					)}
+				</div>
+			) : null}
 		</div>
 	);
 }

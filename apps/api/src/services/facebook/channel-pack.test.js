@@ -75,7 +75,7 @@ describe('facebook channel pack F1-Apply', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.connect, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishNow, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.queueImplemented, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.schedule, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.schedule, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, false);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.calendarProject, true);

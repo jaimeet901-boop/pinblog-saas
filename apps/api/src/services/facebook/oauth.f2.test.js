@@ -23,7 +23,7 @@ describe('facebook F2 oauth foundation', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.listPages, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishNow, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.queueImplemented, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.schedule, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.schedule, true);
 		const dto = getFacebookChannelPackDto();
 		assert.equal(dto.oauthImplemented, true);
 		assert.equal(dto.publishImplemented, true);

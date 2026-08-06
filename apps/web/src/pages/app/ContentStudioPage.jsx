@@ -189,6 +189,11 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const L = product.labels;
 	const routes = product.routes;
 	const destination = getDestinationAdapter(product.destinationId);
+	const destinationCaps = destination.channelCapabilities || {
+		schedule: true,
+		publishNow: true,
+		queueImplemented: true,
+	};
 	const { toast } = useToast();
 	const { platformName } = usePlatformIdentity();
 	const navigate = useNavigate();
@@ -3126,7 +3131,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 										size="sm"
 										type="button"
 										onClick={() => runPublishNow()}
-										disabled={publishing || draftPins.length === 0 || accounts.length === 0}
+										disabled={publishing || draftPins.length === 0 || accounts.length === 0 || !destinationCaps.publishNow}
 									>
 										<Send size={13} /> Publish Now
 									</Button>
@@ -3135,7 +3140,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 										type="button"
 										variant="outline"
 										onClick={() => openScheduleModal()}
-										disabled={scheduling}
+										disabled={scheduling || !destinationCaps.schedule}
 									>
 										<CalendarClock size={13} /> Schedule
 									</Button>
@@ -3144,7 +3149,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 										type="button"
 										variant="outline"
 										onClick={() => handleAddToQueue()}
-										disabled={queueing || publishing || draftPins.length === 0 || accounts.length === 0}
+										disabled={queueing || publishing || draftPins.length === 0 || accounts.length === 0 || !destinationCaps.queueImplemented}
 									>
 										<ListPlus size={13} /> Add to Queue
 									</Button>
