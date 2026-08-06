@@ -3,6 +3,8 @@
  * Safe to import from unit tests without starting the API.
  */
 
+import { FACEBOOK_PROMPT_PACK_DEFAULTS, PINTEREST_PROMPT_PACK_HINTS } from './studio/channel-defaults.js';
+
 const SECRET_KEY_PATTERN = /api[_-]?key|secret|password|ciphertext|token|private[_-]?key/i;
 
 /** Mirrors DEFAULT_PLATFORM_SETTINGS.featureFlags — keep in sync when adding flags. */
@@ -76,7 +78,57 @@ export function defaultPrompts() {
 		pinUser: 'Create distinct Pinterest pins from the article. Vary title, description, hook, CTA, angle, and overlay tone.',
 		writerSystem: 'You are an expert SEO content writer for recipe and lifestyle blogs.',
 		imageSystem: 'Generate a vertical Pinterest-ready image that matches the brand kit and article theme.',
+		packs: {
+			pinterest: {
+				analyzeHints: { ...PINTEREST_PROMPT_PACK_HINTS },
+			},
+			facebook: {
+				copySystem: FACEBOOK_PROMPT_PACK_DEFAULTS.copySystem,
+				copyUser: FACEBOOK_PROMPT_PACK_DEFAULTS.copyUser,
+				imageSystem: FACEBOOK_PROMPT_PACK_DEFAULTS.imageSystem,
+				analyzeSystem: FACEBOOK_PROMPT_PACK_DEFAULTS.analyzeSystem,
+				analyzeHints: { ...FACEBOOK_PROMPT_PACK_DEFAULTS.analyzeHints },
+			},
+		},
 	};
+}
+
+function mergePromptPack(base = {}, override = {}) {
+	if (!override || typeof override !== 'object') {
+		return {
+			...base,
+			analyzeHints: { ...(base.analyzeHints || {}) },
+		};
+	}
+	return {
+		...base,
+		...override,
+		analyzeHints: {
+			...(base.analyzeHints || {}),
+			...(override.analyzeHints && typeof override.analyzeHints === 'object' ? override.analyzeHints : {}),
+		},
+	};
+}
+
+export function mergePromptSettings(defaults, overrides = {}) {
+	const base = defaults && typeof defaults === 'object' ? defaults : defaultPrompts();
+	const extra = overrides && typeof overrides === 'object' ? overrides : {};
+	const merged = {
+		...defaultPrompts(),
+		...base,
+		...extra,
+	};
+	merged.packs = {
+		pinterest: mergePromptPack(
+			base.packs?.pinterest || defaultPrompts().packs.pinterest,
+			extra.packs?.pinterest,
+		),
+		facebook: mergePromptPack(
+			base.packs?.facebook || defaultPrompts().packs.facebook,
+			extra.packs?.facebook,
+		),
+	};
+	return merged;
 }
 
 export function buildFeatureFlags(settings, workspaceId, updatedAt, version) {

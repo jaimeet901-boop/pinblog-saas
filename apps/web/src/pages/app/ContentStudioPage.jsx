@@ -188,6 +188,7 @@ function mapArticleFromApi(item) {
 export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const L = product.labels;
 	const routes = product.routes;
+	const studioChannel = product.destinationId === 'facebook' ? 'facebook' : 'pinterest';
 	const destination = getDestinationAdapter(product.destinationId);
 	const destinationCaps = destination.channelCapabilities || {
 		schedule: true,
@@ -769,7 +770,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			const response = await apiServerClient.fetch('/ai-pins/analyze', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ articleId: activeArticle.id, style: panel.style }),
+				body: JSON.stringify({ articleId: activeArticle.id, style: panel.style, channel: studioChannel }),
 			});
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
@@ -804,6 +805,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 					articleId: activeArticle.id,
 					style: panel.style,
 					analysis,
+					channel: studioChannel,
 				}),
 			});
 			const payload = await response.json().catch(() => ({}));
@@ -1540,6 +1542,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				article,
 				count,
 				panel: panelOverride,
+				channel: studioChannel,
 			}),
 			parsePins: parsePinsFromText,
 		});

@@ -27,6 +27,7 @@ import {
 	buildFeatureFlags,
 	defaultPrompts,
 	isWorkspaceConfigUnchanged,
+	mergePromptSettings,
 	stripSecrets,
 	withProvenance,
 	workspaceConfigEtag,
@@ -165,7 +166,7 @@ export async function buildWorkspaceConfig(req) {
 	if (!settings.prompts || typeof settings.prompts !== 'object') {
 		settings.prompts = defaultPrompts();
 	} else {
-		settings.prompts = { ...defaultPrompts(), ...settings.prompts };
+		settings.prompts = mergePromptSettings(defaultPrompts(), settings.prompts);
 	}
 
 	const [providersRaw, modelsRaw, credits, templatesResult, brandKits, plan, pinCredits] = await Promise.all([

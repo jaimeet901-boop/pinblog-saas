@@ -188,6 +188,23 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		pinUser: 'Create distinct Pinterest pins from the article. Vary title, description, hook, CTA, angle, and overlay tone.',
 		writerSystem: 'You are an expert SEO content writer for recipe and lifestyle blogs.',
 		imageSystem: 'Generate a vertical Pinterest-ready image that matches the brand kit and article theme.',
+		packs: {
+			facebook: {
+				copySystem: 'You are a Facebook Page content strategist for food and lifestyle brands. Produce engaging link-post copy optimized for reach and clicks.',
+				copyUser: 'Create distinct Facebook link posts from the article. Vary headline, message, hook, CTA, angle, and overlay tone.',
+				imageSystem: 'Generate a landscape Facebook link-post image (1200×630, 1.91:1) that matches the brand kit and article theme.',
+				analyzeSystem: 'You are a Facebook Page content strategist. Reply with JSON only.',
+				analyzeHints: {
+					itemNoun: 'post',
+					itemNounPlural: 'posts',
+					network: 'Facebook',
+					aspect: '1.91:1',
+					imageDimensions: '1200x630',
+					defaultCta: 'Learn more',
+					heuristicDescriptionSuffix: '— tap to read the full story.',
+				},
+			},
+		},
 	},
 	license: {
 		currentVersion: '0.0.0',

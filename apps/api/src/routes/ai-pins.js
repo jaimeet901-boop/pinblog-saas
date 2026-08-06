@@ -7,6 +7,7 @@ import { ensureAiPinsPublishFields } from '../utils/ensure-ai-pins-publish-field
 import { listWebsiteArticles } from '../services/website-article-discovery.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
 import { analyzeArticleForPin, generateImagePromptForPin, PIN_STYLES } from '../services/ai-pin-analysis.js';
+import { normalizeStudioPromptChannel, resolvePromptPackForRequest } from '../services/studio/prompt-packs.js';
 import { consumeBillableAiFeature, getUserCreditUsage, recordGenerationHistory } from '../services/ai-pin-credits.js';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { uploadFiles } from '../middleware/file-upload.js';
@@ -347,6 +348,7 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 
 	const articleId = normalizeOptionalString(req.body?.articleId, 'articleId', 64);
 	const style = normalizeOptionalString(req.body?.style, 'style', 64) || '';
+	const channel = normalizeStudioPromptChannel(req.body?.channel);
 	if (!articleId) {
 		throw httpError(422, 'articleId is required');
 	}
@@ -355,6 +357,7 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 	const ownerId = workspaceOwnerId(req);
 
 	const article = mapArticle(articleRecord);
+	const promptPack = await resolvePromptPackForRequest({ channel });
 	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
 		ownerId,
 		source: 'ai_pins.analyze',
@@ -367,6 +370,8 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 			owner: ownerId,
 			article,
 			style,
+			channel,
+			promptPack,
 		});
 	} catch (error) {
 		await safeTransitionArticleLifecycle(articleId, 'FAILED', {
@@ -387,7 +392,7 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		source: analysis?.source,
 		reason: 'AI pin analysis',
 		referenceId: articleId,
-		metadata: { route: 'ai-pins/analyze', style },
+		metadata: { route: 'ai-pins/analyze', style, channel },
 	});
 
 	await recordGenerationHistory(pocketbaseClient, stampCreateOwnership(req, {
@@ -396,7 +401,7 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		websiteId: article.websiteId || '',
 		event_type: 'analyze',
 		analysis,
-		metadata: { style, billed: Boolean(charged), resultSource: analysis?.source || null },
+		metadata: { style, channel, billed: Boolean(charged), resultSource: analysis?.source || null },
 		ai_credits_used: charged ? 1 : 0,
 		image_credits_used: 0,
 	}));
@@ -425,6 +430,7 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 
 	const articleId = normalizeOptionalString(req.body?.articleId, 'articleId', 64);
 	const style = normalizeOptionalString(req.body?.style, 'style', 64) || '';
+	const channel = normalizeStudioPromptChannel(req.body?.channel);
 	const analysis = req.body?.analysis && typeof req.body.analysis === 'object' ? req.body.analysis : null;
 	if (!articleId) {
 		throw httpError(422, 'articleId is required');
@@ -434,6 +440,7 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 	const ownerId = workspaceOwnerId(req);
 
 	const article = mapArticle(articleRecord);
+	const promptPack = await resolvePromptPackForRequest({ channel });
 	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
 		ownerId,
 		source: 'ai_pins.prompts',
@@ -448,12 +455,16 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 			owner: ownerId,
 			article,
 			style,
+			channel,
+			promptPack,
 		});
 		promptResult = await generateImagePromptForPin({
 			owner: ownerId,
 			article,
 			analysis: resolvedAnalysis,
 			style,
+			channel,
+			promptPack,
 		});
 	} catch (error) {
 		await safeTransitionArticleLifecycle(articleId, 'FAILED', {
@@ -476,7 +487,7 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 			source: resolvedAnalysis?.source,
 			reason: 'AI pin analysis (during prompt)',
 			referenceId: articleId,
-			metadata: { route: 'ai-pins/prompts', style },
+			metadata: { route: 'ai-pins/prompts', style, channel },
 		});
 	}
 
@@ -487,7 +498,7 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		source: promptResult?.source,
 		reason: 'AI image prompt generation',
 		referenceId: articleId,
-		metadata: { route: 'ai-pins/prompts', style: promptResult?.style || style },
+		metadata: { route: 'ai-pins/prompts', style: promptResult?.style || style, channel },
 	});
 
 	const aiCreditsUsed = (analyzeCharged ? 1 : 0) + (promptCharged ? 1 : 0);
@@ -501,6 +512,7 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		analysis: resolvedAnalysis,
 		metadata: {
 			style: promptResult.style,
+			channel,
 			source: promptResult.source,
 			analysisSource: resolvedAnalysis?.source || null,
 			billedAnalyze: Boolean(analyzeCharged),
