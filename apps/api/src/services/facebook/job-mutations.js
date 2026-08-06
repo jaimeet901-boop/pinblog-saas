@@ -1,6 +1,6 @@
 /**
  * Facebook Channel Pack — shared publish job mutations (F5-2).
- * Used by channel routes; calendar adapter wiring is F5-3.
+ * Used by channel routes and calendar mutation adapter (F5-2/F5-3).
  */
 
 import { FACEBOOK_JOB_COLLECTION } from './channel-pack.js';

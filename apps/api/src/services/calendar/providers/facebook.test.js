@@ -13,12 +13,16 @@ import {
 	FACEBOOK_CALENDAR_CHANNEL,
 	FACEBOOK_JOB_REF_TYPE,
 } from './facebook.js';
-import { createFacebookMutationAdapter } from '../mutations/adapters/facebook.js';
+import { createFacebookMutationAdapter, buildFacebookCalendarMutationDepsFromLegacy } from '../mutations/adapters/facebook.js';
 import { dispatchCalendarMutation } from '../mutations/router.js';
 import { CALENDAR_CONSOLIDATION_PHASE, CHANNEL_JOB_REF_TYPES } from '../calendar-architecture.js';
 import { assertScheduledItemContract } from '../scheduled-item.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function futureIso(msAhead = 120_000) {
+	return new Date(Date.now() + msAhead).toISOString();
+}
 
 describe('facebook calendar channel (C9)', () => {
 	it('locks phase C10 and registers Facebook in provider + mutation registries', () => {
@@ -114,14 +118,20 @@ describe('facebook calendar channel (C9)', () => {
 			job: {
 				id: 'fb1',
 				owner: 'user1',
+				workspace: 'ws_1',
 				status: 'scheduled',
-				scheduled_at: '2026-07-10T10:00:00.000Z',
+				scheduled_at: futureIso(3_600_000),
 				timezone: 'UTC',
+				scheduled_timezone: 'UTC',
 				title: 'FB',
 				websiteId: 'site-1',
+				account: 'acc_1',
+				page_id: '123456789',
+				message: 'Hello',
+				image_url: 'https://cdn.example.com/post.jpg',
 			},
 		};
-		const adapter = createFacebookMutationAdapter({
+		const mutationDeps = buildFacebookCalendarMutationDepsFromLegacy({
 			getOwner: (req) => req.pocketbaseUserId,
 			getJob: async (id) => (store.job.id === id ? { ...store.job } : null),
 			updateJob: async (id, payload) => {
@@ -129,20 +139,29 @@ describe('facebook calendar channel (C9)', () => {
 				return { ...store.job };
 			},
 			sanitize: async ({ payload }) => payload,
-			resolveScheduledAtUtc: ({ scheduledAt }) => new Date(scheduledAt).toISOString(),
+			recordBelongsToWorkspace: () => true,
+			andWorkspaceScope: (_req, filter) => filter,
+			getOwnedFacebookAccountById: async () => ({
+				id: 'acc_1',
+				label: 'My Business',
+				connected: true,
+			}),
 		});
+		const adapter = createFacebookMutationAdapter({ mutationDeps });
 
-		const req = { pocketbaseUserId: 'user1' };
+		const req = { pocketbaseUserId: 'user1', workspaceId: 'ws_1' };
 		const options = { adapters: [adapter], assertCapability: () => {} };
+		const nextAt = futureIso(7_200_000);
 
 		const rescheduled = await dispatchCalendarMutation(
 			req,
-			{ eventId: 'facebook:fb1', action: 'reschedule', payload: { scheduledAt: '2026-07-28T09:00:00.000Z' } },
+			{ eventId: 'facebook:fb1', action: 'reschedule', payload: { scheduledAt: nextAt } },
 			options,
 		);
 		assert.equal(rescheduled.channel, 'facebook');
-		assert.equal(store.job.scheduled_at, '2026-07-28T09:00:00.000Z');
+		assert.equal(store.job.scheduled_at, nextAt);
 		assert.equal(rescheduled.item.channel, 'facebook');
+		assert.ok(!('completed_at' in store.job));
 
 		store.job.status = 'failed';
 		const retried = await dispatchCalendarMutation(
@@ -152,6 +171,7 @@ describe('facebook calendar channel (C9)', () => {
 		);
 		assert.equal(retried.action, 'retry');
 		assert.equal(store.job.status, 'scheduled');
+		assert.ok(!('queued' in store.job) || store.job.status !== 'queued');
 
 		const cancelled = await dispatchCalendarMutation(
 			req,

@@ -1,12 +1,18 @@
 /**
  * Facebook channel mutation adapter (pure factory).
- * Calendar mutation router dispatches here; this module owns Facebook write rules.
+ * Calendar mutation router dispatches here; writes delegate to job-mutations.js (F5-3).
  * Pass deps explicitly — live PocketBase wiring lives in facebook-live.js.
  *
  * Collection: facebook_publish_jobs.
- * Same action set as Pinterest / WordPress: reschedule / cancel / retry.
+ * Actions: reschedule / cancel / retry (+ publishNow for direct adapter use).
  */
 
+import {
+	cancelFacebookPublishJob,
+	publishNowFacebookPublishJob,
+	rescheduleFacebookPublishJob,
+	retryFacebookPublishJob,
+} from '../../../facebook/job-mutations.js';
 import {
 	FACEBOOK_JOB_REF_TYPE,
 	mapFacebookJobToScheduledItem,
@@ -19,41 +25,173 @@ function freezeError(status, message, errorCode = 'VALIDATION_ERROR') {
 	return error;
 }
 
-function resolveOwner(req, deps) {
-	if (typeof deps.getOwner === 'function') return deps.getOwner(req);
-	return req?.workspaceOwnerId || req?.pocketbaseUserId || '';
+/**
+ * Map a publish job DTO (from job-mutations) into a record shape for calendar projection.
+ *
+ * @param {object} dto
+ */
+export function mapFacebookPublishJobDtoToCalendarRecord(dto = {}) {
+	return {
+		id: dto.id,
+		status: dto.status,
+		scheduled_at: dto.scheduledAt,
+		scheduledAt: dto.scheduledAt,
+		timezone: dto.timezone,
+		scheduled_timezone: dto.timezone,
+		title: dto.title,
+		message: dto.message,
+		image_url: dto.imageUrl,
+		imageUrl: dto.imageUrl,
+		page_id: dto.pageId,
+		pageId: dto.pageId,
+		page_label: dto.pageName,
+		page_name: dto.pageName,
+		account: dto.accountId,
+		accountId: dto.accountId,
+		ai_pin: dto.aiPinId,
+		destination_url: dto.destinationUrl,
+		facebook_post_id: dto.facebookPostId,
+		facebook_post_url: dto.facebookPostUrl,
+		attempt_count: dto.attemptCount,
+		last_error: dto.lastError,
+	};
 }
 
-async function assertOwnedJob(deps, req, jobId) {
-	const owner = resolveOwner(req, deps);
-	const job = await deps.getJob(jobId);
-	if (!job) {
-		throw freezeError(404, 'Facebook publish job not found', 'NOT_FOUND');
-	}
-	if (job.owner !== owner) {
-		throw freezeError(403, 'You do not have access to this Facebook publish job', 'FORBIDDEN');
-	}
-	return { job, owner };
+function calendarMutationResult(refId, dto) {
+	const record = mapFacebookPublishJobDtoToCalendarRecord(dto);
+	return {
+		channel: 'facebook',
+		refId: String(refId || record.id || '').trim(),
+		item: mapFacebookJobToScheduledItem(record),
+	};
 }
 
 /**
+ * Build injectable mutation deps for unit tests that still use getJob/updateJob stubs.
+ *
  * @param {{
  *   getJob: Function,
  *   updateJob: Function,
  *   sanitize?: Function,
- *   resolveScheduledAtUtc: Function,
  *   getOwner?: Function,
+ *   recordBelongsToWorkspace?: Function,
+ *   andWorkspaceScope?: Function,
+ * }} legacyDeps
+ */
+export function buildFacebookCalendarMutationDepsFromLegacy(legacyDeps = {}) {
+	const jobs = new Map();
+	const events = [];
+
+	const pocketbaseClient = {
+		filter: (template, params = {}) => {
+			let result = String(template);
+			for (const [key, value] of Object.entries(params)) {
+				result = result.replace(new RegExp(`\\{:${key}\\}`, 'g'), String(value));
+			}
+			return result;
+		},
+		collection: (name) => {
+			if (name === FACEBOOK_JOB_REF_TYPE) {
+				return {
+					getOne: async (id) => {
+						if (typeof legacyDeps.getJob === 'function') {
+							const row = await legacyDeps.getJob(id);
+							if (!row) throw new Error('not found');
+							jobs.set(id, { ...row });
+							return { ...row };
+						}
+						const row = jobs.get(id);
+						if (!row) throw new Error('not found');
+						return { ...row };
+					},
+					update: async (id, payload) => {
+						if (typeof legacyDeps.updateJob === 'function') {
+							const updated = await legacyDeps.updateJob(id, payload);
+							jobs.set(id, { ...updated });
+							return { ...updated };
+						}
+						const current = jobs.get(id);
+						if (!current) throw new Error('not found');
+						const next = { ...current, ...payload };
+						jobs.set(id, next);
+						return { ...next };
+					},
+				};
+			}
+			if (name === 'facebook_publish_events') {
+				return {
+					getList: async () => ({ items: events }),
+					create: async (payload) => {
+						const row = { id: `evt_${events.length + 1}`, ...payload };
+						events.push(row);
+						return row;
+					},
+				};
+			}
+			if (name === 'facebook_pages') {
+				return {
+					getFirstListItem: async () => ({
+						id: 'page_rec_1',
+						name: 'Chef IA Page',
+						page_id: '123456789',
+					}),
+				};
+			}
+			throw new Error(`unexpected collection ${name}`);
+		},
+	};
+
+	return {
+		pocketbaseClient,
+		sanitizeCollectionPayload: legacyDeps.sanitize
+			? legacyDeps.sanitize
+			: async ({ payload }) => payload,
+		recordBelongsToWorkspace: legacyDeps.recordBelongsToWorkspace || (() => true),
+		andWorkspaceScope: legacyDeps.andWorkspaceScope || ((_req, filter) => filter),
+		getOwnedFacebookAccountById: legacyDeps.getOwnedFacebookAccountById || (async () => ({
+			id: 'acc_1',
+			label: 'My Business',
+			connected: true,
+		})),
+		validateFacebookDestinationPost: legacyDeps.validateFacebookDestinationPost || (async () => ({
+			ok: true,
+			errors: [],
+			normalized: { pageId: '123456789', accountId: 'acc_1' },
+		})),
+		_events: events,
+		_jobs: jobs,
+	};
+}
+
+/**
+ * @param {{
+ *   mutationDeps?: object,
+ *   getJob?: Function,
+ *   updateJob?: Function,
+ *   sanitize?: Function,
+ *   resolveScheduledAtUtc?: Function,
+ *   getOwner?: Function,
+ *   recordBelongsToWorkspace?: Function,
+ *   andWorkspaceScope?: Function,
+ *   rescheduleFacebookPublishJob?: Function,
+ *   cancelFacebookPublishJob?: Function,
+ *   retryFacebookPublishJob?: Function,
+ *   publishNowFacebookPublishJob?: Function,
  * }} deps
  */
-export function createFacebookMutationAdapter(deps) {
-	if (!deps?.getJob || !deps?.updateJob || !deps?.resolveScheduledAtUtc) {
-		throw new Error('createFacebookMutationAdapter requires getJob, updateJob, resolveScheduledAtUtc');
-	}
+export function createFacebookMutationAdapter(deps = {}) {
+	const rescheduleFn = deps.rescheduleFacebookPublishJob || rescheduleFacebookPublishJob;
+	const cancelFn = deps.cancelFacebookPublishJob || cancelFacebookPublishJob;
+	const retryFn = deps.retryFacebookPublishJob || retryFacebookPublishJob;
+	const publishNowFn = deps.publishNowFacebookPublishJob || publishNowFacebookPublishJob;
 
-	const d = {
-		sanitize: async ({ payload }) => payload,
-		...deps,
-	};
+	let mutationDeps = deps.mutationDeps;
+	if (!mutationDeps && (deps.getJob || deps.updateJob)) {
+		mutationDeps = buildFacebookCalendarMutationDepsFromLegacy(deps);
+	}
+	if (!mutationDeps?.pocketbaseClient) {
+		throw new Error('createFacebookMutationAdapter requires mutationDeps.pocketbaseClient or legacy getJob/updateJob');
+	}
 
 	return {
 		channel: 'facebook',
@@ -64,93 +202,49 @@ export function createFacebookMutationAdapter(deps) {
 		},
 
 		async reschedule(req, refId, payload = {}) {
-			const { job } = await assertOwnedJob(d, req, refId);
-			if (job.status !== 'scheduled') {
-				throw freezeError(422, 'Only scheduled Facebook jobs can be rescheduled');
-			}
-
 			const scheduledAt = payload.scheduledAt ?? payload.scheduled_at;
 			if (!scheduledAt) {
-				throw freezeError(422, 'scheduledAt is required');
+				throw freezeError(422, 'scheduledAt is required', 'VALIDATION_ERROR');
 			}
-			const timezone = String(payload.timezone || job.scheduled_timezone || job.timezone || 'UTC').trim() || 'UTC';
-			const scheduledAtUtc = d.resolveScheduledAtUtc({
-				scheduledAt,
-				timezone,
+
+			const result = await rescheduleFn({
+				req,
+				jobId: refId,
+				body: payload,
+				deps: mutationDeps,
 			});
 
-			const sanitizedUpdates = await d.sanitize({
-				collection: FACEBOOK_JOB_REF_TYPE,
-				context: 'calendar:facebook:reschedule',
-				payload: {
-					timezone,
-					scheduled_timezone: timezone,
-					scheduled_at: scheduledAtUtc,
-					status: 'scheduled',
-				},
-			});
-
-			const updated = await d.updateJob(job.id, sanitizedUpdates);
-			return {
-				channel: 'facebook',
-				refId: updated.id,
-				item: mapFacebookJobToScheduledItem(updated),
-			};
+			return calendarMutationResult(refId, result.job);
 		},
 
 		async cancel(req, refId) {
-			const { job } = await assertOwnedJob(d, req, refId);
-			if (['published', 'cancelled'].includes(job.status)) {
-				throw freezeError(400, 'Job cannot be cancelled', 'INVALID_STATUS');
-			}
-
-			const cancelledPayload = await d.sanitize({
-				collection: FACEBOOK_JOB_REF_TYPE,
-				context: 'calendar:facebook:cancel',
-				payload: {
-					status: 'cancelled',
-					completed_at: new Date().toISOString(),
-					last_error: 'Cancelled by user',
-				},
+			const result = await cancelFn({
+				req,
+				jobId: refId,
+				deps: mutationDeps,
 			});
 
-			const updated = await d.updateJob(job.id, cancelledPayload);
-			return {
-				channel: 'facebook',
-				refId: updated.id,
-				item: mapFacebookJobToScheduledItem(updated),
-			};
+			return calendarMutationResult(refId, result.job);
 		},
 
 		async retry(req, refId) {
-			const { job } = await assertOwnedJob(d, req, refId);
-			if (!['failed', 'cancelled'].includes(job.status)) {
-				throw freezeError(400, 'Only failed or cancelled jobs can be retried', 'INVALID_STATUS');
-			}
-
-			const now = new Date().toISOString();
-			const hasSchedule = Boolean(job.scheduled_at || job.scheduledAt);
-			const retryPayload = await d.sanitize({
-				collection: FACEBOOK_JOB_REF_TYPE,
-				context: 'calendar:facebook:retry',
-				payload: {
-					status: hasSchedule ? 'scheduled' : 'queued',
-					...(hasSchedule ? { scheduled_at: job.scheduled_at || now } : {}),
-					progress: 0,
-					dead_letter: false,
-					last_error: '',
-					next_retry_at: '',
-					claim_token: '',
-					attempt_count: 0,
-				},
+			const result = await retryFn({
+				req,
+				jobId: refId,
+				deps: mutationDeps,
 			});
 
-			const updated = await d.updateJob(job.id, retryPayload);
-			return {
-				channel: 'facebook',
-				refId: updated.id,
-				item: mapFacebookJobToScheduledItem(updated),
-			};
+			return calendarMutationResult(refId, result.job);
+		},
+
+		async publishNow(req, refId) {
+			const result = await publishNowFn({
+				req,
+				jobId: refId,
+				deps: mutationDeps,
+			});
+
+			return calendarMutationResult(refId, result.job);
 		},
 	};
 }
