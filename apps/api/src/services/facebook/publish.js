@@ -194,6 +194,8 @@ export function mapFacebookPublishJobDto(job = {}) {
 		lastError: String(job.last_error || job.lastError || '').trim(),
 		attemptCount: Number(job.attempt_count ?? job.attemptCount) || 0,
 		maxAttempts: Number(job.max_attempts ?? job.maxAttempts) || FACEBOOK_PUBLISH_DEFAULT_MAX_ATTEMPTS,
+		performance: job.performance && typeof job.performance === 'object' ? job.performance : null,
+		analyticsSyncedAt: job.analytics_synced_at || job.analyticsSyncedAt || null,
 	};
 }
 

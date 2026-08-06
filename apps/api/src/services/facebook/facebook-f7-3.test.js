@@ -40,17 +40,17 @@ describe('facebook F7-3 publishing history API', () => {
 		assert.match(list, /normalizeFacebookPublishJob/);
 	});
 
-	it('does not expose analytics or flip insights capability flags in F7-3', () => {
+	it('exposes channel analytics route in F7-6 while keeping publishing history API', () => {
 		const route = readFileSync(path.join(root, 'apps/api/src/routes/facebook.js'), 'utf8');
 		const channelPack = readFileSync(
 			path.join(root, 'apps/api/src/services/facebook/channel-pack.js'),
 			'utf8',
 		);
 
-		assert.doesNotMatch(route, /router\.get\(['"]\/analytics['"]/);
+		assert.match(route, /router\.get\('\/analytics'/);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
-		assert.match(channelPack, /insights:\s*false/);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, true);
+		assert.match(channelPack, /analytics:\s*true/);
 	});
 
 	it('preserves Pinterest history route and unified publishing history route', () => {

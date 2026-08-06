@@ -47,6 +47,21 @@ describe('facebook F6-5 studio asset capabilities', () => {
 	});
 });
 
+describe('facebook F7-6 hub analytics wiring', () => {
+	it('loads facebook analytics in hub when capability is enabled', () => {
+		const hub = readFileSync(path.join(webRoot, 'src/pages/app/FacebookPage.jsx'), 'utf8');
+
+		expect(hub).toMatch(/\/facebook\/analytics/);
+		expect(hub).toMatch(/capabilities\.analytics/);
+		expect(hub).toMatch(/tab === 'analytics'/);
+	});
+
+	it('enables analytics and insights capabilities in F7-6', () => {
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.analytics).toBe(true);
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.insights).toBe(true);
+	});
+});
+
 describe('facebook F7-5 publishing history routes', () => {
 	it('registers facebook publishing history wrapper route', () => {
 		const app = readFileSync(path.join(webRoot, 'src/App.jsx'), 'utf8');

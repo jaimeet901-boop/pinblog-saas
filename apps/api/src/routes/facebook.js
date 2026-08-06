@@ -38,6 +38,7 @@ import {
 	retryFacebookPublishJob,
 } from '../services/facebook/job-mutations.js';
 import { listFacebookPublishingHistory } from '../services/facebook/history.js';
+import { getFacebookPublishingAnalytics } from '../services/facebook/analytics.js';
 import { andWorkspaceScope, recordBelongsToWorkspace } from '../services/workspace-ownership.js';
 import { safeGetList } from '../utils/pocketbase-safe-query.js';
 
@@ -370,6 +371,11 @@ router.post('/schedule', asyncHandler(async (req, res) => {
 
 router.get('/history', asyncHandler(async (req, res) => {
 	const payload = await listFacebookPublishingHistory(req, req.query || {});
+	res.json(payload);
+}));
+
+router.get('/analytics', asyncHandler(async (req, res) => {
+	const payload = await getFacebookPublishingAnalytics(req);
 	res.json(payload);
 }));
 

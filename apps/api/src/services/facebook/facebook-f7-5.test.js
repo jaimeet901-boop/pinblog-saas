@@ -8,17 +8,18 @@ import { FACEBOOK_CHANNEL_CAPABILITIES } from './channel-pack.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
 describe('facebook F7-5 publishing history studio integration', () => {
-	it('enables publishingHistory capability while keeping insights disabled', () => {
+	it('enables publishingHistory and analytics capabilities in F7-6', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, true);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.analytics, true);
 
 		const webCaps = readFileSync(
 			path.join(root, 'apps/web/src/lib/facebook/channelCapabilities.js'),
 			'utf8',
 		);
 		assert.match(webCaps, /publishingHistory:\s*true/);
-		assert.match(webCaps, /insights:\s*false/);
-		assert.match(webCaps, /analytics:\s*false/);
+		assert.match(webCaps, /insights:\s*true/);
+		assert.match(webCaps, /analytics:\s*true/);
 	});
 
 	it('routes Facebook publishing history to /app/facebook-history', () => {

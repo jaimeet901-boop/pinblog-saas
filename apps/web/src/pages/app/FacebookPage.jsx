@@ -11,6 +11,8 @@ import {
 	ListOrdered,
 	CalendarClock,
 	AlertTriangle,
+	BarChart3,
+	Coins,
 } from 'lucide-react';
 import { Button } from '@/components/kit';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
@@ -24,6 +26,7 @@ import {
 	retryFacebookJob,
 } from '@/services/ai-facebook';
 import apiServerClient from '@/lib/apiServerClient';
+import './PinterestPage.css';
 
 async function readApiError(response) {
 	try {
@@ -55,6 +58,7 @@ export default function FacebookPage() {
 	const [pages, setPages] = useState([]);
 	const [selectedAccountId, setSelectedAccountId] = useState('');
 	const [jobs, setJobs] = useState([]);
+	const [analytics, setAnalytics] = useState(null);
 	const [selectedJobId, setSelectedJobId] = useState('');
 	const [jobActionId, setJobActionId] = useState('');
 
@@ -72,8 +76,11 @@ export default function FacebookPage() {
 		if (capabilities.queueImplemented) {
 			tabs.push({ id: 'failed', label: 'Failed Jobs', icon: AlertTriangle });
 		}
+		if (capabilities.analytics) {
+			tabs.push({ id: 'analytics', label: 'Analytics', icon: BarChart3 });
+		}
 		return tabs;
-	}, [capabilities.queueImplemented, capabilities.schedule]);
+	}, [capabilities.queueImplemented, capabilities.schedule, capabilities.analytics]);
 
 	const queueJobs = useMemo(
 		() => jobs.filter((job) => job.status === 'scheduled' || job.status === 'publishing'),
@@ -160,6 +167,20 @@ export default function FacebookPage() {
 		}
 	}, [capabilities.queueImplemented, capabilities.schedule, toast]);
 
+	const loadAnalytics = useCallback(async () => {
+		if (!capabilities.analytics) {
+			setAnalytics(null);
+			return;
+		}
+		try {
+			const response = await apiServerClient.fetch('/facebook/analytics', { method: 'GET' });
+			const payload = await response.json().catch(() => ({}));
+			setAnalytics(response.ok ? payload : null);
+		} catch {
+			setAnalytics(null);
+		}
+	}, [capabilities.analytics]);
+
 	const runJobAction = async (action, jobId) => {
 		const targetId = jobId || selectedJob?.id;
 		if (!targetId) {
@@ -182,6 +203,7 @@ export default function FacebookPage() {
 					: 'The Facebook queue will process this job shortly.',
 			});
 			await loadJobs();
+			await loadAnalytics();
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Action failed', description: error.message });
 		} finally {
@@ -195,7 +217,8 @@ export default function FacebookPage() {
 
 	useEffect(() => {
 		loadJobs();
-	}, [loadJobs]);
+		loadAnalytics();
+	}, [loadJobs, loadAnalytics]);
 
 	useEffect(() => {
 		if (tab === 'pages' && selectedAccountId) {
@@ -350,6 +373,22 @@ export default function FacebookPage() {
 		() => accounts.filter((a) => a.status === 'connected').length,
 		[accounts],
 	);
+
+	const liveAnalytics = useMemo(() => {
+		const summaryStats = analytics?.summary || {};
+		return {
+			publishedPosts: summaryStats.published || 0,
+			impressions: summaryStats.impressions ?? 0,
+			clicks: summaryStats.clicks ?? 0,
+			engagedUsers: summaryStats.engagedUsers ?? 0,
+			reactions: summaryStats.reactions ?? 0,
+			bestPage: summaryStats.bestPage || pages[0]?.name || '—',
+			bestPost: summaryStats.bestPost || '—',
+			activity: connectedCount > 0
+				? `${summaryStats.scheduled || 0} scheduled · ${summaryStats.failed || 0} failed · live from Facebook jobs`
+				: 'Connect an account to unlock activity.',
+		};
+	}, [analytics, pages, connectedCount]);
 
 	return (
 		<div className="ai-pins-atelier">
@@ -605,6 +644,22 @@ export default function FacebookPage() {
 							))}
 						</div>
 					)}
+				</div>
+			) : tab === 'analytics' ? (
+				<div className="space-y-3">
+					<div className="pin-analytics">
+						<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Published Posts</p><p className="pin-analytics__value">{liveAnalytics.publishedPosts}</p></div>
+						<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Impressions</p><p className="pin-analytics__value">{liveAnalytics.impressions}</p></div>
+						<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Clicks</p><p className="pin-analytics__value">{liveAnalytics.clicks}</p></div>
+						<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Engaged Users</p><p className="pin-analytics__value">{liveAnalytics.engagedUsers}</p></div>
+						<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Reactions</p><p className="pin-analytics__value">{liveAnalytics.reactions}</p></div>
+						<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Best Page</p><p className="pin-analytics__value" style={{ fontSize: '1.15rem' }}>{liveAnalytics.bestPage}</p></div>
+						<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Best Post</p><p className="pin-analytics__value" style={{ fontSize: '1.15rem' }}>{liveAnalytics.bestPost}</p></div>
+					</div>
+					<div className="pin-analytics__card">
+						<p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground inline-flex items-center gap-1"><Coins size={12} /> Publishing Activity</p>
+						<p className="mt-2 text-sm text-muted-foreground">{liveAnalytics.activity}</p>
+					</div>
 				</div>
 			) : null}
 		</div>

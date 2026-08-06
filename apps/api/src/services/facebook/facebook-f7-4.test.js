@@ -38,18 +38,18 @@ describe('facebook F7-4 insights sync worker', () => {
 		assert.doesNotMatch(graph, /insights/);
 	});
 
-	it('does not expose analytics routes or flip insights capability flags in F7-4', () => {
+	it('registers analytics route and enabled insights capability in F7-6', () => {
 		const route = readFileSync(path.join(root, 'apps/api/src/routes/facebook.js'), 'utf8');
 		const channelPack = readFileSync(
 			path.join(root, 'apps/api/src/services/facebook/channel-pack.js'),
 			'utf8',
 		);
 
-		assert.doesNotMatch(route, /router\.get\(['"]\/analytics['"]/);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
+		assert.match(route, /router\.get\('\/analytics'/);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
-		assert.match(channelPack, /insights:\s*false/);
-		assert.match(channelPack, /publishingHistory:\s*true/);
+		assert.match(channelPack, /analytics:\s*true/);
+		assert.match(channelPack, /insights:\s*true/);
 	});
 
 	it('keeps frozen subsystems untouched for F7-4', () => {

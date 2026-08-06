@@ -95,7 +95,7 @@ describe('facebook F4-6 production integration', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.queueImplemented, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.schedule, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, true);
 
 		const dto = getFacebookChannelPackDto();
 		assert.equal(dto.publishImplemented, true);

@@ -16,7 +16,7 @@ describe('facebook F6-5 studio routes & asset capabilities', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.studioTemplatePack, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.studioExportProfiles, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, true);
 
 		const dto = getFacebookChannelPackDto();
 		assert.equal(dto.channelCapabilities.studioPromptPack, true);
