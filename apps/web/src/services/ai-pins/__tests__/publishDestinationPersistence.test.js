@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+	buildPocketbaseClientMock,
+	mockFetchSequence,
+	mockJsonResponse,
+} from '@/test-utils/mockApiFetch.js';
 
 vi.mock('@/lib/apiServerClient', () => ({
 	default: {
@@ -6,17 +11,10 @@ vi.mock('@/lib/apiServerClient', () => ({
 	},
 }));
 
-vi.mock('@/lib/pocketbaseClient', () => {
-	const create = vi.fn();
-	const getOne = vi.fn();
-	const update = vi.fn();
-	return {
-		default: {
-			authStore: { record: { id: 'user_1' } },
-			collection: vi.fn(() => ({ create, getOne, update })),
-			__mocks: { create, getOne, update },
-		},
-	};
+vi.mock('@/lib/pocketbaseClient', async () => {
+	const { buildPocketbaseClientMock } = await import('@/test-utils/mockApiFetch.js');
+	const { vi: vitestVi } = await import('vitest');
+	return buildPocketbaseClientMock(vitestVi);
 });
 
 import apiServerClient from '@/lib/apiServerClient';
@@ -94,11 +92,11 @@ describe('destination URL draft + publish persistence', () => {
 	});
 
 	it('Save Draft stores source_url, image_origin, template, image via API', async () => {
-		apiServerClient.fetch.mockResolvedValue({
+		apiServerClient.fetch.mockResolvedValue(mockJsonResponse({
 			ok: true,
 			status: 201,
-			json: async () => ({ items: [savedRecord()] }),
-		});
+			body: { items: [savedRecord()] },
+		}));
 
 		const [saved] = await saveDrafts({
 			previewPins: [previewPin()],
@@ -180,13 +178,13 @@ describe('destination URL draft + publish persistence', () => {
 	});
 
 	it('Save Draft fails hard when API returns pin without source_url', async () => {
-		apiServerClient.fetch.mockResolvedValue({
+		apiServerClient.fetch.mockResolvedValue(mockJsonResponse({
 			ok: true,
 			status: 201,
-			json: async () => ({
+			body: {
 				items: [savedRecord({ source_url: '' })],
-			}),
-		});
+			},
+		}));
 
 		await expect(saveDrafts({
 			previewPins: [previewPin()],
@@ -195,16 +193,32 @@ describe('destination URL draft + publish persistence', () => {
 	});
 
 	it('Duplicate Draft preserves destination URL + template', async () => {
-		pb.__mocks.getOne.mockResolvedValue(savedRecord());
-		pb.__mocks.create.mockResolvedValue(savedRecord({
-			id: 'pin_2',
-			title: 'Chocolate Cake Pin (Copy)',
-		}));
+		mockFetchSequence(apiServerClient.fetch, [
+			{
+				ok: true,
+				status: 200,
+				body: savedRecord(),
+			},
+			{
+				ok: true,
+				status: 201,
+				body: {
+					items: [savedRecord({
+						id: 'pin_2',
+						title: 'Chocolate Cake Pin (Copy)',
+					})],
+				},
+			},
+		]);
 
 		const copy = await duplicatePin({ id: 'pin_1' });
-		const createArg = pb.__mocks.create.mock.calls[0][0];
-		expect(createArg.source_url).toContain('chocolate-cake');
-		expect(createArg.template_name).toBe('Gallery Hero');
+		expect(apiServerClient.fetch).toHaveBeenCalledWith(
+			'/ai-pins/pins/pin_1',
+			expect.objectContaining({ method: 'GET' }),
+		);
+		const createBody = JSON.parse(apiServerClient.fetch.mock.calls[1][1].body);
+		expect(createBody.items[0].source_url).toContain('chocolate-cake');
+		expect(createBody.items[0].template_name).toBe('Gallery Hero');
 		expect(copy.sourceUrl).toContain('chocolate-cake');
 	});
 });

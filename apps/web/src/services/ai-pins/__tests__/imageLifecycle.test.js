@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+	buildPocketbaseClientMock,
+	mockJsonResponse,
+} from '@/test-utils/mockApiFetch.js';
 
 vi.mock('@/lib/apiServerClient', () => ({
 	default: {
@@ -6,18 +10,10 @@ vi.mock('@/lib/apiServerClient', () => ({
 	},
 }));
 
-vi.mock('@/lib/pocketbaseClient', () => {
-	const create = vi.fn();
-	const getFullList = vi.fn();
-	const getOne = vi.fn();
-	const update = vi.fn();
-	return {
-		default: {
-			authStore: { record: { id: 'user_1' } },
-			collection: vi.fn(() => ({ create, getFullList, getOne, update })),
-			__mocks: { create, getFullList, getOne, update },
-		},
-	};
+vi.mock('@/lib/pocketbaseClient', async () => {
+	const { buildPocketbaseClientMock } = await import('@/test-utils/mockApiFetch.js');
+	const { vi: vitestVi } = await import('vitest');
+	return buildPocketbaseClientMock(vitestVi, { includeGetFullList: true });
 });
 
 import apiServerClient from '@/lib/apiServerClient';
@@ -34,11 +30,11 @@ import {
 import { mapSavedPin, saveDrafts } from '../draftService.js';
 
 function mockUploadOk(url = 'https://cdn.example/pins/hosted.png') {
-	apiServerClient.fetch.mockResolvedValue({
+	apiServerClient.fetch.mockResolvedValue(mockJsonResponse({
 		ok: true,
 		status: 201,
-		json: async () => ({ imageUrl: url, imageSource: 'featured_composed' }),
-	});
+		body: { imageUrl: url, imageSource: 'featured_composed' },
+	}));
 }
 
 describe('AI Pin image lifecycle', () => {
@@ -118,11 +114,11 @@ describe('AI Pin image lifecycle', () => {
 			ok: true,
 			blob: async () => new Blob(['png'], { type: 'image/png' }),
 		});
-		apiServerClient.fetch.mockResolvedValue({
+		apiServerClient.fetch.mockResolvedValue(mockJsonResponse({
 			ok: false,
 			status: 500,
-			json: async () => ({ message: 'storage unavailable' }),
-		});
+			body: { message: 'storage unavailable' },
+		}));
 
 		await expect(ensurePinsReadyForSave([{
 			tempId: 't3',
@@ -139,11 +135,11 @@ describe('AI Pin image lifecycle', () => {
 			ok: true,
 			blob: async () => new Blob(['png'], { type: 'image/png' }),
 		});
-		apiServerClient.fetch.mockResolvedValue({
+		apiServerClient.fetch.mockResolvedValue(mockJsonResponse({
 			ok: false,
 			status: 413,
-			json: async () => ({}),
-		});
+			body: {},
+		}));
 
 		await expect(ensurePinsReadyForSave([{
 			tempId: 't413',
@@ -167,24 +163,30 @@ describe('AI Pin image lifecycle', () => {
 			}],
 			panel: {},
 		})).rejects.toThrow(/no image|blocked|failed/i);
-		expect(pb.__mocks.create).not.toHaveBeenCalled();
+		expect(apiServerClient.fetch).not.toHaveBeenCalled();
 	});
 
-	it('Save Draft → PocketBase create uses image_url, reload maps imageUrl', async () => {
-		mockUploadOk(); // unused here — already hosted
-		pb.__mocks.create.mockResolvedValue({
-			id: 'pin_1',
-			articleId: 'art1',
-			websiteId: 'ws1',
-			title: 'Saved Pin',
-			description: 'desc',
-			image_url: 'https://cdn.example/saved.png',
-			image_source: 'ai_generated',
-			image_generation_status: 'completed',
-			status: 'draft',
-			suggested_keywords: [],
-			suggested_hashtags: [],
-		});
+	it('Save Draft → API create uses image_url, reload maps imageUrl', async () => {
+		apiServerClient.fetch.mockResolvedValue(mockJsonResponse({
+			ok: true,
+			status: 201,
+			body: {
+				items: [{
+					id: 'pin_1',
+					articleId: 'art1',
+					websiteId: 'ws1',
+					title: 'Saved Pin',
+					description: 'desc',
+					image_url: 'https://cdn.example/saved.png',
+					image_source: 'ai_generated',
+					image_generation_status: 'completed',
+					source_url: 'https://blog.example/saved-pin',
+					status: 'draft',
+					suggested_keywords: [],
+					suggested_hashtags: [],
+				}],
+			},
+		}));
 
 		const created = await saveDrafts({
 			previewPins: [{
@@ -195,12 +197,17 @@ describe('AI Pin image lifecycle', () => {
 				imageUrl: 'https://cdn.example/saved.png',
 				imageSource: 'ai_generated',
 				imageGenerationStatus: 'completed',
+				sourceUrl: 'https://blog.example/saved-pin',
+				articleUrl: 'https://blog.example/saved-pin',
 			}],
 			panel: { targetAudience: '', toneOfVoice: '', language: 'English' },
 		});
 
-		expect(pb.__mocks.create).toHaveBeenCalledTimes(1);
-		const payload = pb.__mocks.create.mock.calls[0][0];
+		expect(apiServerClient.fetch).toHaveBeenCalledWith(
+			'/ai-pins/drafts',
+			expect.objectContaining({ method: 'POST' }),
+		);
+		const payload = JSON.parse(apiServerClient.fetch.mock.calls[0][1].body).items[0];
 		expect(payload.image_url).toBe('https://cdn.example/saved.png');
 		expect(payload.image_url).not.toMatch(/^blob:/);
 

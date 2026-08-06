@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+	buildPocketbaseClientMock,
+	mockFetchSequence,
+	mockJsonResponse,
+} from '@/test-utils/mockApiFetch.js';
 
 vi.mock('@/lib/apiServerClient', () => ({
 	default: {
@@ -6,17 +11,10 @@ vi.mock('@/lib/apiServerClient', () => ({
 	},
 }));
 
-vi.mock('@/lib/pocketbaseClient', () => {
-	const create = vi.fn();
-	const getOne = vi.fn();
-	const update = vi.fn();
-	return {
-		default: {
-			authStore: { record: { id: 'user_1' } },
-			collection: vi.fn(() => ({ create, getOne, update })),
-			__mocks: { create, getOne, update },
-		},
-	};
+vi.mock('@/lib/pocketbaseClient', async () => {
+	const { buildPocketbaseClientMock } = await import('@/test-utils/mockApiFetch.js');
+	const { vi: vitestVi } = await import('vitest');
+	return buildPocketbaseClientMock(vitestVi);
 });
 
 import apiServerClient from '@/lib/apiServerClient';
@@ -54,6 +52,8 @@ function previewPin(overrides = {}) {
 		imagePrompt: 'prompt',
 		imageUrl: 'https://cdn.example/pins/a.png',
 		imageSource: 'ai_generated',
+		sourceUrl: 'https://blog.example/recipes/sample-post',
+		articleUrl: 'https://blog.example/recipes/sample-post',
 		imageGenerationStatus: 'completed',
 		templateId: 'tpl_1',
 		templateName: 'Gallery Hero',
@@ -109,27 +109,34 @@ describe('draft template persistence integration', () => {
 	});
 
 	it('Save Draft stores template metadata', async () => {
-		pb.__mocks.create.mockResolvedValue({
-			id: 'pin_1',
-			articleId: 'art_1',
-			websiteId: 'web_1',
-			title: 'Pin with template',
-			image_url: 'https://cdn.example/pins/a.png',
-			status: 'draft',
-			template_id: 'tpl_1',
-			template_name: 'Gallery Hero',
-			template_version: '2.1.4@7c2f9ab',
-			template_configuration: SAMPLE_CONFIG,
-			template_thumbnail: 'https://cdn.example/thumbs/hero.png',
-			template_snapshot_at: '2026-07-26T08:00:00.000Z',
-		});
+		apiServerClient.fetch.mockResolvedValue(mockJsonResponse({
+			ok: true,
+			status: 201,
+			body: {
+				items: [{
+					id: 'pin_1',
+					articleId: 'art_1',
+					websiteId: 'web_1',
+					title: 'Pin with template',
+					image_url: 'https://cdn.example/pins/a.png',
+					source_url: 'https://blog.example/recipes/sample-post',
+					status: 'draft',
+					template_id: 'tpl_1',
+					template_name: 'Gallery Hero',
+					template_version: '2.1.4@7c2f9ab',
+					template_configuration: SAMPLE_CONFIG,
+					template_thumbnail: 'https://cdn.example/thumbs/hero.png',
+					template_snapshot_at: '2026-07-26T08:00:00.000Z',
+				}],
+			},
+		}));
 
 		const [saved] = await saveDrafts({
 			previewPins: [previewPin()],
 			panel: { targetAudience: '', toneOfVoice: '', language: 'en' },
 		});
 
-		const createArg = pb.__mocks.create.mock.calls[0][0];
+		const createArg = JSON.parse(apiServerClient.fetch.mock.calls[0][1].body).items[0];
 		expect(createArg.template_id).toBe('tpl_1');
 		expect(createArg.template_configuration).toEqual(SAMPLE_CONFIG);
 		expect(createArg.template_version).toBe('2.1.4@7c2f9ab');
@@ -163,29 +170,52 @@ describe('draft template persistence integration', () => {
 	});
 
 	it('Duplicate Draft preserves template metadata', async () => {
-		pb.__mocks.getOne.mockResolvedValue({
-			id: 'pin_1',
-			articleId: 'art_1',
-			websiteId: 'web_1',
-			title: 'Pin with template',
-			image_url: 'https://cdn.example/pins/a.png',
-			image_source: 'ai_generated',
-			status: 'draft',
-			template_id: 'tpl_1',
-			template_name: 'Gallery Hero',
-			template_version: '2.1.4@7c2f9ab',
-			template_configuration: SAMPLE_CONFIG,
-			template_thumbnail: 'https://cdn.example/thumbs/hero.png',
-			template_snapshot_at: '2026-07-26T08:00:00.000Z',
-		});
-		pb.__mocks.create.mockImplementation(async (payload) => ({
-			id: 'pin_copy',
-			...payload,
-			status: 'draft',
-		}));
+		mockFetchSequence(apiServerClient.fetch, [
+			{
+				ok: true,
+				status: 200,
+				body: {
+					id: 'pin_1',
+					articleId: 'art_1',
+					websiteId: 'web_1',
+					title: 'Pin with template',
+					image_url: 'https://cdn.example/pins/a.png',
+					image_source: 'ai_generated',
+					source_url: 'https://blog.example/recipes/sample-post',
+					status: 'draft',
+					template_id: 'tpl_1',
+					template_name: 'Gallery Hero',
+					template_version: '2.1.4@7c2f9ab',
+					template_configuration: SAMPLE_CONFIG,
+					template_thumbnail: 'https://cdn.example/thumbs/hero.png',
+					template_snapshot_at: '2026-07-26T08:00:00.000Z',
+				},
+			},
+			{
+				ok: true,
+				status: 201,
+				body: {
+					items: [{
+						id: 'pin_copy',
+						articleId: 'art_1',
+						websiteId: 'web_1',
+						title: 'Pin with template (Copy)',
+						image_url: 'https://cdn.example/pins/a.png',
+						source_url: 'https://blog.example/recipes/sample-post',
+						status: 'draft',
+						template_id: 'tpl_1',
+						template_name: 'Gallery Hero',
+						template_version: '2.1.4@7c2f9ab',
+						template_configuration: SAMPLE_CONFIG,
+						template_thumbnail: 'https://cdn.example/thumbs/hero.png',
+						template_snapshot_at: '2026-07-26T08:00:00.000Z',
+					}],
+				},
+			},
+		]);
 
 		const copy = await duplicatePin({ id: 'pin_1' });
-		const createArg = pb.__mocks.create.mock.calls[0][0];
+		const createArg = JSON.parse(apiServerClient.fetch.mock.calls[1][1].body).items[0];
 		expect(createArg.template_id).toBe('tpl_1');
 		expect(createArg.template_configuration).toEqual(SAMPLE_CONFIG);
 		expect(copy.templateId).toBe('tpl_1');
@@ -242,9 +272,9 @@ describe('draft template persistence integration', () => {
 	});
 
 	it('Edit Draft PATCH includes template fields when present and preserves them', async () => {
-		apiServerClient.fetch.mockResolvedValue({
+		apiServerClient.fetch.mockResolvedValue(mockJsonResponse({
 			ok: true,
-			json: async () => ({
+			body: {
 				id: 'pin_1',
 				title: 'Edited',
 				description: 'Desc',
@@ -257,8 +287,8 @@ describe('draft template persistence integration', () => {
 				templateConfiguration: SAMPLE_CONFIG,
 				templateThumbnail: 'https://cdn.example/thumbs/hero.png',
 				templateSnapshotAt: '2026-07-26T08:00:00.000Z',
-			}),
-		});
+			},
+		}));
 		pb.__mocks.update.mockResolvedValue({
 			id: 'pin_1',
 			title: 'Edited',

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createEmptyLayerDocument } from '../pinLayerSchema.js';
 import { createDefaultTemplateConfig } from '../pinTemplates.js';
 import { createMockRenderSurface } from '../pinLayerCompositor.js';
+import { mockExportRuntime } from '@/test-utils/mockApiFetch.js';
 import { exportService } from '../../services/templates/exportService.js';
 import {
 	validateGenerationRequest,
@@ -29,6 +30,8 @@ function sampleDoc() {
 }
 
 describe('Pin Generation Module 7', () => {
+	const exportRuntime = mockExportRuntime(createMockRenderSurface);
+
 	it('exposes full progress stages', () => {
 		expect(PIN_GENERATION_STAGES).toEqual(expect.arrayContaining([
 			'queued',
@@ -101,7 +104,7 @@ describe('Pin Generation Module 7', () => {
 							format: args.format,
 							variables: args.variables,
 						},
-						{ createSurface: createMockRenderSurface },
+						exportRuntime,
 					);
 				},
 				async uploadResult({ bytes }) {
@@ -166,7 +169,7 @@ describe('Pin Generation Module 7', () => {
 							format: 'png',
 							variables: args.variables,
 						},
-						{ createSurface: createMockRenderSurface },
+						exportRuntime,
 					);
 				},
 				async uploadResult() {
