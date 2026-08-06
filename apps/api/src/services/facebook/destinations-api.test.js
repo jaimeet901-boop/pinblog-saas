@@ -380,6 +380,6 @@ describe('facebook F3 route wiring', () => {
 		const paramRouteIndex = route.indexOf("router.get('/destinations/:destinationId'");
 		assert.ok(validateRouteIndex >= 0 && paramRouteIndex >= 0);
 		assert.ok(validateRouteIndex < paramRouteIndex, 'validate route must register before :destinationId');
-		assert.doesNotMatch(route, /router\.(post|put|patch|delete)\('\/publish/);
+		assert.doesNotMatch(route, /router\.(post|put|patch|delete)\('\/publish-/);
 	});
 });

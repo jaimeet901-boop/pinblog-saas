@@ -24,6 +24,12 @@ import {
 	mapLegacyPageItem,
 	validateFacebookDestinationPost,
 } from '../services/facebook/destinations.js';
+import {
+	mapFacebookPublishJobDto,
+	prepareFacebookPublishJob,
+} from '../services/facebook/publish.js';
+import { andWorkspaceScope, recordBelongsToWorkspace } from '../services/workspace-ownership.js';
+import { safeGetList, sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
 
 const router = Router();
 
@@ -42,6 +48,50 @@ function httpError(status, message, errorCode = 'FACEBOOK_ERROR') {
 
 function getOwner(req) {
 	return req.workspaceOwnerId || req.pocketbaseUserId || '';
+}
+
+function normalizePositiveInt(value, fallback, max = 200) {
+	const parsed = Number.parseInt(String(value ?? ''), 10);
+	if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+	return Math.min(parsed, max);
+}
+
+function throwForPublishValidation(result = {}) {
+	if (result.ok) return;
+	const errors = Array.isArray(result.errors) ? result.errors : [];
+	const message = errors[0] || 'Facebook publish validation failed';
+
+	if (errors.some((item) => /AI pin is required/i.test(item))) {
+		throw httpError(422, message, 'FACEBOOK_AI_PIN_REQUIRED');
+	}
+	if (errors.some((item) => /AI pin not found/i.test(item))) {
+		throw httpError(404, message, 'FACEBOOK_AI_PIN_NOT_FOUND');
+	}
+	if (errors.some((item) => /active Facebook publish job/i.test(item))) {
+		throw httpError(409, message, 'FACEBOOK_PUBLISH_JOB_CONFLICT');
+	}
+	if (errors.some((item) => /Facebook account not found/i.test(item))) {
+		throw httpError(404, message, 'FACEBOOK_ACCOUNT_NOT_FOUND');
+	}
+	if (errors.some((item) => /Facebook destination not found/i.test(item))) {
+		throw httpError(404, message, 'FACEBOOK_DESTINATION_NOT_FOUND');
+	}
+	throw httpError(422, message, 'FACEBOOK_VALIDATION_FAILED');
+}
+
+async function getOwnedFacebookPublishJob(req, jobId) {
+	const owner = getOwner(req);
+	const job = await pocketbaseClient.collection('facebook_publish_jobs').getOne(jobId, { requestKey: null }).catch(() => null);
+	if (!job) {
+		throw httpError(404, 'Facebook publish job not found', 'FACEBOOK_PUBLISH_JOB_NOT_FOUND');
+	}
+	if (job.owner !== owner) {
+		throw httpError(403, 'You do not have access to this Facebook publish job', 'FORBIDDEN');
+	}
+	if (!recordBelongsToWorkspace(req, job)) {
+		throw httpError(403, 'You do not have access to this Facebook publish job', 'FORBIDDEN');
+	}
+	return job;
 }
 
 /** Public OAuth callback — must stay before auth middleware. */
@@ -270,6 +320,98 @@ router.post('/accounts/:accountId/pages/:pageId/default', asyncHandler(async (re
 		req,
 	});
 	res.json(mapPage(page));
+}));
+
+router.post('/publish', asyncHandler(async (req, res) => {
+	const owner = getOwner(req);
+	const body = req.body || {};
+	const accountId = String(body.accountId || '').trim();
+	const pageId = String(body.pageId || '').trim();
+	const aiPinId = String(body.aiPinId || body.ai_pin || '').trim();
+	const post = body.post && typeof body.post === 'object' ? body.post : {};
+	const timezone = String(body.timezone || 'UTC').trim() || 'UTC';
+
+	if (!accountId) throw httpError(422, 'accountId is required', 'FACEBOOK_ACCOUNT_ID_REQUIRED');
+	if (!pageId) throw httpError(422, 'pageId is required', 'FACEBOOK_PAGE_ID_REQUIRED');
+
+	const prepared = await prepareFacebookPublishJob({
+		owner,
+		accountId,
+		pageId,
+		aiPinId,
+		post,
+		timezone,
+		scheduledAt: new Date().toISOString(),
+		req,
+	});
+	throwForPublishValidation(prepared);
+
+	const createPayload = await sanitizeCollectionPayload({
+		collection: 'facebook_publish_jobs',
+		context: 'facebook:create-publish-job',
+		payload: prepared.jobPayload,
+	});
+
+	const job = await pocketbaseClient.collection('facebook_publish_jobs').create(createPayload);
+
+	const eventPayload = await sanitizeCollectionPayload({
+		collection: 'facebook_publish_events',
+		context: 'facebook:publish-created-event',
+		payload: {
+			...prepared.eventPayload,
+			job: job.id,
+		},
+	});
+	await pocketbaseClient.collection('facebook_publish_events').create(eventPayload);
+
+	res.status(201).json(mapFacebookPublishJobDto(job));
+}));
+
+router.get('/jobs', asyncHandler(async (req, res) => {
+	const page = normalizePositiveInt(req.query.page, 1);
+	const perPage = normalizePositiveInt(req.query.perPage, 20, 100);
+	const accountId = String(req.query.accountId || '').trim();
+	const aiPinId = String(req.query.aiPinId || req.query.ai_pin || '').trim();
+	const pageId = String(req.query.pageId || req.query.page_id || '').trim();
+	const status = String(req.query.status || '').trim();
+
+	const filters = [];
+	if (accountId) {
+		filters.push(pocketbaseClient.filter('account = {:accountId}', { accountId }));
+	}
+	if (aiPinId) {
+		filters.push(pocketbaseClient.filter('ai_pin = {:aiPinId}', { aiPinId }));
+	}
+	if (pageId) {
+		filters.push(pocketbaseClient.filter('page_id = {:pageId}', { pageId }));
+	}
+	if (status) {
+		filters.push(pocketbaseClient.filter('status = {:status}', { status }));
+	}
+
+	const filter = andWorkspaceScope(req, filters.length ? filters.join(' && ') : '');
+
+	const result = await safeGetList({
+		collection: 'facebook_publish_jobs',
+		context: 'facebook:list-publish-jobs',
+		page,
+		perPage,
+		sort: '-scheduled_at,-created',
+		filter,
+	});
+
+	res.json({
+		page: result.page,
+		perPage: result.perPage,
+		totalItems: result.totalItems,
+		totalPages: result.totalPages,
+		items: result.items.map((item) => mapFacebookPublishJobDto(item)),
+	});
+}));
+
+router.get('/jobs/:jobId', asyncHandler(async (req, res) => {
+	const job = await getOwnedFacebookPublishJob(req, req.params.jobId);
+	res.json(mapFacebookPublishJobDto(job));
 }));
 
 router.post('/token/refresh', asyncHandler(async (req, res) => {
