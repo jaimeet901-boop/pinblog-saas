@@ -43,14 +43,18 @@ describe('facebook F4-3 publish API route wiring', () => {
 		const route = readFileSync(path.join(root, 'apps/api/src/routes/facebook.js'), 'utf8');
 
 		assert.match(route, /router\.post\('\/publish'/);
+		assert.match(route, /router\.post\('\/schedule'/);
 		assert.match(route, /router\.get\('\/jobs'/);
 		assert.match(route, /router\.get\('\/jobs\/:jobId'/);
 		assert.match(route, /prepareFacebookPublishJob/);
 		assert.match(route, /mapFacebookPublishJobDto/);
 		assert.match(route, /facebook_publish_jobs/);
-		assert.match(route, /facebook_publish_events/);
-		assert.match(route, /FACEBOOK_VALIDATION_FAILED/);
+		assert.match(route, /persistFacebookPublishJobWithCreatedEvent/);
+		assert.match(route, /throwForFacebookPublishValidation/);
 		assert.match(route, /FACEBOOK_PUBLISH_JOB_NOT_FOUND/);
+
+		const validation = readFileSync(path.join(root, 'apps/api/src/services/facebook/publish-validation.js'), 'utf8');
+		assert.match(validation, /FACEBOOK_VALIDATION_FAILED/);
 
 		const jobsListIndex = route.indexOf("router.get('/jobs'");
 		const jobsGetIndex = route.indexOf("router.get('/jobs/:jobId'");

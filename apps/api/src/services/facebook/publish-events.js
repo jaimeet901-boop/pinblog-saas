@@ -178,6 +178,7 @@ export function buildFacebookPublishCreatedEventPayload(input = {}) {
 		aiPinId = '',
 		scheduledAt = '',
 		timezone = 'UTC',
+		publishMode = 'now',
 	} = input;
 
 	const jobIdStr = String(jobId || '').trim();
@@ -200,7 +201,7 @@ export function buildFacebookPublishCreatedEventPayload(input = {}) {
 			aiPinId: String(aiPinId || '').trim(),
 			scheduledAt: scheduledAt || null,
 			timezone: String(timezone || 'UTC').trim() || 'UTC',
-			publishMode: 'now',
+			publishMode: String(publishMode || 'now').trim() || 'now',
 		},
 	});
 }

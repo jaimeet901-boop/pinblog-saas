@@ -111,7 +111,7 @@ describe('facebook F2 oauth foundation', () => {
 		assert.match(route, /token\/refresh/);
 		assert.match(route, /workspace\.facebook\.manage/);
 		assert.match(route, /router\.post\('\/publish'/);
-		assert.doesNotMatch(route, /\/schedule/);
+		assert.match(route, /router\.post\('\/schedule'/);
 
 		const admin = readFileSync(path.join(root, 'apps/api/src/routes/admin/facebook.js'), 'utf8');
 		assert.match(admin, /oauth-config/);

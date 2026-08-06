@@ -28,8 +28,11 @@ import {
 	mapFacebookPublishJobDto,
 	prepareFacebookPublishJob,
 } from '../services/facebook/publish.js';
+import { persistFacebookPublishJobWithCreatedEvent } from '../services/facebook/publish-persist.js';
+import { throwForFacebookPublishValidation } from '../services/facebook/publish-validation.js';
+import { scheduleFacebookPublishJobs } from '../services/facebook/schedule.js';
 import { andWorkspaceScope, recordBelongsToWorkspace } from '../services/workspace-ownership.js';
-import { safeGetList, sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
+import { safeGetList } from '../utils/pocketbase-safe-query.js';
 
 const router = Router();
 
@@ -57,26 +60,7 @@ function normalizePositiveInt(value, fallback, max = 200) {
 }
 
 function throwForPublishValidation(result = {}) {
-	if (result.ok) return;
-	const errors = Array.isArray(result.errors) ? result.errors : [];
-	const message = errors[0] || 'Facebook publish validation failed';
-
-	if (errors.some((item) => /AI pin is required/i.test(item))) {
-		throw httpError(422, message, 'FACEBOOK_AI_PIN_REQUIRED');
-	}
-	if (errors.some((item) => /AI pin not found/i.test(item))) {
-		throw httpError(404, message, 'FACEBOOK_AI_PIN_NOT_FOUND');
-	}
-	if (errors.some((item) => /active Facebook publish job/i.test(item))) {
-		throw httpError(409, message, 'FACEBOOK_PUBLISH_JOB_CONFLICT');
-	}
-	if (errors.some((item) => /Facebook account not found/i.test(item))) {
-		throw httpError(404, message, 'FACEBOOK_ACCOUNT_NOT_FOUND');
-	}
-	if (errors.some((item) => /Facebook destination not found/i.test(item))) {
-		throw httpError(404, message, 'FACEBOOK_DESTINATION_NOT_FOUND');
-	}
-	throw httpError(422, message, 'FACEBOOK_VALIDATION_FAILED');
+	throwForFacebookPublishValidation(result);
 }
 
 async function getOwnedFacebookPublishJob(req, jobId) {
@@ -346,25 +330,35 @@ router.post('/publish', asyncHandler(async (req, res) => {
 	});
 	throwForPublishValidation(prepared);
 
-	const createPayload = await sanitizeCollectionPayload({
-		collection: 'facebook_publish_jobs',
-		context: 'facebook:create-publish-job',
-		payload: prepared.jobPayload,
+	const job = await persistFacebookPublishJobWithCreatedEvent({
+		prepared,
+		publishMode: 'now',
 	});
-
-	const job = await pocketbaseClient.collection('facebook_publish_jobs').create(createPayload);
-
-	const eventPayload = await sanitizeCollectionPayload({
-		collection: 'facebook_publish_events',
-		context: 'facebook:publish-created-event',
-		payload: {
-			...prepared.eventPayload,
-			job: job.id,
-		},
-	});
-	await pocketbaseClient.collection('facebook_publish_events').create(eventPayload);
 
 	res.status(201).json(mapFacebookPublishJobDto(job));
+}));
+
+router.post('/schedule', asyncHandler(async (req, res) => {
+	const owner = getOwner(req);
+	const body = req.body || {};
+	const timezone = String(body.timezone || '').trim();
+	const scheduledAt = body.scheduledAt ?? body.scheduled_at;
+	const post = body.post && typeof body.post === 'object' ? body.post : {};
+	const aiPinIds = body.aiPinIds ?? (body.aiPinId || body.ai_pin ? [body.aiPinId || body.ai_pin] : null);
+
+	const result = await scheduleFacebookPublishJobs({
+		owner,
+		aiPinIds,
+		accountId: String(body.accountId || '').trim(),
+		pageId: String(body.pageId || '').trim(),
+		timezone,
+		scheduledAt,
+		post,
+		perPinTargets: body.perPinTargets,
+		req,
+	});
+
+	res.status(201).json(result);
 }));
 
 router.get('/jobs', asyncHandler(async (req, res) => {
