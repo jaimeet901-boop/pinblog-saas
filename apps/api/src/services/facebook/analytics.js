@@ -15,6 +15,10 @@ import {
 	buildFacebookAnalyticsSummary,
 	mapFacebookAnalyticsJobItem,
 } from './analytics-rollup.js';
+import {
+	emptyFacebookPublishingAnalytics,
+	hasFacebookWorkspaceReadScope,
+} from './read-path.js';
 
 export {
 	buildFacebookAnalyticsSummary,
@@ -22,47 +26,49 @@ export {
 	mapFacebookAnalyticsJobItem,
 } from './analytics-rollup.js';
 
+function statusFilter(status) {
+	return pocketbaseClient.filter('status = {:status}', { status });
+}
+
 /**
  * Workspace-scoped Facebook publishing analytics rollup.
  *
  * @param {import('express').Request} req
  */
 export async function getFacebookPublishingAnalytics(req) {
-	const publishedFilter = await buildSchemaSafeFilter({
-		collection: FACEBOOK_JOB_COLLECTION,
-		context: 'facebook-analytics:published',
-		parts: [
-			{ field: 'owner', expression: andWorkspaceScope(req) },
-			{
-				field: 'status',
-				expression: pocketbaseClient.filter('status = {:status}', { status: 'published' }),
-			},
-		],
-	});
-	const failedFilter = await buildSchemaSafeFilter({
-		collection: FACEBOOK_JOB_COLLECTION,
-		context: 'facebook-analytics:failed',
-		parts: [
-			{ field: 'owner', expression: andWorkspaceScope(req) },
-			{
-				field: 'status',
-				expression: pocketbaseClient.filter('status = {:status}', { status: 'failed' }),
-			},
-		],
-	});
-	const scheduledFilter = await buildSchemaSafeFilter({
-		collection: FACEBOOK_JOB_COLLECTION,
-		context: 'facebook-analytics:scheduled',
-		parts: [
-			{ field: 'owner', expression: andWorkspaceScope(req) },
-			{
-				field: 'status',
-				expression: pocketbaseClient.filter('status = {:status}', { status: 'scheduled' }),
-			},
-		],
-	});
+	if (!hasFacebookWorkspaceReadScope(req)) {
+		return emptyFacebookPublishingAnalytics();
+	}
 
-	const [published, failedCount, scheduledCount] = await Promise.all([
+	const ownerPart = { field: 'owner', expression: andWorkspaceScope(req) };
+	const [publishedFilter, failedFilter, scheduledFilter] = await Promise.all([
+		buildSchemaSafeFilter({
+			collection: FACEBOOK_JOB_COLLECTION,
+			context: 'facebook-analytics:published',
+			parts: [
+				ownerPart,
+				{ field: 'status', expression: statusFilter('published') },
+			],
+		}),
+		buildSchemaSafeFilter({
+			collection: FACEBOOK_JOB_COLLECTION,
+			context: 'facebook-analytics:failed',
+			parts: [
+				ownerPart,
+				{ field: 'status', expression: statusFilter('failed') },
+			],
+		}),
+		buildSchemaSafeFilter({
+			collection: FACEBOOK_JOB_COLLECTION,
+			context: 'facebook-analytics:scheduled',
+			parts: [
+				ownerPart,
+				{ field: 'status', expression: statusFilter('scheduled') },
+			],
+		}),
+	]);
+
+	const [publishedRows, failedCount, scheduledCount] = await Promise.all([
 		safeGetFullList({
 			collection: FACEBOOK_JOB_COLLECTION,
 			context: 'facebook-analytics:published',
@@ -86,13 +92,14 @@ export async function getFacebookPublishingAnalytics(req) {
 		}),
 	]);
 
+	const published = Array.isArray(publishedRows) ? publishedRows : [];
 	const summary = buildFacebookAnalyticsSummary(published, {
-		failed: failedCount.totalItems,
-		scheduled: scheduledCount.totalItems,
+		failed: Number(failedCount?.totalItems) || 0,
+		scheduled: Number(scheduledCount?.totalItems) || 0,
 	});
 
 	return {
 		summary,
-		items: published.map((item) => mapFacebookAnalyticsJobItem(item, item.expand?.ai_pin || null)),
+		items: published.map((item) => mapFacebookAnalyticsJobItem(item, item?.expand?.ai_pin || null)),
 	};
 }

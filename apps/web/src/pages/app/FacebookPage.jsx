@@ -59,6 +59,7 @@ export default function FacebookPage() {
 	const [selectedAccountId, setSelectedAccountId] = useState('');
 	const [jobs, setJobs] = useState([]);
 	const [analytics, setAnalytics] = useState(null);
+	const [analyticsLoading, setAnalyticsLoading] = useState(false);
 	const [selectedJobId, setSelectedJobId] = useState('');
 	const [jobActionId, setJobActionId] = useState('');
 
@@ -170,16 +171,28 @@ export default function FacebookPage() {
 	const loadAnalytics = useCallback(async () => {
 		if (!capabilities.analytics) {
 			setAnalytics(null);
+			setAnalyticsLoading(false);
 			return;
 		}
+		setAnalyticsLoading(true);
 		try {
 			const response = await apiServerClient.fetch('/facebook/analytics', { method: 'GET' });
 			const payload = await response.json().catch(() => ({}));
-			setAnalytics(response.ok ? payload : null);
-		} catch {
+			if (!response.ok) {
+				throw new Error(payload?.message || `Failed to load analytics (${response.status})`);
+			}
+			setAnalytics(payload);
+		} catch (error) {
 			setAnalytics(null);
+			toast({
+				variant: 'destructive',
+				title: 'Failed to load analytics',
+				description: error.message,
+			});
+		} finally {
+			setAnalyticsLoading(false);
 		}
-	}, [capabilities.analytics]);
+	}, [capabilities.analytics, toast]);
 
 	const runJobAction = async (action, jobId) => {
 		const targetId = jobId || selectedJob?.id;
@@ -646,6 +659,12 @@ export default function FacebookPage() {
 					)}
 				</div>
 			) : tab === 'analytics' ? (
+				analyticsLoading ? (
+					<div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+						<Loader2 size={18} className="animate-spin" />
+						Loading analytics…
+					</div>
+				) : (
 				<div className="space-y-3">
 					<div className="pin-analytics">
 						<div className="pin-analytics__card"><p className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Published Posts</p><p className="pin-analytics__value">{liveAnalytics.publishedPosts}</p></div>
@@ -661,6 +680,7 @@ export default function FacebookPage() {
 						<p className="mt-2 text-sm text-muted-foreground">{liveAnalytics.activity}</p>
 					</div>
 				</div>
+				)
 			) : null}
 		</div>
 	);

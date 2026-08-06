@@ -5,6 +5,10 @@
 
 import { buildFacebookPublishingHistoryQuery } from './history-query.js';
 import { listPublishingHistory } from '../publishing-history/list.js';
+import {
+	emptyFacebookPublishingHistoryResponse,
+	hasFacebookWorkspaceReadScope,
+} from './read-path.js';
 
 export { buildFacebookPublishingHistoryQuery } from './history-query.js';
 
@@ -15,5 +19,8 @@ export { buildFacebookPublishingHistoryQuery } from './history-query.js';
  * @param {Record<string, unknown>} [query]
  */
 export async function listFacebookPublishingHistory(req, query = {}) {
+	if (!hasFacebookWorkspaceReadScope(req)) {
+		return emptyFacebookPublishingHistoryResponse(query);
+	}
 	return listPublishingHistory(req, buildFacebookPublishingHistoryQuery(query));
 }
