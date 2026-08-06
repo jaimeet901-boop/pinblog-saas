@@ -38,7 +38,7 @@ describe('facebook F7-4 insights sync worker', () => {
 		assert.doesNotMatch(graph, /insights/);
 	});
 
-	it('registers analytics route and enabled insights capability in F7-6', () => {
+	it('regression: insights capability and analytics route are registered', () => {
 		const route = readFileSync(path.join(root, 'apps/api/src/routes/facebook.js'), 'utf8');
 		const channelPack = readFileSync(
 			path.join(root, 'apps/api/src/services/facebook/channel-pack.js'),

@@ -40,7 +40,7 @@ describe('facebook F7-3 publishing history API', () => {
 		assert.match(list, /normalizeFacebookPublishJob/);
 	});
 
-	it('exposes channel analytics route in F7-6 while keeping publishing history API', () => {
+	it('regression: analytics route coexists with publishing history API', () => {
 		const route = readFileSync(path.join(root, 'apps/api/src/routes/facebook.js'), 'utf8');
 		const channelPack = readFileSync(
 			path.join(root, 'apps/api/src/services/facebook/channel-pack.js'),

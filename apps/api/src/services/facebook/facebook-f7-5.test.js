@@ -8,7 +8,7 @@ import { FACEBOOK_CHANNEL_CAPABILITIES } from './channel-pack.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
 describe('facebook F7-5 publishing history studio integration', () => {
-	it('enables publishingHistory and analytics capabilities in F7-6', () => {
+	it('enables publishingHistory capability for studio integration', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.analytics, true);

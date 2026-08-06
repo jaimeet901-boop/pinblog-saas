@@ -11,7 +11,7 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
 describe('facebook F5-6 studio & capability integration', () => {
-	it('enables schedule and publishing history while keeping insights disabled', () => {
+	it('enables schedule, publish, queue, and publishing history capabilities', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.schedule, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishNow, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.queueImplemented, true);

@@ -11,7 +11,7 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
 describe('facebook F6-5 studio routes & asset capabilities', () => {
-	it('enables studio asset capability flags and publishing history in F7-5', () => {
+	it('enables studio asset capability flags', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.studioPromptPack, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.studioTemplatePack, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.studioExportProfiles, true);

@@ -10,7 +10,7 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
 describe('facebook F7-2 publishing history normalizer', () => {
-	it('keeps analytics capability enabled after F7-6 while preserving publishing history normalizer wiring', () => {
+	it('verifies channel capabilities alongside publishing history normalizer wiring', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.analytics, true);
