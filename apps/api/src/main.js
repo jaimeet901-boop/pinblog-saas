@@ -13,6 +13,7 @@ import { startFacebookPublishQueue, stopFacebookPublishQueue } from './services/
 import { validateServerEnv } from './utils/env.js';
 import { startAIPinImageQueue, stopAIPinImageQueue } from './services/ai-pin-image-queue.js';
 import { startPinterestAnalyticsSync, stopPinterestAnalyticsSync } from './services/pinterest-analytics-sync.js';
+import { startFacebookAnalyticsSync, stopFacebookAnalyticsSync } from './services/facebook/facebook-analytics-sync.js';
 import { startWordpressPublishQueue, stopWordpressPublishQueue } from './services/wordpress-publish-queue.js';
 import { startWordpressSyncScheduler, stopWordpressSyncScheduler } from './services/wordpress-sync-scheduler.js';
 import { startQueueEngine, stopQueueEngine } from './services/queue/engine.js';
@@ -82,6 +83,7 @@ process.on('SIGINT', async () => {
 	stopPinterestPublishQueue();
 	stopFacebookPublishQueue();
 	stopPinterestAnalyticsSync();
+	stopFacebookAnalyticsSync();
 	stopAIPinImageQueue();
 	stopWordpressPublishQueue();
 	stopWordpressSyncScheduler();
@@ -98,6 +100,7 @@ process.on('SIGTERM', async () => {
 	stopPinterestPublishQueue();
 	stopFacebookPublishQueue();
 	stopPinterestAnalyticsSync();
+	stopFacebookAnalyticsSync();
 	stopAIPinImageQueue();
 	stopWordpressPublishQueue();
 	stopWordpressSyncScheduler();
@@ -165,6 +168,7 @@ app.listen(port, () => {
 	startPinterestPublishQueue();
 	startFacebookPublishQueue();
 	startPinterestAnalyticsSync();
+	startFacebookAnalyticsSync();
 	startAIPinImageQueue();
 	startWordpressPublishQueue();
 	startWordpressSyncScheduler();
