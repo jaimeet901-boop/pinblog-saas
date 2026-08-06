@@ -9,6 +9,7 @@ import { globalRateLimit } from './middleware/global-rate-limit.js';
 import logger from './utils/logger.js';
 import { BodyLimit } from './constants/common.js';
 import { startPinterestPublishQueue, stopPinterestPublishQueue } from './services/pinterest-publish-queue.js';
+import { startFacebookPublishQueue, stopFacebookPublishQueue } from './services/facebook/facebook-publish-queue.js';
 import { validateServerEnv } from './utils/env.js';
 import { startAIPinImageQueue, stopAIPinImageQueue } from './services/ai-pin-image-queue.js';
 import { startPinterestAnalyticsSync, stopPinterestAnalyticsSync } from './services/pinterest-analytics-sync.js';
@@ -79,6 +80,7 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('SIGINT', async () => {
 	logger.info('Interrupted');
 	stopPinterestPublishQueue();
+	stopFacebookPublishQueue();
 	stopPinterestAnalyticsSync();
 	stopAIPinImageQueue();
 	stopWordpressPublishQueue();
@@ -94,6 +96,7 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
 	logger.info('SIGTERM signal received');
 	stopPinterestPublishQueue();
+	stopFacebookPublishQueue();
 	stopPinterestAnalyticsSync();
 	stopAIPinImageQueue();
 	stopWordpressPublishQueue();
@@ -160,6 +163,7 @@ app.listen(port, () => {
 		logger.warn('Official pin templates seed skipped:', error?.message || error);
 	});
 	startPinterestPublishQueue();
+	startFacebookPublishQueue();
 	startPinterestAnalyticsSync();
 	startAIPinImageQueue();
 	startWordpressPublishQueue();
