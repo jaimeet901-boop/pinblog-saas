@@ -96,7 +96,7 @@ export const AI_FACEBOOK_PAGES_PRODUCT = {
 		studio: '/app/ai-facebook-pages',
 		history: '/app/ai-facebook-pages/history',
 		connect: '/app/facebook',
-		publishingHistory: '/app/pinterest-history',
+		publishingHistory: '/app/facebook-history',
 		templates: '/app/ai-facebook-pages/templates',
 		brandKit: '/app/ai-facebook-pages/brand-kit',
 	},

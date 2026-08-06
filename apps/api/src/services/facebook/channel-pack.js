@@ -48,8 +48,8 @@ export const FACEBOOK_CHANNEL_CAPABILITIES = Object.freeze({
 	schedule: true,
 	calendarProject: true,
 	calendarMutate: true,
-	insights: false, // F7
-	publishingHistory: false, // F7
+	insights: false, // F7-6+
+	publishingHistory: true, // F7-5
 	studioPromptPack: true,
 	studioTemplatePack: true,
 	studioExportProfiles: true,

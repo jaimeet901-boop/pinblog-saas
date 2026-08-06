@@ -11,11 +11,11 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
 describe('facebook F5-6 studio & capability integration', () => {
-	it('enables schedule while keeping history and insights disabled', () => {
+	it('enables schedule and publishing history while keeping insights disabled', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.schedule, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishNow, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.queueImplemented, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
 
 		const dto = getFacebookChannelPackDto();
@@ -69,7 +69,7 @@ describe('facebook F5-6 studio & capability integration', () => {
 		);
 
 		assert.match(caps, /schedule:\s*true/);
-		assert.match(caps, /publishingHistory:\s*false/);
+		assert.match(caps, /publishingHistory:\s*true/);
 		assert.match(studio, /destinationCaps\.schedule/);
 		assert.match(studio, /destinationCaps\.publishNow/);
 		assert.match(hub, /FACEBOOK_CHANNEL_CAPABILITIES/);

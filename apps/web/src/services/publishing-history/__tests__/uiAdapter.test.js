@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
 	PINTEREST_HISTORY_DEFAULT_STATUSES,
+	PUBLISHING_HISTORY_DEFAULT_STATUSES,
 	adaptPublishingHistoryResponse,
 	buildPublishingHistoryFetchQuery,
+	toFacebookPublishingHistoryUiRow,
 	toPublishingHistoryUiRow,
 } from '../uiAdapter.js';
+import {
+	externalPostUrl,
+	getPublishingHistoryViewConfig,
+} from '../viewConfig.js';
+import { AI_FACEBOOK_PAGES_PRODUCT, AI_PINS_PRODUCT } from '@/lib/studio/products';
 
 function sampleNormalizedItem(overrides = {}) {
 	return {
@@ -164,5 +171,129 @@ describe('buildPublishingHistoryFetchQuery', () => {
 		const q = buildPublishingHistoryFetchQuery({ statusFilter: '' });
 		expect(q.get('status')).toBeNull();
 		expect(q.get('channel')).toBe('pinterest');
+	});
+});
+
+function sampleFacebookNormalizedItem(overrides = {}) {
+	return {
+		id: 'facebook:job_fb_1',
+		channel: 'facebook',
+		jobId: 'job_fb_1',
+		status: 'published',
+		nativeStatus: 'published',
+		title: 'Summer promo',
+		description: 'Check out our latest offer',
+		imageUrl: 'https://cdn.example/post.jpg',
+		contentId: 'pin_fb_1',
+		websiteId: 'ws_1',
+		destination: {
+			kind: 'page',
+			accountId: 'acct_fb_1',
+			accountLabel: 'Chef Kitchen FB',
+			targetId: 'page_123',
+			targetLabel: 'Chef Kitchen Page',
+			externalId: '123456789_987654321',
+			externalUrl: 'https://facebook.com/123456789/posts/987654321',
+		},
+		publishedAt: '2026-07-01T12:00:00.000Z',
+		createdAt: '2026-06-30T10:00:00.000Z',
+		updatedAt: '2026-07-01T12:05:00.000Z',
+		attemptCount: 1,
+		maxAttempts: 3,
+		channelPayload: {
+			pageId: 'page_123',
+			pageName: 'Chef Kitchen Page',
+			facebookPostId: '123456789_987654321',
+			facebookPostUrl: 'https://facebook.com/123456789/posts/987654321',
+			message: 'Summer promo',
+			performance: {
+				impressions: 100,
+				engagedUsers: 12,
+				clicks: 3,
+				reactions: 5,
+			},
+			post: {
+				id: 'pin_fb_1',
+				title: 'Summer promo',
+				description: 'Check out our latest offer',
+				imageUrl: 'https://cdn.example/post.jpg',
+				status: 'ready',
+			},
+		},
+		...overrides,
+	};
+}
+
+describe('toFacebookPublishingHistoryUiRow', () => {
+	it('maps normalized facebook item into shared UI row shape', () => {
+		const row = toFacebookPublishingHistoryUiRow(sampleFacebookNormalizedItem());
+		expect(row.id).toBe('job_fb_1');
+		expect(row.pageId).toBe('page_123');
+		expect(row.pageName).toBe('Chef Kitchen Page');
+		expect(row.boardId).toBe('page_123');
+		expect(row.boardName).toBe('Chef Kitchen Page');
+		expect(row.facebookPostId).toBe('123456789_987654321');
+		expect(row.facebookPostUrl).toBe('https://facebook.com/123456789/posts/987654321');
+		expect(row.externalPostUrl).toBe('https://facebook.com/123456789/posts/987654321');
+		expect(row.performance.impressions).toBe(100);
+	});
+
+	it('routes facebook channel through toPublishingHistoryUiRow', () => {
+		const row = toPublishingHistoryUiRow(sampleFacebookNormalizedItem(), { channel: 'facebook' });
+		expect(row.facebookPostUrl).toBe('https://facebook.com/123456789/posts/987654321');
+	});
+});
+
+describe('adaptPublishingHistoryResponse facebook', () => {
+	it('adapts facebook channel items with default status filter', () => {
+		const adapted = adaptPublishingHistoryResponse({
+			items: [
+				sampleFacebookNormalizedItem(),
+				sampleFacebookNormalizedItem({ jobId: 'job_retry', id: 'facebook:job_retry', status: 'retrying' }),
+			],
+			meta: { page: 1, perPage: 100, totalItems: 2, totalPages: 1 },
+		}, { channel: 'facebook', applyDefaultStatusFilter: true });
+
+		expect(adapted.items).toHaveLength(1);
+		expect(adapted.items[0].id).toBe('job_fb_1');
+	});
+});
+
+describe('buildPublishingHistoryFetchQuery facebook', () => {
+	it('targets unified history with facebook channel', () => {
+		const q = buildPublishingHistoryFetchQuery({ channel: 'facebook', statusFilter: 'failed' });
+		expect(q.get('channel')).toBe('facebook');
+		expect(q.get('status')).toBe('failed');
+	});
+});
+
+describe('getPublishingHistoryViewConfig', () => {
+	it('builds pinterest defaults from AI Pins product', () => {
+		const view = getPublishingHistoryViewConfig(AI_PINS_PRODUCT);
+		expect(view.channel).toBe('pinterest');
+		expect(view.jobBase).toBe('/pinterest/jobs');
+		expect(view.hubRoute).toBe('/app/pinterest');
+	});
+
+	it('builds facebook view config from AI Facebook Pages product', () => {
+		const view = getPublishingHistoryViewConfig(AI_FACEBOOK_PAGES_PRODUCT);
+		expect(view.channel).toBe('facebook');
+		expect(view.jobBase).toBe('/facebook/jobs');
+		expect(view.hubRoute).toBe('/app/facebook');
+		expect(view.studioRoute).toBe('/app/ai-facebook-pages');
+	});
+});
+
+describe('externalPostUrl', () => {
+	it('prefers externalPostUrl then channel-specific fallbacks', () => {
+		expect(externalPostUrl({ externalPostUrl: 'https://example.com/a' })).toBe('https://example.com/a');
+		expect(externalPostUrl({ facebookPostUrl: 'https://facebook.com/post/1' })).toBe('https://facebook.com/post/1');
+		expect(externalPostUrl({ pinterestPinUrl: 'https://pinterest.com/pin/1' })).toBe('https://pinterest.com/pin/1');
+	});
+});
+
+describe('PUBLISHING_HISTORY_DEFAULT_STATUSES alias', () => {
+	it('keeps pinterest alias aligned with shared default statuses', () => {
+		expect(PINTEREST_HISTORY_DEFAULT_STATUSES).toEqual(PUBLISHING_HISTORY_DEFAULT_STATUSES);
 	});
 });

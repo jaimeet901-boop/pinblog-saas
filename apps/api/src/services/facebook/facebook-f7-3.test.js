@@ -40,7 +40,7 @@ describe('facebook F7-3 publishing history API', () => {
 		assert.match(list, /normalizeFacebookPublishJob/);
 	});
 
-	it('does not expose analytics or flip capability flags in F7-3', () => {
+	it('does not expose analytics or flip insights capability flags in F7-3', () => {
 		const route = readFileSync(path.join(root, 'apps/api/src/routes/facebook.js'), 'utf8');
 		const channelPack = readFileSync(
 			path.join(root, 'apps/api/src/services/facebook/channel-pack.js'),
@@ -48,9 +48,8 @@ describe('facebook F7-3 publishing history API', () => {
 		);
 
 		assert.doesNotMatch(route, /router\.get\(['"]\/analytics['"]/);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
-		assert.match(channelPack, /publishingHistory:\s*false/);
 		assert.match(channelPack, /insights:\s*false/);
 	});
 

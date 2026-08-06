@@ -22,9 +22,10 @@ describe('facebook F6-5 product routes', () => {
 		});
 	});
 
-	it('routes Facebook Studio sub-pages under ai-facebook-pages', () => {
+	it('routes Facebook publishing history under ai-facebook-pages product', () => {
 		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.studio).toBe('/app/ai-facebook-pages');
 		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.history).toBe('/app/ai-facebook-pages/history');
+		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.publishingHistory).toBe('/app/facebook-history');
 		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.templates).toBe('/app/ai-facebook-pages/templates');
 		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.brandKit).toBe('/app/ai-facebook-pages/brand-kit');
 		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.connect).toBe('/app/facebook');
@@ -38,11 +39,35 @@ describe('facebook F6-5 product routes', () => {
 });
 
 describe('facebook F6-5 studio asset capabilities', () => {
-	it('enables studio asset flags with publishing history disabled', () => {
+	it('enables studio asset flags with publishing history enabled in F7-5', () => {
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioPromptPack).toBe(true);
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioTemplatePack).toBe(true);
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioExportProfiles).toBe(true);
-		expect(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory).toBe(false);
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory).toBe(true);
+	});
+});
+
+describe('facebook F7-5 publishing history routes', () => {
+	it('registers facebook publishing history wrapper route', () => {
+		const app = readFileSync(path.join(webRoot, 'src/App.jsx'), 'utf8');
+		const wrapper = readFileSync(
+			path.join(webRoot, 'src/pages/app/AIFacebookPagesPublishingHistoryPage.jsx'),
+			'utf8',
+		);
+
+		expect(app).toMatch(/\/app\/facebook-history/);
+		expect(app).toMatch(/AIFacebookPagesPublishingHistoryPage/);
+		expect(wrapper).toMatch(/PublishingHistoryPage/);
+		expect(wrapper).toMatch(/AI_FACEBOOK_PAGES_PRODUCT/);
+	});
+
+	it('preserves website query on facebook publishing history route', () => {
+		const layout = readFileSync(
+			path.join(webRoot, 'src/components/AppLayout.jsx'),
+			'utf8',
+		);
+
+		expect(layout).toMatch(/\/app\/facebook-history/);
 	});
 });
 

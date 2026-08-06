@@ -11,18 +11,18 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
 describe('facebook F6-5 studio routes & asset capabilities', () => {
-	it('enables studio asset capability flags while keeping publishing history disabled', () => {
+	it('enables studio asset capability flags and publishing history in F7-5', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.studioPromptPack, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.studioTemplatePack, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.studioExportProfiles, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
 
 		const dto = getFacebookChannelPackDto();
 		assert.equal(dto.channelCapabilities.studioPromptPack, true);
 		assert.equal(dto.channelCapabilities.studioTemplatePack, true);
 		assert.equal(dto.channelCapabilities.studioExportProfiles, true);
-		assert.equal(dto.channelCapabilities.publishingHistory, false);
+		assert.equal(dto.channelCapabilities.publishingHistory, true);
 	});
 
 	it('wires Facebook product routes to ai-facebook-pages paths', () => {
@@ -57,7 +57,7 @@ describe('facebook F6-5 studio routes & asset capabilities', () => {
 		assert.match(caps, /studioPromptPack:\s*true/);
 		assert.match(caps, /studioTemplatePack:\s*true/);
 		assert.match(caps, /studioExportProfiles:\s*true/);
-		assert.match(caps, /publishingHistory:\s*false/);
+		assert.match(caps, /publishingHistory:\s*true/);
 	});
 
 	it('gates publishing history UI on destination capability', () => {

@@ -90,11 +90,11 @@ function createMinimalDeps(overrides = {}) {
 }
 
 describe('facebook F4-6 production integration', () => {
-	it('enables publishNow, queueImplemented, and schedule without history/insights', () => {
+	it('enables publishNow, queueImplemented, schedule, and publishing history with insights still off', () => {
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishNow, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.queueImplemented, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.schedule, true);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
 
 		const dto = getFacebookChannelPackDto();

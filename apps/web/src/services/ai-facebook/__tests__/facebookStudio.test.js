@@ -30,11 +30,11 @@ function mockJsonResponse(status, body) {
 }
 
 describe('facebook F5-6 channel capabilities', () => {
-	it('enables schedule and publishNow while keeping history disabled', () => {
+	it('enables schedule, publishNow, and publishing history', () => {
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.schedule).toBe(true);
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.publishNow).toBe(true);
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.queueImplemented).toBe(true);
-		expect(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory).toBe(false);
+		expect(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory).toBe(true);
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.insights).toBe(false);
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioPromptPack).toBe(true);
 		expect(FACEBOOK_CHANNEL_CAPABILITIES.studioTemplatePack).toBe(true);

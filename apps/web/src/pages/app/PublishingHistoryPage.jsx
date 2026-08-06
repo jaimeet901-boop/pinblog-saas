@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
 	RefreshCw, Search, Download, ExternalLink, Copy, Eye, XCircle,
-	Send, Pin, History, Loader2,
+	Send, History, Loader2,
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Select, Spinner } from '@/components/kit';
@@ -13,7 +13,10 @@ import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import {
 	adaptPublishingHistoryResponse,
 	buildPublishingHistoryFetchQuery,
+	externalPostUrl,
+	getPublishingHistoryViewConfig,
 } from '@/services/publishing-history';
+import { AI_PINS_PRODUCT } from '@/lib/studio/products';
 import './PublishingHistoryPage.css';
 
 const QUICK_FILTERS = [
@@ -89,7 +92,9 @@ function toCsv(rows) {
 	return `${lines.join('\n')}\n`;
 }
 
-export default function PublishingHistoryPage() {
+export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
+	const view = useMemo(() => getPublishingHistoryViewConfig(product), [product]);
+	const { PreviewIcon, HubIcon } = view;
 	const { toast } = useToast();
 	const { platformName } = usePlatformIdentity();
 	const searchRef = useRef(null);
@@ -124,7 +129,7 @@ export default function PublishingHistoryPage() {
 				page: 1,
 				perPage: 100,
 				statusFilter,
-				channel: 'pinterest',
+				channel: view.channel,
 			});
 			const response = await apiServerClient.fetch(`/publishing/history?${query.toString()}`, { method: 'GET' });
 			const payload = await response.json().catch(() => ({}));
@@ -132,7 +137,8 @@ export default function PublishingHistoryPage() {
 				throw new Error(payload?.message || `Failed to load publishing history (${response.status})`);
 			}
 			const adapted = adaptPublishingHistoryResponse(payload, {
-				// When no status chip is selected, match legacy /pinterest/history default status set.
+				channel: view.channel,
+				// When no status chip is selected, match legacy channel history default status set.
 				applyDefaultStatusFilter: !String(statusFilter || '').trim(),
 			});
 			const next = Array.isArray(adapted.items) ? adapted.items : [];
@@ -152,12 +158,12 @@ export default function PublishingHistoryPage() {
 	const retryFailed = async (jobId) => {
 		setRetryingId(jobId);
 		try {
-			const response = await apiServerClient.fetch(`/pinterest/jobs/${jobId}/retry`, { method: 'POST' });
+			const response = await apiServerClient.fetch(`${view.jobBase}/${jobId}/retry`, { method: 'POST' });
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to retry job (${response.status})`);
 			}
-			toast({ title: 'Retry queued', description: 'Failed pin was moved back to publishing queue.' });
+			toast({ title: 'Retry queued', description: `Failed ${view.itemSingular.toLowerCase()} was moved back to publishing queue.` });
 			await load();
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Retry failed', description: error.message });
@@ -169,12 +175,12 @@ export default function PublishingHistoryPage() {
 	const cancelScheduled = async (jobId) => {
 		setCancellingId(jobId);
 		try {
-			const response = await apiServerClient.fetch(`/pinterest/jobs/${jobId}/cancel`, { method: 'POST' });
+			const response = await apiServerClient.fetch(`${view.jobBase}/${jobId}/cancel`, { method: 'POST' });
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to cancel schedule (${response.status})`);
 			}
-			toast({ title: 'Schedule cancelled', description: 'Scheduled pin was moved back to draft.' });
+			toast({ title: 'Schedule cancelled', description: `Scheduled ${view.itemSingular.toLowerCase()} was moved back to draft.` });
 			await load();
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Cancel failed', description: error.message });
@@ -186,7 +192,7 @@ export default function PublishingHistoryPage() {
 	const publishNow = async (jobId) => {
 		setPublishingNowId(jobId);
 		try {
-			const response = await apiServerClient.fetch(`/pinterest/jobs/${jobId}/publish-now`, { method: 'POST' });
+			const response = await apiServerClient.fetch(`${view.jobBase}/${jobId}/publish-now`, { method: 'POST' });
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(payload?.message || `Failed to publish now (${response.status})`);
@@ -271,6 +277,7 @@ export default function PublishingHistoryPage() {
 				item.websiteId,
 				item.status,
 				item.pinterestPinUrl,
+				externalPostUrl(item),
 				item.lastError,
 			].join(' ').toLowerCase();
 			return haystack.includes(query);
@@ -361,7 +368,7 @@ export default function PublishingHistoryPage() {
 	};
 
 	const copyLink = async (item) => {
-		const url = item?.pinterestPinUrl;
+		const url = externalPostUrl(item);
 		if (!url) return;
 		try {
 			await navigator.clipboard.writeText(url);
@@ -413,8 +420,8 @@ export default function PublishingHistoryPage() {
 		const canRetry = item.status === 'failed';
 		const canCancel = item.status === 'scheduled';
 		const canPublishNow = item.status === 'scheduled' || item.status === 'failed';
-		const canCopy = Boolean(item.pinterestPinUrl);
-		const canOpenPin = Boolean(item.pinterestPinUrl);
+		const canCopy = Boolean(externalPostUrl(item));
+		const canOpenPost = Boolean(externalPostUrl(item));
 		const canOpenArticle = Boolean(item.pin?.destinationUrl || item.destinationUrl);
 		const articleUrl = item.pin?.destinationUrl || item.destinationUrl || '';
 
@@ -460,12 +467,12 @@ export default function PublishingHistoryPage() {
 				) : (
 					<Button size="sm" variant="ghost" disabled><ExternalLink size={13} /> {!compact ? 'Article' : null}</Button>
 				)}
-				{canOpenPin ? (
-					<a href={item.pinterestPinUrl} target="_blank" rel="noreferrer">
-						<Button size="sm" variant="ghost"><Pin size={13} /> {!compact ? 'Pin' : null}</Button>
+				{canOpenPost ? (
+					<a href={externalPostUrl(item)} target="_blank" rel="noreferrer">
+						<Button size="sm" variant="ghost"><PreviewIcon size={13} /> {!compact ? view.externalLinkLabel : null}</Button>
 					</a>
 				) : (
-					<Button size="sm" variant="ghost" disabled><Pin size={13} /> {!compact ? 'Pin' : null}</Button>
+					<Button size="sm" variant="ghost" disabled><PreviewIcon size={13} /> {!compact ? view.externalLinkLabel : null}</Button>
 				)}
 			</div>
 		);
@@ -478,10 +485,10 @@ export default function PublishingHistoryPage() {
 					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
 					<h1 className="font-display text-3xl font-semibold tracking-tight">Publishing Center</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-						Track published, scheduled, and failed pins — retry or cancel without leaving the atelier.
+						{view.subtitle}
 					</p>
 				</div>
-				<Link to={withWebsiteQuery('/app/pinterest', preferredWebsiteId)}><Button variant="outline" size="sm"><Pin size={14} /> Pinterest Hub</Button></Link>
+				<Link to={withWebsiteQuery(view.hubRoute, preferredWebsiteId)}><Button variant="outline" size="sm"><HubIcon size={14} /> {view.hubButtonLabel}</Button></Link>
 			</div>
 
 			<div className="pub-center__actions">
@@ -539,8 +546,8 @@ export default function PublishingHistoryPage() {
 							<option key={value} value={value}>{label}</option>
 						))}
 					</Select>
-					<Select label="Board" value={boardFilter} onChange={(e) => setBoardFilter(e.target.value)}>
-						<option value="">All boards</option>
+					<Select label={view.destinationFilterLabel} value={boardFilter} onChange={(e) => setBoardFilter(e.target.value)}>
+						<option value="">All {view.destinationPlural}</option>
 						{boardOptions.map(([value, label]) => (
 							<option key={value} value={value}>{label}</option>
 						))}
@@ -564,7 +571,7 @@ export default function PublishingHistoryPage() {
 					<p className="pub-stat__value">{stats.publishedWeek}</p>
 				</div>
 				<div className="pub-stat">
-					<p className="pub-stat__label">Scheduled Pins</p>
+					<p className="pub-stat__label">{view.scheduledStatLabel}</p>
 					<p className="pub-stat__value">{stats.scheduled}</p>
 				</div>
 				<div className="pub-stat">
@@ -619,13 +626,13 @@ export default function PublishingHistoryPage() {
 							</div>
 							<p className="font-display text-xl font-semibold">No publishing records yet</p>
 							<p className="mt-2 max-w-md text-sm text-muted-foreground">
-								This history shows pins you publish or schedule. Create AI Pins for your website, publish them, then return here to track results.
+								{view.emptyDescription}
 							</p>
 							<Link
-								to={preferredWebsiteId ? `/app/ai-pins?websiteId=${encodeURIComponent(preferredWebsiteId)}` : '/app/ai-pins'}
+								to={preferredWebsiteId ? `${view.studioRoute}?websiteId=${encodeURIComponent(preferredWebsiteId)}` : view.studioRoute}
 								className="mt-5"
 							>
-								<Button size="sm"><Pin size={14} /> Create AI Pins</Button>
+								<Button size="sm"><PreviewIcon size={14} /> {view.emptyCtaLabel}</Button>
 							</Link>
 						</div>
 					) : null}
@@ -639,7 +646,7 @@ export default function PublishingHistoryPage() {
 											<th>Preview</th>
 											<th>Article</th>
 											<th>Account</th>
-											<th>Board</th>
+											<th>{view.destinationFilterLabel}</th>
 											<th>Website</th>
 											<th>Publish Date</th>
 											<th>Status</th>
@@ -657,11 +664,11 @@ export default function PublishingHistoryPage() {
 													{item.pin?.imageUrl ? (
 														<img className="pub-thumb" src={item.pin.imageUrl} alt="" loading="lazy" decoding="async" />
 													) : (
-														<span className="pub-thumb-fallback"><Pin size={14} /></span>
+														<span className="pub-thumb-fallback"><PreviewIcon size={14} /></span>
 													)}
 												</td>
 												<td>
-													<p className="max-w-[12rem] truncate font-medium">{item.pin?.title || 'Untitled pin'}</p>
+													<p className="max-w-[12rem] truncate font-medium">{item.pin?.title || view.untitledFallback}</p>
 												</td>
 												<td><span className="max-w-[8rem] truncate block">{accountLabel(item)}</span></td>
 												<td><span className="max-w-[8rem] truncate block">{boardLabel(item)}</span></td>
@@ -689,10 +696,10 @@ export default function PublishingHistoryPage() {
 											{item.pin?.imageUrl ? (
 												<img className="pub-thumb" src={item.pin.imageUrl} alt="" loading="lazy" decoding="async" />
 											) : (
-												<span className="pub-thumb-fallback"><Pin size={14} /></span>
+												<span className="pub-thumb-fallback"><PreviewIcon size={14} /></span>
 											)}
 											<div className="min-w-0 flex-1 text-left">
-												<p className="truncate text-sm font-semibold">{item.pin?.title || 'Untitled pin'}</p>
+												<p className="truncate text-sm font-semibold">{item.pin?.title || view.untitledFallback}</p>
 												<p className="mt-0.5 truncate text-xs text-muted-foreground">{boardLabel(item)} · {accountLabel(item)}</p>
 												<div className="mt-2"><Badge tone={statusTone(item.status)}>{formatStatus(item.status)}</Badge></div>
 											</div>
@@ -723,21 +730,21 @@ export default function PublishingHistoryPage() {
 						<>
 							<div className="pub-preview">
 								{selected.pin?.imageUrl ? (
-									<img src={selected.pin.imageUrl} alt={selected.pin?.title || 'Pin preview'} loading="lazy" decoding="async" />
+									<img src={selected.pin.imageUrl} alt={selected.pin?.title || `${view.itemSingular} preview`} loading="lazy" decoding="async" />
 								) : (
-									<div className="pub-preview__empty"><Pin size={28} /></div>
+									<div className="pub-preview__empty"><PreviewIcon size={28} /></div>
 								)}
 							</div>
 
 							<div>
-								<p className="font-display text-lg font-semibold leading-snug">{selected.pin?.title || 'Untitled pin'}</p>
+								<p className="font-display text-lg font-semibold leading-snug">{selected.pin?.title || view.untitledFallback}</p>
 								<div className="mt-2"><Badge tone={statusTone(selected.status)}>{formatStatus(selected.status)}</Badge></div>
 							</div>
 
 							<div className="pub-meta">
 								<div className="pub-meta__row"><span>Website</span><span>{selected.websiteId || '—'}</span></div>
-								<div className="pub-meta__row"><span>Pinterest account</span><span>{accountLabel(selected)}</span></div>
-								<div className="pub-meta__row"><span>Board</span><span>{boardLabel(selected)}</span></div>
+								<div className="pub-meta__row"><span>{view.accountMetaLabel}</span><span>{accountLabel(selected)}</span></div>
+								<div className="pub-meta__row"><span>{view.destinationFilterLabel}</span><span>{boardLabel(selected)}</span></div>
 								<div className="pub-meta__row">
 									<span>Publish time</span>
 									<span>{selected.publishedAt ? new Date(selected.publishedAt).toLocaleString() : (selected.scheduledAt ? new Date(selected.scheduledAt).toLocaleString() : '—')}</span>
@@ -749,7 +756,7 @@ export default function PublishingHistoryPage() {
 								<div className="pub-meta__row"><span>Attempts</span><span>{selected.attemptCount || 0}/{selected.maxAttempts || 3}</span></div>
 								<div className="pub-meta__row">
 									<span>Destination URL</span>
-									<span className="truncate max-w-[9rem]">{selected.pinterestPinUrl || '—'}</span>
+									<span className="truncate max-w-[9rem]">{externalPostUrl(selected) || '—'}</span>
 								</div>
 							</div>
 
@@ -761,7 +768,7 @@ export default function PublishingHistoryPage() {
 							<div>
 								<p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Publishing log</p>
 								<div className="pub-box">
-									{`status: ${selected.status}\nupdated: ${selected.updatedAt || '—'}\nnextRetry: ${selected.nextRetryAt || '—'}\npinterestPinId: ${selected.pinterestPinId || '—'}`}
+									{`status: ${selected.status}\nupdated: ${selected.updatedAt || '—'}\nnextRetry: ${selected.nextRetryAt || '—'}\nexternalPostId: ${selected.pinterestPinId || selected.facebookPostId || '—'}`}
 								</div>
 							</div>
 
@@ -791,12 +798,12 @@ export default function PublishingHistoryPage() {
 										Cancel schedule
 									</Button>
 								) : null}
-								{selected.pinterestPinUrl ? (
-									<a href={selected.pinterestPinUrl} target="_blank" rel="noreferrer">
-										<Button size="sm" variant="outline" className="w-full"><ExternalLink size={14} /> Open Pinterest Pin</Button>
+								{externalPostUrl(selected) ? (
+									<a href={externalPostUrl(selected)} target="_blank" rel="noreferrer">
+										<Button size="sm" variant="outline" className="w-full"><ExternalLink size={14} /> {view.openExternalLabel}</Button>
 									</a>
 								) : null}
-								<Button size="sm" variant="ghost" disabled={!selected.pinterestPinUrl} onClick={() => copyLink(selected)}>
+								<Button size="sm" variant="ghost" disabled={!externalPostUrl(selected)} onClick={() => copyLink(selected)}>
 									<Copy size={14} /> Copy Link
 								</Button>
 							</div>

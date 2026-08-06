@@ -38,7 +38,7 @@ describe('facebook F7-4 insights sync worker', () => {
 		assert.doesNotMatch(graph, /insights/);
 	});
 
-	it('does not expose analytics routes or flip capability flags in F7-4', () => {
+	it('does not expose analytics routes or flip insights capability flags in F7-4', () => {
 		const route = readFileSync(path.join(root, 'apps/api/src/routes/facebook.js'), 'utf8');
 		const channelPack = readFileSync(
 			path.join(root, 'apps/api/src/services/facebook/channel-pack.js'),
@@ -47,9 +47,9 @@ describe('facebook F7-4 insights sync worker', () => {
 
 		assert.doesNotMatch(route, /router\.get\(['"]\/analytics['"]/);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, false);
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
 		assert.match(channelPack, /insights:\s*false/);
-		assert.match(channelPack, /publishingHistory:\s*false/);
+		assert.match(channelPack, /publishingHistory:\s*true/);
 	});
 
 	it('keeps frozen subsystems untouched for F7-4', () => {

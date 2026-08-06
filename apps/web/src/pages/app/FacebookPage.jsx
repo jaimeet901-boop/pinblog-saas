@@ -365,9 +365,16 @@ export default function FacebookPage() {
 								: 'Connect Facebook accounts, sync Pages, and manage defaults.'}
 					</p>
 				</div>
-				<Link to={websiteId ? `/app/ai-facebook-pages?websiteId=${encodeURIComponent(websiteId)}` : '/app/ai-facebook-pages'}>
-					<Button variant="outline" size="sm"><Facebook size={14} /> AI Facebook Pages</Button>
-				</Link>
+				<div className="flex flex-wrap items-center gap-2">
+					{capabilities.publishingHistory ? (
+						<Link to={websiteId ? `/app/facebook-history?websiteId=${encodeURIComponent(websiteId)}` : '/app/facebook-history'}>
+							<Button variant="outline" size="sm"><ListOrdered size={14} /> Publishing History</Button>
+						</Link>
+					) : null}
+					<Link to={websiteId ? `/app/ai-facebook-pages?websiteId=${encodeURIComponent(websiteId)}` : '/app/ai-facebook-pages'}>
+						<Button variant="outline" size="sm"><Facebook size={14} /> AI Facebook Pages</Button>
+					</Link>
+				</div>
 			</div>
 
 			{(setupMode || connectedCount === 0) && (

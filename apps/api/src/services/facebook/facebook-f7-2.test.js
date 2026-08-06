@@ -10,15 +10,15 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
 describe('facebook F7-2 publishing history normalizer', () => {
-	it('keeps publishing history and insights capability flags disabled until F7-5+', () => {
-		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, false);
+	it('keeps insights capability flag disabled until F7-6+', () => {
+		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.publishingHistory, true);
 		assert.equal(FACEBOOK_CHANNEL_CAPABILITIES.insights, false);
 
 		const caps = readFileSync(
 			path.join(root, 'apps/web/src/lib/facebook/channelCapabilities.js'),
 			'utf8',
 		);
-		assert.match(caps, /publishingHistory:\s*false/);
+		assert.match(caps, /publishingHistory:\s*true/);
 		assert.match(caps, /insights:\s*false/);
 		assert.match(caps, /analytics:\s*false/);
 	});
@@ -60,7 +60,7 @@ describe('facebook F7-2 publishing history normalizer', () => {
 
 		assert.doesNotMatch(queue, /normalizeFacebookPublishJob/);
 		assert.doesNotMatch(graph, /normalize-facebook/);
-		assert.match(channelPack, /publishingHistory:\s*false/);
+		assert.match(channelPack, /publishingHistory:\s*true/);
 		assert.match(channelPack, /insights:\s*false/);
 	});
 
