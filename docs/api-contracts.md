@@ -207,6 +207,39 @@ interface BrandKitDto {
 | POST | `/pinterest/jobs/:id/cancel` | cancel |
 | GET | `/pinterest/analytics` | metrics |
 
+### 2.8 Facebook
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/facebook/accounts` | list connected accounts |
+| POST | `/facebook/oauth/start` | start OAuth |
+| GET | `/facebook/oauth/callback` | OAuth callback |
+| POST | `/facebook/accounts/:accountId/reconnect` | reconnect |
+| POST | `/facebook/accounts/:accountId/disconnect` | disconnect |
+| POST | `/facebook/accounts/:accountId/default` | set default account |
+| GET | `/facebook/pages` | `accountId` — list Pages |
+| POST | `/facebook/pages/sync` | sync Pages from Graph |
+| POST | `/facebook/accounts/:accountId/pages/:pageId/default` | default Page |
+| GET | `/facebook/destinations` | list publish destinations |
+| GET | `/facebook/destinations/:destinationId` | destination detail |
+| POST | `/facebook/destinations/validate` | validate post payload |
+| POST | `/facebook/publish` | publish now |
+| POST | `/facebook/schedule` | schedule post |
+| GET | `/facebook/jobs` | list/poll jobs (`page`, `perPage`, `accountId`, `pageId`, `status`, `aiPinId`) |
+| GET | `/facebook/jobs/:jobId` | job detail |
+| POST | `/facebook/jobs/:jobId/cancel` | cancel scheduled job |
+| POST | `/facebook/jobs/:jobId/retry` | retry failed job |
+| POST | `/facebook/jobs/:jobId/publish-now` | publish scheduled job immediately |
+| **GET** | **`/facebook/history`** | **Publishing history** — unified `listPublishingHistory` pipeline, `channel=facebook` forced; query: `page`, `perPage`, `status`, `sort` (see unified publishing history) |
+| **GET** | **`/facebook/analytics`** | **Analytics rollup** — read-only aggregation from `facebook_publish_jobs.performance` (F7-4 synced insights); returns summary + job items |
+| POST | `/facebook/token/refresh` | refresh account token |
+
+**Publishing history response:** normalized `PublishingHistoryItem[]` envelope via `listPublishingHistory` (same shape as unified `/publishing/history?channel=facebook`). Service: `apps/api/src/services/facebook/history.js`.
+
+**Analytics response:** workspace-scoped rollup — `publishedPosts`, `impressions`, `clicks`, `engagedUsers`, `reactions`, `bestPage`, `bestPost`, plus optional job items. Returns empty summary when workspace read scope is missing (F8-3). Service: `apps/api/src/services/facebook/analytics.js`.
+
+**UI:** Facebook Hub (`/app/facebook`), publishing history (`/app/facebook-history`), AI Facebook Pages studio (`/app/ai-facebook-pages`). See [facebook-channel-pack-f8-certification-report.md](./facebook-channel-pack-f8-certification-report.md).
+
 ### 2.x Unified Calendar Facade (C1)
 
 Base (workspace router): `/workspace/v1`
@@ -652,8 +685,9 @@ Matches `systemHealthMock` structure.
 | Brand Kit | `/ai-pins/brand-kits` |
 | History | `/ai-pins/history` |
 | Pinterest hub | `/pinterest/*` |
+| Facebook hub | `/facebook/*` — see §2.8 |
 | Calendar / Pub history | **Unified Calendar (C10):** Facade + Mutation Router; channel job SoT; CE manual overlay only (no PPJ merge); Pinterest/WordPress/Facebook providers+adapters; Studio/drafts; C8 projections — `docs/calendar-architecture.md` |
-| Analytics (app) | `/pinterest/analytics` |
+| Analytics (app) | `/pinterest/analytics`, `/facebook/analytics` |
 | Subscription | PB `users.plan` → target `/billing/*` |
 | Settings / Profile | PB users + `/settings` |
 | Admin * | `/admin/v1/*` (proposed) |

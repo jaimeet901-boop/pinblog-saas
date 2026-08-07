@@ -6,6 +6,8 @@
 **Method:** Static architecture audit, freeze-boundary verification, full test suite execution, F7-scoped diff review  
 **Code changes during certification:** Documentation only (this report)
 
+**Related:** [F6 Certification](./facebook-channel-pack-f6-certification-report.md) · [F8 Certification](./facebook-channel-pack-f8-certification-report.md) · [Release Checklist](./facebook-channel-pack-release-checklist.md)
+
 ---
 
 ## Overall Verdict
@@ -242,3 +244,5 @@ No blocking warnings.
 | Documentation complete | ✅ |
 
 **Phase F7 is certified complete.**
+
+**Superseded by:** [F8 Certification](./facebook-channel-pack-f8-certification-report.md) · [Release Checklist](./facebook-channel-pack-release-checklist.md) — F8-1 resolved the 9 pre-existing web test failures noted above; final baseline is **267/267**.

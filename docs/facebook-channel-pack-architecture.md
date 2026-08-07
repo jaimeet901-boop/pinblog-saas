@@ -1,11 +1,11 @@
 # Facebook Channel Pack — Architecture Decision Record (F0)
 
-**Status:** Phase **F2** complete — OAuth + Hub + Admin.  
+**Status:** Phases **F0–F8 complete** — Facebook Channel Pack certified for release.  
 **ADR ID:** `ADR-FB-CHANNEL-PACK-001`  
-**Last updated:** 2026-07-30  
-**Scope:** F0–F2. No publish / schedule / queue workers.
+**Last updated:** 2026-08-07  
+**Scope:** F0–F8 complete. OAuth, publish, schedule, studio assets, publishing history, insights, hardening, and release documentation.
 
-Related: [facebook-channel-pack-schema.md](./facebook-channel-pack-schema.md) · [facebook-channel-pack-f1-apply-report.md](./facebook-channel-pack-f1-apply-report.md) · [facebook-channel-pack-f2-report.md](./facebook-channel-pack-f2-report.md) · [calendar-architecture.md](./calendar-architecture.md) · [provider-architecture.md](./provider-architecture.md) · [api-contracts.md](./api-contracts.md)
+Related: [facebook-channel-pack-schema.md](./facebook-channel-pack-schema.md) · [facebook-channel-pack-f1-apply-report.md](./facebook-channel-pack-f1-apply-report.md) · [facebook-channel-pack-f2-report.md](./facebook-channel-pack-f2-report.md) · [facebook-channel-pack-f6-certification-report.md](./facebook-channel-pack-f6-certification-report.md) · [facebook-channel-pack-f7-certification-report.md](./facebook-channel-pack-f7-certification-report.md) · [facebook-channel-pack-f8-certification-report.md](./facebook-channel-pack-f8-certification-report.md) · [facebook-channel-pack-release-checklist.md](./facebook-channel-pack-release-checklist.md) · [facebook-channel-pack-operations.md](./facebook-channel-pack-operations.md) · [calendar-architecture.md](./calendar-architecture.md) · [provider-architecture.md](./provider-architecture.md) · [api-contracts.md](./api-contracts.md)
 
 ---
 
@@ -100,7 +100,7 @@ Facebook account ──< Facebook Page ──< facebook_publish_jobs
 | Calendar channel id | `facebook` | — |
 | Calendar refType | `facebook_publish_jobs` | — |
 
-Deep-link field `studioPinId` in Calendar projections may remain until a cosmetic rename (`studioItemId`) in F8; both channels may share the opaque link key.
+Deep-link field `studioPinId` in Calendar projections remains for backward compatibility; additive alias `studioItemId` added in F8-4 (same opaque value). Both channels may share the opaque link key.
 
 ---
 
@@ -280,11 +280,13 @@ Phased; **F0 creates no data migration**.
 | **F5** | Schedule fields + Calendar verification | App-side `scheduled_at` |
 | **F6** | Product routes (history), prompt/export packs | No collection rename required |
 | **F7** | Insights fields / history normalizer | Fill performance blobs |
-| **F8** | Optional `studio_items` rename / deepLink cosmetic rename | Only after FB publish is stable |
+| **F8** | Hardening / naming / release docs | Test stabilization, read-path polish, cosmetic aliases, certification |
 
 ### Studio artifact policy
 
-- **F1–F5:** keep writing drafts via existing `/ai-pins` + `ai_pins` (Option A).
+- **F1–F8:** keep writing drafts via existing `/ai-pins` + `ai_pins` (Option A).
+- **F8-4:** additive `studioItemId` alias alongside `studioPinId`; no collection rename.
+- Optional full `studio_items` collection rename remains **deferred post-release** backlog.
 - Optional additive fields (e.g. channel hint) only when a concrete publish path needs them — not speculative F0 schema.
 - **No** backfill of Pinterest pins into Facebook jobs.
 - Rollback: disable `facebook` feature flag; Calendar provider may remain registered (empty source is safe).
@@ -332,10 +334,11 @@ Do **not** apply local/untracked PocketBase migrations for Facebook. Only commit
 
 | Field | Value |
 |-------|--------|
-| Phase | **F2** |
-| Name | OAuth + Hub + Admin Console |
+| Phase | **F8** |
+| Name | Hardening, Naming & Release Readiness |
 | Status | **Complete** |
-| Code / migrations | OAuth routes, Hub, Admin, `1785401000_facebook_oauth_platform.js` |
+| Baseline | `origin/main` @ `c8720bf` (F8-4 code) + F8-5 documentation |
+| Certification | [F8 Certification Report](./facebook-channel-pack-f8-certification-report.md) |
 
 ### Phase gate table
 
@@ -345,12 +348,12 @@ Do **not** apply local/untracked PocketBase migrations for Facebook. Only commit
 | **F1** | Schema + feature catalog design | **Complete** | Docs only |
 | **F1-Apply** | PB migrations + catalog + permissions | **Complete** | Foundation only |
 | **F2** | OAuth + Hub + Admin | **Complete** | Connect/list accounts & pages |
-| **F3** | Destination read path | Blocked until approved | Live adapter list*; validators |
-| **F4** | Publish now + queue | Blocked on F3 | Graph write + jobs worker |
-| **F5** | Schedule + Calendar verify | Blocked on F4 | App-side schedule; mutation smoke |
-| **F6** | Studio packs (prompts/sizes/routes) | After F3 | No generation fork |
-| **F7** | Analytics + publishing history | Blocked on F4 | Insights + normalizer |
-| **F8** | Hardening / optional renames | Blocked on F5+F7 | Debt cleanup only |
+| **F3** | Destination read path | **Complete** | Live adapter list; validators |
+| **F4** | Publish now + queue | **Complete** | Graph write + jobs worker |
+| **F5** | Schedule + Calendar verify | **Complete** | App-side schedule; mutation smoke |
+| **F6** | Studio packs (prompts/sizes/routes) | **Complete** | [F6 cert](./facebook-channel-pack-f6-certification-report.md) |
+| **F7** | Analytics + publishing history | **Complete** | [F7 cert](./facebook-channel-pack-f7-certification-report.md) |
+| **F8** | Hardening / naming / release docs | **Complete** | [F8 cert](./facebook-channel-pack-f8-certification-report.md) · [Release checklist](./facebook-channel-pack-release-checklist.md) |
 
 ### Exit criteria for F0 (met)
 
@@ -396,9 +399,39 @@ Do **not** apply local/untracked PocketBase migrations for Facebook. Only commit
 - [x] Workspace Hub Accounts + Pages
 - [x] Tests; no publish / schedule / queue
 
+### Exit criteria for F3–F5 (met)
+
+- [x] Destination read service + validation API (F3)
+- [x] Publish API + executor + queue worker (F4)
+- [x] Schedule endpoint + Calendar adapter mutations (F5)
+
+### Exit criteria for F6 (met)
+
+- [x] Channel prompt packs, export profiles, template pack (F6-2–F6-4)
+- [x] Product routes + studio asset capabilities (F6-5)
+- [x] [F6 Certification Report](./facebook-channel-pack-f6-certification-report.md)
+
+### Exit criteria for F7 (met)
+
+- [x] Publishing history normalizer + `GET /facebook/history` (F7-2–F7-3)
+- [x] Insights sync worker (F7-4)
+- [x] Studio publishing history UI + analytics rollup (F7-5–F7-6)
+- [x] Capability flags: `publishingHistory`, `insights`, `analytics`
+- [x] [F7 Certification Report](./facebook-channel-pack-f7-certification-report.md)
+
+### Exit criteria for F8 (met)
+
+- [x] Web test stabilization — full suite green (F8-1)
+- [x] Phase test hygiene + frozen boundary guards (F8-2)
+- [x] Read-path resilience + operations doc (F8-3)
+- [x] Cosmetic naming aliases — `studioItemId`, Page/Post labels (F8-4)
+- [x] Release documentation + certification (F8-5)
+- [x] [F8 Certification Report](./facebook-channel-pack-f8-certification-report.md)
+- [x] [Release Checklist](./facebook-channel-pack-release-checklist.md)
+
 ### Explicit stop
 
-**Stop after F2.** Do not start F3 (destination adapter) or F4 (publishing) until separately approved.
+**Stop after F8.** Facebook Channel Pack F0–F8 is complete and certified for release. Do not start post-release feature work without separate approval.
 
 ---
 

@@ -234,3 +234,5 @@ These failures predate F6 and are **not caused by F6 changes**. All fail with `T
 
 **Phase F6 is certified complete.**  
 **Do not start F7 without separate approval.**
+
+**Superseded by:** [F7 Certification](./facebook-channel-pack-f7-certification-report.md) · [F8 Certification](./facebook-channel-pack-f8-certification-report.md) · [Release Checklist](./facebook-channel-pack-release-checklist.md)
