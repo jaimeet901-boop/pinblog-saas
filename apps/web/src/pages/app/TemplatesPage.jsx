@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createEmptyLayerDocument } from '@/lib/pinLayerSchema';
 import { createTemplateUuid, hashTemplateConfiguration } from '@/lib/pinTemplateIdentity';
@@ -13,6 +13,7 @@ import {
 	trackProductEvent,
 } from '@/lib/productAnalytics';
 import { AI_PINS_PRODUCT } from '@/lib/studio/products';
+import { buildGalleryFiltersForChannel, resolveGalleryChannel } from '@/lib/studio/templatePacks';
 import {
 	galleryApi,
 	loadGalleryFirstPage,
@@ -35,14 +36,15 @@ function downloadJson(filename, data) {
 export default function TemplatesPage({ product = AI_PINS_PRODUCT }) {
 	const routes = product.routes;
 	const isPinterestProduct = product.destinationId === 'pinterest';
+	const galleryChannel = useMemo(() => resolveGalleryChannel(product), [product]);
 	const navigate = useNavigate();
 	const { toast } = useToast();
 	const [upgradeModal, setUpgradeModal] = useState(null);
 
 	useEffect(() => {
-		loadGalleryFirstPage();
+		loadGalleryFirstPage(buildGalleryFiltersForChannel(galleryChannel));
 		return () => resetGalleryStore();
-	}, []);
+	}, [galleryChannel]);
 
 	function openUpgradeModal(template) {
 		if (isTemplateAccessLocked(template)) {

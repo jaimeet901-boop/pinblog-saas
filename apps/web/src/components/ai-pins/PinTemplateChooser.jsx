@@ -18,12 +18,12 @@ import {
 	trackProductEvent,
 } from '@/lib/productAnalytics';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
-import { matchesTemplatePackEntry } from '@/lib/studio/templatePacks';
+import { buildGalleryFiltersForChannel } from '@/lib/studio/templatePacks';
 import '@/pages/app/TemplatesPage.css';
 import './PinTemplateChooser.css';
 
-// Exact same filter surface as Admin Template Gallery (TemplatesPage → loadGalleryFirstPage).
-const SELECT_FILTERS = {
+// Exact same filter surface as Templates page (channel-scoped gallery).
+const SELECT_FILTER_OVERRIDES = {
 	q: '',
 	category: '',
 	status: '',
@@ -65,15 +65,10 @@ export default function PinTemplateChooser({
 
 	const previewTemplate = items.find((item) => item.id === previewTemplateId) || null;
 
-	const visibleItems = useMemo(() => {
-		if (!templatePack) return items;
-		return items.filter((template) => matchesTemplatePackEntry(template, templatePack.key));
-	}, [items, templatePack]);
-
-	const initialGalleryFilters = useMemo(() => ({
-		...SELECT_FILTERS,
-		tag: templatePack?.galleryTag || '',
-	}), [templatePack]);
+	const initialGalleryFilters = useMemo(
+		() => buildGalleryFiltersForChannel(templatePack?.channel || 'pinterest', SELECT_FILTER_OVERRIDES),
+		[templatePack],
+	);
 
 	const hasFilters = useMemo(() => Boolean(
 		filters.q || filters.category || filters.scope || filters.tag,
@@ -168,7 +163,7 @@ export default function PinTemplateChooser({
 							aria-label="Search templates"
 						/>
 					</label>
-					<p className="pin-tpl-chooser__count">{visibleItems.length} designs</p>
+					<p className="pin-tpl-chooser__count">{totalItems} designs</p>
 				</div>
 
 				<div className="pin-tpl-chooser__categories" role="tablist" aria-label="Template categories">
@@ -198,7 +193,7 @@ export default function PinTemplateChooser({
 				{error ? <p className="pin-tpl-chooser__error" role="alert">{error}</p> : null}
 				{loading ? <TemplateGalleryLoading count={9} /> : null}
 
-				{!loading && visibleItems.length === 0 ? (
+				{!loading && items.length === 0 ? (
 					<TemplateGalleryEmpty
 						hasFilters={hasFilters}
 						onCreate={null}
@@ -209,9 +204,9 @@ export default function PinTemplateChooser({
 					/>
 				) : null}
 
-				{!loading && visibleItems.length > 0 ? (
+				{!loading && items.length > 0 ? (
 					<div className="pin-tpl-chooser__grid" key={articleFingerprint}>
-						{visibleItems.map((template, index) => (
+						{items.map((template, index) => (
 							<PinTemplateChooserLiveCard
 								key={`${template.id}:${articleFingerprint}`}
 								template={template}
@@ -227,7 +222,7 @@ export default function PinTemplateChooser({
 				) : null}
 
 				<div ref={sentinelRef} className="pin-tpl-chooser__sentinel">
-					{loadingMore ? 'Loading more…' : hasMore ? 'Scroll for more designs' : visibleItems.length ? 'End of library' : null}
+					{loadingMore ? 'Loading more…' : hasMore ? 'Scroll for more designs' : items.length ? 'End of library' : null}
 				</div>
 
 				<TemplatePreviewModal

@@ -3,12 +3,38 @@ import { describe, it, expect } from 'vitest';
 import { AI_FACEBOOK_PAGES_PRODUCT, AI_PINS_PRODUCT } from '@/lib/studio/products';
 import { listOfficialPinTemplateCatalog } from '@/lib/officialPinTemplateCatalog.generated';
 import {
+	buildGalleryFiltersForChannel,
 	filterOfficialCatalogForPack,
 	filterTemplatesForPack,
 	matchesTemplatePackEntry,
+	resolveGalleryChannel,
 	resolveTemplatePack,
 	resolveTemplatePackKey,
+	TEMPLATE_CHANNELS,
 } from '@/lib/studio/templatePacks';
+
+describe('buildGalleryFiltersForChannel', () => {
+	it('builds channel-scoped filters independent of product name', () => {
+		expect(buildGalleryFiltersForChannel('pinterest')).toMatchObject({
+			channel: 'pinterest',
+			sort: 'recently_updated',
+		});
+		expect(buildGalleryFiltersForChannel('facebook')).toMatchObject({
+			channel: 'facebook',
+		});
+	});
+
+	it('resolves gallery channel from product pack', () => {
+		expect(resolveGalleryChannel(AI_PINS_PRODUCT)).toBe('pinterest');
+		expect(resolveGalleryChannel(AI_FACEBOOK_PAGES_PRODUCT)).toBe('facebook');
+	});
+
+	it('lists future platform channels for gallery expansion', () => {
+		expect(TEMPLATE_CHANNELS).toContain('instagram');
+		expect(TEMPLATE_CHANNELS).toContain('linkedin');
+		expect(TEMPLATE_CHANNELS).toContain('twitter');
+	});
+});
 
 describe('resolveTemplatePack', () => {
 	it('resolves pinterest pack for AI Pins product', () => {

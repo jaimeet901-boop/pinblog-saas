@@ -16,6 +16,7 @@ const DEFAULT_FILTERS = {
 	favorite: false,
 	recentlyUsed: false,
 	tag: '',
+	channel: '',
 	includeArchived: false,
 };
 

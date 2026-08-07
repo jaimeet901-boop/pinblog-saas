@@ -12,6 +12,13 @@ import {
 	TEMPLATE_STATUS,
 	TEMPLATE_VISIBILITY,
 } from '../constants/pin-engine.js';
+import {
+	extractRecordChannel,
+	matchesChannelFilter,
+	normalizeTemplateChannel,
+	TEMPLATE_CHANNELS,
+} from '../constants/template-channels.js';
+import { paginateGalleryItems } from './template-gallery-pagination.js';
 import { createTemplateUuid, hashTemplateConfigurationSync } from '../utils/pin-template-identity.js';
 import { ensureOfficialPinTemplatesSeeded, resolvePlatformLibraryOwnerId } from './official-pin-templates-seed.js';
 import {
@@ -58,6 +65,7 @@ export function mapGalleryTemplate(record, extras = {}) {
 
 	return {
 		id: record.id,
+		channel: extractRecordChannel(record),
 		templateUuid: record.template_uuid || null,
 		name: record.name,
 		thumbnail: record.thumbnail || '',
@@ -343,6 +351,45 @@ async function pocketbaseGalleryPage(page, perPage, filter, sort) {
 	});
 }
 
+async function pocketbaseGalleryFullList(filter, sort) {
+	return pocketbaseClient.collection('ai_pin_templates').getFullList({
+		filter,
+		sort,
+		requestKey: null,
+	});
+}
+
+function resolveGalleryChannelQuery(query = {}) {
+	return normalizeTemplateChannel(query.channel || query.templatePack || '');
+}
+
+async function mapGalleryRecords(req, records, { favoriteIds, accessContext, wantConfig, previewMap }) {
+	const mapped = [];
+	for (const record of records) {
+		const preview = resolvePreview(record, previewMap);
+		const access = await evaluateTemplateAccess(req, record, { context: accessContext });
+		const item = mapGalleryTemplate(record, {
+			isFavorite: favoriteIds.has(record.id),
+			previewUrl: preview.previewUrl,
+			previewCached: preview.previewCached,
+			includeConfiguration: wantConfig && access.enabled,
+		});
+		mapped.push(attachTemplateAccess(item, access));
+	}
+	return mapped;
+}
+
+function applyPostMapGalleryFilters(items, { q, tag }) {
+	let filtered = items;
+	if (q) {
+		filtered = filtered.filter((item) => matchesSearch(item, q));
+	}
+	if (tag) {
+		filtered = filtered.filter((item) => item.tags.some((t) => t.toLowerCase() === tag));
+	}
+	return filtered;
+}
+
 async function pocketbaseCount(filter) {
 	try {
 		const result = await pocketbaseClient.collection('ai_pin_templates').getList(1, 1, {
@@ -379,10 +426,15 @@ export async function listGalleryTemplates(req, query = {}) {
 	const page = Math.max(1, Number(query.page) || 1);
 	const perPage = resolveGalleryPerPage(query);
 	const q = String(query.q || query.search || '').trim();
+	const tag = String(query.tag || '').trim().toLowerCase();
+	const channel = resolveGalleryChannelQuery(query);
 	const favoriteOnly = query.favorite === '1' || query.favorite === 'true' || query.favorites === '1';
 	const userId = String(req.pocketbaseUserId || '').trim();
 	const workspaceId = String(req.workspace?.id || '').trim();
 	const collection = 'ai_pin_templates';
+	const wantConfig = query.includeConfiguration === '1'
+		|| query.includeConfiguration === 'true'
+		|| query.includeConfiguration === true;
 
 	const favoriteIds = await listFavoriteTemplateIds(req);
 	const filter = buildGalleryFilter(req, query);
@@ -406,15 +458,26 @@ export async function listGalleryTemplates(req, query = {}) {
 		pocketbaseCount(''),
 	]);
 
-	let result;
+	let rawRecords = [];
+	let pbCountBeforeTransform = 0;
+
 	try {
-		result = await pocketbaseGalleryPage(page, perPage, filter, sort);
+		if (channel) {
+			const allRows = await pocketbaseGalleryFullList(filter, sort);
+			rawRecords = allRows.filter((row) => matchesChannelFilter(row, channel));
+			pbCountBeforeTransform = rawRecords.length;
+		} else {
+			const result = await pocketbaseGalleryPage(page, perPage, filter, sort);
+			rawRecords = result.items || [];
+			pbCountBeforeTransform = Number(result.totalItems) || 0;
+		}
 	} catch (error) {
 		logger.error('[template-gallery] PocketBase gallery query failed', {
 			userId,
 			workspaceId,
 			collection,
 			filter,
+			channel,
 			message: error?.message || String(error),
 			ownerOnlyCount,
 			officialOnlyCount,
@@ -426,13 +489,12 @@ export async function listGalleryTemplates(req, query = {}) {
 		throw httpError(502, 'Template gallery query failed', 'GALLERY_QUERY_FAILED');
 	}
 
-	const pbCountBeforeTransform = Number(result.totalItems) || 0;
-
 	logger.info('[template-gallery] list', {
 		userId,
 		workspaceId,
 		collection,
 		filter,
+		channel: channel || null,
 		pbCountBeforeTransform,
 		ownerOnlyCount,
 		officialOnlyCount,
@@ -444,55 +506,63 @@ export async function listGalleryTemplates(req, query = {}) {
 		perPage,
 	});
 
-	let items = result.items || [];
+	let scopedRecords = rawRecords;
 	if (favoriteOnly) {
-		items = items.filter((row) => favoriteIds.has(row.id));
+		scopedRecords = scopedRecords.filter((row) => favoriteIds.has(row.id));
 	}
 
-	const previewMap = await loadPreviewUrls(items);
+	const previewMap = await loadPreviewUrls(
+		channel ? scopedRecords : scopedRecords.slice(0, perPage),
+	);
 	const accessContext = await resolveAccessContext(req);
-	const mapped = [];
-	for (const record of items) {
-		const preview = resolvePreview(record, previewMap);
-		const access = await evaluateTemplateAccess(req, record, { context: accessContext });
-		const wantConfig = query.includeConfiguration === '1'
-			|| query.includeConfiguration === 'true'
-			|| query.includeConfiguration === true;
-		const item = mapGalleryTemplate(record, {
-			isFavorite: favoriteIds.has(record.id),
-			previewUrl: preview.previewUrl,
-			previewCached: preview.previewCached,
-			includeConfiguration: wantConfig && access.enabled,
+
+	if (channel) {
+		const mapped = await mapGalleryRecords(req, scopedRecords, {
+			favoriteIds,
+			accessContext,
+			wantConfig,
+			previewMap,
 		});
-		mapped.push(attachTemplateAccess(item, access));
+		const filtered = applyPostMapGalleryFilters(mapped, { q, tag });
+		const paged = paginateGalleryItems(filtered, page, perPage);
+		return {
+			...paged,
+			facets: {
+				categories: TEMPLATE_CATEGORIES,
+				statuses: TEMPLATE_STATUS,
+				visibilities: TEMPLATE_VISIBILITY,
+				channels: TEMPLATE_CHANNELS,
+				scopes: ['mine', 'workspace', 'official', 'community'],
+				sorts: ['recently_updated', 'recently_used', 'most_used', 'alphabetical', 'created_date'],
+			},
+		};
 	}
-	let filtered = mapped;
 
-	if (q) {
-		filtered = filtered.filter((item) => matchesSearch(item, q));
-	}
-
-	// Tag exact filter
-	const tag = String(query.tag || '').trim().toLowerCase();
-	if (tag) {
-		filtered = filtered.filter((item) => item.tags.some((t) => t.toLowerCase() === tag));
-	}
+	const mapped = await mapGalleryRecords(req, scopedRecords, {
+		favoriteIds,
+		accessContext,
+		wantConfig,
+		previewMap,
+	});
+	const filtered = applyPostMapGalleryFilters(mapped, { q, tag });
 
 	const totalItems = favoriteOnly || q || tag
 		? filtered.length + (page - 1) * perPage // approximate when post-filtered
 		: pbCountBeforeTransform;
+	const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
 
 	return {
 		items: filtered,
-		page: result.page || page,
-		perPage: result.perPage || perPage,
+		page,
+		perPage,
 		totalItems,
-		totalPages: result.totalPages || Math.max(1, Math.ceil(totalItems / perPage)),
-		hasMore: (result.page || page) < (result.totalPages || Math.max(1, Math.ceil(totalItems / perPage))),
+		totalPages,
+		hasMore: page < totalPages,
 		facets: {
 			categories: TEMPLATE_CATEGORIES,
 			statuses: TEMPLATE_STATUS,
 			visibilities: TEMPLATE_VISIBILITY,
+			channels: TEMPLATE_CHANNELS,
 			scopes: ['mine', 'workspace', 'official', 'community'],
 			sorts: ['recently_updated', 'recently_used', 'most_used', 'alphabetical', 'created_date'],
 		},

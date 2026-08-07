@@ -1,6 +1,15 @@
 /**
  * Product-driven studio template packs (F6-4).
+ * Gallery listing is scoped by platform channel — not product name.
  */
+
+export const TEMPLATE_CHANNELS = Object.freeze([
+	'pinterest',
+	'facebook',
+	'instagram',
+	'linkedin',
+	'twitter',
+]);
 
 export const STUDIO_TEMPLATE_PACKS = Object.freeze({
 	pinterest: Object.freeze({
@@ -18,6 +27,45 @@ export const STUDIO_TEMPLATE_PACKS = Object.freeze({
 		canvas: Object.freeze({ width: 1200, height: 630 }),
 	}),
 });
+
+export function normalizeTemplateChannel(value) {
+	const channel = String(value || '').trim().toLowerCase();
+	if (!channel) return '';
+	return TEMPLATE_CHANNELS.includes(channel) ? channel : '';
+}
+
+export function resolveGalleryChannel(productOrChannel) {
+	if (typeof productOrChannel === 'string') {
+		return normalizeTemplateChannel(productOrChannel) || 'pinterest';
+	}
+	return resolveTemplatePack(productOrChannel).channel;
+}
+
+const GALLERY_FILTER_DEFAULTS = Object.freeze({
+	q: '',
+	category: '',
+	status: '',
+	visibility: '',
+	scope: '',
+	sort: 'recently_updated',
+	favorite: false,
+	recentlyUsed: false,
+	tag: '',
+	includeArchived: false,
+	channel: '',
+});
+
+/**
+ * Build gallery API filters for a platform channel.
+ * Shared by Choose Template modal and Templates page.
+ */
+export function buildGalleryFiltersForChannel(channel, overrides = {}) {
+	return {
+		...GALLERY_FILTER_DEFAULTS,
+		channel: resolveGalleryChannel(channel),
+		...overrides,
+	};
+}
 
 export function normalizeStudioTemplatePackKey(value) {
 	const key = String(value || 'pinterest').trim().toLowerCase();

@@ -117,6 +117,7 @@ export default function TemplateGallery({
 						q: '', category: '', status: '', visibility: '', scope: '',
 						favorite: false, recentlyUsed: false, tag: '', includeArchived: false,
 						sort: 'recently_updated',
+						channel: filters.channel || '',
 					})}
 				/>
 			) : null}

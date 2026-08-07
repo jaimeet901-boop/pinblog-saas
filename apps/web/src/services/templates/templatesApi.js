@@ -37,6 +37,7 @@ export async function fetchGalleryPage(filters = {}) {
 		favorite: filters.favorite ? '1' : '',
 		recentlyUsed: filters.recentlyUsed ? '1' : '',
 		tag: filters.tag || '',
+		channel: filters.channel || '',
 		includeArchived: filters.includeArchived ? '1' : '',
 	});
 	const response = await apiServerClient.fetch(`/workspace/v1/templates?${query}`, { method: 'GET' });
