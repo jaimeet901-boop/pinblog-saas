@@ -106,10 +106,10 @@ export function planImageSource({ strategy, articleImageUrl = '' } = {}) {
 		case IMAGE_SOURCE_STRATEGY.ALWAYS_FEATURED:
 			return {
 				strategy: normalized,
-				useAi: false,
+				useAi: true,
 				requireArticleImage: true,
-				allowArticleFallback: false,
-				imageMode: 'use_featured',
+				allowArticleFallback: hasArticle,
+				imageMode: 'generate_ai',
 			};
 		case IMAGE_SOURCE_STRATEGY.ALWAYS_AI:
 			return {
@@ -120,20 +120,11 @@ export function planImageSource({ strategy, articleImageUrl = '' } = {}) {
 				imageMode: 'generate_ai',
 			};
 		case IMAGE_SOURCE_STRATEGY.FEATURED_FIRST:
-			if (hasArticle) {
-				return {
-					strategy: IMAGE_SOURCE_STRATEGY.FEATURED_FIRST,
-					useAi: false,
-					requireArticleImage: false,
-					allowArticleFallback: false,
-					imageMode: 'use_featured',
-				};
-			}
 			return {
 				strategy: IMAGE_SOURCE_STRATEGY.FEATURED_FIRST,
 				useAi: true,
 				requireArticleImage: false,
-				allowArticleFallback: false,
+				allowArticleFallback: hasArticle,
 				imageMode: 'generate_ai',
 			};
 		case IMAGE_SOURCE_STRATEGY.AI_FIRST:

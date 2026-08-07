@@ -51,9 +51,11 @@ export function buildPinGenerationMeta({
 
 /**
  * Resolve pin copy for one article.
+ * Text-only: title, description, SEO, keywords, imagePrompt.
+ * imageMode is ignored here — image decisions belong to the image pipeline.
  *
  * @param {object} args
- * @param {'generate_ai'|'use_featured'|string} args.imageMode
+ * @param {'generate_ai'|'use_featured'|string} [args.imageMode] — legacy; not used for copy routing
  * @param {object} args.article
  * @param {number} args.count
  * @param {object} [args.panel]
@@ -87,22 +89,6 @@ export async function resolveStudioPinCopy({
 		panel,
 		analysis,
 	});
-
-	if (String(imageMode || '').trim() === 'use_featured') {
-		const pins = localPins();
-		const meta = buildPinGenerationMeta({
-			copySource: PIN_COPY_SOURCE.LOCAL_FEATURED,
-			imageSource: PIN_IMAGE_SOURCE_KIND.FEATURED,
-			fallbackReason: null,
-		});
-		return {
-			pins,
-			copySource: meta.copySource,
-			imageSource: meta.imageSource,
-			fallbackReason: meta.fallbackReason,
-			meta,
-		};
-	}
 
 	try {
 		const prompt = typeof buildPrompt === 'function' ? buildPrompt() : '';

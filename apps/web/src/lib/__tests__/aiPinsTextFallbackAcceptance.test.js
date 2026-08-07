@@ -110,30 +110,35 @@ describe('AC3 — Permanent provider error', () => {
 	});
 });
 
-describe('AC4 — Featured mode unchanged', () => {
-	it('never calls generateText and uses local featured copy only', async () => {
-		const generateText = vi.fn();
+describe('AC4 — Text copy independent of image routing', () => {
+	it('always calls generateText; image pipeline owns image decisions', async () => {
+		const generateText = vi.fn(async () => ({
+			text: JSON.stringify({
+				pins: [{ title: 'Featured Strategy Pin', description: 'desc', overlayText: 'Save', imagePrompt: 'food photo' }],
+			}),
+		}));
 		const result = await resolveStudioPinCopy({
 			imageMode: 'use_featured',
 			article,
-			count: 2,
+			count: 1,
 			panel: { textOverlay: 'Save' },
 			analysis: null,
 			generateText,
-			buildPrompt: () => 'must not run',
-			parsePins: () => [{ title: 'should not appear' }],
+			buildPrompt: () => 'pin prompt',
+			parsePins: (text) => JSON.parse(text).pins,
 		});
-		expect(generateText).not.toHaveBeenCalled();
-		expect(result.copySource).toBe(PIN_COPY_SOURCE.LOCAL_FEATURED);
-		expect(result.imageSource).toBe('featured');
+		expect(generateText).toHaveBeenCalled();
+		expect(result.copySource).toBe(PIN_COPY_SOURCE.AI);
+		expect(result.imageSource).toBe('ai');
 		expect(result.fallbackReason).toBeNull();
-		expect(result.pins).toHaveLength(2);
+		expect(result.pins).toHaveLength(1);
 		const imagePlan = planImageSource({
 			strategy: IMAGE_SOURCE_STRATEGY.FEATURED_FIRST,
 			articleImageUrl: article.featuredImage,
 		});
-		expect(imagePlan.imageMode).toBe('use_featured');
-		expect(imagePlan.useAi).toBe(false);
+		expect(imagePlan.imageMode).toBe('generate_ai');
+		expect(imagePlan.useAi).toBe(true);
+		expect(imagePlan.allowArticleFallback).toBe(true);
 	});
 });
 

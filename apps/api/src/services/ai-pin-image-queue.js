@@ -655,6 +655,19 @@ async function processDueJobs() {
 				}
 
 				const shouldRetry = !exhausted;
+				if (!shouldRetry && fallbackImage) {
+					await setJobTerminalState({
+						job: fullJob,
+						status: 'fallback',
+						imageUrl: fallbackImage,
+						lastError: error?.message || 'Image generation failed. Fallback image used.',
+					});
+					processedTotal += 1;
+					lastSuccessAt = new Date().toISOString();
+					logger.warn(`AI pin image job fallback used (terminal guard): ${fullJob.id}`);
+					continue;
+				}
+
 				const retryPayload = await sanitizeCollectionPayload({
 					collection: 'ai_pin_image_jobs',
 					context: 'ai-image-queue:retry-update',

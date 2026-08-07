@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
 	PIN_COPY_SOURCE,
-	PIN_IMAGE_SOURCE_KIND,
 	buildPinGenerationMeta,
 	resolveStudioPinCopy,
 	toAnalyticsImageSource,
@@ -57,28 +56,26 @@ describe('resolveStudioPinCopy', () => {
 		category: 'dinner',
 	};
 
-	it('uses local featured path without calling generateText', async () => {
-		const generateText = vi.fn();
+	it('still generates AI copy when imageMode is use_featured (legacy param ignored)', async () => {
+		const generateText = vi.fn(async () => ({
+			text: '{"pins":[{"title":"AI Title","description":"d","overlayText":"Go","imagePrompt":"prompt"}]}',
+		}));
 		const result = await resolveStudioPinCopy({
 			imageMode: 'use_featured',
 			article,
-			count: 2,
+			count: 1,
 			panel: {},
 			analysis: null,
 			generateText,
-			buildPrompt: () => 'unused',
-			parsePins: () => [],
+			buildPrompt: () => 'prompt',
+			parsePins: (text) => JSON.parse(text).pins,
 		});
-		expect(generateText).not.toHaveBeenCalled();
-		expect(result.copySource).toBe(PIN_COPY_SOURCE.LOCAL_FEATURED);
-		expect(result.imageSource).toBe(PIN_IMAGE_SOURCE_KIND.FEATURED);
+		expect(generateText).toHaveBeenCalled();
+		expect(result.copySource).toBe(PIN_COPY_SOURCE.AI);
+		expect(result.imageSource).toBe('ai');
 		expect(result.fallbackReason).toBeNull();
-		expect(result.pins).toHaveLength(2);
-		expect(result.meta).toEqual({
-			copySource: PIN_COPY_SOURCE.LOCAL_FEATURED,
-			imageSource: 'featured',
-			fallbackReason: null,
-		});
+		expect(result.pins).toHaveLength(1);
+		expect(result.pins[0].imagePrompt).toBe('prompt');
 	});
 
 	it('returns AI pins on success', async () => {

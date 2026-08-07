@@ -14,19 +14,32 @@ describe('imageSourceStrategy', () => {
 		expect(normalizeImageSourceStrategy('')).toBe(IMAGE_SOURCE_STRATEGY.AI_FIRST);
 	});
 
-	it('featured_first uses article image when present', () => {
+	it('featured_first always queues AI generation; article image is fallback-only', () => {
 		const plan = planImageSource({
 			strategy: 'featured_first',
 			articleImageUrl: 'https://cdn.example/hero.jpg',
 		});
-		expect(plan.useAi).toBe(false);
-		expect(plan.imageMode).toBe('use_featured');
+		expect(plan.useAi).toBe(true);
+		expect(plan.imageMode).toBe('generate_ai');
+		expect(plan.allowArticleFallback).toBe(true);
 	});
 
-	it('featured_first falls back to AI when no article image', () => {
+	it('featured_first without article image still requests AI', () => {
 		const plan = planImageSource({ strategy: 'featured_first', articleImageUrl: '' });
 		expect(plan.useAi).toBe(true);
 		expect(plan.imageMode).toBe('generate_ai');
+		expect(plan.allowArticleFallback).toBe(false);
+	});
+
+	it('always_featured requires article image for fallback but still uses AI first', () => {
+		const plan = planImageSource({
+			strategy: 'always_featured',
+			articleImageUrl: 'https://cdn.example/hero.jpg',
+		});
+		expect(plan.useAi).toBe(true);
+		expect(plan.imageMode).toBe('generate_ai');
+		expect(plan.requireArticleImage).toBe(true);
+		expect(plan.allowArticleFallback).toBe(true);
 	});
 
 	it('ai_first always requests AI but allows article fallback', () => {
