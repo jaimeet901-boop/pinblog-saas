@@ -51,7 +51,7 @@ export function slimPerformanceSummary(raw = null) {
 export function projectAnalyticsMetadata(input = {}) {
 	const status = normalizeScheduledItemStatus(input.status);
 	const websiteId = String(input.websiteId || '').trim();
-	const pinId = String(input.pinId || input.studioPinId || '').trim();
+	const pinId = String(input.pinId || input.studioItemId || input.studioPinId || '').trim();
 	const jobId = String(input.jobId || input.refId || '').trim();
 	const analyticsHref = websiteId || pinId || jobId
 		? buildAnalyticsHref({ websiteId, pinId, jobId })

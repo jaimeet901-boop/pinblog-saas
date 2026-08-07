@@ -68,6 +68,12 @@ describe('facebook calendar channel (C9)', () => {
 		assert.deepEqual(item.actions, ['reschedule', 'cancel']);
 		assert.equal(item.deepLinks.queue.sourceOfTruth, false);
 		assert.equal(item.deepLinks.pageId, 'page-1');
+		assert.equal(item.deepLinks.pageName, 'Brand Page');
+		assert.equal(item.deepLinks.boardId, 'page-1');
+		assert.equal(item.deepLinks.boardName, 'Brand Page');
+		assert.equal(item.deepLinks.studioPinId, item.deepLinks.studioItemId);
+		assert.match(item.deepLinks.historyHref, /^\/app\/facebook-history\?/);
+		assert.equal(item.deepLinks.studioPath, '/app/ai-facebook-pages');
 		assertScheduledItemContract(item);
 	});
 

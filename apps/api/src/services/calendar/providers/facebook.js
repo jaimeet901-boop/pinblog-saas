@@ -13,6 +13,8 @@ import {
 	defaultActionsForStatus,
 	normalizeScheduledItem,
 } from '../scheduled-item.js';
+import { buildStudioDeepLinks } from '../studio-links.js';
+import { buildFacebookHistoryHref } from '../product-links.js';
 import { applyChannelJobProjections } from '../projections/apply.js';
 
 export const FACEBOOK_CALENDAR_CHANNEL = 'facebook';
@@ -37,26 +39,36 @@ export function mapFacebookJobToScheduledItem(job = {}, options = {}) {
 		|| 'Facebook post',
 	).trim();
 	const websiteId = job.websiteId || job.website_id || page?.websiteId || page?.website_id || '';
+	const studioPinId = job.ai_pin || job.aiPin || '';
+	const pageId = job.page_id || job.pageId || page?.id || job.page || '';
+	const pageName = job.page_label || job.pageLabel || page?.name || page?.label || '';
 
-	const baseDeepLinks = {
+	const baseDeepLinks = buildStudioDeepLinks({}, {
+		studioPinId,
+		studioPath: '/app/ai-facebook-pages',
+		websiteId,
 		historyJobId: refId,
+		historyHref: refId ? buildFacebookHistoryHref({ websiteId, jobId: refId }) : '',
 		liveUrl: job.facebook_post_url || job.post_url || job.live_url || '',
 		destinationUrl: job.destination_url || job.link_url || job.facebook_post_url || '',
-		pageId: job.page_id || job.pageId || page?.id || job.page || '',
-		pageLabel: job.page_label || job.pageLabel || page?.name || page?.label || '',
+		pageId,
+		pageLabel: pageName,
+		pageName,
+		// Calendar row compat — shared mapper reads boardId/boardName.
+		boardId: pageId,
+		boardName: pageName,
 		accountId: job.account || job.account_id || job.accountId || '',
 		accountLabel: job.account_label || job.accountLabel || '',
 		createdAt: job.created || job.createdAt || '',
 		description: job.message || job.description || job.caption || '',
 		facebookPostId: job.facebook_post_id != null ? String(job.facebook_post_id) : (job.post_id != null ? String(job.post_id) : ''),
-		studioPinId: job.ai_pin || job.aiPin || '',
-	};
+	});
 
 	const projected = applyChannelJobProjections(baseDeepLinks, job, {
 		sourceCollection: FACEBOOK_JOB_REF_TYPE,
 		sourceId: refId,
 		websiteId,
-		pinId: baseDeepLinks.studioPinId,
+		pinId: studioPinId,
 		status,
 		scheduledAt: job.scheduled_at || job.scheduledAt || null,
 		performance: job.performance && typeof job.performance === 'object' ? job.performance : null,

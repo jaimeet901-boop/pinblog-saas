@@ -48,6 +48,7 @@ describe('mapScheduledItem (C2/C4 CalendarPage)', () => {
 		expect(row.pin.title).toBe('Summer pin');
 		expect(row.pin.imageUrl).toBe('https://cdn/x.png');
 		expect(row.studioPinId).toBe('pin9');
+		expect(row.studioItemId).toBe('pin9');
 		expect(row.analyticsHref).toContain('websiteId=web1');
 		expect(row.queue.queueRef).toBe('qj1');
 		expect(row.queue.sourceOfTruth).toBe(false);
@@ -85,5 +86,33 @@ describe('mapScheduledItem (C2/C4 CalendarPage)', () => {
 		expect(url).toContain('statuses=scheduled');
 		expect(url).toContain('published');
 		expect(url).toContain('failed');
+	});
+
+	it('maps Facebook Scheduled Items with page/post naming aliases', () => {
+		const row = mapScheduledItemToCalendarEvent({
+			id: 'facebook:job99',
+			channel: 'facebook',
+			status: 'scheduled',
+			scheduledAt: '2026-08-01T12:00:00.000Z',
+			title: 'Summer post',
+			previewUrl: 'https://cdn/fb.png',
+			refId: 'job99',
+			deepLinks: {
+				studioItemId: 'pin_fb_1',
+				pageId: 'page_1',
+				pageName: 'Brand Page',
+				liveUrl: 'https://facebook.com/posts/1',
+				studioHref: '/app/ai-facebook-pages?pinId=pin_fb_1',
+			},
+		});
+
+		expect(row.pin.title).toBe('Summer post');
+		expect(row.post).toEqual(row.pin);
+		expect(row.pageId).toBe('page_1');
+		expect(row.pageName).toBe('Brand Page');
+		expect(row.boardId).toBe('page_1');
+		expect(row.boardName).toBe('Brand Page');
+		expect(row.studioItemId).toBe('pin_fb_1');
+		expect(row.facebookPostUrl).toBe('https://facebook.com/posts/1');
 	});
 });

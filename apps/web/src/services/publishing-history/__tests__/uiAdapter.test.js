@@ -235,6 +235,9 @@ describe('toFacebookPublishingHistoryUiRow', () => {
 		expect(row.facebookPostId).toBe('123456789_987654321');
 		expect(row.facebookPostUrl).toBe('https://facebook.com/123456789/posts/987654321');
 		expect(row.externalPostUrl).toBe('https://facebook.com/123456789/posts/987654321');
+		expect(row.studioItemId).toBe('pin_fb_1');
+		expect(row.aiPinId).toBe('pin_fb_1');
+		expect(row.post).toEqual(row.pin);
 		expect(row.performance.impressions).toBe(100);
 	});
 

@@ -32,6 +32,19 @@ export function buildHistoryHref(options = {}) {
 }
 
 /**
+ * Facebook publishing history link-out (additive alias — Pinterest href unchanged).
+ */
+export function buildFacebookHistoryHref(options = {}) {
+	const websiteId = String(options.websiteId || '').trim();
+	const jobId = String(options.jobId || '').trim();
+	const params = new URLSearchParams();
+	if (websiteId) params.set('websiteId', websiteId);
+	if (jobId) params.set('jobId', jobId);
+	const query = params.toString();
+	return query ? `/app/facebook-history?${query}` : '/app/facebook-history';
+}
+
+/**
  * Opaque queue mirror link. Queue UI remains ops/admin; this is projection only.
  */
 export function buildQueueHref(options = {}) {

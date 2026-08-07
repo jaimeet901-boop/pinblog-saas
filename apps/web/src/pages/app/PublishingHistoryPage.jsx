@@ -50,8 +50,38 @@ function accountLabel(item) {
 	return item.accountLabel || item.accountUsername || item.accountId || '—';
 }
 
-function boardLabel(item) {
-	return item.boardName || item.boardId || '—';
+function destinationLabel(item) {
+	return item.pageName || item.boardName || item.pageId || item.boardId || '—';
+}
+
+function historyContent(item) {
+	return item.post || item.pin || null;
+}
+
+function toCsv(rows, view) {
+	const destinationHeader = view.channel === 'facebook' ? 'page' : 'board';
+	const headers = [
+		'id', 'title', 'status', 'account', destinationHeader, 'websiteId',
+		'scheduledAt', 'publishedAt', 'externalPostUrl', 'lastError',
+	];
+	const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+	const lines = [headers.join(',')];
+	for (const item of rows) {
+		const content = historyContent(item);
+		lines.push([
+			item.id,
+			content?.title || '',
+			item.status,
+			accountLabel(item),
+			destinationLabel(item),
+			item.websiteId || '',
+			item.scheduledAt || '',
+			item.publishedAt || '',
+			externalPostUrl(item),
+			item.lastError || '',
+		].map(escape).join(','));
+	}
+	return `${lines.join('\n')}\n`;
 }
 
 function publishStamp(item) {
@@ -66,30 +96,6 @@ function downloadBlob(filename, content, type) {
 	anchor.download = filename;
 	anchor.click();
 	URL.revokeObjectURL(url);
-}
-
-function toCsv(rows) {
-	const headers = [
-		'id', 'title', 'status', 'account', 'board', 'websiteId',
-		'scheduledAt', 'publishedAt', 'pinterestPinUrl', 'lastError',
-	];
-	const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-	const lines = [headers.join(',')];
-	for (const item of rows) {
-		lines.push([
-			item.id,
-			item.pin?.title || '',
-			item.status,
-			accountLabel(item),
-			boardLabel(item),
-			item.websiteId || '',
-			item.scheduledAt || '',
-			item.publishedAt || '',
-			item.pinterestPinUrl || '',
-			item.lastError || '',
-		].map(escape).join(','));
-	}
-	return `${lines.join('\n')}\n`;
 }
 
 export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
@@ -219,9 +225,9 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 	const boardOptions = useMemo(() => {
 		const map = new Map();
 		for (const item of items) {
-			const key = item.boardId || boardLabel(item);
+			const key = item.pageId || item.boardId || destinationLabel(item);
 			if (!key || key === '—') continue;
-			map.set(key, boardLabel(item));
+			map.set(key, destinationLabel(item));
 		}
 		return [...map.entries()];
 	}, [items]);
@@ -245,7 +251,7 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 				if (key !== accountFilter) return false;
 			}
 			if (boardFilter) {
-				const key = item.boardId || boardLabel(item);
+				const key = item.pageId || item.boardId || destinationLabel(item);
 				if (key !== boardFilter) return false;
 			}
 			if (websiteFilter && item.websiteId !== websiteFilter) return false;
@@ -270,10 +276,10 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 
 			if (!query) return true;
 			const haystack = [
-				item.pin?.title,
-				item.pin?.description,
+				historyContent(item)?.title,
+				historyContent(item)?.description,
 				accountLabel(item),
-				boardLabel(item),
+				destinationLabel(item),
 				item.websiteId,
 				item.status,
 				item.pinterestPinUrl,
@@ -362,7 +368,7 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 		if (exportFormat === 'json') {
 			downloadBlob('publishing-history.json', JSON.stringify(filteredItems, null, 2), 'application/json');
 		} else {
-			downloadBlob('publishing-history.csv', toCsv(filteredItems), 'text/csv;charset=utf-8');
+			downloadBlob('publishing-history.csv', toCsv(filteredItems, view), 'text/csv;charset=utf-8');
 		}
 		toast({ title: 'Exported', description: `${filteredItems.length} rows downloaded as ${exportFormat.toUpperCase()}.` });
 	};
@@ -422,8 +428,8 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 		const canPublishNow = item.status === 'scheduled' || item.status === 'failed';
 		const canCopy = Boolean(externalPostUrl(item));
 		const canOpenPost = Boolean(externalPostUrl(item));
-		const canOpenArticle = Boolean(item.pin?.destinationUrl || item.destinationUrl);
-		const articleUrl = item.pin?.destinationUrl || item.destinationUrl || '';
+		const canOpenArticle = Boolean(historyContent(item)?.destinationUrl || item.destinationUrl);
+		const articleUrl = historyContent(item)?.destinationUrl || item.destinationUrl || '';
 
 		return (
 			<div className="pub-row-actions" onClick={(e) => e.stopPropagation()}>
@@ -661,17 +667,17 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 												onClick={() => setSelectedId(item.id)}
 											>
 												<td>
-													{item.pin?.imageUrl ? (
-														<img className="pub-thumb" src={item.pin.imageUrl} alt="" loading="lazy" decoding="async" />
+													{historyContent(item)?.imageUrl ? (
+														<img className="pub-thumb" src={historyContent(item).imageUrl} alt="" loading="lazy" decoding="async" />
 													) : (
 														<span className="pub-thumb-fallback"><PreviewIcon size={14} /></span>
 													)}
 												</td>
 												<td>
-													<p className="max-w-[12rem] truncate font-medium">{item.pin?.title || view.untitledFallback}</p>
+													<p className="max-w-[12rem] truncate font-medium">{historyContent(item)?.title || view.untitledFallback}</p>
 												</td>
 												<td><span className="max-w-[8rem] truncate block">{accountLabel(item)}</span></td>
-												<td><span className="max-w-[8rem] truncate block">{boardLabel(item)}</span></td>
+												<td><span className="max-w-[8rem] truncate block">{destinationLabel(item)}</span></td>
 												<td><span className="max-w-[7rem] truncate block">{item.websiteId || '—'}</span></td>
 												<td className="whitespace-nowrap text-muted-foreground">
 													{publishStamp(item) ? new Date(publishStamp(item)).toLocaleString() : '—'}
@@ -693,14 +699,14 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 										onClick={() => setSelectedId(item.id)}
 									>
 										<div className="flex gap-3">
-											{item.pin?.imageUrl ? (
-												<img className="pub-thumb" src={item.pin.imageUrl} alt="" loading="lazy" decoding="async" />
+											{historyContent(item)?.imageUrl ? (
+												<img className="pub-thumb" src={historyContent(item).imageUrl} alt="" loading="lazy" decoding="async" />
 											) : (
 												<span className="pub-thumb-fallback"><PreviewIcon size={14} /></span>
 											)}
 											<div className="min-w-0 flex-1 text-left">
-												<p className="truncate text-sm font-semibold">{item.pin?.title || view.untitledFallback}</p>
-												<p className="mt-0.5 truncate text-xs text-muted-foreground">{boardLabel(item)} · {accountLabel(item)}</p>
+												<p className="truncate text-sm font-semibold">{historyContent(item)?.title || view.untitledFallback}</p>
+												<p className="mt-0.5 truncate text-xs text-muted-foreground">{destinationLabel(item)} · {accountLabel(item)}</p>
 												<div className="mt-2"><Badge tone={statusTone(item.status)}>{formatStatus(item.status)}</Badge></div>
 											</div>
 										</div>
@@ -729,22 +735,22 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 					) : (
 						<>
 							<div className="pub-preview">
-								{selected.pin?.imageUrl ? (
-									<img src={selected.pin.imageUrl} alt={selected.pin?.title || `${view.itemSingular} preview`} loading="lazy" decoding="async" />
+								{historyContent(selected)?.imageUrl ? (
+									<img src={historyContent(selected).imageUrl} alt={historyContent(selected)?.title || `${view.itemSingular} preview`} loading="lazy" decoding="async" />
 								) : (
 									<div className="pub-preview__empty"><PreviewIcon size={28} /></div>
 								)}
 							</div>
 
 							<div>
-								<p className="font-display text-lg font-semibold leading-snug">{selected.pin?.title || view.untitledFallback}</p>
+								<p className="font-display text-lg font-semibold leading-snug">{historyContent(selected)?.title || view.untitledFallback}</p>
 								<div className="mt-2"><Badge tone={statusTone(selected.status)}>{formatStatus(selected.status)}</Badge></div>
 							</div>
 
 							<div className="pub-meta">
 								<div className="pub-meta__row"><span>Website</span><span>{selected.websiteId || '—'}</span></div>
 								<div className="pub-meta__row"><span>{view.accountMetaLabel}</span><span>{accountLabel(selected)}</span></div>
-								<div className="pub-meta__row"><span>{view.destinationFilterLabel}</span><span>{boardLabel(selected)}</span></div>
+								<div className="pub-meta__row"><span>{view.destinationFilterLabel}</span><span>{destinationLabel(selected)}</span></div>
 								<div className="pub-meta__row">
 									<span>Publish time</span>
 									<span>{selected.publishedAt ? new Date(selected.publishedAt).toLocaleString() : (selected.scheduledAt ? new Date(selected.scheduledAt).toLocaleString() : '—')}</span>
@@ -762,7 +768,7 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 
 							<div>
 								<p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Prompt / overlay</p>
-								<div className="pub-box">{selected.pin?.overlayText || selected.pin?.description || 'No prompt text on this job.'}</div>
+								<div className="pub-box">{historyContent(selected)?.overlayText || historyContent(selected)?.description || 'No prompt text on this job.'}</div>
 							</div>
 
 							<div>

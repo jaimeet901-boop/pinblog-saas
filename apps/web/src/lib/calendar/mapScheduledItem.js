@@ -12,17 +12,33 @@ import { PRODUCT_CALENDAR_STATUSES } from './productCalendarDefaults.js';
  */
 export function mapScheduledItemToCalendarEvent(item = {}) {
 	const links = item.deepLinks && typeof item.deepLinks === 'object' ? item.deepLinks : {};
+	const channel = String(item.channel || '').trim();
+	const isFacebook = channel === 'facebook';
 	const facadeId = String(item.id || '').trim();
 	const refId = String(item.refId || links.historyJobId || '').trim()
 		|| (facadeId.includes(':') ? facadeId.slice(facadeId.indexOf(':') + 1) : facadeId);
-	const title = String(item.title || 'Scheduled Pin').trim() || 'Scheduled Pin';
+	const defaultTitle = isFacebook ? 'Scheduled Post' : 'Scheduled Pin';
+	const title = String(item.title || defaultTitle).trim() || defaultTitle;
 	const previewUrl = String(item.previewUrl || '').trim();
 	const website = item.website && typeof item.website === 'object' ? item.website : null;
+	const pageId = String(links.pageId || '').trim();
+	const pageName = String(links.pageName || links.pageLabel || '').trim();
+	const boardId = String(links.boardId || (isFacebook ? pageId : '')).trim();
+	const boardName = String(links.boardName || (isFacebook ? pageName : '')).trim();
+	const studioItemId = String(links.studioItemId || links.studioPinId || '').trim();
+	const contentPreview = {
+		id: studioItemId,
+		title,
+		imageUrl: previewUrl,
+		description: links.description || '',
+		overlayText: links.overlayText || '',
+		destinationUrl: links.destinationUrl || '',
+	};
 
 	return {
 		id: refId,
 		facadeId,
-		channel: String(item.channel || '').trim(),
+		channel,
 		refType: String(item.refType || '').trim(),
 		refId,
 		status: String(item.status || 'scheduled').trim() || 'scheduled',
@@ -33,23 +49,21 @@ export function mapScheduledItemToCalendarEvent(item = {}) {
 		accountId: links.accountId || '',
 		accountLabel: links.accountLabel || '',
 		accountUsername: links.accountUsername || '',
-		boardId: links.boardId || '',
-		boardName: links.boardName || '',
+		boardId,
+		boardName,
+		pageId,
+		pageName,
 		pinterestPinUrl: links.liveUrl || '',
+		facebookPostUrl: isFacebook ? (links.liveUrl || '') : '',
 		destinationUrl: links.destinationUrl || '',
 		createdAt: links.createdAt || '',
 		actions: Array.isArray(item.actions) ? item.actions : [],
 		readOnly: item.readOnly !== false,
-		pin: {
-			id: links.studioPinId || '',
-			title,
-			imageUrl: previewUrl,
-			description: links.description || '',
-			overlayText: links.overlayText || '',
-			destinationUrl: links.destinationUrl || '',
-		},
+		pin: contentPreview,
+		post: isFacebook ? contentPreview : undefined,
 		studioHref: String(links.studioHref || '').trim(),
-		studioPinId: String(links.studioPinId || '').trim(),
+		studioPinId: studioItemId,
+		studioItemId,
 		// C8 opaque projections (no UI redesign — pass-through only).
 		analyticsHref: String(links.analyticsHref || '').trim(),
 		historyHref: String(links.historyHref || '').trim(),

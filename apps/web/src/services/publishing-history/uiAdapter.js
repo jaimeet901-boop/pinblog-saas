@@ -81,10 +81,12 @@ export function toFacebookPublishingHistoryUiRow(item) {
 	const externalPostUrl = asText(destination.externalUrl) || asText(payload.facebookPostUrl);
 	const pageId = asText(destination.targetId) || asText(payload.pageId);
 	const pageName = asText(destination.targetLabel) || asText(payload.pageName);
+	const studioItemId = asText(item.contentId) || asText(pinPayload?.id);
 
 	return {
 		id: jobId,
-		aiPinId: asText(item.contentId) || asText(pinPayload?.id),
+		aiPinId: studioItemId,
+		studioItemId,
 		accountId: asText(destination.accountId),
 		accountLabel: asText(destination.accountLabel) || asText(payload.accountLabel),
 		accountUsername: asText(payload.accountUsername),
@@ -111,6 +113,7 @@ export function toFacebookPublishingHistoryUiRow(item) {
 		createdAt: item.createdAt || '',
 		updatedAt: item.updatedAt || '',
 		pin,
+		post: pin,
 	};
 }
 
