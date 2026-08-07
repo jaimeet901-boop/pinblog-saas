@@ -1,5 +1,6 @@
 import { ExternalLink, X } from 'lucide-react';
 import { Button, Card } from '@/components/kit';
+import FacebookFeedPreviewCard from '@/components/ai-pins/FacebookFeedPreviewCard';
 
 export default function PreviewPinModal({
 	open,
@@ -9,6 +10,7 @@ export default function PreviewPinModal({
 	onSchedule,
 	publishing = false,
 	labels = null,
+	previewVariant = 'pinterest',
 }) {
 	if (!open || !preview) return null;
 
@@ -16,9 +18,11 @@ export default function PreviewPinModal({
 		previewTitle: 'Preview pin',
 		destination: 'Board',
 		account: 'Account',
+		previewDefaultPageName: 'Your Facebook Page',
 	};
 
 	const destinationUrl = preview.destinationUrl || preview.websiteUrl || preview.sourceUrl || '';
+	const isFacebookPreview = previewVariant === 'facebook';
 
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -31,15 +35,25 @@ export default function PreviewPinModal({
 					<button type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
 				</div>
 
-				<div className="overflow-hidden rounded-2xl border border-border bg-secondary">
-					<div className="aspect-[2/3] bg-muted">
-						{preview.imageUrl ? (
-							<img src={preview.imageUrl} alt={preview.title} className="h-full w-full object-cover" />
-						) : (
-							<div className="flex h-full items-center justify-center text-sm text-muted-foreground">No image</div>
-						)}
+				{isFacebookPreview ? (
+					<FacebookFeedPreviewCard
+						title={preview.title || ''}
+						description={preview.description || ''}
+						imageUrl={preview.imageUrl || ''}
+						pageName={preview.boardName || L.previewDefaultPageName}
+						linkUrl={destinationUrl}
+					/>
+				) : (
+					<div className="overflow-hidden rounded-2xl border border-border bg-secondary">
+						<div className="aspect-[2/3] bg-muted">
+							{preview.imageUrl ? (
+								<img src={preview.imageUrl} alt={preview.title} className="h-full w-full object-cover" />
+							) : (
+								<div className="flex h-full items-center justify-center text-sm text-muted-foreground">No image</div>
+							)}
+						</div>
 					</div>
-				</div>
+				)}
 
 				<div className="mt-4 space-y-3">
 					<div>

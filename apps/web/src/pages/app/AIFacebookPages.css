@@ -1,0 +1,53 @@
+/* Facebook-only studio identity overrides — scoped to AI Facebook Pages */
+
+.ai-facebook-atelier {
+	--primary: 214 89% 52%;
+	--ring: 214 89% 52%;
+}
+
+.ai-facebook-atelier .ai-pins-atelier__canvas::before {
+	content: 'Facebook Composer';
+	display: block;
+	margin-bottom: 0.35rem;
+	font-size: 0.68rem;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: hsl(var(--muted-foreground));
+}
+
+.ai-facebook-atelier .ai-pins-grid {
+	grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.ai-facebook-atelier .ai-pins-card__media {
+	aspect-ratio: auto;
+	min-height: 0;
+	background: transparent;
+	overflow: visible;
+}
+
+.ai-facebook-atelier .ai-pins-card__media > .fb-feed-preview,
+.ai-facebook-atelier .ai-pins-card__media > div > .fb-feed-preview {
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+.ai-facebook-atelier .ai-pins-skeleton__shine {
+	min-height: 14rem;
+	aspect-ratio: 16 / 9;
+}
+
+.ai-facebook-atelier .ai-pins-mode-tabs button.is-active {
+	background: #1877f2;
+	color: #fff;
+}
+
+.ai-facebook-atelier .ai-pins-template-step.has-selection {
+	border-color: hsl(214 89% 52% / 0.45);
+}
+
+.ai-facebook-atelier .ai-pins-progress > span {
+	background: linear-gradient(90deg, #1877f2, #42b72a);
+}

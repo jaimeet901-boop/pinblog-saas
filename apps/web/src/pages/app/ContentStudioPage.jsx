@@ -4,14 +4,14 @@ import {
 	Wand2, Sparkles, RefreshCw, Trash2, Pencil, Search, Globe, Send, CalendarClock,
 	CheckSquare, Square, Download, Image as ImageIcon, Images, Layers, Shuffle,
 	ChevronDown, History, LayoutTemplate, Palette, X, FileStack, PenLine, ListChecks,
-	Eye, Copy, ListPlus, Library,
+	Eye, Copy, ListPlus, Library, Share2,
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { generateText, extractJson } from '@/lib/aiGenerate';
 import { Badge, Button, Card, Empty, Input, Select, Spinner, Textarea } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
-import TemplatePreviewCard from '@/components/ai-pins/TemplatePreviewCard';
+import StudioPreviewCard from '@/components/ai-pins/StudioPreviewCard';
 import ArticlePreviewDrawer from '@/components/ai-pins/ArticlePreviewDrawer';
 import ManualArticleForm from '@/components/ai-pins/ManualArticleForm';
 import SchedulePinModal from '@/components/ai-pins/SchedulePinModal';
@@ -97,6 +97,7 @@ import {
 import { isPremiumGalleryTemplate } from '@/services/ai-pins/templateHydration';
 import { resolveGalleryThumbnail } from '@/services/templates/previewCache';
 import './AIPinsPage.css';
+import './AIFacebookPages.css';
 
 const CREATE_MODES = [
 	{ id: 'single', label: 'Single Page', icon: FileStack },
@@ -187,6 +188,8 @@ function mapArticleFromApi(item) {
 export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const L = product.labels;
 	const routes = product.routes;
+	const isFacebookStudio = product.destinationId === 'facebook';
+	const previewVariant = isFacebookStudio ? 'facebook' : 'pinterest';
 	const studioChannel = product.destinationId === 'facebook' ? 'facebook' : 'pinterest';
 	const { toast } = useToast();
 	const { platformName } = usePlatformIdentity();
@@ -560,6 +563,14 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				.some((value) => String(value).toLowerCase().includes(query));
 		});
 	}, [savedPins, pinFilter, pinSearch]);
+
+	const facebookPageName = useMemo(() => {
+		if (!isFacebookStudio) return L.previewDefaultPageName;
+		const board = boards.find((item) => item.boardId === selectedBoardId);
+		if (board?.name) return board.name;
+		const account = accounts.find((item) => item.id === selectedAccountId);
+		return account?.label || account?.accountName || account?.username || L.previewDefaultPageName;
+	}, [isFacebookStudio, boards, selectedBoardId, accounts, selectedAccountId, L.previewDefaultPageName]);
 
 	const failedPins = useMemo(
 		() => savedPins.filter((pin) => pin.status === 'failed'),
@@ -2538,7 +2549,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	};
 
 	return (
-		<div className="ai-pins-atelier">
+		<div className={`ai-pins-atelier${isFacebookStudio ? ' ai-facebook-atelier' : ''}`}>
 			<div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
 				<div>
 					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
@@ -2609,8 +2620,10 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				<aside className="ai-pins-atelier__rail p-4">
 					<div className="mb-4 flex items-start justify-between gap-2">
 						<div>
-							<h2 className="font-display text-xl font-semibold">Create</h2>
-							<p className="text-xs text-muted-foreground">{platformName} pin workflow</p>
+							<h2 className="font-display text-xl font-semibold">{L.composerSectionTitle}</h2>
+							<p className="text-xs text-muted-foreground">
+								{typeof L.workflowSubtitle === 'function' ? L.workflowSubtitle(platformName) : L.workflowSubtitle}
+							</p>
 						</div>
 						<span className="rounded-full bg-accent/20 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">
 							{(credits.ai?.remaining ?? 0)} credits
@@ -2647,7 +2660,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 									rows={5}
 									value={promptOnlyText}
 									onChange={(e) => setPromptOnlyText(e.target.value)}
-									placeholder="Describe the pin idea, mood, cuisine, and CTA…"
+									placeholder={L.promptPlaceholder}
 								/>
 								<Input
 									label={L.textOverlay}
@@ -2822,12 +2835,12 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 
 						<label className="flex items-center gap-2 text-sm">
 							<input type="checkbox" checked={includeWebsiteUrl} onChange={(e) => setIncludeWebsiteUrl(e.target.checked)} />
-							Include website URL on pin
+							{isFacebookStudio ? 'Include website URL on post' : 'Include website URL on pin'}
 						</label>
 
 						<div className="grid grid-cols-2 gap-3">
 							<Select label="Image type" value={imageType} onChange={(e) => setImageType(e.target.value)}>
-								<option value="pin">Pin</option>
+								<option value="pin">{isFacebookStudio ? 'Post' : 'Pin'}</option>
 								<option value="story">Story</option>
 								<option value="carousel">Carousel frame</option>
 							</Select>
@@ -2986,7 +2999,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 							{credits?.ai?.remaining != null ? ` · ${Math.max(0, Number((credits.ai.remaining - estimatedCredits).toFixed(2)))} left` : ''}.
 						</p>
 						<Button className="w-full" onClick={handleGenerate} disabled={generating || loadingArticles}>
-							{generating ? <Spinner className="h-4 w-4" /> : <Wand2 size={16} />}
+							{generating ? <Spinner className="h-4 w-4" /> : (isFacebookStudio ? <Share2 size={16} /> : <Wand2 size={16} />)}
 							{generating ? 'Generating…' : generateLabel}
 						</Button>
 					</div>
@@ -2996,7 +3009,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 					<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 						<div className="flex flex-wrap gap-1 rounded-xl border border-border bg-background/70 p-1">
 							{[
-								{ id: 'studio', label: 'Studio', icon: Sparkles },
+								{ id: 'studio', label: 'Studio', icon: isFacebookStudio ? Share2 : Sparkles },
 								{ id: 'library', label: 'Library', icon: Images },
 								{ id: 'queue', label: 'Queue', icon: ListChecks },
 							].map(({ id, label, icon: Icon }) => (
@@ -3043,17 +3056,37 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 											onClick={() => openInspectorForPreview(pin.tempId)}
 										>
 											<div className="ai-pins-card__media">
-												{pin.imageUrl ? (
-													<img src={pin.imageUrl} alt={pin.title} loading="lazy" decoding="async" />
-												) : pin.imageGenerationStatus === 'failed' ? (
+												{pin.imageGenerationStatus === 'failed' ? (
 													<div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground">
 														<ImageIcon size={22} />
 														<p className="text-xs font-medium text-destructive">Image failed</p>
 														<p className="text-[11px]">{pin.imageGenerationError || 'Retry generation'}</p>
 													</div>
+												) : isFacebookStudio ? (
+													<StudioPreviewCard
+														variant={previewVariant}
+														compact
+														imageUrl={pin.imageUrl || ''}
+														featuredImageUrl={pin.featuredImage || ''}
+														logoUrl={selectedBrandKit?.logoUrl || ''}
+														pageName={pin.boardName || facebookPageName}
+														linkUrl={pin.sourceUrl || pin.articleUrl || pin.website || pin.destinationUrl || ''}
+														context={{
+															title: pin.title,
+															subtitle: pin.subtitle,
+															description: pin.description,
+															category: pin.category,
+															website: pin.website,
+															author: pin.author,
+															overlayText: pin.overlayText,
+														}}
+													/>
+												) : pin.imageUrl ? (
+													<img src={pin.imageUrl} alt={pin.title} loading="lazy" decoding="async" />
 												) : pin.templateConfig ? (
 													<div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
-														<TemplatePreviewCard
+														<StudioPreviewCard
+															variant={previewVariant}
 															config={pin.templateConfig}
 															featuredImageUrl={pin.featuredImage || ''}
 															logoUrl={selectedBrandKit?.logoUrl || ''}
@@ -3101,9 +3134,9 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 							) : (
 								<div className="flex min-h-[28rem] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/40 px-6 text-center">
 									<div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-										<Wand2 size={28} />
+										{isFacebookStudio ? <Share2 size={28} /> : <Wand2 size={28} />}
 									</div>
-									<h3 className="font-display text-2xl font-semibold">Your pin canvas is ready</h3>
+									<h3 className="font-display text-2xl font-semibold">{L.canvasReadyTitle}</h3>
 									<p className="mt-2 max-w-md text-sm text-muted-foreground">
 										{L.emptyCanvas}
 									</p>
@@ -3181,7 +3214,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 											await handleSaveEdit(inspectorPin);
 											return;
 										}
-										toast({ title: 'Drafts', description: 'Generate pins in Studio then Save Draft, or edit a library pin and save.' });
+										toast({ title: 'Drafts', description: L.saveDraftHint });
 									}} disabled={savingGenerated}>
 										{savingGenerated ? <Spinner className="h-3.5 w-3.5" /> : null} Save Draft
 									</Button>
@@ -3193,7 +3226,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 
 							<div className="mb-3 flex flex-wrap items-center gap-2">
 								<select className="rounded-xl border border-input bg-background px-3 py-2 text-xs" value={pinFilter} onChange={(e) => setPinFilter(e.target.value)}>
-									<option value="all">All pins</option>
+									<option value="all">{L.filterAllItems}</option>
 									<option value="draft">Drafts</option>
 									<option value="scheduled">Scheduled</option>
 									<option value="published">Published</option>
@@ -3210,13 +3243,13 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 								</div>
 								<Button size="sm" variant="outline" onClick={selectAllDraftPins}><CheckSquare size={13} /> Select drafts</Button>
 								<Button size="sm" variant="ghost" onClick={clearDraftPinSelection}><Square size={13} /> Clear</Button>
-								{loadingPins ? <Spinner className="h-4 w-4" /> : <span className="text-xs text-muted-foreground">{filteredSavedPins.length} pins</span>}
+								{loadingPins ? <Spinner className="h-4 w-4" /> : <span className="text-xs text-muted-foreground">{L.itemCountLabel(filteredSavedPins.length)}</span>}
 							</div>
 
 							{filteredSavedPins.length === 0 ? (
 								<Empty
-									icon={Sparkles}
-									title="No pins yet for this website"
+									icon={isFacebookStudio ? Share2 : Sparkles}
+									title={L.libraryEmptyTitle}
 									subtitle={L.libraryEmpty}
 									action={(
 										<Button
@@ -3252,7 +3285,22 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 													/>
 												</div>
 												<div className="ai-pins-card__media">
-													{pin.imageUrl ? (
+													{isFacebookStudio ? (
+														<StudioPreviewCard
+															variant={previewVariant}
+															compact
+															imageUrl={pin.imageUrl || ''}
+															featuredImageUrl={pin.featuredImage || ''}
+															logoUrl={selectedBrandKit?.logoUrl || ''}
+															pageName={pin.boardName || facebookPageName}
+															linkUrl={pin.sourceUrl || pin.articleUrl || pin.website || pin.destinationUrl || ''}
+															context={{
+																title: pin.title,
+																description: pin.description,
+																website: pin.website,
+															}}
+														/>
+													) : pin.imageUrl ? (
 														<img src={pin.imageUrl} alt={pin.title} loading="lazy" decoding="async" />
 													) : (
 														<div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground">
@@ -3290,7 +3338,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 								<p className="mt-1 text-xs text-muted-foreground">
 									Slots follow Workspace Config: {publishingConfig.timezone}, {publishingConfig.dailyLimit}/day,
 									{' '}every {publishingConfig.intervalMinutes}m, windows {publishingConfig.publishingWindows.map((w) => `${w.start}–${w.end}`).join(', ')},
-									{' '}retry {publishingConfig.retryPolicy.raw}. Scheduled pins appear on Calendar automatically.
+									{' '}retry {publishingConfig.retryPolicy.raw}. Scheduled {L.itemLowerPlural} appear on Calendar automatically.
 								</p>
 								<div className="mt-3 flex flex-wrap gap-2">
 									<Button size="sm" type="button" onClick={() => handleAddToQueue()} disabled={queueing || draftPins.length === 0 || accounts.length === 0}>
@@ -3302,7 +3350,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 								</div>
 							</div>
 							{failedPins.length === 0 && savedPins.filter((pin) => pin.status === 'scheduled' || pin.status === 'publishing').length === 0 ? (
-								<Empty icon={ListChecks} title="Queue is clear" subtitle="Failed or scheduled pins will appear here." />
+								<Empty icon={ListChecks} title="Queue is clear" subtitle={L.queueEmptySubtitle} />
 							) : (
 								<div className="space-y-3">
 									{savedPins.filter((pin) => pin.status === 'failed' || pin.status === 'scheduled' || pin.status === 'publishing').map((pin) => (
@@ -3350,12 +3398,31 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						</div>
 
 						<div className="mb-4 overflow-hidden rounded-2xl border border-border">
-							<div className={`${inspectorPreviewAspectClass} bg-secondary`}>
-								{inspectorPin.imageUrl ? (
+							<div className={`${isFacebookStudio ? '' : inspectorPreviewAspectClass} bg-secondary`}>
+								{isFacebookStudio ? (
+									<StudioPreviewCard
+										variant={previewVariant}
+										imageUrl={inspectorPin.imageUrl || ''}
+										featuredImageUrl={inspectorPin.featuredImage || ''}
+										logoUrl={selectedBrandKit?.logoUrl || ''}
+										pageName={inspectorPin.boardName || facebookPageName}
+										linkUrl={inspectorPin.sourceUrl || inspectorPin.articleUrl || inspectorPin.website || inspectorPin.destinationUrl || ''}
+										context={{
+											title: inspectorPin.title,
+											subtitle: inspectorPin.subtitle,
+											description: inspectorPin.description,
+											category: inspectorPin.category,
+											website: inspectorPin.website,
+											author: inspectorPin.author,
+											overlayText: inspectorPin.overlayText,
+										}}
+									/>
+								) : inspectorPin.imageUrl ? (
 									<img src={inspectorPin.imageUrl} alt={inspectorPin.title} className="h-full w-full object-cover" />
 								) : inspectorPin.templateConfig ? (
 									<div className="p-2">
-										<TemplatePreviewCard
+										<StudioPreviewCard
+											variant={previewVariant}
 											config={inspectorPin.templateConfig}
 											featuredImageUrl={inspectorPin.featuredImage || ''}
 											logoUrl={selectedBrandKit?.logoUrl || ''}
@@ -3527,6 +3594,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				onClose={() => setPreviewModal(null)}
 				publishing={publishing}
 				labels={L}
+				previewVariant={previewVariant}
 				onPublish={() => {
 					const pin = savedPins.find((item) => item.id === previewModal?.id);
 					setPreviewModal(null);
