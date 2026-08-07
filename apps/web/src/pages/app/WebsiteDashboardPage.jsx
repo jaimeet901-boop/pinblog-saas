@@ -10,6 +10,10 @@ import {
 	setWordPressSkipped,
 	setupStepMessage,
 } from '@/lib/websites/websiteLifecycle';
+import {
+	buildFacebookStudioHref,
+	fetchFacebookStudioProgress,
+} from '@/lib/websites/facebookDashboardProgress';
 import { usePinterestConnected } from '@/hooks/usePinterestConnected';
 import SetupProgressCard from '@/components/websites/SetupProgressCard';
 import OperateStatusStrip from '@/components/websites/OperateStatusStrip';
@@ -119,6 +123,31 @@ function SkeletonBlock({ className = '' }) {
 	return <div className={`animate-pulse rounded-md bg-secondary ${className}`} />;
 }
 
+const FACEBOOK_SETUP_STAGE = { id: 'facebook_posts', label: 'Generate First Facebook Post' };
+
+function augmentLifecycleWithFacebook(lifecycle, hasFacebookPost) {
+	const pinsIndex = lifecycle.stages.findIndex((stage) => stage.id === 'pins');
+	const stages = [...lifecycle.stages];
+	const facebookStage = { ...FACEBOOK_SETUP_STAGE, done: hasFacebookPost };
+
+	if (pinsIndex >= 0) {
+		stages.splice(pinsIndex + 1, 0, facebookStage);
+	} else {
+		stages.push(facebookStage);
+	}
+
+	const doneCount = stages.filter((stage) => stage.done).length;
+
+	return {
+		...lifecycle,
+		stages,
+		checklist: stages,
+		doneCount,
+		totalStages: stages.length,
+		hasFacebookPost,
+	};
+}
+
 function DashboardLoadingSkeleton() {
 	return (
 		<div>
@@ -189,6 +218,12 @@ export default function WebsiteDashboardPage() {
 	const [publishing, setPublishing] = useState(false);
 	const [scanMessages, setScanMessages] = useState([]);
 	const [scanSummary, setScanSummary] = useState(null);
+	const [hasFacebookPost, setHasFacebookPost] = useState(false);
+
+	const refreshFacebookProgress = async (id = websiteId) => {
+		const done = await fetchFacebookStudioProgress(apiServerClient, id);
+		setHasFacebookPost(done);
+	};
 
 	const loadWebsite = async ({ silent = false } = {}) => {
 		if (!silent) {
@@ -208,12 +243,14 @@ export default function WebsiteDashboardPage() {
 				setWebsite(fallbackData);
 				setDashboard(null);
 				setScanSummary(fallbackData.last_scan_summary || null);
+				void refreshFacebookProgress(websiteId);
 				return;
 			}
 
 			setWebsite(data.website);
 			setDashboard(data.dashboard || null);
 			setScanSummary(data.website?.last_scan_summary || null);
+			void refreshFacebookProgress(websiteId);
 		} catch (error) {
 			if (!silent) {
 				setWebsite(null);
@@ -466,7 +503,7 @@ export default function WebsiteDashboardPage() {
 	const recentErrors = widgets.recentErrors || errorLogs;
 	const upcomingScheduled = widgets.upcomingScheduled || [];
 	const websiteResources = widgets.websiteResources || storageUsage;
-	const lifecycle = deriveWebsiteLifecycle({
+	const lifecycle = augmentLifecycleWithFacebook(deriveWebsiteLifecycle({
 		...website,
 		control: {
 			wordpress: dashboard?.wordpress || website.control?.wordpress,
@@ -476,7 +513,7 @@ export default function WebsiteDashboardPage() {
 		stats: { ...stats, ...controlStats, publishedPins: controlStats.publishedPins, aiPins: aiGeneration.totalPins },
 		performance,
 		dashboard,
-	}, { pinterestConnected });
+	}, { pinterestConnected }), hasFacebookPost);
 	void lifecycleTick;
 	const isSetup = lifecycle.mode === 'setup';
 	const showSetupGuide = isSetup || lifecycle.step === 'analytics';
@@ -543,6 +580,14 @@ export default function WebsiteDashboardPage() {
 					<SetupProgressCard
 						lifecycle={lifecycle}
 						primaryBusy={scanning}
+						companionPrimary={
+							lifecycle.primaryLabel === 'Create AI Pin'
+								? {
+									label: 'Create Facebook Post',
+									onClick: () => navigate(buildFacebookStudioHref(website.id)),
+								}
+								: null
+						}
 						onPrimary={() => {
 							if (lifecycle.step === 'wordpress' || searchParams.get('setup') === 'wordpress') {
 								navigate('/app/websites', { state: { openWebsiteSettings: website.id } });

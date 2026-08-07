@@ -10,6 +10,7 @@ export default function SetupProgressCard({
 	lifecycle,
 	onPrimary,
 	onSecondary,
+	companionPrimary = null,
 	primaryBusy = false,
 	className = '',
 	compact = false,
@@ -43,6 +44,7 @@ export default function SetupProgressCard({
 				{stages.map((item) => {
 					const current = item.id === lifecycle.step
 						|| (lifecycle.step === 'articles' && item.id === 'pins' && !lifecycle.hasPin)
+						|| (lifecycle.step === 'articles' && item.id === 'facebook_posts' && !lifecycle.hasFacebookPost)
 						|| (lifecycle.step === 'scan' && item.id === 'scan');
 					return (
 						<li
@@ -59,6 +61,11 @@ export default function SetupProgressCard({
 				<Button size="sm" onClick={onPrimary} disabled={primaryBusy}>
 					{primaryBusy ? 'Working…' : lifecycle.primaryLabel}
 				</Button>
+				{companionPrimary ? (
+					<Button size="sm" onClick={companionPrimary.onClick} disabled={primaryBusy || companionPrimary.disabled}>
+						{companionPrimary.label}
+					</Button>
+				) : null}
 				{lifecycle.secondaryLabel && onSecondary ? (
 					<Button size="sm" variant="ghost" onClick={onSecondary}>
 						{lifecycle.secondaryLabel}
