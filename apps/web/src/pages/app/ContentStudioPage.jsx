@@ -188,14 +188,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const L = product.labels;
 	const routes = product.routes;
 	const studioChannel = product.destinationId === 'facebook' ? 'facebook' : 'pinterest';
-	const studioAssets = useMemo(() => resolveStudioAssets(product, config), [product, config]);
-	const destination = getDestinationAdapter(product.destinationId);
-	const destinationCaps = destination.channelCapabilities || {
-		schedule: true,
-		publishNow: true,
-		queueImplemented: true,
-	};
-	const showPublishingHistory = destinationCaps.publishingHistory !== false;
 	const { toast } = useToast();
 	const { platformName } = usePlatformIdentity();
 	const navigate = useNavigate();
@@ -210,6 +202,14 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		refresh: refreshWorkspaceConfig,
 		isFeatureEnabled,
 	} = useWorkspaceConfig();
+	const studioAssets = useMemo(() => resolveStudioAssets(product, config), [product, config]);
+	const destination = getDestinationAdapter(product.destinationId);
+	const destinationCaps = destination.channelCapabilities || {
+		schedule: true,
+		publishNow: true,
+		queueImplemented: true,
+	};
+	const showPublishingHistory = destinationCaps.publishingHistory !== false;
 
 	const previousStatusesRef = useRef(new Map());
 	const defaultsAppliedRef = useRef(false);
