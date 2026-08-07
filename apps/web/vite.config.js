@@ -389,6 +389,7 @@ export default defineConfig({
 	},
 	resolve: {
 		extensions: ['.jsx', '.js', '.json'],
+		dedupe: ['react', 'react-dom', 'react-router', 'react-router-dom'],
 		alias: {
 			'@': path.resolve(__dirname, './src'),
 		},

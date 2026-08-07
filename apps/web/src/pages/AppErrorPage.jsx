@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { Button } from '@/components/kit';
 
 export default function AppErrorPage() {
@@ -11,9 +10,9 @@ export default function AppErrorPage() {
 			</p>
 			<div className="mt-6 flex gap-2">
 				<Button variant="outline" onClick={() => window.location.reload()}>Refresh</Button>
-				<Link to="/app">
+				<a href="/app">
 					<Button>Go to dashboard</Button>
-				</Link>
+				</a>
 			</div>
 		</div>
 	);

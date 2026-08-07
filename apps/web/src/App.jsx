@@ -35,6 +35,7 @@ const AIPinsPage = lazy(() => import('@/pages/app/AIPinsPage'));
 const AIFacebookPagesPage = lazy(() => import('@/pages/app/AIFacebookPagesPage'));
 const AIFacebookPagesHistoryPage = lazy(() => import('@/pages/app/AIFacebookPagesHistoryPage'));
 const AIFacebookPagesTemplatesPage = lazy(() => import('@/pages/app/AIFacebookPagesTemplatesPage'));
+const AIFacebookPagesBrandKitPage = lazy(() => import('@/pages/app/AIFacebookPagesBrandKitPage'));
 const AIFacebookPagesPublishingHistoryPage = lazy(() => import('@/pages/app/AIFacebookPagesPublishingHistoryPage'));
 const FacebookPage = lazy(() => import('@/pages/app/FacebookPage'));
 const TemplatesPage = lazy(() => import('@/pages/app/TemplatesPage'));
