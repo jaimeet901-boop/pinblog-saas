@@ -216,8 +216,10 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 
 	const previousStatusesRef = useRef(new Map());
 	const defaultsAppliedRef = useRef(false);
+	const articleIdFromQueryAppliedRef = useRef(false);
 	const [searchParams] = useSearchParams();
 	const preferredWebsiteId = String(searchParams.get('websiteId') || '').trim();
+	const preferredArticleId = String(searchParams.get('articleId') || '').trim();
 	const setupPublish = searchParams.get('setup') === 'publish';
 	const openManualFromQuery = searchParams.get('manual') === '1';
 	const openPinIdFromQuery = String(searchParams.get('pinId') || '').trim();
@@ -874,6 +876,15 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		setEditingPinId(openPinIdFromQuery);
 		setSelectedPreviewTempId('');
 	}, [openPinIdFromQuery, savedPins, loadingPins]);
+
+	// Website Articles / deep-link: pre-select article when articleId is present.
+	useEffect(() => {
+		if (!preferredArticleId || articleIdFromQueryAppliedRef.current || loadingArticles) return;
+		if (!articles.some((article) => article.id === preferredArticleId)) return;
+		setActiveArticleId(preferredArticleId);
+		setCreateMode('single');
+		articleIdFromQueryAppliedRef.current = true;
+	}, [preferredArticleId, articles, loadingArticles]);
 
 	useEffect(() => {
 		loadBoards();

@@ -23,6 +23,15 @@ async function readJson(response) {
 	return response.json().catch(() => ({}));
 }
 
+function buildStudioHref(studioPath, websiteId, articleId = '') {
+	const params = new URLSearchParams();
+	params.set('websiteId', String(websiteId || ''));
+	if (articleId) {
+		params.set('articleId', String(articleId));
+	}
+	return `${studioPath}?${params.toString()}`;
+}
+
 export default function WebsiteArticlesPage() {
 	const { websiteId } = useParams();
 	const navigate = useNavigate();
@@ -159,7 +168,10 @@ export default function WebsiteArticlesPage() {
 									<p className="text-sm font-medium">Ready for your first AI Pin</p>
 									<p className="text-xs text-muted-foreground">{articlesData.totalArticles || articlesData.items.length} articles discovered for this website.</p>
 								</div>
-								<Button size="sm" onClick={() => navigate(`/app/ai-pins?websiteId=${encodeURIComponent(websiteId)}`)}>Create AI Pin</Button>
+								<div className="flex flex-wrap gap-2">
+									<Button size="sm" onClick={() => navigate(buildStudioHref('/app/ai-pins', websiteId))}>Create AI Pin</Button>
+									<Button size="sm" onClick={() => navigate(buildStudioHref('/app/ai-facebook-pages', websiteId))}>Create Facebook Post</Button>
+								</div>
 							</div>
 						) : null}
 						<Table>
@@ -193,9 +205,16 @@ export default function WebsiteArticlesPage() {
 												<Button
 													size="sm"
 													variant="outline"
-													onClick={() => navigate(`/app/ai-pins?websiteId=${encodeURIComponent(websiteId)}`)}
+													onClick={() => navigate(buildStudioHref('/app/ai-pins', websiteId))}
 												>
 													Create AI Pin
+												</Button>
+												<Button
+													size="sm"
+													variant="outline"
+													onClick={() => navigate(buildStudioHref('/app/ai-facebook-pages', websiteId, article.id))}
+												>
+													Create Facebook Post
 												</Button>
 												{article.url ? (
 													<a href={article.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
