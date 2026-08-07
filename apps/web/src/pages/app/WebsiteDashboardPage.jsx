@@ -123,27 +123,10 @@ function SkeletonBlock({ className = '' }) {
 	return <div className={`animate-pulse rounded-md bg-secondary ${className}`} />;
 }
 
-const FACEBOOK_SETUP_STAGE = { id: 'facebook_posts', label: 'Generate First Facebook Post' };
-
 function augmentLifecycleWithFacebook(lifecycle, hasFacebookPost) {
-	const pinsIndex = lifecycle.stages.findIndex((stage) => stage.id === 'pins');
-	const stages = [...lifecycle.stages];
-	const facebookStage = { ...FACEBOOK_SETUP_STAGE, done: hasFacebookPost };
-
-	if (pinsIndex >= 0) {
-		stages.splice(pinsIndex + 1, 0, facebookStage);
-	} else {
-		stages.push(facebookStage);
-	}
-
-	const doneCount = stages.filter((stage) => stage.done).length;
-
 	return {
 		...lifecycle,
-		stages,
-		checklist: stages,
-		doneCount,
-		totalStages: stages.length,
+		facebookSetupEnabled: true,
 		hasFacebookPost,
 	};
 }
@@ -580,14 +563,7 @@ export default function WebsiteDashboardPage() {
 					<SetupProgressCard
 						lifecycle={lifecycle}
 						primaryBusy={scanning}
-						companionPrimary={
-							lifecycle.primaryLabel === 'Create AI Pin'
-								? {
-									label: 'Create Facebook Post',
-									onClick: () => navigate(buildFacebookStudioHref(website.id)),
-								}
-								: null
-						}
+						onFacebookPrimary={() => navigate(buildFacebookStudioHref(website.id))}
 						onPrimary={() => {
 							if (lifecycle.step === 'wordpress' || searchParams.get('setup') === 'wordpress') {
 								navigate('/app/websites', { state: { openWebsiteSettings: website.id } });

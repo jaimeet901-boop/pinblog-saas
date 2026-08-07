@@ -2,6 +2,49 @@ import { Button, Card } from '@/components/kit';
 import { setupStepMessage, setupStepWhy } from '@/lib/websites/websiteLifecycle';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 
+const FACEBOOK_SETUP_STAGE = { id: 'facebook_posts', label: 'Generate First Facebook Post' };
+
+function resolveSetupStages(lifecycle) {
+	const baseStages = lifecycle.stages || lifecycle.checklist || [];
+	if (!lifecycle.facebookSetupEnabled) {
+		return baseStages;
+	}
+
+	if (baseStages.some((stage) => stage.id === 'facebook_posts')) {
+		return baseStages;
+	}
+
+	const pinsIndex = baseStages.findIndex((stage) => stage.id === 'pins');
+	const stages = [...baseStages];
+	const facebookStage = {
+		...FACEBOOK_SETUP_STAGE,
+		done: Boolean(lifecycle.hasFacebookPost),
+	};
+
+	if (pinsIndex >= 0) {
+		stages.splice(pinsIndex + 1, 0, facebookStage);
+	} else {
+		stages.push(facebookStage);
+	}
+
+	return stages;
+}
+
+const CONTENT_SETUP_STEPS = new Set(['articles', 'pinterest', 'publish']);
+
+function shouldShowFacebookPrimary(lifecycle, onFacebookPrimary) {
+	if (!lifecycle.facebookSetupEnabled || typeof onFacebookPrimary !== 'function') {
+		return false;
+	}
+
+	if (!lifecycle.hasArticles) {
+		return false;
+	}
+
+	// Content-creation setup: show alongside primary CTA until publish completes setup.
+	return lifecycle.mode === 'setup' && CONTENT_SETUP_STEPS.has(lifecycle.step);
+}
+
 /**
  * Guided Website Setup progress card (Phase 1).
  * One primary CTA; optional secondary for Skip / review.
@@ -10,7 +53,7 @@ export default function SetupProgressCard({
 	lifecycle,
 	onPrimary,
 	onSecondary,
-	companionPrimary = null,
+	onFacebookPrimary,
 	primaryBusy = false,
 	className = '',
 	compact = false,
@@ -21,7 +64,10 @@ export default function SetupProgressCard({
 		return null;
 	}
 
-	const stages = lifecycle.stages || lifecycle.checklist || [];
+	const stages = resolveSetupStages(lifecycle);
+	const doneCount = stages.filter((stage) => stage.done).length;
+	const totalStages = stages.length;
+	const showFacebookPrimary = shouldShowFacebookPrimary(lifecycle, onFacebookPrimary);
 	const why = setupStepWhy(lifecycle.step, platformName);
 	const title = lifecycle.mode === 'operate' && lifecycle.step === 'analytics'
 		? 'First pin published'
@@ -36,7 +82,7 @@ export default function SetupProgressCard({
 					{why ? <p className="mt-1 text-xs text-muted-foreground">{why}</p> : null}
 				</div>
 				<p className="text-xs text-muted-foreground">
-					{lifecycle.doneCount}/{lifecycle.totalStages || stages.length} complete
+					{doneCount}/{totalStages} complete
 				</p>
 			</div>
 
@@ -61,9 +107,9 @@ export default function SetupProgressCard({
 				<Button size="sm" onClick={onPrimary} disabled={primaryBusy}>
 					{primaryBusy ? 'Working…' : lifecycle.primaryLabel}
 				</Button>
-				{companionPrimary ? (
-					<Button size="sm" onClick={companionPrimary.onClick} disabled={primaryBusy || companionPrimary.disabled}>
-						{companionPrimary.label}
+				{showFacebookPrimary ? (
+					<Button size="sm" onClick={onFacebookPrimary} disabled={primaryBusy}>
+						Create Facebook Post
 					</Button>
 				) : null}
 				{lifecycle.secondaryLabel && onSecondary ? (
