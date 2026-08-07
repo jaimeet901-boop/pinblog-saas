@@ -26,7 +26,7 @@ import {
 	retryFacebookJob,
 } from '@/services/ai-facebook';
 import apiServerClient from '@/lib/apiServerClient';
-import './PinterestPage.css';
+import './AIFacebookPages.css';
 
 async function readApiError(response) {
 	try {
@@ -404,7 +404,7 @@ export default function FacebookPage() {
 	}, [analytics, pages, connectedCount]);
 
 	return (
-		<div className="ai-pins-atelier">
+		<div className="ai-pins-atelier ai-facebook-atelier fb-hub">
 			<div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
 					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
@@ -430,7 +430,7 @@ export default function FacebookPage() {
 			</div>
 
 			{(setupMode || connectedCount === 0) && (
-				<div className="mb-4 flex flex-col gap-3 rounded-2xl border border-primary/30 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+				<div className="fb-hub__connect-banner">
 					<div>
 						<p className="text-sm font-medium">Why connect Facebook?</p>
 						<p className="text-xs text-muted-foreground">
@@ -449,7 +449,7 @@ export default function FacebookPage() {
 				</div>
 			)}
 
-			<div className="mb-4 flex flex-wrap items-center gap-2">
+			<div className="fb-hub__actions">
 				<Button size="sm" disabled={Boolean(busy)} onClick={() => startOAuth()}>
 					<Link2 size={14} /> Connect Account
 				</Button>
@@ -468,12 +468,13 @@ export default function FacebookPage() {
 				</span>
 			</div>
 
-			<div className="mb-4 flex gap-2 border-b border-border pb-2">
+			<div className="fb-hub__workspace">
+			<div className="fb-tabs" role="tablist" aria-label="Facebook hub tabs">
 				{hubTabs.map((item) => (
 					<button
 						key={item.id}
 						type="button"
-						className={`text-sm px-3 py-1.5 rounded-md ${tab === item.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground'}`}
+						className={`fb-tab${tab === item.id ? ' is-active' : ''}`}
 						onClick={() => setTab(item.id)}
 					>
 						{item.label}
@@ -481,20 +482,21 @@ export default function FacebookPage() {
 				))}
 			</div>
 
+			<div className="fb-panel">
 			{loading ? (
 				<p className="text-sm text-muted-foreground flex items-center gap-2">
 					<Loader2 className="h-4 w-4 animate-spin" /> Loading…
 				</p>
 			) : tab === 'accounts' ? (
 				accounts.length === 0 ? (
-					<div className="rounded-2xl border border-dashed border-border bg-card/50 px-4 py-8 text-center">
+					<div className="fb-empty">
 						<p className="text-sm font-medium">No Facebook accounts connected</p>
 						<p className="mt-1 text-xs text-muted-foreground">Connect an account to sync Pages.</p>
 					</div>
 				) : (
-					<div className="grid gap-3 md:grid-cols-2">
+					<div className="fb-account-grid">
 						{accounts.map((account) => (
-							<article key={account.id} className="rounded-2xl border border-border bg-card p-4">
+							<article key={account.id} className="fb-account">
 								<div className="flex items-start justify-between gap-2">
 									<div>
 										<p className="font-medium">{account.label || account.accountName || account.username}</p>
@@ -562,13 +564,13 @@ export default function FacebookPage() {
 					{!selectedAccountId ? (
 						<p className="text-sm text-muted-foreground">Select an account to view Pages.</p>
 					) : pages.length === 0 ? (
-						<div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+						<div className="fb-empty">
 							No Pages yet. Sync Pages from this account.
 						</div>
 					) : (
-						<div className="grid gap-3 md:grid-cols-2">
+						<div className="fb-page-grid">
 							{pages.map((page) => (
-								<article key={page.id} className="rounded-2xl border border-border bg-card p-4">
+								<article key={page.id} className="fb-page">
 									<p className="font-medium">{page.name}</p>
 									<p className="text-xs text-muted-foreground">
 										{page.category || 'Page'}
@@ -594,13 +596,13 @@ export default function FacebookPage() {
 			) : tab === 'queue' ? (
 				<div className="space-y-3">
 					{queueJobs.length === 0 ? (
-						<div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+						<div className="fb-empty">
 							No queue jobs yet. Publish or schedule posts from AI Facebook Pages.
 						</div>
 					) : (
-						<div className="grid gap-3">
+						<div className="fb-job-grid">
 							{queueJobs.map((job) => (
-								<article key={job.id} className="rounded-2xl border border-border bg-card p-4">
+								<article key={job.id} className="fb-job">
 									<p className="font-medium">{job.title || job.message || 'Facebook Post'}</p>
 									<p className="text-xs text-muted-foreground">
 										{job.status} · {job.scheduledAt ? new Date(job.scheduledAt).toLocaleString() : '—'} · {job.pageName || 'Page'}
@@ -619,13 +621,13 @@ export default function FacebookPage() {
 			) : tab === 'scheduled' ? (
 				<div className="space-y-3">
 					{scheduledJobs.length === 0 ? (
-						<div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+						<div className="fb-empty">
 							No scheduled posts yet. Schedule from AI Facebook Pages.
 						</div>
 					) : (
-						<div className="grid gap-3 md:grid-cols-2">
+						<div className="fb-page-grid">
 							{scheduledJobs.map((job) => (
-								<article key={job.id} className="rounded-2xl border border-border bg-card p-4">
+								<article key={job.id} className="fb-job">
 									<p className="font-medium">{job.title || job.message || 'Facebook Post'}</p>
 									<p className="text-xs text-muted-foreground">
 										{job.scheduledAt ? new Date(job.scheduledAt).toLocaleString() : '—'} · {job.pageName || 'Page'}
@@ -641,13 +643,13 @@ export default function FacebookPage() {
 			) : tab === 'failed' ? (
 				<div className="space-y-3">
 					{failedJobs.length === 0 ? (
-						<div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+						<div className="fb-empty">
 							Failed publish jobs will appear here with retry support.
 						</div>
 					) : (
-						<div className="grid gap-3 md:grid-cols-2">
+						<div className="fb-page-grid">
 							{failedJobs.map((job) => (
-								<article key={job.id} className="rounded-2xl border border-border bg-card p-4">
+								<article key={job.id} className="fb-job">
 									<p className="font-medium">{job.title || job.message || 'Facebook Post'}</p>
 									<p className="text-xs text-red-600">{job.lastError || 'Publish failed'}</p>
 									<Button className="mt-3" size="sm" variant="outline" disabled={jobActionId === `retry-${job.id}`} onClick={() => runJobAction('retry', job.id)}>
@@ -682,6 +684,8 @@ export default function FacebookPage() {
 				</div>
 				)
 			) : null}
+			</div>
+			</div>
 		</div>
 	);
 }
