@@ -1,5 +1,9 @@
 /**
- * Idempotent seed of Chef IA official pin templates into ai_pin_templates.
+ * Bootstrap / recovery seed of Chef IA official pin templates into ai_pin_templates.
+ *
+ * Modes:
+ *   bootstrap (default) — create missing catalog rows only; never overwrite existing (Admin wins).
+ *   recover             — overwrite catalog rows from code (disaster recovery / explicit ops).
  */
 
 import crypto from 'node:crypto';
@@ -7,6 +11,16 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { listOfficialPinTemplateCatalog } from './official-pin-template-catalog.js';
 import { validateTemplateConfiguration } from '../utils/template-config-validation.js';
 import logger from '../utils/logger.js';
+
+const VALID_SEED_MODES = Object.freeze(['bootstrap', 'recover']);
+
+function resolveSeedMode(options = {}) {
+	const fromOptions = String(options.mode || '').trim().toLowerCase();
+	if (VALID_SEED_MODES.includes(fromOptions)) return fromOptions;
+	const fromEnv = String(process.env.OFFICIAL_TEMPLATES_SEED_MODE || '').trim().toLowerCase();
+	if (VALID_SEED_MODES.includes(fromEnv)) return fromEnv;
+	return 'bootstrap';
+}
 
 function checksumOf(configuration) {
 	return crypto
@@ -48,19 +62,22 @@ async function findByTemplateUuid(templateUuid) {
 
 let seedInFlight = null;
 
-export async function ensureOfficialPinTemplatesSeeded() {
+export async function bootstrapOfficialPinTemplates(options = {}) {
 	if (seedInFlight) return seedInFlight;
+
+	const mode = resolveSeedMode(options);
 
 	seedInFlight = (async () => {
 		const ownerId = await resolveSeedOwnerId();
 		if (!ownerId) {
 			logger.warn('[official-templates] seed skipped — no users yet');
-			return { seeded: 0, updated: 0, skipped: true, failed: 0 };
+			return { mode, seeded: 0, updated: 0, unchanged: 0, skippedRun: true, failed: 0 };
 		}
 
 		const catalog = listOfficialPinTemplateCatalog();
 		let seeded = 0;
 		let updated = 0;
+		let unchanged = 0;
 		let failed = 0;
 
 		for (const entry of catalog) {
@@ -103,22 +120,27 @@ export async function ensureOfficialPinTemplatesSeeded() {
 
 				const existing = await findByTemplateUuid(entry.templateUuid);
 				if (existing) {
-					await pocketbaseClient.collection('ai_pin_templates').update(existing.id, {
-						name: payload.name,
-						thumbnail: payload.thumbnail,
-						configuration: payload.configuration,
-						category: payload.category,
-						status: 'published',
-						visibility: 'official',
-						config_checksum: payload.config_checksum,
-						marketplace_meta: payload.marketplace_meta,
-						deleted_at: '',
-					});
-					updated += 1;
-				} else {
-					await pocketbaseClient.collection('ai_pin_templates').create(payload);
-					seeded += 1;
+					if (mode === 'recover') {
+						await pocketbaseClient.collection('ai_pin_templates').update(existing.id, {
+							name: payload.name,
+							thumbnail: payload.thumbnail,
+							configuration: payload.configuration,
+							category: payload.category,
+							status: 'published',
+							visibility: 'official',
+							config_checksum: payload.config_checksum,
+							marketplace_meta: payload.marketplace_meta,
+							deleted_at: '',
+						});
+						updated += 1;
+					} else {
+						unchanged += 1;
+					}
+					continue;
 				}
+
+				await pocketbaseClient.collection('ai_pin_templates').create(payload);
+				seeded += 1;
 			} catch (error) {
 				failed += 1;
 				logger.warn('[official-templates] entry failed', {
@@ -129,15 +151,26 @@ export async function ensureOfficialPinTemplatesSeeded() {
 		}
 
 		logger.info('[official-templates] seed complete', {
+			mode,
 			seeded,
 			updated,
+			unchanged,
 			failed,
 			total: catalog.length,
 		});
-		return { seeded, updated, skipped: false, failed };
+		return { mode, seeded, updated, unchanged, skippedRun: false, failed };
 	})().finally(() => {
 		seedInFlight = null;
 	});
 
 	return seedInFlight;
+}
+
+/** @deprecated alias — prefer bootstrapOfficialPinTemplates */
+export async function ensureOfficialPinTemplatesSeeded(options = {}) {
+	return bootstrapOfficialPinTemplates(options);
+}
+
+export async function recoverOfficialPinTemplates(options = {}) {
+	return bootstrapOfficialPinTemplates({ ...options, mode: 'recover' });
 }

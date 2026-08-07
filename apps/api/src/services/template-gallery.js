@@ -18,15 +18,21 @@ import {
 	normalizeTemplateChannel,
 	TEMPLATE_CHANNELS,
 } from '../constants/template-channels.js';
+import {
+	buildMarketplaceGalleryOwnerFilter,
+	resolveGalleryLibraryQuery,
+	MARKETPLACE_LIBRARIES,
+} from '../constants/template-marketplace.js';
 import { paginateGalleryItems } from './template-gallery-pagination.js';
 import { createTemplateUuid, hashTemplateConfigurationSync } from '../utils/pin-template-identity.js';
-import { ensureOfficialPinTemplatesSeeded, resolvePlatformLibraryOwnerId } from './official-pin-templates-seed.js';
+import { resolvePlatformLibraryOwnerId } from './official-pin-templates-seed.js';
 import {
 	assertTemplateUseAccess,
 	attachAllowedAccess,
 	attachTemplateAccess,
 	evaluateTemplateAccess,
 	featureLockedError,
+	isPremiumTemplate,
 	resolveAccessContext,
 } from './plan-access-guard.js';
 
@@ -224,56 +230,22 @@ async function reconcileSharedLibraryVisibility() {
 	return { updated };
 }
 
-function buildOwnerFilter(req, scope = '') {
-	const userId = String(req.pocketbaseUserId || '').trim();
-	const workspaceOwnerId = String(req.workspaceOwnerId || req.pocketbaseUserId || '').trim();
-	const workspaceId = String(req.workspace?.id || '').trim();
-	const platformOwnerId = String(cachedPlatformLibraryOwnerId || '').trim();
+function buildOwnerFilter(req, query = {}) {
+	const scope = String(query.scope || '').trim();
+	const library = resolveGalleryLibraryQuery(query);
 
-	if (scope === 'mine') {
-		if (!userId) return 'id = ""';
-		return `(owner = "${escapeFilterValue(userId)}")`;
-	}
-
-	if (scope === 'workspace' && workspaceId) {
-		return `(workspace_id = "${escapeFilterValue(workspaceId)}" || workspace = "${escapeFilterValue(workspaceId)}")`;
-	}
-
-	if (scope === 'official') {
-		return 'visibility = "official"';
-	}
-
-	if (scope === 'community') {
-		return 'visibility = "community"';
-	}
-
-	// Shared pin template library (default): official catalog + platform owner's published rows + personal/workspace scope.
-	const parts = [
-		'visibility = "official"',
-	];
-	if (platformOwnerId) {
-		parts.push(
-			`(owner = "${escapeFilterValue(platformOwnerId)}" && deleted_at = "" && (status = "published" || status = ""))`,
-		);
-	}
-	if (userId) {
-		parts.push(`owner = "${escapeFilterValue(userId)}"`);
-		parts.push(`(visibility = "" && owner = "${escapeFilterValue(userId)}")`);
-	}
-	if (workspaceOwnerId && workspaceOwnerId !== userId) {
-		parts.push(`owner = "${escapeFilterValue(workspaceOwnerId)}"`);
-	}
-	if (workspaceId) {
-		parts.push(`workspace_id = "${escapeFilterValue(workspaceId)}"`);
-		parts.push(`workspace = "${escapeFilterValue(workspaceId)}"`);
-	}
-	return `(${parts.join(' || ')})`;
+	return buildMarketplaceGalleryOwnerFilter({
+		userId: String(req.pocketbaseUserId || '').trim(),
+		workspaceOwnerId: String(req.workspaceOwnerId || req.pocketbaseUserId || '').trim(),
+		workspaceId: String(req.workspace?.id || '').trim(),
+		scope,
+		library,
+	});
 }
 
 function buildGalleryFilter(req, query) {
-	const scope = String(query.scope || '').trim();
 	const clauses = [
-		buildOwnerFilter(req, scope),
+		buildOwnerFilter(req, query),
 		// Match Classic soft-delete semantics: only exclude rows with a deleted_at timestamp.
 		'deleted_at = ""',
 	];
@@ -379,7 +351,7 @@ async function mapGalleryRecords(req, records, { favoriteIds, accessContext, wan
 	return mapped;
 }
 
-function applyPostMapGalleryFilters(items, { q, tag }) {
+function applyPostMapGalleryFilters(items, { q, tag, library = '' } = {}) {
 	let filtered = items;
 	if (q) {
 		filtered = filtered.filter((item) => matchesSearch(item, q));
@@ -387,7 +359,24 @@ function applyPostMapGalleryFilters(items, { q, tag }) {
 	if (tag) {
 		filtered = filtered.filter((item) => item.tags.some((t) => t.toLowerCase() === tag));
 	}
+	if (library === 'premium') {
+		filtered = filtered.filter((item) => isPremiumTemplate({
+			marketplace_meta: item.marketplace?.meta,
+		}));
+	}
 	return filtered;
+}
+
+function galleryListFacets() {
+	return {
+		categories: TEMPLATE_CATEGORIES,
+		statuses: TEMPLATE_STATUS,
+		visibilities: TEMPLATE_VISIBILITY,
+		channels: TEMPLATE_CHANNELS,
+		libraries: MARKETPLACE_LIBRARIES,
+		scopes: ['mine', 'workspace', 'official', 'community'],
+		sorts: ['recently_updated', 'recently_used', 'most_used', 'alphabetical', 'created_date'],
+	};
 }
 
 async function pocketbaseCount(filter) {
@@ -403,11 +392,6 @@ async function pocketbaseCount(filter) {
 }
 
 async function prepareGalleryLibrary() {
-	await ensureOfficialPinTemplatesSeeded().catch((error) => {
-		logger.warn('[template-gallery] official seed before list failed', {
-			message: error?.message || String(error),
-		});
-	});
 	await getPlatformLibraryOwnerId();
 	await reconcileSharedLibraryVisibility().catch((error) => {
 		logger.warn('[template-gallery] visibility reconcile failed', {
@@ -419,6 +403,7 @@ async function prepareGalleryLibrary() {
 export async function listGalleryTemplates(req, query = {}) {
 	assertCapability(req, 'workspace.read');
 
+	// Gallery rows are loaded from PocketBase only — never merged from in-memory catalog.
 	if (!query._skipLibraryPrepare) {
 		await prepareGalleryLibrary();
 	}
@@ -428,6 +413,7 @@ export async function listGalleryTemplates(req, query = {}) {
 	const q = String(query.q || query.search || '').trim();
 	const tag = String(query.tag || '').trim().toLowerCase();
 	const channel = resolveGalleryChannelQuery(query);
+	const library = resolveGalleryLibraryQuery(query);
 	const favoriteOnly = query.favorite === '1' || query.favorite === 'true' || query.favorites === '1';
 	const userId = String(req.pocketbaseUserId || '').trim();
 	const workspaceId = String(req.workspace?.id || '').trim();
@@ -495,6 +481,7 @@ export async function listGalleryTemplates(req, query = {}) {
 		collection,
 		filter,
 		channel: channel || null,
+		library: library || null,
 		pbCountBeforeTransform,
 		ownerOnlyCount,
 		officialOnlyCount,
@@ -523,18 +510,11 @@ export async function listGalleryTemplates(req, query = {}) {
 			wantConfig,
 			previewMap,
 		});
-		const filtered = applyPostMapGalleryFilters(mapped, { q, tag });
+		const filtered = applyPostMapGalleryFilters(mapped, { q, tag, library });
 		const paged = paginateGalleryItems(filtered, page, perPage);
 		return {
 			...paged,
-			facets: {
-				categories: TEMPLATE_CATEGORIES,
-				statuses: TEMPLATE_STATUS,
-				visibilities: TEMPLATE_VISIBILITY,
-				channels: TEMPLATE_CHANNELS,
-				scopes: ['mine', 'workspace', 'official', 'community'],
-				sorts: ['recently_updated', 'recently_used', 'most_used', 'alphabetical', 'created_date'],
-			},
+			facets: galleryListFacets(),
 		};
 	}
 
@@ -544,9 +524,9 @@ export async function listGalleryTemplates(req, query = {}) {
 		wantConfig,
 		previewMap,
 	});
-	const filtered = applyPostMapGalleryFilters(mapped, { q, tag });
+	const filtered = applyPostMapGalleryFilters(mapped, { q, tag, library });
 
-	const totalItems = favoriteOnly || q || tag
+	const totalItems = favoriteOnly || q || tag || library === 'premium'
 		? filtered.length + (page - 1) * perPage // approximate when post-filtered
 		: pbCountBeforeTransform;
 	const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
@@ -558,14 +538,7 @@ export async function listGalleryTemplates(req, query = {}) {
 		totalItems,
 		totalPages,
 		hasMore: page < totalPages,
-		facets: {
-			categories: TEMPLATE_CATEGORIES,
-			statuses: TEMPLATE_STATUS,
-			visibilities: TEMPLATE_VISIBILITY,
-			channels: TEMPLATE_CHANNELS,
-			scopes: ['mine', 'workspace', 'official', 'community'],
-			sorts: ['recently_updated', 'recently_used', 'most_used', 'alphabetical', 'created_date'],
-		},
+		facets: galleryListFacets(),
 	};
 }
 

@@ -22,13 +22,14 @@ import { buildGalleryFiltersForChannel } from '@/lib/studio/templatePacks';
 import '@/pages/app/TemplatesPage.css';
 import './PinTemplateChooser.css';
 
-// Exact same filter surface as Templates page (channel-scoped gallery).
+// Choose Template: official marketplace library only (Phase 1 isolation).
 const SELECT_FILTER_OVERRIDES = {
 	q: '',
 	category: '',
 	status: '',
 	visibility: '',
 	scope: '',
+	library: 'official',
 	sort: 'recently_updated',
 	favorite: false,
 	recentlyUsed: false,

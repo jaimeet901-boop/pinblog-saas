@@ -37,8 +37,9 @@ async function registerUser(label) {
 	return { id: auth.record.id, bearer: toApiBearer(auth) };
 }
 
-async function gallery(user) {
-	const res = await fetch(`${API}/workspace/v1/templates?view=gallery&status=published&perPage=50`, {
+async function gallery(user, query = '') {
+	const qs = query || 'view=gallery&library=official&channel=pinterest&status=published&perPage=50';
+	const res = await fetch(`${API}/workspace/v1/templates?${qs}`, {
 		headers: { Authorization: `Bearer ${user.bearer}` },
 	});
 	const payload = await res.json().catch(() => ({}));

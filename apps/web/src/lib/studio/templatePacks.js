@@ -47,6 +47,7 @@ const GALLERY_FILTER_DEFAULTS = Object.freeze({
 	status: '',
 	visibility: '',
 	scope: '',
+	library: '',
 	sort: 'recently_updated',
 	favorite: false,
 	recentlyUsed: false,

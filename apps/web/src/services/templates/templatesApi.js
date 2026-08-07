@@ -33,6 +33,7 @@ export async function fetchGalleryPage(filters = {}) {
 		status: filters.status || '',
 		visibility: filters.visibility || '',
 		scope: filters.scope || '',
+		library: filters.library || '',
 		sort: filters.sort || 'recently_updated',
 		favorite: filters.favorite ? '1' : '',
 		recentlyUsed: filters.recentlyUsed ? '1' : '',

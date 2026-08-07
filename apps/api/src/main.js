@@ -24,7 +24,7 @@ import { ensurePinterestAppCredentialsSeeded } from './services/pinterest-app-cr
 import { ensureAuthenticationProvidersSeeded } from './services/authentication-providers/credentials.js';
 import { ensureFacebookAppCredentialsSeeded } from './services/facebook/app-credentials.js';
 import { ensurePlatformSettingsSeeded } from './services/platform-settings.js';
-import { ensureOfficialPinTemplatesSeeded } from './services/official-pin-templates-seed.js';
+import { bootstrapOfficialPinTemplates } from './services/official-pin-templates-seed.js';
 import { runStartupSchemaCompat } from './utils/run-schema-compat.js';
 import { startBillingAutomationWorker, stopBillingAutomationWorker } from './services/billing/index.js';
 import pocketbaseClient from './utils/pocketbaseClient.js';
@@ -162,8 +162,8 @@ app.listen(port, () => {
 	ensurePlatformSettingsSeeded().catch((error) => {
 		logger.warn('Platform settings seed skipped:', error?.message || error);
 	});
-	ensureOfficialPinTemplatesSeeded().catch((error) => {
-		logger.warn('Official pin templates seed skipped:', error?.message || error);
+	bootstrapOfficialPinTemplates().catch((error) => {
+		logger.warn('Official pin templates bootstrap skipped:', error?.message || error);
 	});
 	startPinterestPublishQueue();
 	startFacebookPublishQueue();

@@ -12,6 +12,7 @@ const DEFAULT_FILTERS = {
 	status: '',
 	visibility: '',
 	scope: '',
+	library: '',
 	sort: 'recently_updated',
 	favorite: false,
 	recentlyUsed: false,
