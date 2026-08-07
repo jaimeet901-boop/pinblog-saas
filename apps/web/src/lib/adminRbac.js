@@ -48,6 +48,8 @@ export const ADMIN_NAV = [
 	{ to: '/admin/logs', label: 'Logs' },
 	{ to: '/admin/notifications', label: 'Notifications' },
 	{ to: '/admin/legal-pages', label: 'Legal Pages' },
+	{ to: '/admin/marketplace-templates', label: 'Official Templates' },
+	{ to: '/admin/template-collections', label: 'Template Collections' },
 	{ to: '/admin/platform-identity', label: 'Platform Identity' },
 	{ to: '/admin/settings', label: 'Global Settings' },
 	{ to: '/admin/system', label: 'System Health' },

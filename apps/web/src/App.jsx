@@ -66,6 +66,8 @@ const AdminJobsPage = lazy(() => import('@/pages/admin/AdminJobsPage'));
 const AdminLogsPage = lazy(() => import('@/pages/admin/AdminLogsPage'));
 const AdminNotificationsPage = lazy(() => import('@/pages/admin/AdminNotificationsPage'));
 const AdminLegalPagesPage = lazy(() => import('@/pages/admin/AdminLegalPagesPage'));
+const AdminMarketplaceTemplatesPage = lazy(() => import('@/pages/admin/AdminMarketplaceTemplatesPage'));
+const AdminTemplateCollectionsPage = lazy(() => import('@/pages/admin/AdminTemplateCollectionsPage'));
 const AdminPlatformIdentityPage = lazy(() => import('@/pages/admin/AdminPlatformIdentityPage'));
 const AdminSettingsPage = lazy(() => import('@/pages/admin/AdminSettingsPage'));
 const AdminSystemPage = lazy(() => import('@/pages/admin/AdminSystemPage'));
@@ -196,6 +198,8 @@ function App() {
 							<Route path="logs" element={<AdminLazy><AdminLogsPage /></AdminLazy>} />
 							<Route path="notifications" element={<AdminLazy><AdminNotificationsPage /></AdminLazy>} />
 							<Route path="legal-pages" element={<AdminLazy><AdminLegalPagesPage /></AdminLazy>} />
+							<Route path="marketplace-templates" element={<AdminLazy><AdminMarketplaceTemplatesPage /></AdminLazy>} />
+							<Route path="template-collections" element={<AdminLazy><AdminTemplateCollectionsPage /></AdminLazy>} />
 							<Route path="platform-identity" element={<AdminLazy><AdminPlatformIdentityPage /></AdminLazy>} />
 							<Route path="settings" element={<AdminLazy><AdminSettingsPage /></AdminLazy>} />
 							<Route path="system" element={<AdminLazy><AdminSystemPage /></AdminLazy>} />

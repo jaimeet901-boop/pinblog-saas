@@ -23,6 +23,11 @@ import {
 	resolveGalleryLibraryQuery,
 	MARKETPLACE_LIBRARIES,
 } from '../constants/template-marketplace.js';
+import { normalizeCollectionSlug } from '../constants/template-collections.js';
+import {
+	listGalleryCollections,
+	resolveCollectionTemplateIds,
+} from './template-collections.js';
 import { paginateGalleryItems } from './template-gallery-pagination.js';
 import { createTemplateUuid, hashTemplateConfigurationSync } from '../utils/pin-template-identity.js';
 import { resolvePlatformLibraryOwnerId } from './official-pin-templates-seed.js';
@@ -351,8 +356,11 @@ async function mapGalleryRecords(req, records, { favoriteIds, accessContext, wan
 	return mapped;
 }
 
-function applyPostMapGalleryFilters(items, { q, tag, library = '' } = {}) {
+function applyPostMapGalleryFilters(items, { q, tag, library = '', collectionTemplateIds = null } = {}) {
 	let filtered = items;
+	if (collectionTemplateIds instanceof Set) {
+		filtered = filtered.filter((item) => collectionTemplateIds.has(item.id));
+	}
 	if (q) {
 		filtered = filtered.filter((item) => matchesSearch(item, q));
 	}
@@ -367,13 +375,17 @@ function applyPostMapGalleryFilters(items, { q, tag, library = '' } = {}) {
 	return filtered;
 }
 
-function galleryListFacets() {
+async function galleryListFacets({ channel = '', library = '' } = {}) {
+	const collections = channel
+		? await listGalleryCollections({ channel, library })
+		: [];
 	return {
 		categories: TEMPLATE_CATEGORIES,
 		statuses: TEMPLATE_STATUS,
 		visibilities: TEMPLATE_VISIBILITY,
 		channels: TEMPLATE_CHANNELS,
 		libraries: MARKETPLACE_LIBRARIES,
+		collections,
 		scopes: ['mine', 'workspace', 'official', 'community'],
 		sorts: ['recently_updated', 'recently_used', 'most_used', 'alphabetical', 'created_date'],
 	};
@@ -414,6 +426,7 @@ export async function listGalleryTemplates(req, query = {}) {
 	const tag = String(query.tag || '').trim().toLowerCase();
 	const channel = resolveGalleryChannelQuery(query);
 	const library = resolveGalleryLibraryQuery(query);
+	const collectionSlug = normalizeCollectionSlug(query.collection || query.collectionSlug || '');
 	const favoriteOnly = query.favorite === '1' || query.favorite === 'true' || query.favorites === '1';
 	const userId = String(req.pocketbaseUserId || '').trim();
 	const workspaceId = String(req.workspace?.id || '').trim();
@@ -425,6 +438,10 @@ export async function listGalleryTemplates(req, query = {}) {
 	const favoriteIds = await listFavoriteTemplateIds(req);
 	const filter = buildGalleryFilter(req, query);
 	const sort = sortForQuery(query.sort);
+	const collectionTemplateIds = collectionSlug && channel
+		? await resolveCollectionTemplateIds({ channel, collectionSlug })
+		: null;
+	const facets = await galleryListFacets({ channel, library });
 
 	const [
 		ownerOnlyCount,
@@ -482,6 +499,7 @@ export async function listGalleryTemplates(req, query = {}) {
 		filter,
 		channel: channel || null,
 		library: library || null,
+		collection: collectionSlug || null,
 		pbCountBeforeTransform,
 		ownerOnlyCount,
 		officialOnlyCount,
@@ -510,11 +528,11 @@ export async function listGalleryTemplates(req, query = {}) {
 			wantConfig,
 			previewMap,
 		});
-		const filtered = applyPostMapGalleryFilters(mapped, { q, tag, library });
+		const filtered = applyPostMapGalleryFilters(mapped, { q, tag, library, collectionTemplateIds });
 		const paged = paginateGalleryItems(filtered, page, perPage);
 		return {
 			...paged,
-			facets: galleryListFacets(),
+			facets,
 		};
 	}
 
@@ -524,9 +542,11 @@ export async function listGalleryTemplates(req, query = {}) {
 		wantConfig,
 		previewMap,
 	});
-	const filtered = applyPostMapGalleryFilters(mapped, { q, tag, library });
+	const filtered = applyPostMapGalleryFilters(mapped, { q, tag, library, collectionTemplateIds });
 
-	const totalItems = favoriteOnly || q || tag || library === 'premium'
+	const postFiltered = favoriteOnly || q || tag || library === 'premium'
+		|| collectionTemplateIds instanceof Set;
+	const totalItems = postFiltered
 		? filtered.length + (page - 1) * perPage // approximate when post-filtered
 		: pbCountBeforeTransform;
 	const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
@@ -538,7 +558,7 @@ export async function listGalleryTemplates(req, query = {}) {
 		totalItems,
 		totalPages,
 		hasMore: page < totalPages,
-		facets: galleryListFacets(),
+		facets,
 	};
 }
 

@@ -24,6 +24,8 @@ import brandAssetsRouter from './brand-assets.js';
 import legalPagesRouter from './legal-pages.js';
 import billingRouter from './billing.js';
 import mailRouter from './mail.js';
+import templateCollectionsRouter from './template-collections.js';
+import marketplaceTemplatesRouter from './marketplace-templates.js';
 
 const router = Router();
 
@@ -61,5 +63,7 @@ router.use('/settings', settingsRouter);
 router.use('/legal-pages', legalPagesRouter);
 router.use('/billing', billingRouter);
 router.use('/mail', mailRouter);
+router.use('/template-collections', templateCollectionsRouter);
+router.use('/marketplace-templates', marketplaceTemplatesRouter);
 
 export default router;

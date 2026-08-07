@@ -39,6 +39,8 @@ const ICONS = {
 	'/admin/logs': ScrollText,
 	'/admin/notifications': Bell,
 	'/admin/legal-pages': Scale,
+	'/admin/marketplace-templates': Boxes,
+	'/admin/template-collections': Boxes,
 	'/admin/platform-identity': IdCard,
 	'/admin/settings': Settings,
 	'/admin/system': Activity,
