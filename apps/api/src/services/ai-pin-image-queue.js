@@ -17,12 +17,15 @@ import { assertJobPinOwnership } from './queue/job-ownership.js';
 import { isImmediateImageFallbackError } from '../constants/image-source-strategy.js';
 import { safeTransitionArticleLifecycle } from './article-lifecycle.js';
 
-const POLL_INTERVAL_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_POLL_MS || '12000', 10);
+const POLL_INTERVAL_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_POLL_MS || '3000', 10);
+const IDLE_POLL_INTERVAL_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_IDLE_POLL_MS || '12000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.AI_IMAGE_QUEUE_BATCH || '5', 10);
 const JOB_TIMEOUT_MS = Number.parseInt(process.env.AI_IMAGE_JOB_TIMEOUT_MS || '180000', 10);
 const STUCK_PROCESSING_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_STUCK_MS || '900000', 10);
 
 let workerTimer = null;
+let currentPollIntervalMs = POLL_INTERVAL_MS;
+let pollLoopActive = false;
 let running = false;
 let processedTotal = 0;
 let failedTotal = 0;
@@ -546,11 +549,12 @@ async function claimImageJob(jobId) {
 
 async function processDueJobs() {
 	if (running) {
-		return;
+		return false;
 	}
 
 	running = true;
 	lastRunAt = new Date().toISOString();
+	let hasQueueWork = false;
 
 	try {
 		await recoverStuckProcessingJobs({ onlyOlderThanMs: STUCK_PROCESSING_MS }).catch((error) => {
@@ -559,6 +563,7 @@ async function processDueJobs() {
 
 		const now = new Date().toISOString();
 		const dueJobs = await getDueImageJobs(now);
+		hasQueueWork = dueJobs.length > 0;
 
 		for (const job of dueJobs.slice(0, MAX_JOBS_PER_TICK)) {
 			const claimed = await claimImageJob(job.id);
@@ -705,6 +710,8 @@ async function processDueJobs() {
 	} finally {
 		running = false;
 	}
+
+	return hasQueueWork;
 }
 
 async function recoverStuckProcessingJobs({ onlyOlderThanMs = 0 } = {}) {
@@ -760,7 +767,9 @@ export function getAIPinImageQueueStatus() {
 		active: Boolean(workerTimer),
 		enabled,
 		disabledByEnv: !enabled,
-		pollIntervalMs: POLL_INTERVAL_MS,
+		pollIntervalMs: currentPollIntervalMs,
+		activePollIntervalMs: POLL_INTERVAL_MS,
+		idlePollIntervalMs: IDLE_POLL_INTERVAL_MS,
 		batchSize: MAX_JOBS_PER_TICK,
 		processedTotal,
 		failedTotal,
@@ -796,7 +805,7 @@ async function ensureImageJobClaimFields() {
 }
 
 export function startAIPinImageQueue() {
-	if (workerTimer) {
+	if (workerTimer || pollLoopActive) {
 		return;
 	}
 
@@ -808,9 +817,26 @@ export function startAIPinImageQueue() {
 		return;
 	}
 
-	workerTimer = setInterval(() => {
-		processDueJobs();
-	}, POLL_INTERVAL_MS);
+	pollLoopActive = true;
+
+	const scheduleNextPoll = (delayMs) => {
+		if (!pollLoopActive) {
+			return;
+		}
+		currentPollIntervalMs = delayMs;
+		workerTimer = setTimeout(async () => {
+			workerTimer = null;
+			let hasWork = false;
+			try {
+				hasWork = await processDueJobs();
+			} catch (error) {
+				logger.error('AI image queue poll cycle failed', { message: error?.message });
+			}
+			if (pollLoopActive) {
+				scheduleNextPoll(hasWork ? POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS);
+			}
+		}, delayMs);
+	};
 
 	ensureImageJobClaimFields()
 		.then(() => verifyCollectionFields({
@@ -826,18 +852,25 @@ export function startAIPinImageQueue() {
 		context: 'websites-schema-check',
 	}).catch(() => null);
 
-	recoverStuckProcessingJobs().finally(() => {
-		processDueJobs();
+	recoverStuckProcessingJobs().finally(async () => {
+		let hasWork = false;
+		try {
+			hasWork = await processDueJobs();
+		} catch (error) {
+			logger.error('AI image queue initial poll failed', { message: error?.message });
+		}
+		scheduleNextPoll(hasWork ? POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS);
 	});
-	logger.info(`AI pin image queue started (interval ${POLL_INTERVAL_MS}ms)`);
+	logger.info(`AI pin image queue started (active ${POLL_INTERVAL_MS}ms, idle ${IDLE_POLL_INTERVAL_MS}ms)`);
 }
 
 export function stopAIPinImageQueue() {
+	pollLoopActive = false;
 	if (!workerTimer) {
 		return;
 	}
 
-	clearInterval(workerTimer);
+	clearTimeout(workerTimer);
 	workerTimer = null;
 	logger.info('AI pin image queue stopped');
 }
