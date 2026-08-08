@@ -23,6 +23,7 @@ import {
 	recordBelongsToWorkspace,
 	andWorkspaceScope,
 } from '../services/workspace-ownership.js';
+import { buildBackgroundImagePrompt } from '../services/ai-pin-background-prompt.js';
 
 const router = Router();
 
@@ -198,16 +199,15 @@ async function createImageJobRecord({
 		rawItemProvider: rawItem?.provider ?? null,
 	});
 
-	const prompt = appendProviderMarker([
-		'Professional Pinterest marketing visual, vertical 2:3.',
-		'Target size 1000x1500.',
-		`Article title: ${title}`,
-		description ? `Meta description: ${description}` : '',
-		category ? `Category: ${category}` : '',
-		keywords.length ? `Keywords: ${keywords.join(', ')}` : '',
-		overlayText ? `Overlay text: ${overlayText}` : '',
-		imagePrompt ? `Creative direction: ${imagePrompt}` : '',
-	].filter(Boolean).join('\n'), provider);
+	const prompt = appendProviderMarker(
+		buildBackgroundImagePrompt({
+			category,
+			keywords,
+			imagePrompt,
+			recipeContext: article.meta_description || '',
+		}),
+		provider,
+	);
 
 	const promptPayload = {
 		articleTitle: article.title || '',

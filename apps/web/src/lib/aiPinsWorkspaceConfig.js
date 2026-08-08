@@ -231,6 +231,7 @@ STRICT COPY RULES:
 - title MUST be 3 to 6 words only (punchy Pinterest headline, no long sentences).
 - subtitle is optional (max 6 words) — soft supporting line under the title.
 - overlayText is a short CTA badge (2–4 words), e.g. "Save Recipe", "Try Tonight".
+- imagePrompt MUST be a detailed background photo prompt ONLY — describe food/lifestyle scene, lighting, styling, and ingredients. No text, no typography, no pin layout, no title, no CTA, no borders (template overlay is applied separately).
 Use the Premium Design System: prefer distinct templates from the recipe family identity; never reuse the same template, font mood, or CTA style in this batch.
 Return ONLY a valid JSON object in this exact shape:
 {
@@ -262,7 +263,7 @@ Return ONLY a valid JSON object in this exact shape:
       },
       "suggestedKeywords": ["keyword1", "keyword2", "keyword3"],
       "suggestedHashtags": ["#tag1", "#tag2", "#tag3"],
-      "imagePrompt": "detailed AI image prompt for a vertical Pinterest pin"
+      "imagePrompt": "detailed background photo prompt ONLY — photorealistic food scene, no text or pin layout"
     }
   ]
 }

@@ -104,7 +104,7 @@ describe('buildPinPromptFromConfig', () => {
 		expect(routed).toBe(legacy);
 		expect(routed).toContain('Custom Pinterest system');
 		expect(routed).toContain('Generate exactly 3 pins.');
-		expect(routed).toContain('vertical Pinterest pin');
+		expect(routed).toContain('background photo prompt ONLY');
 		expect(routed).not.toContain('Facebook Page');
 	});
 

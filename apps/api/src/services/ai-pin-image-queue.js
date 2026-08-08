@@ -16,6 +16,7 @@ import { claimJobByCas } from './queue/claim.js';
 import { assertJobPinOwnership } from './queue/job-ownership.js';
 import { isImmediateImageFallbackError } from '../constants/image-source-strategy.js';
 import { safeTransitionArticleLifecycle } from './article-lifecycle.js';
+import { buildBackgroundImagePrompt } from './ai-pin-background-prompt.js';
 
 function parsePositiveIntMs(raw, fallback) {
 	const parsed = Number.parseInt(String(raw ?? '').trim(), 10);
@@ -102,25 +103,12 @@ function normalizeText(value, max = 0) {
 
 function buildPinterestImagePrompt(job) {
 	const payload = job.prompt_payload || {};
-	const title = normalizeText(payload.articleTitle || payload.pinTitle || 'Pinterest pin', 220);
-	const description = normalizeText(payload.metaDescription || payload.pinDescription || '', 500);
-	const category = normalizeText(payload.category || '', 120);
-	const keywords = Array.isArray(payload.keywords) ? payload.keywords.map((item) => normalizeText(String(item), 40)).filter(Boolean).slice(0, 12) : [];
-	const overlayText = normalizeText(payload.overlayText || '', 120);
-	const imagePromptSeed = normalizeText(payload.imagePrompt || '', 800);
-
-	return [
-		'Create a professional Pinterest marketing image in vertical 2:3 composition.',
-		'Target dimensions: 1000x1500 pixels (portrait).',
-		'Use modern, premium branding style with clean typography and strong visual hierarchy.',
-		`Article title: ${title}`,
-		description ? `Meta description: ${description}` : '',
-		category ? `Category: ${category}` : '',
-		keywords.length > 0 ? `SEO keywords: ${keywords.join(', ')}` : '',
-		overlayText ? `Overlay text to include: ${overlayText}` : '',
-		imagePromptSeed ? `Creative direction: ${imagePromptSeed}` : '',
-		'Avoid watermarks, avoid logos of known brands, and keep text readable for mobile.',
-	].filter(Boolean).join('\n');
+	return buildBackgroundImagePrompt({
+		category: payload.category || '',
+		keywords: Array.isArray(payload.keywords) ? payload.keywords : [],
+		imagePrompt: payload.imagePrompt || '',
+		recipeContext: payload.metaDescription || '',
+	});
 }
 
 async function uploadGeneratedImage({ owner, bytes, contentType = 'image/png' }) {
