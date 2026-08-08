@@ -43,6 +43,44 @@ const PROVIDER_FIELDS = {
 		{ key: 'apiKey', label: 'API Key', type: 'password', secret: true, setKey: 'apiKeySet' },
 		{ key: 'webhookSecret', label: 'Webhook Secret', type: 'password', secret: true, setKey: 'webhookSecretSet' },
 	],
+	paypal: [
+		{
+			key: 'mode',
+			label: 'Environment',
+			type: 'select',
+			options: [
+				{ value: 'test', label: 'Test / Sandbox' },
+				{ value: 'live', label: 'Live / Production' },
+			],
+		},
+		{
+			key: 'enabled',
+			label: 'Enabled',
+			type: 'toggle',
+		},
+		{
+			key: 'clientId',
+			label: 'Client ID',
+			type: 'text',
+		},
+		{
+			key: 'clientSecret',
+			label: 'Client Secret',
+			type: 'password',
+			secret: true,
+			setKey: 'clientSecretSet',
+		},
+		{
+			key: 'webhookId',
+			label: 'Webhook ID',
+			type: 'text',
+		},
+		{
+			key: 'defaultPlanId',
+			label: 'Default Plan ID',
+			type: 'text',
+		},
+	],
 };
 
 async function readApiError(response) {
