@@ -3,6 +3,7 @@ import { NoneBillingProvider } from './none.js';
 import { StripeBillingProvider } from './stripe.js';
 import { PaddleBillingProvider } from './paddle.js';
 import { LemonSqueezyBillingProvider } from './lemonsqueezy.js';
+import { PayPalBillingProvider } from './paypal.js';
 import { resolveProviderRuntimeConfig } from '../control-plane-helpers.js';
 import { getRawBillingPayload } from '../control-plane.js';
 import { getBillingRequestCache } from '../request-cache.js';
@@ -12,6 +13,7 @@ const PROVIDER_CTORS = {
 	stripe: StripeBillingProvider,
 	paddle: PaddleBillingProvider,
 	lemonsqueezy: LemonSqueezyBillingProvider,
+	paypal: PayPalBillingProvider,
 };
 
 export function normalizeProviderCode(value) {
@@ -27,6 +29,7 @@ async function buildBillingConfig() {
 		stripe: resolveProviderRuntimeConfig('stripe', billing.providers?.stripe || {}),
 		paddle: resolveProviderRuntimeConfig('paddle', billing.providers?.paddle || {}),
 		lemonsqueezy: resolveProviderRuntimeConfig('lemonsqueezy', billing.providers?.lemonsqueezy || {}),
+		paypal: resolveProviderRuntimeConfig('paypal', billing.providers?.paypal || {}),
 	};
 
 	return {

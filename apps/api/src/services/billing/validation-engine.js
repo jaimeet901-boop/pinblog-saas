@@ -39,6 +39,9 @@ function hasEnvSecret(providerCode, field) {
 			apiKey: 'LEMONSQUEEZY_API_KEY',
 			webhookSecret: 'LEMONSQUEEZY_WEBHOOK_SECRET',
 		},
+		paypal: {
+			clientSecret: 'PAYPAL_CLIENT_SECRET',
+		},
 	};
 	const envKey = map[providerCode]?.[field];
 	return Boolean(envKey && process.env[envKey]);
@@ -144,22 +147,28 @@ function validateLemonSqueezy(raw, billing = {}) {
 	return finalize(diagnostics, 'lemonsqueezy');
 }
 
-function validatePayPal() {
-	return {
-		provider: 'paypal',
-		result: 'FAIL',
-		summary: 'PayPal is not implemented.',
-		diagnostics: [
-			diag('not_implemented', 'PayPal provider is a placeholder only. Runtime support is not implemented.', 'error'),
-		],
-		checks: {
-			credentials: false,
-			endpoints: false,
-			environment: false,
-			checkoutReady: false,
-			implemented: false,
-		},
-	};
+function validatePayPal(raw, billing = {}) {
+	const diagnostics = [];
+	requirePublic(diagnostics, raw, 'clientId', 'Client ID', { allowEnv: 'PAYPAL_CLIENT_ID' });
+	requireCredential(diagnostics, 'paypal', raw, 'clientSecret', 'Client Secret');
+	requirePublic(diagnostics, raw, 'webhookId', 'Webhook ID', { allowEnv: 'PAYPAL_WEBHOOK_ID' });
+	validateEnvironment(diagnostics, raw);
+
+	const mode = raw?.mode === 'live' ? 'live' : (raw?.mode === 'test' ? 'test' : '');
+	if (process.env.PAYPAL_MODE) {
+		const envMode = String(process.env.PAYPAL_MODE).trim().toLowerCase();
+		if (envMode !== 'sandbox' && envMode !== 'live') {
+			diagnostics.push(diag('environment_invalid', 'PAYPAL_MODE must be sandbox or live.', 'error', 'mode'));
+		}
+	} else if (!mode && raw?.mode !== undefined) {
+		diagnostics.push(diag('environment_invalid', 'Environment must be test or live.', 'error', 'mode'));
+	}
+
+	if (billing.checkoutEnabled && billing.provider === 'paypal' && raw.enabled === false) {
+		diagnostics.push(diag('provider_disabled', 'PayPal is disabled while checkout is enabled for PayPal.', 'error', 'enabled'));
+	}
+
+	return finalize(diagnostics, 'paypal');
 }
 
 function finalize(diagnostics, provider) {
@@ -214,7 +223,7 @@ export function validateProvider(code, rawProvider = {}, billing = {}) {
 		};
 	}
 
-	if (normalized === 'paypal') return validatePayPal();
+	if (normalized === 'paypal') return validatePayPal(rawProvider, billing);
 
 	const raw = rawProvider || {};
 	switch (normalized) {
@@ -225,7 +234,19 @@ export function validateProvider(code, rawProvider = {}, billing = {}) {
 		case 'lemonsqueezy':
 			return validateLemonSqueezy(raw, billing);
 		default:
-			return validatePayPal();
+			return {
+				provider: normalized,
+				result: 'FAIL',
+				summary: 'Unknown provider.',
+				diagnostics: [diag('unknown_provider', 'Unknown billing provider.', 'error')],
+				checks: {
+					credentials: false,
+					endpoints: false,
+					environment: false,
+					checkoutReady: false,
+					implemented: false,
+				},
+			};
 	}
 }
 

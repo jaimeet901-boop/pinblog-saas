@@ -2,11 +2,11 @@
  * Pure Price Mapping helpers (no PocketBase side effects).
  */
 
-export const MAPPING_PROVIDERS = Object.freeze(['stripe', 'paddle', 'lemonsqueezy']);
+export const MAPPING_PROVIDERS = Object.freeze(['stripe', 'paddle', 'lemonsqueezy', 'paypal']);
 export const PLAN_INTERVALS = Object.freeze(['monthly', 'yearly', 'trial']);
 
 export function emptyProviderIds() {
-	return { stripe: '', paddle: '', lemonsqueezy: '' };
+	return { stripe: '', paddle: '', lemonsqueezy: '', paypal: '' };
 }
 
 export function normalizeProviderMap(input = {}) {

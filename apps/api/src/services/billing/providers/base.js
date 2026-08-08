@@ -3,7 +3,7 @@
  * Concrete SDKs are not wired yet; methods return structured stubs / NotImplemented.
  */
 
-export const BILLING_PROVIDERS = Object.freeze(['none', 'stripe', 'paddle', 'lemonsqueezy']);
+export const BILLING_PROVIDERS = Object.freeze(['none', 'stripe', 'paddle', 'lemonsqueezy', 'paypal']);
 
 export class BillingProviderError extends Error {
 	constructor(message, { code = 'BILLING_ERROR', status = 502, details = null } = {}) {

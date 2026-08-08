@@ -36,7 +36,7 @@ const PROVIDER_META = Object.freeze({
 	stripe: { name: 'Stripe', configurable: true },
 	paddle: { name: 'Paddle', configurable: true },
 	lemonsqueezy: { name: 'Lemon Squeezy', configurable: true },
-	paypal: { name: 'PayPal', configurable: false },
+	paypal: { name: 'PayPal', configurable: true },
 });
 
 function httpError(status, message, errorCode) {
@@ -174,6 +174,8 @@ function envSecretConfigured(code) {
 			return Boolean(process.env.PADDLE_API_KEY);
 		case 'lemonsqueezy':
 			return Boolean(process.env.LEMONSQUEEZY_API_KEY);
+		case 'paypal':
+			return Boolean(process.env.PAYPAL_CLIENT_SECRET);
 		default:
 			return false;
 	}
@@ -186,9 +188,6 @@ function adminSecretConfigured(code, raw = {}) {
 }
 
 function connectionState(code, raw = {}) {
-	if (code === 'paypal') {
-		return { connected: false, source: 'unavailable', label: 'Not available' };
-	}
 	if (adminSecretConfigured(code, raw)) {
 		return { connected: true, source: 'admin', label: 'Connected' };
 	}
@@ -497,7 +496,6 @@ export async function runControlPlaneHealthCheck(code, actor = {}, requestMeta =
 export async function runControlPlaneHealthCheckAll(actor = {}, requestMeta = {}) {
 	const results = [];
 	for (const code of CONTROL_PLANE_PROVIDER_CODES) {
-		// PayPal still runs and reports Not Implemented.
 		results.push(await runControlPlaneHealthCheck(code, actor, {
 			...requestMeta,
 			// Avoid stamping expectedUpdatedAt after first write — refresh each iteration.

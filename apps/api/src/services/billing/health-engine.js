@@ -5,6 +5,7 @@
 
 import { validateProvider } from './validation-engine.js';
 import { decryptField, SECRET_FIELDS } from './control-plane-helpers.js';
+import { BILLING_PROVIDERS } from './providers/base.js';
 
 export const HEALTH_STATUSES = Object.freeze([
 	'Healthy',
@@ -89,6 +90,18 @@ export function deriveHealthStatus({
 }
 
 function credentialFlags(code, raw = {}) {
+	if (code === 'paypal') {
+		const clientId = String(raw.clientId || '').trim() || process.env.PAYPAL_CLIENT_ID || '';
+		const clientSecret = decryptField(raw, 'clientSecret') || process.env.PAYPAL_CLIENT_SECRET || '';
+		const webhookId = String(raw.webhookId || '').trim() || process.env.PAYPAL_WEBHOOK_ID || '';
+		const mode = raw.mode === 'live' ? 'live' : (raw.mode === 'test' ? 'test' : (process.env.PAYPAL_MODE || ''));
+		return {
+			hasPrimaryCredential: Boolean(clientId && clientSecret),
+			hasWebhookSecret: Boolean(webhookId),
+			hasEnvironment: mode === 'live' || mode === 'test' || mode === 'sandbox' || raw.mode == null,
+		};
+	}
+
 	const secrets = SECRET_FIELDS[code] || [];
 	const primary = secrets[0];
 	const webhook = secrets.includes('webhookSecret') ? 'webhookSecret' : null;
@@ -119,19 +132,42 @@ function credentialFlags(code, raw = {}) {
  */
 export async function probeProviderConnectivity(code, raw = {}) {
 	const normalized = String(code || '').trim().toLowerCase();
-	if (normalized === 'paypal') {
-		return {
-			ok: false,
-			skipped: false,
-			message: 'PayPal is not implemented.',
-			checkedAt: new Date().toISOString(),
-		};
-	}
 
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), CONNECTIVITY_TIMEOUT_MS);
 
 	try {
+		if (normalized === 'paypal') {
+			const clientId = String(raw.clientId || '').trim() || process.env.PAYPAL_CLIENT_ID || '';
+			const clientSecret = decryptField(raw, 'clientSecret') || process.env.PAYPAL_CLIENT_SECRET || '';
+			if (!clientId || !clientSecret) {
+				return { ok: false, message: 'PayPal client credentials missing.', checkedAt: new Date().toISOString() };
+			}
+			const mode = raw.mode === 'live' || process.env.PAYPAL_MODE === 'live' ? 'live' : 'sandbox';
+			const base = mode === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+			const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+			const response = await fetch(`${base}/v1/oauth2/token`, {
+				method: 'POST',
+				headers: {
+					Authorization: `Basic ${credentials}`,
+					'Content-Type': 'application/x-www-form-urlencoded',
+					Accept: 'application/json',
+				},
+				body: 'grant_type=client_credentials',
+				signal: controller.signal,
+			});
+			if (response.ok) {
+				return { ok: true, message: 'PayPal API reachable.', checkedAt: new Date().toISOString() };
+			}
+			return {
+				ok: false,
+				message: response.status === 401 || response.status === 403
+					? 'PayPal credentials rejected by API.'
+					: `PayPal API returned HTTP ${response.status}.`,
+				checkedAt: new Date().toISOString(),
+			};
+		}
+
 		if (normalized === 'stripe') {
 			const key = secretOrEnv('stripe', raw, 'secretKey', 'STRIPE_SECRET_KEY');
 			if (!key) {
@@ -225,8 +261,8 @@ export async function buildHealthSnapshot(code, rawProvider = {}, billing = {}, 
 } = {}) {
 	const normalized = String(code || '').trim().toLowerCase();
 	const raw = rawProvider || {};
-	const enabled = raw.enabled !== false && normalized !== 'paypal';
-	const implemented = normalized !== 'paypal';
+	const enabled = raw.enabled !== false;
+	const implemented = BILLING_PROVIDERS.includes(normalized) && normalized !== 'none';
 	const validation = validateProvider(normalized, raw, billing);
 	const flags = credentialFlags(normalized, raw);
 

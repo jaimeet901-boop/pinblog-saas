@@ -45,6 +45,7 @@ function isSubscriptionSuccessEvent(eventType) {
 		|| type.includes('subscription_payment_success')
 		|| type === 'subscription_created'
 		|| type.includes('order_created')
+		|| type.includes('billing.subscription.activated')
 	);
 }
 
@@ -58,6 +59,9 @@ function isCancelOrFailEvent(eventType) {
 		|| type.includes('subscription_canceled')
 		|| type.includes('payment_failed')
 		|| type.includes('invoice.payment_failed')
+		|| type.includes('billing.subscription.cancelled')
+		|| type.includes('billing.subscription.suspended')
+		|| type.includes('billing.subscription.payment.failed')
 	);
 }
 
@@ -103,7 +107,11 @@ export async function handleBillingWebhook(req, providerCode = '') {
 		let result = { handled: false, eventType };
 
 		if (isCancelOrFailEvent(eventType)) {
-			if (eventType.includes('payment_failed') || eventType.includes('invoice.payment_failed')) {
+			if (
+				eventType.includes('payment_failed')
+				|| eventType.includes('invoice.payment_failed')
+				|| eventType.includes('billing.subscription.payment.failed')
+			) {
 				if (workspaceKey) {
 					result = await handleFailedPayment(workspaceKey, {
 						actor: `webhook:${code}`,
@@ -117,7 +125,11 @@ export async function handleBillingWebhook(req, providerCode = '') {
 				// Cancelled / expired checkout — never activate a plan.
 				result = { handled: true, activated: false, cancelled: true, eventType };
 			}
-		} else if (eventType.includes('invoice.paid') || eventType.includes('subscription_renewed')) {
+		} else if (
+			eventType.includes('invoice.paid')
+			|| eventType.includes('subscription_renewed')
+			|| eventType.includes('payment.sale.completed')
+		) {
 			if (workspaceKey) {
 				result = await renewSubscription(workspaceKey, { actor: `webhook:${code}`, force: true });
 			}

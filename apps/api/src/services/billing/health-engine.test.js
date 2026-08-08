@@ -8,10 +8,43 @@ import {
 } from './health-engine.js';
 import { validateProvider } from './validation-engine.js';
 
-test('validateProvider PayPal reports Not Implemented / FAIL', () => {
-	const result = validateProvider('paypal', {}, {});
-	assert.equal(result.result, 'FAIL');
-	assert.ok(result.diagnostics.some((item) => item.code === 'not_implemented'));
+test('validateProvider PayPal fails without credentials', () => {
+	const prevClientId = process.env.PAYPAL_CLIENT_ID;
+	const prevSecret = process.env.PAYPAL_CLIENT_SECRET;
+	const prevWebhook = process.env.PAYPAL_WEBHOOK_ID;
+	delete process.env.PAYPAL_CLIENT_ID;
+	delete process.env.PAYPAL_CLIENT_SECRET;
+	delete process.env.PAYPAL_WEBHOOK_ID;
+	try {
+		const result = validateProvider('paypal', { mode: 'test', enabled: true }, {});
+		assert.equal(result.result, 'FAIL');
+		assert.ok(result.diagnostics.some((item) => item.field === 'clientId'));
+		assert.ok(result.diagnostics.some((item) => item.field === 'clientSecret'));
+		assert.ok(result.diagnostics.some((item) => item.field === 'webhookId'));
+		assert.equal(result.checks.implemented, true);
+	} finally {
+		if (prevClientId !== undefined) process.env.PAYPAL_CLIENT_ID = prevClientId;
+		else delete process.env.PAYPAL_CLIENT_ID;
+		if (prevSecret !== undefined) process.env.PAYPAL_CLIENT_SECRET = prevSecret;
+		else delete process.env.PAYPAL_CLIENT_SECRET;
+		if (prevWebhook !== undefined) process.env.PAYPAL_WEBHOOK_ID = prevWebhook;
+		else delete process.env.PAYPAL_WEBHOOK_ID;
+	}
+});
+
+test('validateProvider PayPal passes with env credentials', () => {
+	process.env.PAYPAL_CLIENT_ID = 'client_test';
+	process.env.PAYPAL_CLIENT_SECRET = 'secret_test';
+	process.env.PAYPAL_WEBHOOK_ID = 'wh_test';
+	try {
+		const result = validateProvider('paypal', { mode: 'test', enabled: true }, {});
+		assert.equal(result.result, 'PASS');
+		assert.equal(result.checks.implemented, true);
+	} finally {
+		delete process.env.PAYPAL_CLIENT_ID;
+		delete process.env.PAYPAL_CLIENT_SECRET;
+		delete process.env.PAYPAL_WEBHOOK_ID;
+	}
 });
 
 test('validateProvider Stripe fails without credentials', () => {

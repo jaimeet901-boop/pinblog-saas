@@ -16,14 +16,14 @@ export const SECRET_FIELDS = Object.freeze({
 	stripe: ['secretKey', 'webhookSecret'],
 	paddle: ['apiKey', 'webhookSecret'],
 	lemonsqueezy: ['apiKey', 'webhookSecret'],
-	paypal: [],
+	paypal: ['clientSecret'],
 });
 
 export const PUBLIC_FIELDS = Object.freeze({
 	stripe: ['mode', 'enabled', 'publishableKey'],
 	paddle: ['mode', 'enabled', 'sandbox', 'defaultPriceId', 'vendorId'],
 	lemonsqueezy: ['mode', 'enabled', 'storeId', 'defaultVariantId'],
-	paypal: ['mode', 'enabled'],
+	paypal: ['mode', 'enabled', 'clientId', 'webhookId', 'defaultPlanId'],
 });
 
 export const CONTROL_PLANE_OWNED_BILLING_KEYS = Object.freeze([
@@ -150,7 +150,7 @@ export function decryptField(raw, field) {
  */
 export function resolveProviderRuntimeConfig(code, rawProvider = {}) {
 	const normalized = normalizeProviderCodeLocal(code);
-	if (normalized === 'none' || String(code).toLowerCase() === 'paypal') {
+	if (normalized === 'none') {
 		return {};
 	}
 	const secrets = SECRET_FIELDS[normalized] || [];
@@ -163,7 +163,7 @@ export function resolveProviderRuntimeConfig(code, rawProvider = {}) {
 		const value = decryptField(rawProvider, field);
 		if (value) out[field] = value;
 	}
-	for (const key of ['priceIds', 'prices', 'variantIds', 'variants', 'defaultPriceId', 'defaultVariantId', 'storeId', 'sandbox']) {
+	for (const key of ['priceIds', 'prices', 'variantIds', 'variants', 'defaultPriceId', 'defaultVariantId', 'storeId', 'sandbox', 'planIds', 'plans', 'defaultPlanId', 'clientId', 'webhookId']) {
 		if (rawProvider[key] !== undefined && out[key] === undefined) {
 			out[key] = rawProvider[key];
 		}
@@ -199,6 +199,7 @@ export function toPublicBillingConfig(config = {}) {
 			stripe: billing.providers.stripe,
 			paddle: billing.providers.paddle,
 			lemonsqueezy: billing.providers.lemonsqueezy,
+			paypal: billing.providers.paypal,
 		},
 	};
 }
