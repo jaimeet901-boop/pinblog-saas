@@ -24,6 +24,7 @@ import {
 	assertWorkspaceOwnedRecord,
 	recordBelongsToWorkspace,
 } from '../services/workspace-ownership.js';
+import { buildBackgroundImagePrompt } from '../services/ai-pin-background-prompt.js';
 
 const router = Router();
 
@@ -324,16 +325,15 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			rawItemProvider: rawItem?.provider ?? null,
 		});
 
-		const prompt = appendProviderMarker([
-			'Professional Pinterest marketing visual, vertical 2:3.',
-			'Target size 1000x1500.',
-			`Article title: ${title}`,
-			description ? `Meta description: ${description}` : '',
-			category ? `Category: ${category}` : '',
-			keywords.length ? `Keywords: ${keywords.join(', ')}` : '',
-			overlayText ? `Overlay text: ${overlayText}` : '',
-			imagePrompt ? `Creative direction: ${imagePrompt}` : '',
-		].filter(Boolean).join('\n'), provider);
+		const prompt = appendProviderMarker(
+			buildBackgroundImagePrompt({
+				category,
+				keywords,
+				imagePrompt,
+				recipeContext: article.meta_description || '',
+			}),
+			provider,
+		);
 
 		const generationRunId = normalizeString(rawItem?.generationRunId || rawItem?.generation_run_id || '', 'generationRunId', { max: 80 });
 
