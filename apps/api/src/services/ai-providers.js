@@ -24,6 +24,14 @@ export {
 };
 
 const MASK = '••••••••••••••••';
+const PROVIDER_LIST_CACHE_TTL_MS = 60_000;
+
+/** @type {{ expiresAt: number, dtos: Array<Record<string, unknown>> | null }} */
+let providerListCache = { expiresAt: 0, dtos: null };
+
+function invalidateProviderListCache() {
+	providerListCache = { expiresAt: 0, dtos: null };
+}
 
 function formatDateTime(value) {
 	if (!value) return '—';
@@ -188,15 +196,26 @@ export async function ensureProviderCatalogSeeded() {
 	}
 }
 
-export async function listProviders() {
+async function loadProviderDtosUncached() {
 	await ensureProviderCatalogSeeded();
 	const records = await pocketbaseClient.collection('ai_providers').getFullList({
 		sort: 'priority,name',
 		requestKey: null,
 	});
-	const dtos = await attachSecretsMeta(records);
+	return attachSecretsMeta(records);
+}
+
+export async function listProviders() {
+	const now = Date.now();
+	let dtos = providerListCache.dtos;
+	if (!dtos || now >= providerListCache.expiresAt) {
+		dtos = await loadProviderDtosUncached();
+		providerListCache = { expiresAt: now + PROVIDER_LIST_CACHE_TTL_MS, dtos };
+	}
 	return promoteConfiguredHealthyProviders(dtos);
 }
+
+export { invalidateProviderListCache };
 
 /**
  * Providers seeded/configured with keys + healthy checks often never flipped `enabled`.
@@ -217,6 +236,7 @@ async function promoteConfiguredHealthyProviders(dtos) {
 				history: pushHistory(dto.history, 'Auto-enabled for workspace use (credentials + healthy)'),
 			}).catch(() => null);
 			bumpWorkspaceConfigVersion('provider_auto_enable');
+			invalidateProviderListCache();
 			next.push({ ...dto, enabled: true });
 			continue;
 		}
@@ -241,15 +261,11 @@ export async function getPlatformProviderApiKey(code) {
 	if (!normalized) return '';
 
 	const lookupCode = normalized === 'flux' ? 'fal' : normalized;
-	const records = await pocketbaseClient.collection('ai_providers').getFullList({
-		filter: pocketbaseClient.filter('code = {:code}', { code: lookupCode }),
-		requestKey: null,
-	}).catch(() => []);
+	const providers = await listProviders().catch(() => []);
+	const dto = providers.find((item) => String(item.code || '').toLowerCase() === lookupCode);
+	if (!dto || !dto.enabled) return '';
 
-	const record = records[0];
-	if (!record || !record.enabled) return '';
-
-	const { apiKey } = await getDecryptedSecrets(record.id);
+	const { apiKey } = await getDecryptedSecrets(dto.id);
 	return apiKey || '';
 }
 
@@ -412,6 +428,7 @@ export async function createProvider(payload = {}) {
 
 		const created = await getProviderById(record.id);
 		bumpWorkspaceConfigVersion('provider_create');
+		invalidateProviderListCache();
 		return created;
 	} catch (error) {
 		if (String(error?.message || '').toLowerCase().includes('unique')) {
@@ -473,6 +490,7 @@ export async function updateProviderConfig(id, payload = {}) {
 
 	const updated = await getProviderById(id);
 	bumpWorkspaceConfigVersion('provider_update');
+	invalidateProviderListCache();
 	return updated;
 }
 
@@ -495,6 +513,7 @@ export async function upsertProviderSecrets(providerId, { apiKey, secretKey } = 
 	if (existing) {
 		const updated = await pocketbaseClient.collection('ai_provider_secrets').update(existing.id, payload);
 		bumpWorkspaceConfigVersion('provider_secrets');
+		invalidateProviderListCache();
 		return updated;
 	}
 
@@ -504,6 +523,7 @@ export async function upsertProviderSecrets(providerId, { apiKey, secretKey } = 
 		...payload,
 	});
 	bumpWorkspaceConfigVersion('provider_secrets');
+	invalidateProviderListCache();
 	return created;
 }
 
@@ -522,6 +542,7 @@ export async function setProviderEnabled(id, enabled) {
 	await pocketbaseClient.collection('ai_providers').update(id, updates);
 	const dto = await getProviderById(id);
 	bumpWorkspaceConfigVersion(enabled ? 'provider_enable' : 'provider_disable');
+	invalidateProviderListCache();
 	return dto;
 }
 
@@ -532,6 +553,7 @@ export async function deleteProvider(id) {
 	}
 	await pocketbaseClient.collection('ai_providers').delete(id);
 	bumpWorkspaceConfigVersion('provider_delete');
+	invalidateProviderListCache();
 	return { ok: true, id };
 }
 
@@ -562,6 +584,7 @@ export async function testProviderConnection(id) {
 	});
 
 	bumpWorkspaceConfigVersion(result.ok ? 'provider_health_ok' : 'provider_health_fail');
+	invalidateProviderListCache();
 	const provider = await getProviderById(id);
 	return {
 		ok: result.ok,

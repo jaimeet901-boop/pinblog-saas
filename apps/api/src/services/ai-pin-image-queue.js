@@ -18,12 +18,56 @@ import { isImmediateImageFallbackError } from '../constants/image-source-strateg
 import { safeTransitionArticleLifecycle } from './article-lifecycle.js';
 import { buildBackgroundImagePrompt } from './ai-pin-background-prompt.js';
 
-const POLL_INTERVAL_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_POLL_MS || '12000', 10);
+function parsePositiveIntMs(raw, fallback) {
+	const parsed = Number.parseInt(String(raw ?? '').trim(), 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readEnvPollValue(name) {
+	const raw = process.env[name];
+	if (raw === undefined || String(raw).trim() === '') {
+		return undefined;
+	}
+	return raw;
+}
+
+/**
+ * Active poll interval (when due jobs exist).
+ * Resolution order: AI_IMAGE_QUEUE_ACTIVE_POLL_MS -> AI_IMAGE_QUEUE_POLL_MS -> 3000.
+ *
+ * @deprecated AI_IMAGE_QUEUE_POLL_MS - legacy single-interval knob from pre-adaptive worker.
+ * Kept for backward compatibility only; prefer AI_IMAGE_QUEUE_ACTIVE_POLL_MS in new deployments.
+ */
+function resolveActivePollIntervalMs() {
+	const activeRaw = readEnvPollValue('AI_IMAGE_QUEUE_ACTIVE_POLL_MS')
+		?? readEnvPollValue('AI_IMAGE_QUEUE_POLL_MS');
+	return parsePositiveIntMs(activeRaw, 3000);
+}
+
+/** Idle poll interval (no due jobs). Resolution order: AI_IMAGE_QUEUE_IDLE_POLL_MS -> 12000. */
+function resolveIdlePollIntervalMs() {
+	return parsePositiveIntMs(readEnvPollValue('AI_IMAGE_QUEUE_IDLE_POLL_MS'), 12000);
+}
+
+function resolveActivePollIntervalSource() {
+	if (readEnvPollValue('AI_IMAGE_QUEUE_ACTIVE_POLL_MS') !== undefined) {
+		return 'AI_IMAGE_QUEUE_ACTIVE_POLL_MS';
+	}
+	if (readEnvPollValue('AI_IMAGE_QUEUE_POLL_MS') !== undefined) {
+		return 'AI_IMAGE_QUEUE_POLL_MS';
+	}
+	return 'default';
+}
+
+const ACTIVE_POLL_INTERVAL_MS = resolveActivePollIntervalMs();
+const IDLE_POLL_INTERVAL_MS = resolveIdlePollIntervalMs();
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.AI_IMAGE_QUEUE_BATCH || '5', 10);
 const JOB_TIMEOUT_MS = Number.parseInt(process.env.AI_IMAGE_JOB_TIMEOUT_MS || '180000', 10);
 const STUCK_PROCESSING_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_STUCK_MS || '900000', 10);
 
 let workerTimer = null;
+let currentPollIntervalMs = ACTIVE_POLL_INTERVAL_MS;
+let pollLoopActive = false;
 let running = false;
 let processedTotal = 0;
 let failedTotal = 0;
@@ -534,11 +578,12 @@ async function claimImageJob(jobId) {
 
 async function processDueJobs() {
 	if (running) {
-		return;
+		return false;
 	}
 
 	running = true;
 	lastRunAt = new Date().toISOString();
+	let hasQueueWork = false;
 
 	try {
 		await recoverStuckProcessingJobs({ onlyOlderThanMs: STUCK_PROCESSING_MS }).catch((error) => {
@@ -547,6 +592,7 @@ async function processDueJobs() {
 
 		const now = new Date().toISOString();
 		const dueJobs = await getDueImageJobs(now);
+		hasQueueWork = dueJobs.length > 0;
 
 		for (const job of dueJobs.slice(0, MAX_JOBS_PER_TICK)) {
 			const claimed = await claimImageJob(job.id);
@@ -706,6 +752,8 @@ async function processDueJobs() {
 	} finally {
 		running = false;
 	}
+
+	return hasQueueWork;
 }
 
 async function recoverStuckProcessingJobs({ onlyOlderThanMs = 0 } = {}) {
@@ -761,7 +809,10 @@ export function getAIPinImageQueueStatus() {
 		active: Boolean(workerTimer),
 		enabled,
 		disabledByEnv: !enabled,
-		pollIntervalMs: POLL_INTERVAL_MS,
+		pollIntervalMs: currentPollIntervalMs,
+		activePollIntervalMs: ACTIVE_POLL_INTERVAL_MS,
+		idlePollIntervalMs: IDLE_POLL_INTERVAL_MS,
+		activePollIntervalSource: resolveActivePollIntervalSource(),
 		batchSize: MAX_JOBS_PER_TICK,
 		processedTotal,
 		failedTotal,
@@ -797,7 +848,7 @@ async function ensureImageJobClaimFields() {
 }
 
 export function startAIPinImageQueue() {
-	if (workerTimer) {
+	if (workerTimer || pollLoopActive) {
 		return;
 	}
 
@@ -809,9 +860,26 @@ export function startAIPinImageQueue() {
 		return;
 	}
 
-	workerTimer = setInterval(() => {
-		processDueJobs();
-	}, POLL_INTERVAL_MS);
+	pollLoopActive = true;
+
+	const scheduleNextPoll = (delayMs) => {
+		if (!pollLoopActive) {
+			return;
+		}
+		currentPollIntervalMs = delayMs;
+		workerTimer = setTimeout(async () => {
+			workerTimer = null;
+			let hasWork = false;
+			try {
+				hasWork = await processDueJobs();
+			} catch (error) {
+				logger.error('AI image queue poll cycle failed', { message: error?.message });
+			}
+			if (pollLoopActive) {
+				scheduleNextPoll(hasWork ? ACTIVE_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS);
+			}
+		}, delayMs);
+	};
 
 	ensureImageJobClaimFields()
 		.then(() => verifyCollectionFields({
@@ -827,18 +895,25 @@ export function startAIPinImageQueue() {
 		context: 'websites-schema-check',
 	}).catch(() => null);
 
-	recoverStuckProcessingJobs().finally(() => {
-		processDueJobs();
+	recoverStuckProcessingJobs().finally(async () => {
+		let hasWork = false;
+		try {
+			hasWork = await processDueJobs();
+		} catch (error) {
+			logger.error('AI image queue initial poll failed', { message: error?.message });
+		}
+		scheduleNextPoll(hasWork ? ACTIVE_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS);
 	});
-	logger.info(`AI pin image queue started (interval ${POLL_INTERVAL_MS}ms)`);
+	logger.info(`AI pin image queue started (active ${ACTIVE_POLL_INTERVAL_MS}ms, idle ${IDLE_POLL_INTERVAL_MS}ms)`);
 }
 
 export function stopAIPinImageQueue() {
+	pollLoopActive = false;
 	if (!workerTimer) {
 		return;
 	}
 
-	clearInterval(workerTimer);
+	clearTimeout(workerTimer);
 	workerTimer = null;
 	logger.info('AI pin image queue stopped');
 }

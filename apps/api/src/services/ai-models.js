@@ -13,6 +13,33 @@ import logger from '../utils/logger.js';
 
 const CAPABILITIES = new Set(['text', 'image', 'vision', 'embedding']);
 const STATUSES = new Set(['enabled', 'disabled', 'deprecated']);
+const MODEL_CATALOG_CACHE_TTL_MS = 60_000;
+
+/** @type {{ expiresAt: number, dtos: Array<Record<string, unknown>> | null }} */
+let modelCatalogCache = { expiresAt: 0, dtos: null };
+
+function invalidateModelCatalogCache() {
+	modelCatalogCache = { expiresAt: 0, dtos: null };
+}
+
+async function loadAllModelDtos() {
+	const now = Date.now();
+	if (modelCatalogCache.dtos && now < modelCatalogCache.expiresAt) {
+		return modelCatalogCache.dtos;
+	}
+
+	await ensureModelCatalogSeeded();
+	const records = await pocketbaseClient.collection('ai_models').getFullList({
+		sort: 'priority,display_name',
+		expand: 'provider',
+		requestKey: null,
+	});
+	const dtos = records.map((record) => mapModelDto(record, record.expand?.provider));
+	modelCatalogCache = { expiresAt: now + MODEL_CATALOG_CACHE_TTL_MS, dtos };
+	return dtos;
+}
+
+export { invalidateModelCatalogCache };
 
 function formatDate(value) {
 	if (!value) return '—';
@@ -280,6 +307,7 @@ async function ensureGeminiModelsCurrent(providersByCode) {
 
 	if (changed) {
 		bumpWorkspaceConfigVersion('gemini_model_catalog_refresh');
+		invalidateModelCatalogCache();
 		logger.info('[ai-models] Refreshed Gemini Admin model catalog', {
 			stableFallback: GEMINI_STABLE_FALLBACK_MODEL,
 			stableImageFallback: GEMINI_STABLE_IMAGE_FALLBACK_MODEL,
@@ -320,6 +348,8 @@ async function ensureGeminiProviderImageCapable(providersByCode) {
 
 	await pocketbaseClient.collection('ai_providers').update(record.id, updates).catch(() => null);
 	bumpWorkspaceConfigVersion('gemini_provider_image_capable');
+	const { invalidateProviderListCache } = await import('./ai-providers.js');
+	invalidateProviderListCache();
 	logger.info('[ai-models] Enabled Gemini provider image scopes', {
 		providerId: record.id,
 		scopes: updates.scopes || scopes,
@@ -462,15 +492,7 @@ async function loadModel(id) {
 }
 
 export async function listModels(query = {}) {
-	await ensureModelCatalogSeeded();
-
-	const records = await pocketbaseClient.collection('ai_models').getFullList({
-		sort: 'priority,display_name',
-		expand: 'provider',
-		requestKey: null,
-	});
-
-	let items = records.map((record) => mapModelDto(record, record.expand?.provider));
+	let items = await loadAllModelDtos();
 
 	const q = String(query.q || '').trim().toLowerCase();
 	const provider = String(query.provider || '').trim();
@@ -609,6 +631,7 @@ export async function createModel(payload = {}) {
 
 	const created = await getModelById(record.id);
 	bumpWorkspaceConfigVersion('model_create');
+	invalidateModelCatalogCache();
 	return created;
 }
 
@@ -689,6 +712,7 @@ export async function updateModel(id, payload = {}) {
 
 	const updated = await getModelById(id);
 	bumpWorkspaceConfigVersion('model_update');
+	invalidateModelCatalogCache();
 	return updated;
 }
 
@@ -712,6 +736,7 @@ export async function setModelEnabled(id, enabled) {
 	});
 	const dto = await getModelById(id);
 	bumpWorkspaceConfigVersion(enabled ? 'model_enable' : 'model_disable');
+	invalidateModelCatalogCache();
 	return dto;
 }
 
@@ -725,6 +750,7 @@ export async function setModelDefault(id) {
 	});
 	const dto = await getModelById(id);
 	bumpWorkspaceConfigVersion('model_default');
+	invalidateModelCatalogCache();
 	return dto;
 }
 
@@ -732,5 +758,6 @@ export async function deleteModel(id) {
 	await pocketbaseClient.collection('ai_models').getOne(id);
 	await pocketbaseClient.collection('ai_models').delete(id);
 	bumpWorkspaceConfigVersion('model_delete');
+	invalidateModelCatalogCache();
 	return { ok: true, id };
 }

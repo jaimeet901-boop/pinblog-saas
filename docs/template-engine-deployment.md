@@ -15,7 +15,9 @@ Verify with `apps/pocketbase/scripts/verify-template-engine-schema.mjs` when ava
 | Variable | Purpose |
 |---|---|
 | Existing PB / API env | Auth, workspace |
-| `AI_IMAGE_QUEUE_POLL_MS` | Image worker poll |
+| `AI_IMAGE_QUEUE_ACTIVE_POLL_MS` | Image worker active poll (when due jobs exist; default 3000) |
+| `AI_IMAGE_QUEUE_IDLE_POLL_MS` | Image worker idle poll (no due jobs; default 12000) |
+| `AI_IMAGE_QUEUE_POLL_MS` | **Deprecated** legacy fallback for active interval only |
 | `AI_IMAGE_QUEUE_BATCH` | Jobs per tick |
 
 Export pixel encode is client/worker-side today (`nativeWorker: false` on plans). Queue types `export` / `template_rendering` are ready for a future Node canvas worker.

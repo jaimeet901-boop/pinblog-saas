@@ -6,8 +6,7 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { getPublicFileUrl } from '../utils/public-file-url.js';
 import logger from '../utils/logger.js';
 import {
-	buildSchemaSafeFilter,
-	safeGetFirstListItem,
+	safeGetFullList,
 	sanitizeCollectionPayload,
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
@@ -20,9 +19,9 @@ import {
 import {
 	getWorkspaceActor,
 	stampCreateOwnership,
-	workspaceScopeFilter,
 	assertWorkspaceOwnedRecord,
 	recordBelongsToWorkspace,
+	andWorkspaceScope,
 } from '../services/workspace-ownership.js';
 import { buildBackgroundImagePrompt } from '../services/ai-pin-background-prompt.js';
 
@@ -119,6 +118,181 @@ async function ensureOwnedPin({ req, pinId }) {
 	}
 	assertWorkspaceOwnedRecord(pin, req, { notFoundMessage: 'Pin not found' });
 	return pin;
+}
+
+async function prefetchOwnedArticles(req, articleIds) {
+	const uniqueIds = [...new Set(articleIds.filter(Boolean))];
+	const cache = new Map();
+	await Promise.all(uniqueIds.map(async (articleId) => {
+		const article = await ensureOwnedArticle({ req, articleId });
+		cache.set(articleId, article);
+	}));
+	return cache;
+}
+
+async function prefetchOwnedPins(req, pinIds) {
+	const uniqueIds = [...new Set(pinIds.filter(Boolean))];
+	const cache = new Map();
+	await Promise.all(uniqueIds.map(async (pinId) => {
+		const pin = await ensureOwnedPin({ req, pinId });
+		cache.set(pinId, pin);
+	}));
+	return cache;
+}
+
+async function prefetchActiveJobsByPinId(req, pinIds) {
+	const uniquePinIds = [...new Set(pinIds.filter(Boolean))];
+	if (uniquePinIds.length === 0) {
+		return new Map();
+	}
+
+	const pinIdFilter = uniquePinIds
+		.map((pinId) => pocketbaseClient.filter('ai_pin = {:pinId}', { pinId }))
+		.join(' || ');
+	const filter = andWorkspaceScope(
+		req,
+		`(${pinIdFilter}) && (status = "queued" || status = "processing")`,
+	);
+
+	const jobs = await safeGetFullList({
+		collection: 'ai_pin_image_jobs',
+		context: 'ai-pin-images:create:prefetch-active-jobs',
+		filter,
+	});
+
+	const cache = new Map();
+	for (const job of jobs) {
+		const pinId = job.ai_pin || '';
+		if (pinId && !cache.has(pinId)) {
+			cache.set(pinId, job);
+		}
+	}
+	return cache;
+}
+
+async function createImageJobRecord({
+	req,
+	owner,
+	article,
+	pin,
+	rawItem,
+	articleId,
+	clientToken,
+	imageMode,
+	title,
+	description,
+	overlayText,
+	category,
+	keywords,
+	imagePrompt,
+	featuredImageUrl,
+	provider,
+	requestedProvider,
+	generationRunId,
+}) {
+	dumpProviderTrace('[ai-pin-images] Provider flow (create job)', {
+		requestedProvider: requestedProvider || null,
+		resolvedProvider: provider || null,
+		imageMode,
+		articleId,
+		clientToken,
+		rawItemProvider: rawItem?.provider ?? null,
+	});
+
+	const prompt = appendProviderMarker(
+		buildBackgroundImagePrompt({
+			category,
+			keywords,
+			imagePrompt,
+			recipeContext: article.meta_description || '',
+		}),
+		provider,
+	);
+
+	const promptPayload = {
+		articleTitle: article.title || '',
+		metaDescription: article.meta_description || '',
+		category,
+		keywords,
+		overlayText,
+		pinTitle: title,
+		pinDescription: description,
+		imagePrompt,
+		provider,
+		requestedProvider: requestedProvider || provider,
+		...(generationRunId ? { generationRunId } : {}),
+	};
+
+	const createPayload = await sanitizeCollectionPayload({
+		collection: 'ai_pin_image_jobs',
+		context: 'ai-pin-images:create-job',
+		payload: stampCreateOwnership(req, {
+			owner,
+			ai_pin: pin?.id || '',
+			websiteId: article.websiteId || '',
+			articleId: article.id,
+			client_token: clientToken,
+			source_type: pin ? 'pin' : 'preview',
+			image_mode: imageMode,
+			prompt,
+			prompt_payload: promptPayload,
+			image_provider: provider,
+			featured_image_url: featuredImageUrl,
+			status: 'queued',
+			attempt_count: 0,
+			max_attempts: 3,
+			next_retry_at: '',
+			last_error: '',
+		}),
+	});
+
+	dumpProviderTrace('[ai-pin-images] createPayload before PocketBase create', {
+		image_provider: createPayload.image_provider ?? null,
+		prompt_payload: createPayload.prompt_payload ?? null,
+		promptMarker: String(createPayload.prompt || '').match(IMAGE_PROVIDER_MARKER_RE)?.[1] || null,
+		droppedImageProvider: !Object.prototype.hasOwnProperty.call(createPayload, 'image_provider'),
+	});
+
+	const job = await pocketbaseClient.collection('ai_pin_image_jobs').create(createPayload);
+
+	let storedPayload = job.prompt_payload;
+	if (typeof storedPayload === 'string') {
+		try { storedPayload = JSON.parse(storedPayload); } catch { storedPayload = null; }
+	}
+
+	dumpProviderTrace('[ai-pin-images] Provider stored on ai_pin_image_jobs', {
+		jobId: job.id,
+		requestedProvider: requestedProvider || null,
+		resolvedProvider: provider || null,
+		'job.image_provider': job.image_provider ?? null,
+		'job.provider': job.provider ?? null,
+		'prompt_payload.provider': storedPayload?.provider ?? null,
+		'prompt_payload.requestedProvider': storedPayload?.requestedProvider ?? null,
+		prompt_payload_raw_type: typeof job.prompt_payload,
+		prompt_payload_full: storedPayload,
+		promptMarker: String(job.prompt || '').match(IMAGE_PROVIDER_MARKER_RE)?.[1] || null,
+	});
+
+	const persistedProvider = job.image_provider || storedPayload?.provider || null;
+	if (provider && persistedProvider !== provider) {
+		logger.error('[ai-pin-images] provider did not persist on job record', {
+			jobId: job.id,
+			expected: provider,
+			persistedProvider,
+			image_provider: job.image_provider ?? null,
+			prompt_payload_provider: storedPayload?.provider ?? null,
+		});
+	}
+
+	if (pin) {
+		await pocketbaseClient.collection('ai_pins').update(pin.id, {
+			image_generation_status: 'queued',
+			image_generation_error: '',
+			image_job_id: job.id,
+		});
+	}
+
+	return job;
 }
 
 function mapJob(job) {
@@ -259,8 +433,8 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		throw httpError(422, 'items must be a non-empty array');
 	}
 
-	const jobs = [];
-	for (const rawItem of items.slice(0, 100)) {
+	const slice = items.slice(0, 100);
+	const parsedItems = slice.map((rawItem) => {
 		const articleId = normalizeString(rawItem?.articleId, 'articleId', { required: true, max: 80 });
 		const pinId = normalizeString(rawItem?.pinId, 'pinId', { max: 80 });
 		const clientToken = normalizeString(rawItem?.clientToken, 'clientToken', { max: 120 });
@@ -268,31 +442,35 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		if (!['generate_ai', 'use_featured'].includes(imageMode)) {
 			throw httpError(422, 'imageMode must be generate_ai or use_featured');
 		}
+		return { rawItem, articleId, pinId, clientToken, imageMode };
+	});
 
-		const article = await ensureOwnedArticle({ req, articleId });
-		const pin = await ensureOwnedPin({ req, pinId });
+	const seenPinIds = new Set();
+	for (const item of parsedItems) {
+		if (!item.pinId) {
+			continue;
+		}
+		if (seenPinIds.has(item.pinId)) {
+			throw httpError(422, 'Duplicate pinId in request');
+		}
+		seenPinIds.add(item.pinId);
+	}
 
-		const existingActiveJob = pin
-			? await (async () => {
-				const { filter } = await buildSchemaSafeFilter({
-					collection: 'ai_pin_image_jobs',
-					context: 'ai-pin-images:create:existing-active-job',
-					parts: [
-						{ field: 'owner', expression: workspaceScopeFilter(req) },
-						{ field: 'ai_pin', expression: pocketbaseClient.filter('ai_pin = {:pinId}', { pinId: pin.id }) },
-						{ field: 'status', expression: '(status = "queued" || status = "processing")' },
-					],
-				});
+	const [articleCache, pinCache, activeJobCache] = await Promise.all([
+		prefetchOwnedArticles(req, parsedItems.map((item) => item.articleId)),
+		prefetchOwnedPins(req, parsedItems.map((item) => item.pinId)),
+		prefetchActiveJobsByPinId(req, parsedItems.map((item) => item.pinId)),
+	]);
 
-				return safeGetFirstListItem({
-					collection: 'ai_pin_image_jobs',
-					context: 'ai-pin-images:create:existing-active-job',
-					filter,
-				});
-			})()
-			: null;
+	const createPlans = [];
+	for (const item of parsedItems) {
+		const { rawItem, articleId, pinId, clientToken, imageMode } = item;
+		const article = articleCache.get(articleId);
+		const pin = pinId ? pinCache.get(pinId) : null;
+
+		const existingActiveJob = pin ? activeJobCache.get(pin.id) : null;
 		if (existingActiveJob) {
-			jobs.push(existingActiveJob);
+			createPlans.push({ type: 'existing', job: existingActiveJob });
 			continue;
 		}
 
@@ -316,112 +494,54 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			throw httpError(422, 'provider must be openai, fal, flux, or gemini');
 		}
 
-		dumpProviderTrace('[ai-pin-images] Provider flow (create job)', {
-			requestedProvider: requestedProvider || null,
-			resolvedProvider: provider || null,
-			imageMode,
-			articleId,
-			clientToken,
-			rawItemProvider: rawItem?.provider ?? null,
-		});
-
-		const prompt = appendProviderMarker(
-			buildBackgroundImagePrompt({
-				category,
-				keywords,
-				imagePrompt,
-				recipeContext: article.meta_description || '',
-			}),
-			provider,
-		);
-
 		const generationRunId = normalizeString(rawItem?.generationRunId || rawItem?.generation_run_id || '', 'generationRunId', { max: 80 });
 
-		const promptPayload = {
-			articleTitle: article.title || '',
-			metaDescription: article.meta_description || '',
+		createPlans.push({
+			type: 'create',
+			rawItem,
+			article,
+			pin,
+			articleId,
+			clientToken,
+			imageMode,
+			title,
+			description,
+			overlayText,
 			category,
 			keywords,
-			overlayText,
-			pinTitle: title,
-			pinDescription: description,
 			imagePrompt,
+			featuredImageUrl,
 			provider,
-			requestedProvider: requestedProvider || provider,
-			...(generationRunId ? { generationRunId } : {}),
-		};
-
-		const createPayload = await sanitizeCollectionPayload({
-			collection: 'ai_pin_image_jobs',
-			context: 'ai-pin-images:create-job',
-			payload: stampCreateOwnership(req, {
-			owner,
-			ai_pin: pin?.id || '',
-			websiteId: article.websiteId || '',
-			articleId: article.id,
-			client_token: clientToken,
-			source_type: pin ? 'pin' : 'preview',
-			image_mode: imageMode,
-			prompt,
-			prompt_payload: promptPayload,
-			image_provider: provider,
-			featured_image_url: featuredImageUrl,
-			status: 'queued',
-			attempt_count: 0,
-			max_attempts: 3,
-			next_retry_at: '',
-			last_error: '',
-			}),
+			requestedProvider,
+			generationRunId,
 		});
-
-		dumpProviderTrace('[ai-pin-images] createPayload before PocketBase create', {
-			image_provider: createPayload.image_provider ?? null,
-			prompt_payload: createPayload.prompt_payload ?? null,
-			promptMarker: String(createPayload.prompt || '').match(IMAGE_PROVIDER_MARKER_RE)?.[1] || null,
-			droppedImageProvider: !Object.prototype.hasOwnProperty.call(createPayload, 'image_provider'),
-		});
-
-		const job = await pocketbaseClient.collection('ai_pin_image_jobs').create(createPayload);
-
-		let storedPayload = job.prompt_payload;
-		if (typeof storedPayload === 'string') {
-			try { storedPayload = JSON.parse(storedPayload); } catch { storedPayload = null; }
-		}
-
-		dumpProviderTrace('[ai-pin-images] Provider stored on ai_pin_image_jobs', {
-			jobId: job.id,
-			requestedProvider: requestedProvider || null,
-			resolvedProvider: provider || null,
-			'job.image_provider': job.image_provider ?? null,
-			'job.provider': job.provider ?? null,
-			'prompt_payload.provider': storedPayload?.provider ?? null,
-			'prompt_payload.requestedProvider': storedPayload?.requestedProvider ?? null,
-			prompt_payload_raw_type: typeof job.prompt_payload,
-			prompt_payload_full: storedPayload,
-			promptMarker: String(job.prompt || '').match(IMAGE_PROVIDER_MARKER_RE)?.[1] || null,
-		});
-
-		const persistedProvider = job.image_provider || storedPayload?.provider || null;
-		if (provider && persistedProvider !== provider) {
-			logger.error('[ai-pin-images] provider did not persist on job record', {
-				jobId: job.id,
-				expected: provider,
-				persistedProvider,
-				image_provider: job.image_provider ?? null,
-				prompt_payload_provider: storedPayload?.provider ?? null,
-			});
-		}
-
-		if (pin) {
-			await pocketbaseClient.collection('ai_pins').update(pin.id, {
-				image_generation_status: 'queued',
-				image_generation_error: '',
-				image_job_id: job.id,
-			});
-		}
-
-		jobs.push(job);
 	}
+
+	const jobs = await Promise.all(createPlans.map(async (plan) => {
+		if (plan.type === 'existing') {
+			return plan.job;
+		}
+		return createImageJobRecord({
+			req,
+			owner,
+			article: plan.article,
+			pin: plan.pin,
+			rawItem: plan.rawItem,
+			articleId: plan.articleId,
+			clientToken: plan.clientToken,
+			imageMode: plan.imageMode,
+			title: plan.title,
+			description: plan.description,
+			overlayText: plan.overlayText,
+			category: plan.category,
+			keywords: plan.keywords,
+			imagePrompt: plan.imagePrompt,
+			featuredImageUrl: plan.featuredImageUrl,
+			provider: plan.provider,
+			requestedProvider: plan.requestedProvider,
+			generationRunId: plan.generationRunId,
+		});
+	}));
 
 	res.status(201).json({ items: jobs.map(mapJob) });
 });
@@ -437,8 +557,21 @@ router.get('/jobs', async (req, res) => {
 		return res.json({ items: [] });
 	}
 
-	const jobs = await Promise.all(ids.map((id) => pocketbaseClient.collection('ai_pin_image_jobs').getOne(id).catch(() => null)));
-	const owned = jobs.filter((job) => job && recordBelongsToWorkspace(job, req));
+	const idFilter = ids.map((id) => pocketbaseClient.filter('id = {:id}', { id })).join(' || ');
+	const filter = andWorkspaceScope(req, `(${idFilter})`);
+	const listed = await pocketbaseClient.collection('ai_pin_image_jobs').getList(1, ids.length, {
+		filter,
+		requestKey: null,
+	}).catch(() => ({ items: [] }));
+
+	const ownedById = new Map();
+	for (const job of listed.items || []) {
+		if (job && recordBelongsToWorkspace(job, req)) {
+			ownedById.set(job.id, job);
+		}
+	}
+
+	const owned = ids.map((id) => ownedById.get(id)).filter(Boolean);
 	res.json({ items: owned.map(mapJob) });
 });
 
