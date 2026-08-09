@@ -4,6 +4,12 @@ import { assertCapability } from './workspace-rbac.js';
 import { ensurePlansSeeded, listPlans, mapPlanDto } from './plans.js';
 import { getSubscriptionPlan } from './workspace-context.js';
 import { getBillingProvider, resolveBillingConfig } from './billing/providers/index.js';
+import { syncEntitlementMirrors } from './billing/entitlement-sync.js';
+import {
+	validateBillingSource,
+	validateBillingInterval,
+	resolveAuthoritativePlanBillingType,
+} from './billing/billing-model.js';
 import { getCreditCosts } from './credits-engine.js';
 
 function currentPeriod() {
@@ -215,8 +221,20 @@ async function resolvePlanFromPayload(payload = {}) {
 	return plan;
 }
 
+function resolvePlanBillingTypeOrThrow(plan) {
+	const result = resolveAuthoritativePlanBillingType(plan);
+	if (!result.ok) {
+		const errorCode = result.error === 'missing_plan_billing_type'
+			? 'MISSING_PLAN_BILLING_TYPE'
+			: 'INVALID_PLAN_BILLING_TYPE';
+		throw httpError(422, 'Plan billing type is missing or invalid', errorCode);
+	}
+	return result.value;
+}
+
+/** Phase 4.1 — authoritative plans.billing_type; never price/slug heuristics. */
 function planIsPaid(plan) {
-	return (Number(plan?.monthly_price) || 0) > 0 || (Number(plan?.yearly_price) || 0) > 0;
+	return resolvePlanBillingTypeOrThrow(plan) === 'paid';
 }
 
 function billingUnavailableResult(plan, providerCode = 'none') {
@@ -271,16 +289,20 @@ async function applyWorkspacePlanChange(req, plan, {
 		? await pocketbaseClient.collection('workspace_subscriptions').update(req.workspaceSubscription.id, body)
 		: await pocketbaseClient.collection('workspace_subscriptions').create(body);
 
-	await pocketbaseClient.collection('workspaces').update(req.workspace.id, {
-		plan_slug: plan.slug,
+	const syncSource = provider === 'none' || !provider
+		? 'free'
+		: (validateBillingSource(provider).ok ? provider : 'system');
+	await syncEntitlementMirrors({
+		workspaceKey: req.workspaceKey,
+		plan,
+		subscriptionId: updated.id,
+		subscriptionRecord: updated,
+		actor: actor || req.workspaceUser?.email || req.pocketbaseUserId || 'system',
+		source: syncSource,
 	});
 
-	const ownerUserId = req.workspaceOwnerId || req.workspace?.owner || req.pocketbaseUserId;
-	if (ownerUserId) {
-		await pocketbaseClient.collection('users').update(ownerUserId, {
-			plan: plan.slug,
-		}).catch(() => null);
-	}
+	req.workspaceSubscription = updated;
+	req.workspace.plan_slug = plan.slug;
 
 	await pocketbaseClient.collection('credit_transactions').create({
 		workspace_key: req.workspaceKey,
@@ -292,9 +314,6 @@ async function applyWorkspacePlanChange(req, plan, {
 		created_by: actor || req.workspaceUser?.email || req.pocketbaseUserId || 'system',
 		reference_id: paymentRef || '',
 	}).catch(() => null);
-
-	req.workspaceSubscription = updated;
-	req.workspace.plan_slug = plan.slug;
 
 	const { logBillingAction } = await import('./billing/index.js');
 	const oldPlan = previousSlug
@@ -339,7 +358,7 @@ export async function startWorkspaceSubscriptionCheckout(req, payload = {}) {
 		throw httpError(409, 'Already on this plan', 'PLAN_UNCHANGED');
 	}
 
-	// Free / $0 plans do not require a payment provider.
+	// billing_type=free plans do not require a payment provider.
 	if (!planIsPaid(plan)) {
 		const activated = await applyWorkspacePlanChange(req, plan, {
 			actor: req.workspaceUser?.email || req.pocketbaseUserId,
@@ -370,6 +389,15 @@ export async function startWorkspaceSubscriptionCheckout(req, payload = {}) {
 
 	const successUrl = String(payload.successUrl || '').trim();
 	const cancelUrl = String(payload.cancelUrl || '').trim();
+	const rawBillingInterval = payload.billingInterval ?? payload.billing_interval ?? '';
+	const billingIntervalResult = validateBillingInterval(
+		rawBillingInterval === '' ? 'monthly' : rawBillingInterval,
+		{ allowEmpty: false },
+	);
+	if (!billingIntervalResult.ok) {
+		throw httpError(422, 'Invalid billing interval', 'INVALID_BILLING_INTERVAL');
+	}
+	const billingInterval = billingIntervalResult.value || 'monthly';
 	const idempotencyKey = String(
 		payload.idempotencyKey
 		|| `sub:${req.workspaceKey}:${plan.slug}:${Date.now()}`,
@@ -383,6 +411,7 @@ export async function startWorkspaceSubscriptionCheckout(req, payload = {}) {
 			planSlug: plan.slug,
 			planName: plan.name,
 			monthlyPrice: Number(plan.monthly_price) || 0,
+			billingInterval,
 			currency: plan.currency || 'USD',
 			customerEmail: req.workspaceUser?.email || '',
 			successUrl,
@@ -447,7 +476,7 @@ export async function startWorkspaceSubscriptionCheckout(req, payload = {}) {
 }
 
 /**
- * Public plan-change endpoint: free / $0 plans only.
+ * Public plan-change endpoint: billing_type=free plans only.
  * Paid activations require verified webhook fulfillment — client flags are ignored.
  */
 export async function changeWorkspacePlan(req, payload = {}) {
@@ -487,3 +516,5 @@ export async function purchaseWorkspaceCreditPack(req, payload = {}) {
 		allowLocalFulfillment: false,
 	});
 }
+
+export { cancelWorkspaceSubscription } from './workspace-subscription-cancel.js';

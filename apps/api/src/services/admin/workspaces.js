@@ -306,13 +306,24 @@ export async function getAdminWorkspace(id) {
 	return mapAdminWorkspace(workspace, { detail: true });
 }
 
-export async function updateAdminWorkspace(id, payload = {}, actor = {}) {
-	const updates = {};
-	if (payload.name != null) updates.name = String(payload.name).trim();
-	if (payload.plan != null) updates.plan_slug = String(payload.plan).trim().toLowerCase();
-	if (payload.status != null) updates.status = String(payload.status).trim().toLowerCase();
-	const updated = await pocketbaseClient.collection('workspaces').update(id, updates);
-	await writeAuditLog({
+import {
+	ADMIN_WORKSPACE_PLAN_ASSIGN_DIRECTIVE,
+	buildAdminWorkspaceAllowedPatch,
+	rejectDirectWorkspacePlanPatch,
+} from './admin-workspace-plan-drift-guard.js';
+
+export {
+	ADMIN_WORKSPACE_PLAN_ASSIGN_DIRECTIVE,
+	buildAdminWorkspaceAllowedPatch,
+	rejectDirectWorkspacePlanPatch,
+};
+
+export async function updateAdminWorkspace(id, payload = {}, actor = {}, deps = {}) {
+	const updates = buildAdminWorkspaceAllowedPatch(payload);
+	const client = deps.client || pocketbaseClient;
+	const auditFn = deps.writeAuditLog || writeAuditLog;
+	const updated = await client.collection('workspaces').update(id, updates);
+	await auditFn({
 		category: 'admin',
 		uiCategory: 'Workspaces',
 		action: `Updated workspace ${updated.name || id}`,
@@ -323,7 +334,8 @@ export async function updateAdminWorkspace(id, payload = {}, actor = {}) {
 		result: 'ok',
 		metadata: updates,
 	});
-	return mapAdminWorkspace(updated, { detail: true });
+	const mapFn = deps.mapAdminWorkspace || mapAdminWorkspace;
+	return mapFn(updated, { detail: true });
 }
 
 export async function suspendAdminWorkspace(id, actor = {}) {

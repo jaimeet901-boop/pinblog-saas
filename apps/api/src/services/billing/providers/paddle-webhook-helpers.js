@@ -1,9 +1,15 @@
 import crypto from 'node:crypto';
+import { BILLING_INTERVALS } from '../billing-model.js';
+import {
+	isRegistryAuthoritative,
+	resolveRegistryEntryByPriceId,
+	resolveRegistryEntryForPlan,
+} from '../price-registry-resolver.js';
 
 /** Paid subscription slugs that require explicit Paddle price mapping (Free is app-internal). */
 export const PADDLE_PAID_PLAN_SLUGS = Object.freeze(['starter', 'pro', 'business', 'enterprise']);
 
-const DEFAULT_TIMESTAMP_TOLERANCE_SECONDS = 5;
+const DEFAULT_TIMESTAMP_TOLERANCE_SECONDS = 300;
 
 /**
  * Parse Paddle-Signature header: ts=...;h1=... (multiple h1 during secret rotation).
@@ -95,6 +101,45 @@ export function resolveExpectedPaddlePriceId(planSlug, config = {}) {
 }
 
 /**
+ * Normalize checkout billing interval — defaults missing to monthly; rejects unknown values.
+ * @returns {{ ok: true, value: 'monthly' | 'yearly' } | { ok: false, error: string, value?: string }}
+ */
+export function normalizeCheckoutBillingInterval(value, { defaultToMonthly = true } = {}) {
+	const raw = String(value ?? '').trim();
+	if (!raw) {
+		return defaultToMonthly
+			? { ok: true, value: 'monthly' }
+			: { ok: false, error: 'missing_billing_interval' };
+	}
+	const normalized = raw.toLowerCase();
+	if (!BILLING_INTERVALS.includes(normalized)) {
+		return { ok: false, error: 'invalid_billing_interval', value: raw };
+	}
+	return { ok: true, value: normalized };
+}
+
+/**
+ * Explicit per-slug price id for a billing interval (legacy config / env only).
+ */
+export function resolveExpectedPaddlePriceIdForInterval(planSlug, config = {}, interval = 'monthly') {
+	const slug = String(planSlug || '').toLowerCase();
+	const normalizedInterval = String(interval || 'monthly').trim().toLowerCase();
+	if (normalizedInterval === 'monthly') {
+		return resolveExpectedPaddlePriceId(slug, config);
+	}
+	if (normalizedInterval !== 'yearly') {
+		return '';
+	}
+	const yearlyKey = `${slug}_yearly`;
+	const fromConfig = config?.priceIds?.[yearlyKey] || config?.prices?.[yearlyKey];
+	if (fromConfig) return String(fromConfig).trim();
+	const envKey = `PADDLE_PRICE_${slug.replace(/[^a-z0-9]/gi, '_').toUpperCase()}_YEARLY`;
+	const fromEnv = process.env[envKey];
+	if (fromEnv) return String(fromEnv).trim();
+	return '';
+}
+
+/**
  * Resolve price id with defaultPriceId / PADDLE_DEFAULT_PRICE_ID fallback.
  * For non-checkout callers only — checkout must use resolveCheckoutPaddlePriceId().
  */
@@ -107,26 +152,188 @@ export function resolvePaddlePriceId(planSlug, config = {}) {
 
 /**
  * Strict checkout resolution for paid plans — fails closed when explicit mapping is missing.
- * @returns {{ ok: true, priceId: string, planSlug: string } | { ok: false, error: string, planSlug: string }}
+ * When registryEntries are provided (authoritative), registry wins over legacy priceIds.
+ * @returns {{ ok: true, priceId: string, planSlug: string, source?: string } | { ok: false, error: string, planSlug: string }}
  */
-export function resolveCheckoutPaddlePriceId(planSlug, config = {}) {
+export function resolveCheckoutPaddlePriceId(planSlug, config = {}, runtime = {}) {
 	const slug = String(planSlug || '').trim().toLowerCase();
+	const {
+		registryEntries = [],
+		environment = '',
+		interval: requestedInterval,
+	} = runtime;
+
+	const intervalResult = normalizeCheckoutBillingInterval(requestedInterval, { defaultToMonthly: true });
+	if (!intervalResult.ok) {
+		return { ok: false, error: intervalResult.error, planSlug: slug, interval: requestedInterval };
+	}
+	const interval = intervalResult.value;
+
+	if (isRegistryAuthoritative(registryEntries) && environment) {
+		const entry = resolveRegistryEntryForPlan(registryEntries, {
+			provider: 'paddle',
+			environment,
+			planSlug: slug,
+			interval,
+		});
+		if (entry?.priceId) {
+			return {
+				ok: true,
+				priceId: entry.priceId,
+				planSlug: slug,
+				interval,
+				source: 'registry',
+			};
+		}
+		return { ok: false, error: 'paddle_price_not_in_registry', planSlug: slug, interval };
+	}
+
 	if (!PADDLE_PAID_PLAN_SLUGS.includes(slug)) {
-		return { ok: false, error: 'paddle_invalid_plan_slug_for_checkout', planSlug: slug };
+		return { ok: false, error: 'paddle_invalid_plan_slug_for_checkout', planSlug: slug, interval };
 	}
-	const priceId = resolveExpectedPaddlePriceId(slug, config);
+	const priceId = resolveExpectedPaddlePriceIdForInterval(slug, config, interval);
 	if (!priceId) {
-		return { ok: false, error: 'paddle_price_mapping_missing', planSlug: slug };
+		return {
+			ok: false,
+			error: 'paddle_price_mapping_missing',
+			planSlug: slug,
+			interval,
+		};
 	}
-	return { ok: true, priceId, planSlug: slug };
+	return { ok: true, priceId, planSlug: slug, interval, source: 'legacy' };
+}
+
+/**
+ * Explicit per-pack price id (config.priceIds['pack_{packId}'] or PADDLE_PRICE_PACK_{PACKID} env).
+ */
+export function resolveExpectedPaddlePackPriceId(packId, config = {}) {
+	const id = String(packId || '').trim();
+	if (!id) return '';
+	const key = `pack_${id}`;
+	const fromConfig = config?.priceIds?.[key] || config?.prices?.[key];
+	if (fromConfig) return String(fromConfig).trim();
+	const envKey = `PADDLE_PRICE_PACK_${id.replace(/[^a-z0-9]/gi, '_').toUpperCase()}`;
+	const fromEnv = process.env[envKey];
+	if (fromEnv) return String(fromEnv).trim();
+	return '';
+}
+
+/**
+ * Strict checkout resolution for credit packs — fails closed when explicit mapping is missing.
+ * When registryEntries are provided (authoritative), registry wins over legacy priceIds.
+ * @returns {{ ok: true, priceId: string, packId: string, source?: string } | { ok: false, error: string, packId: string }}
+ */
+export function resolveCheckoutPaddlePackPriceId(packId, config = {}, runtime = {}) {
+	const id = String(packId || '').trim();
+	const { registryEntries = [], environment = '' } = runtime;
+
+	if (registryEntries.length && environment) {
+		const registryPriceId = registryEntries.find((entry) => (
+			entry.provider === 'paddle'
+			&& entry.environment === environment
+			&& entry.packId === id
+			&& entry.interval === 'one_time'
+			&& entry.active !== false
+		))?.priceId || '';
+		if (registryPriceId) {
+			return { ok: true, priceId: registryPriceId, packId: id, source: 'registry' };
+		}
+		return { ok: false, error: 'paddle_pack_price_not_in_registry', packId: id };
+	}
+
+	if (!id) {
+		return { ok: false, error: 'paddle_pack_id_missing', packId: id };
+	}
+	const priceId = resolveExpectedPaddlePackPriceId(id, config);
+	if (!priceId) {
+		return { ok: false, error: 'paddle_pack_price_mapping_missing', packId: id };
+	}
+	return { ok: true, priceId, packId: id, source: 'legacy' };
+}
+
+/**
+ * Fulfillment safety: require explicit per-pack mapping for one_time transactions.
+ */
+export function validatePaddlePriceForPack(packId, priceId, config = {}, runtime = {}) {
+	const id = String(packId || '').trim();
+	const normalizedPriceId = String(priceId || '').trim();
+	const { registryEntries = [], environment = '' } = runtime;
+
+	if (registryEntries.length && environment) {
+		const entry = registryEntries.find((row) => (
+			row.provider === 'paddle'
+			&& row.environment === environment
+			&& row.packId === id
+			&& row.interval === 'one_time'
+			&& row.active !== false
+		));
+		if (!entry) {
+			return { ok: false, error: 'paddle_pack_not_in_registry', packId: id };
+		}
+		if (entry.priceId !== normalizedPriceId) {
+			return {
+				ok: false,
+				error: 'paddle_price_pack_mismatch',
+				expectedPriceId: entry.priceId,
+				receivedPriceId: normalizedPriceId,
+				packId: id,
+			};
+		}
+		return { ok: true, expectedPriceId: entry.priceId, packId: id, source: 'registry' };
+	}
+
+	if (!id) {
+		return { ok: false, error: 'paddle_missing_pack_id_in_webhook' };
+	}
+	if (!normalizedPriceId) {
+		return { ok: false, error: 'paddle_missing_price_id_in_webhook' };
+	}
+
+	const expected = resolveExpectedPaddlePackPriceId(id, config);
+	if (!expected) {
+		return { ok: false, error: `paddle_missing_price_mapping_for_pack_${id}` };
+	}
+	if (expected !== normalizedPriceId) {
+		return {
+			ok: false,
+			error: 'paddle_price_pack_mismatch',
+			expectedPriceId: expected,
+			receivedPriceId: normalizedPriceId,
+			packId: id,
+		};
+	}
+
+	return { ok: true, expectedPriceId: expected, packId: id };
 }
 
 /**
  * Fulfillment safety: require explicit per-slug mapping; never accept defaultPriceId fallback.
  */
-export function validatePaddlePriceForPlan(planSlug, priceId, config = {}) {
+export function validatePaddlePriceForPlan(planSlug, priceId, config = {}, runtime = {}) {
 	const slug = String(planSlug || '').trim().toLowerCase();
 	const normalizedPriceId = String(priceId || '').trim();
+	const { registryEntries = [], environment = '' } = runtime;
+
+	if (isRegistryAuthoritative(registryEntries) && environment) {
+		const entry = resolveRegistryEntryByPriceId(registryEntries, {
+			provider: 'paddle',
+			environment,
+			priceId: normalizedPriceId,
+		});
+		if (!entry?.planSlug || entry.planSlug !== slug) {
+			return { ok: false, error: 'paddle_plan_not_in_registry', planSlug: slug };
+		}
+		if (entry.interval !== 'monthly' && entry.interval !== 'yearly') {
+			return { ok: false, error: 'paddle_invalid_plan_interval_in_registry', planSlug: slug };
+		}
+		return {
+			ok: true,
+			expectedPriceId: entry.priceId,
+			planSlug: slug,
+			interval: entry.interval,
+			source: 'registry',
+		};
+	}
 
 	if (!PADDLE_PAID_PLAN_SLUGS.includes(slug)) {
 		return { ok: false, error: 'paddle_invalid_plan_slug_for_fulfillment' };
@@ -135,21 +342,25 @@ export function validatePaddlePriceForPlan(planSlug, priceId, config = {}) {
 		return { ok: false, error: 'paddle_missing_price_id_in_webhook' };
 	}
 
-	const expected = resolveExpectedPaddlePriceId(slug, config);
-	if (!expected) {
+	const expectedMonthly = resolveExpectedPaddlePriceId(slug, config);
+	const expectedYearly = resolveExpectedPaddlePriceIdForInterval(slug, config, 'yearly');
+	if (expectedMonthly && normalizedPriceId === expectedMonthly) {
+		return { ok: true, expectedPriceId: expectedMonthly, planSlug: slug, interval: 'monthly' };
+	}
+	if (expectedYearly && normalizedPriceId === expectedYearly) {
+		return { ok: true, expectedPriceId: expectedYearly, planSlug: slug, interval: 'yearly' };
+	}
+	if (!expectedMonthly && !expectedYearly) {
 		return { ok: false, error: `paddle_missing_price_mapping_for_${slug}` };
 	}
-	if (expected !== normalizedPriceId) {
-		return {
-			ok: false,
-			error: 'paddle_price_plan_mismatch',
-			expectedPriceId: expected,
-			receivedPriceId: normalizedPriceId,
-			planSlug: slug,
-		};
-	}
 
-	return { ok: true, expectedPriceId: expected, planSlug: slug };
+	return {
+		ok: false,
+		error: 'paddle_price_plan_mismatch',
+		expectedPriceId: expectedMonthly || expectedYearly,
+		receivedPriceId: normalizedPriceId,
+		planSlug: slug,
+	};
 }
 
 export function extractPaddlePriceId(data = {}) {
@@ -203,6 +414,11 @@ export function extractPaddleWebhookContext(payload = {}) {
 		|| customData.plan_id
 		|| '',
 	).trim();
+	const packId = String(
+		customData.packId
+		|| customData.pack_id
+		|| '',
+	).trim();
 
 	const transactionId = String(
 		payload.event_type?.startsWith('transaction.')
@@ -230,6 +446,7 @@ export function extractPaddleWebhookContext(payload = {}) {
 		workspaceKey,
 		planSlug,
 		planId,
+		packId,
 		transactionId,
 		subscriptionId,
 		paymentRef,
@@ -264,11 +481,19 @@ export function classifyPaddleWebhookEvent(eventType) {
 			routingReason: type,
 		};
 	}
-	if (
-		type === 'subscription.activated'
-		|| type === 'subscription.created'
-		|| type === 'subscription.updated'
-	) {
+	if (type === 'adjustment.created' || type === 'adjustment.updated') {
+		return {
+			routing: 'refund_adjustment',
+			routingReason: type,
+		};
+	}
+	if (type === 'subscription.updated') {
+		return {
+			routing: 'subscription_reconcile',
+			routingReason: 'subscription_updated_reconciliation',
+		};
+	}
+	if (type === 'subscription.activated' || type === 'subscription.created') {
 		return {
 			routing: 'ignored',
 			routingReason: `${type}_not_fulfillment_source`,
@@ -302,6 +527,17 @@ export function buildPaddleWebhookParseResult(body = {}, config = {}) {
 		if (status && status !== 'completed') {
 			routing = 'ignored';
 			routingReason = `transaction_status_${status || 'unknown'}`;
+		} else if (context.workspaceKey && context.packId && context.planSlug) {
+			routing = 'deferred';
+			routingReason = 'ambiguous_plan_and_pack_metadata';
+		} else if (context.workspaceKey && context.packId && !context.planSlug) {
+			routing = 'credit_pack_success';
+			routingReason = 'transaction_completed_credit_pack';
+			priceValidation = validatePaddlePriceForPack(
+				context.packId,
+				context.priceId,
+				config,
+			);
 		} else if (!context.workspaceKey || !context.planSlug) {
 			routing = 'deferred';
 			routingReason = 'missing_workspace_or_plan_metadata';

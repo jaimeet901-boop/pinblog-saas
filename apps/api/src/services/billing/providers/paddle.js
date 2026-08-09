@@ -1,10 +1,15 @@
 import { BillingProvider, notImplemented } from './base.js';
 import {
 	buildPaddleWebhookParseResult,
+	normalizeCheckoutBillingInterval,
+	resolveCheckoutPaddlePackPriceId,
 	resolveCheckoutPaddlePriceId,
 	resolvePaddlePriceId,
 	verifyPaddleWebhookSignature,
 } from './paddle-webhook-helpers.js';
+import { getPaddleSubscription, getPaddleTransaction, cancelPaddleSubscriptionAtPeriodEnd, verifyPaddleCancelAtPeriodEndResponse, PaddleApiError } from './paddle-api-client.js';
+import { deriveEffectivePaddleEnvironment } from './paddle-environment.js';
+import { loadRegistryEntries } from '../price-registry-resolver.js';
 
 /**
  * Paddle provider — creates transactions via Paddle Billing API when configured.
@@ -47,7 +52,36 @@ export class PaddleBillingProvider extends BillingProvider {
 	async createSubscriptionCheckout(input = {}) {
 		if (!this.ready) throw notImplemented('paddle', 'createSubscriptionCheckout');
 
-		const resolved = resolveCheckoutPaddlePriceId(input.planSlug, this.config);
+		const envResult = deriveEffectivePaddleEnvironment(this.config);
+		const intervalResult = normalizeCheckoutBillingInterval(
+			input.billingInterval ?? input.billing_interval,
+			{ defaultToMonthly: true },
+		);
+		if (!intervalResult.ok) {
+			return {
+				ready: true,
+				provider: 'paddle',
+				mode: 'subscription',
+				checkoutUrl: null,
+				errorCode: intervalResult.error,
+				message: 'Invalid billing interval for checkout.',
+			};
+		}
+		const billingInterval = intervalResult.value;
+
+		const runtime = envResult.ok
+			? {
+				registryEntries: await loadRegistryEntries({
+					environment: envResult.environment,
+					provider: 'paddle',
+					config: this.config,
+				}),
+				environment: envResult.environment,
+				interval: billingInterval,
+			}
+			: { interval: billingInterval };
+
+		const resolved = resolveCheckoutPaddlePriceId(input.planSlug, this.config, runtime);
 		if (!resolved.ok) {
 			return {
 				ready: true,
@@ -111,26 +145,152 @@ export class PaddleBillingProvider extends BillingProvider {
 			mode: 'subscription',
 			sessionId: data?.data?.id || null,
 			checkoutUrl,
+			billingInterval,
+			priceId,
+			priceSource: resolved.source || 'legacy',
 			message: checkoutUrl ? 'Paddle checkout created' : 'Paddle transaction created without checkout URL',
-			input: { workspaceKey: input.workspaceKey, planSlug: input.planSlug },
+			input: { workspaceKey: input.workspaceKey, planSlug: input.planSlug, billingInterval },
 		};
 	}
 
 	async createCreditPackCheckout(input = {}) {
 		if (!this.ready) throw notImplemented('paddle', 'createCreditPackCheckout');
+
+		const packId = String(input.packId || '').trim();
+		const envResult = deriveEffectivePaddleEnvironment(this.config);
+		const runtime = envResult.ok
+			? {
+				registryEntries: await loadRegistryEntries({
+					environment: envResult.environment,
+					provider: 'paddle',
+					config: this.config,
+				}),
+				environment: envResult.environment,
+			}
+			: {};
+
+		const resolved = resolveCheckoutPaddlePackPriceId(packId, this.config, runtime);
+		if (!resolved.ok) {
+			return {
+				ready: true,
+				provider: 'paddle',
+				mode: 'payment',
+				checkoutUrl: null,
+				errorCode: resolved.error,
+				message: resolved.error === 'paddle_pack_price_mapping_missing'
+					? 'This credit pack is temporarily unavailable for checkout. Please try again later.'
+					: 'Credit pack checkout is not available for Paddle.',
+			};
+		}
+
+		const body = {
+			items: [{ price_id: resolved.priceId, quantity: 1 }],
+			custom_data: {
+				workspaceKey: input.workspaceKey || '',
+				packId,
+			},
+		};
+		if (input.customerEmail) {
+			body.customer = { email: input.customerEmail };
+		}
+		if (input.successUrl) {
+			body.checkout = {
+				url: input.successUrl,
+			};
+		}
+
+		const base = this.config?.sandbox || process.env.PADDLE_SANDBOX === '1'
+			? 'https://sandbox-api.paddle.com'
+			: 'https://api.paddle.com';
+		const response = await fetch(`${base}/transactions`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${this.apiKey}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify(body),
+		});
+		const data = await response.json().catch(() => ({}));
+		if (!response.ok) {
+			return {
+				ready: true,
+				provider: 'paddle',
+				mode: 'payment',
+				checkoutUrl: null,
+				message: data?.error?.detail || data?.error?.documentation_url || `Paddle checkout failed (${response.status})`,
+			};
+		}
+
+		const checkoutUrl = data?.data?.checkout?.url
+			|| data?.data?.details?.checkout_url
+			|| null;
 		return {
 			ready: true,
 			provider: 'paddle',
 			mode: 'payment',
-			checkoutUrl: null,
-			message: 'Paddle credit-pack checkout requires mapped price ids.',
-			input,
+			sessionId: data?.data?.id || null,
+			checkoutUrl,
+			message: checkoutUrl ? 'Paddle credit pack checkout created' : 'Paddle transaction created without checkout URL',
+			input: { workspaceKey: input.workspaceKey, packId },
 		};
 	}
 
 	async cancelSubscription(input = {}) {
 		if (!this.ready) throw notImplemented('paddle', 'cancelSubscription');
-		return { ready: true, provider: 'paddle', cancelled: false, input };
+
+		const atPeriodEnd = input.atPeriodEnd !== false;
+		if (!atPeriodEnd) {
+			const error = new Error('Paddle immediate cancellation is not supported');
+			error.status = 422;
+			error.errorCode = 'PADDLE_IMMEDIATE_CANCEL_UNSUPPORTED';
+			throw error;
+		}
+
+		const subscriptionId = String(
+			input.paddleSubscriptionId
+			|| input.providerSubscriptionId
+			|| input.subscriptionId
+			|| '',
+		).trim();
+		if (!subscriptionId) {
+			const error = new Error('Paddle subscription ID is required for cancellation');
+			error.status = 422;
+			error.errorCode = 'PADDLE_SUBSCRIPTION_ID_MISSING';
+			throw error;
+		}
+
+		const envResult = deriveEffectivePaddleEnvironment(this.config);
+		if (!envResult.ok) {
+			throw new PaddleApiError(envResult.error || 'paddle_environment_unconfigured', {
+				code: envResult.error || 'paddle_environment_unconfigured',
+			});
+		}
+
+		const fetchImpl = input.fetchImpl || fetch;
+		const apiSubscription = await cancelPaddleSubscriptionAtPeriodEnd(subscriptionId, {
+			environment: envResult.environment,
+			config: this.config,
+			fetchImpl,
+			effectiveFrom: 'next_billing_period',
+		});
+
+		const verified = verifyPaddleCancelAtPeriodEndResponse(apiSubscription);
+		if (!verified.ok) {
+			const error = new Error(verified.error || 'Paddle cancellation response invalid');
+			error.status = 502;
+			error.errorCode = 'PADDLE_CANCEL_RESPONSE_INVALID';
+			throw error;
+		}
+
+		return {
+			ready: true,
+			provider: 'paddle',
+			cancelled: true,
+			localOnly: false,
+			subscriptionId: verified.subscriptionId || subscriptionId,
+			atPeriodEnd: true,
+			effectiveAt: verified.effectiveAt,
+		};
 	}
 
 	async resumeSubscription(input = {}) {
@@ -167,6 +327,30 @@ export class PaddleBillingProvider extends BillingProvider {
 			rawBody,
 			signatureHeader: signature,
 			secret,
+		});
+	}
+
+	resolveEnvironment() {
+		return deriveEffectivePaddleEnvironment(this.config);
+	}
+
+	async fetchTransaction(transactionId, options = {}) {
+		const envResult = this.resolveEnvironment();
+		if (!envResult.ok) throw new Error(envResult.error);
+		return getPaddleTransaction(transactionId, {
+			environment: envResult.environment,
+			config: this.config,
+			fetchImpl: options.fetchImpl,
+		});
+	}
+
+	async fetchSubscription(subscriptionId, options = {}) {
+		const envResult = this.resolveEnvironment();
+		if (!envResult.ok) throw new Error(envResult.error);
+		return getPaddleSubscription(subscriptionId, {
+			environment: envResult.environment,
+			config: this.config,
+			fetchImpl: options.fetchImpl,
 		});
 	}
 }

@@ -18,6 +18,7 @@ import {
 	normalizePriceMappings,
 	validatePriceMappings,
 } from './price-mapping-helpers.js';
+import { syncPriceRegistryFromMappings } from './price-registry-sync.js';
 
 export {
 	normalizePriceMappings,
@@ -253,20 +254,31 @@ export async function syncPriceMappingsToProviders(actor = {}, requestMeta = {})
 	});
 	invalidateBillingRequestCache();
 
+	const registryResult = await syncPriceRegistryFromMappings({
+		mappings,
+		providers,
+		paddleConfig: providers.paddle || {},
+		actor,
+	});
+
 	await writeControlPlaneAudit({
 		action: 'billing.price_mapping.synced',
-		message: 'Price mappings synced to provider runtime configuration',
+		message: 'Price mappings synced to provider runtime configuration and billing_price_registry',
 		provider: billing.provider || '',
 		severity: 'info',
 		actor,
 		ip: requestMeta.ip,
 		userAgent: requestMeta.userAgent,
-		after: { lastSyncAt: mappings.meta.lastSyncAt },
+		after: {
+			lastSyncAt: mappings.meta.lastSyncAt,
+			registry: registryResult.summary,
+		},
 	});
 
 	return {
 		mappings: normalizePriceMappings(saved.payload?.billing?.priceMappings || mappings),
 		syncedAt: mappings.meta.lastSyncAt,
 		updatedAt: saved.updated,
+		registry: registryResult,
 	};
 }

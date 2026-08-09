@@ -1,5 +1,13 @@
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { httpError } from '../../middleware/require-admin.js';
+export {
+	buildSubscriptionCancelIdempotencyKey,
+	CANCELLATION_IDEMPOTENCY_STALE_MS,
+} from './cancellation-idempotency-keys.js';
+export {
+	buildSubscriptionReconcileIdempotencyKey,
+	RECONCILIATION_IDEMPOTENCY_STALE_MS,
+} from './reconciliation-idempotency-keys.js';
 
 /**
  * Persist processed payment / purchase / webhook keys to prevent duplicates.
@@ -78,4 +86,18 @@ export async function failIdempotency(recordId, errorMessage = '') {
 		result: { error: String(errorMessage || '').slice(0, 1000) },
 		processed_at: new Date().toISOString(),
 	}).catch(() => null);
+}
+
+/** Reset a failed or abandoned processing claim so cancellation can be retried. */
+export async function resetIdempotencyForRetry(recordId, { payload } = {}) {
+	if (!recordId) return null;
+	const body = {
+		status: 'processing',
+		result: {},
+		processed_at: null,
+	};
+	if (payload && typeof payload === 'object') {
+		body.payload = payload;
+	}
+	return pocketbaseClient.collection('billing_idempotency').update(recordId, body).catch(() => null);
 }

@@ -17,6 +17,9 @@ import {
 	notifySubscriptionEnding,
 	notifyTrialEnding,
 } from './notifications.js';
+import { syncEntitlementMirrors } from './entitlement-sync.js';
+import { validateBillingSource } from './billing-model.js';
+import { resolveLocalRenewalSkipReason } from './provider-managed-subscription.js';
 
 function daysBetween(from, to = new Date()) {
 	const a = new Date(from).getTime();
@@ -50,13 +53,14 @@ export async function renewSubscription(workspaceKey, { actor = 'scheduler', for
 	if (!subscription) throw httpError(404, 'Subscription not found', 'NOT_FOUND');
 
 	const config = await resolveBillingConfig();
-	const periodEnd = subscription.current_period_end ? new Date(subscription.current_period_end) : null;
 	const now = new Date();
-	if (!force && periodEnd && periodEnd.getTime() > now.getTime()) {
-		return { skipped: true, reason: 'period_not_ended', periodEnd: subscription.current_period_end };
-	}
-	if (subscription.status === 'canceled' && !subscription.cancel_at_period_end) {
-		return { skipped: true, reason: 'canceled' };
+	const skipReason = resolveLocalRenewalSkipReason(subscription, { force, now });
+	if (skipReason) {
+		const skipped = { skipped: true, reason: skipReason };
+		if (skipReason === 'period_not_ended') {
+			skipped.periodEnd = subscription.current_period_end;
+		}
+		return skipped;
 	}
 
 	const idem = await claimIdempotencyKey({
@@ -138,6 +142,16 @@ export async function renewSubscription(workspaceKey, { actor = 'scheduler', for
 
 /**
  * Schedule or apply plan upgrade (immediate when rules allow / provider none).
+ *
+ * Phase 3.7 — INTERNAL ONLY. Not exposed over HTTP.
+ * - Workspace paid upgrades: checkout + verified webhook fulfillment.
+ * - Free plan changes: changeWorkspacePlan() via POST /subscription/change.
+ * - Admin/support overrides: assignWorkspacePlan() via POST /admin/plans/assign.
+ *
+ * WARNING: Default `immediate=true` and provider stubs omit `localOnly:false`, so calling
+ * this on a paid provider-managed workspace applies a local entitlement write without
+ * remote payment confirmation. Do not wire to user-facing routes until provider adapters
+ * return confirmed remote plan changes and this function fail-closes otherwise.
  */
 export async function upgradeSubscription(workspaceKey, planSlugOrId, { actor = 'system', immediate = true } = {}) {
 	const subscription = await ensureWorkspaceWallet(workspaceKey);
@@ -171,6 +185,14 @@ export async function upgradeSubscription(workspaceKey, planSlugOrId, { actor = 
 			billing_status: 'active',
 			credits_balance: nextCredits,
 			provider: provider.code,
+		});
+
+		await syncEntitlementMirrors({
+			workspaceKey,
+			plan: nextPlan,
+			subscriptionId: subscription.id,
+			actor,
+			source: 'system',
 		});
 
 		await logBillingAction({
@@ -341,12 +363,21 @@ export async function expireSubscription(workspaceKey, { actor = 'scheduler' } =
 	const free = await loadPlan('free');
 	await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
 		status: 'canceled',
-		billing_status: 'expired',
+		billing_status: subscription.billing_status === 'refund_pending' ? 'refunded' : 'expired',
 		plan: free?.id || subscription.plan,
 		pending_plan: '',
 		grace_period_ends_at: null,
 		cancel_at_period_end: false,
 	});
+	if (free) {
+		await syncEntitlementMirrors({
+			workspaceKey,
+			plan: free,
+			subscriptionId: subscription.id,
+			actor,
+			source: 'scheduler',
+		});
+	}
 	await logBillingAction({
 		action: 'Subscription expired',
 		eventType: 'cancelled',
@@ -379,41 +410,7 @@ export async function handleFailedPayment(workspaceKey, { actor = 'webhook', rea
 	}
 }
 
-export async function cancelSubscription(workspaceKey, { actor = 'user', atPeriodEnd = true } = {}) {
-	const subscription = await loadSubscription(workspaceKey);
-	if (!subscription) throw httpError(404, 'Subscription not found', 'NOT_FOUND');
-	const provider = await getBillingProvider();
-	await provider.cancelSubscription({
-		workspaceKey,
-		providerSubscriptionId: subscription.provider_subscription_id,
-		atPeriodEnd,
-	}).catch(() => null);
-
-	if (atPeriodEnd) {
-		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
-			cancel_at_period_end: true,
-			billing_status: 'cancel_scheduled',
-		});
-	} else {
-		const free = await loadPlan('free');
-		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
-			status: 'canceled',
-			billing_status: 'canceled',
-			cancel_at_period_end: false,
-			plan: free?.id || subscription.plan,
-		});
-	}
-
-	await logBillingAction({
-		action: atPeriodEnd ? 'Cancellation scheduled' : 'Subscription cancelled',
-		eventType: 'cancelled',
-		workspaceKey,
-		workspaceName: subscription.workspace_name,
-		actor,
-		provider: provider.code,
-	});
-	return { cancelled: true, atPeriodEnd };
-}
+export { cancelSubscription } from './subscription-cancel.js';
 
 /**
  * Scan all subscriptions for trial/period ending notifications and lifecycle actions.
@@ -457,8 +454,12 @@ export async function processSubscriptionLifecycleBatch({ limit = 200 } = {}) {
 			}
 
 			if (config.autoRenew && periodDaysLeft != null && periodDaysLeft < 0 && ['active', 'trialing'].includes(sub.status) && !sub.cancel_at_period_end) {
-				await renewSubscription(workspaceKey, { actor: 'scheduler' });
-				summary.renewed += 1;
+				const result = await renewSubscription(workspaceKey, { actor: 'scheduler' });
+				if (result?.renewed) {
+					summary.renewed += 1;
+				} else {
+					summary.skipped += 1;
+				}
 				continue;
 			}
 
@@ -550,19 +551,13 @@ export async function fulfillSubscriptionPurchase({
 			grace_period_ends_at: null,
 		});
 
-		const workspace = await pocketbaseClient.collection('workspaces').getFirstListItem(
-			pocketbaseClient.filter('workspace_key = {:key}', { key: workspaceKey }),
-			{ requestKey: null },
-		).catch(() => null);
-		if (workspace) {
-			await pocketbaseClient.collection('workspaces').update(workspace.id, {
-				plan_slug: plan.slug,
-			}).catch(() => null);
-			const ownerId = workspace.owner || '';
-			if (ownerId) {
-				await pocketbaseClient.collection('users').update(ownerId, { plan: plan.slug }).catch(() => null);
-			}
-		}
+		await syncEntitlementMirrors({
+			workspaceKey,
+			plan,
+			subscriptionId: subscription.id,
+			actor,
+			source: validateBillingSource(provider).ok && provider ? provider : 'system',
+		});
 
 		await pocketbaseClient.collection('credit_transactions').create({
 			workspace_key: workspaceKey,
@@ -611,4 +606,679 @@ export async function fulfillSubscriptionPurchase({
 		await failIdempotency(idem.record.id, error?.message || String(error));
 		throw error;
 	}
+}
+
+function computeInitialActivationCredits(subscription, plan) {
+	const purchased = Number(subscription?.purchased_credits) || 0;
+	const monthly = Number(plan?.credits) || 0;
+	return monthly + purchased;
+}
+
+function buildPaddleSubscriptionPatch(verified, eventId) {
+	const nowIso = new Date().toISOString();
+	return {
+		paddle_customer_id: verified.customerId || '',
+		paddle_subscription_id: verified.subscriptionId || '',
+		paddle_transaction_id: verified.transactionId || '',
+		paddle_price_id: verified.priceId || '',
+		billing_interval: verified.interval || '',
+		billing_environment: verified.environment || '',
+		activation_source: 'paddle_webhook',
+		billing_source: 'paddle',
+		last_webhook_event_id: String(eventId || '').slice(0, 180),
+		last_verified_at: nowIso,
+		provider: 'paddle',
+		provider_subscription_id: verified.subscriptionId
+			? String(verified.subscriptionId).slice(0, 180)
+			: '',
+	};
+}
+
+export async function activatePaddleSubscription({
+	workspaceKey,
+	verified = {},
+	eventId = '',
+	idempotencyKey = '',
+	actor = 'webhook:paddle',
+} = {}) {
+	const plan = await loadPlan(verified.planId || verified.planSlug);
+	if (!plan) throw httpError(404, 'Plan not found', 'PLAN_NOT_FOUND');
+
+	const key = String(
+		idempotencyKey || `sub-fulfill:paddle-txn:${verified.transactionId || 'unknown'}`,
+	).slice(0, 180);
+
+	const idem = await claimIdempotencyKey({
+		idempotencyKey: key,
+		scope: 'paddle_activation',
+		workspaceKey,
+		provider: 'paddle',
+		eventType: 'paddle_subscription_activated',
+		payload: { transactionId: verified.transactionId, subscriptionId: verified.subscriptionId },
+	});
+	if (idem.duplicate) {
+		return { duplicate: true, fulfilled: true, activated: false, result: idem.result };
+	}
+
+	try {
+		const subscription = await ensureWorkspaceWallet(workspaceKey);
+		const fromPlan = subscription.expand?.plan?.slug
+			|| (await loadPlan(subscription.plan))?.slug
+			|| '';
+
+		const now = new Date();
+		const end = new Date(now);
+		if (verified.interval === 'yearly') {
+			end.setFullYear(end.getFullYear() + 1);
+		} else {
+			end.setMonth(end.getMonth() + 1);
+		}
+
+		const creditsBalance = computeInitialActivationCredits(subscription, plan);
+
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			plan: plan.id,
+			status: 'active',
+			billing_status: 'active',
+			pending_plan: '',
+			credits_balance: creditsBalance,
+			current_period_start: now.toISOString(),
+			current_period_end: end.toISOString(),
+			grace_period_ends_at: null,
+			cancel_at_period_end: false,
+			last_payment_status: 'succeeded',
+			last_payment_at: now.toISOString(),
+			...buildPaddleSubscriptionPatch(verified, eventId),
+		});
+
+		await syncEntitlementMirrors({
+			workspaceKey,
+			plan,
+			subscriptionId: subscription.id,
+			actor,
+			source: 'paddle_webhook',
+		});
+
+		await pocketbaseClient.collection('credit_transactions').create({
+			workspace_key: workspaceKey,
+			workspace_name: subscription.workspace_name || workspaceKey,
+			amount: Number(plan.credits) || 0,
+			type: 'grant',
+			reason: `Paddle subscription activated (${plan.name})`,
+			balance: creditsBalance,
+			created_by: actor,
+			idempotency_key: key,
+			reference_id: verified.transactionId || '',
+			metadata: {
+				provider: 'paddle',
+				planSlug: plan.slug,
+				subscriptionId: verified.subscriptionId || '',
+				priceId: verified.priceId || '',
+				environment: verified.environment || '',
+			},
+		}).catch(() => null);
+
+		const result = {
+			fulfilled: true,
+			activated: true,
+			kind: 'activation',
+			workspaceKey,
+			fromPlan,
+			toPlan: plan.slug,
+			provider: 'paddle',
+			transactionId: verified.transactionId || '',
+			subscriptionId: verified.subscriptionId || '',
+			creditsBalance,
+		};
+
+		await logBillingAction({
+			action: 'Paddle subscription activated after API verification',
+			eventType: 'upgrade',
+			workspaceKey,
+			workspaceName: subscription.workspace_name,
+			actor,
+			fromPlan,
+			toPlan: plan.slug,
+			credits: Number(plan.credits) || 0,
+			provider: 'paddle',
+			idempotencyKey: key,
+			metadata: result,
+		});
+
+		await notifyPlanUpgraded(
+			{ ...subscription, credits_balance: creditsBalance, plan: plan.id },
+			fromPlan,
+			plan.slug,
+		).catch(() => null);
+
+		await completeIdempotency(idem.record.id, result);
+		return result;
+	} catch (error) {
+		await failIdempotency(idem.record.id, error?.message || String(error));
+		throw error;
+	}
+}
+
+export async function renewPaddleSubscription({
+	workspaceKey,
+	verified = {},
+	eventId = '',
+	idempotencyKey = '',
+	actor = 'webhook:paddle',
+} = {}) {
+	const key = String(
+		idempotencyKey || `paddle-renew:${verified.transactionId || workspaceKey}`,
+	).slice(0, 180);
+
+	const idem = await claimIdempotencyKey({
+		idempotencyKey: key,
+		scope: 'paddle_renewal',
+		workspaceKey,
+		provider: 'paddle',
+		eventType: 'paddle_subscription_renewed',
+		payload: { transactionId: verified.transactionId, subscriptionId: verified.subscriptionId },
+	});
+	if (idem.duplicate) {
+		return { duplicate: true, renewed: true, result: idem.result };
+	}
+
+	try {
+		const subscription = await loadSubscription(workspaceKey);
+		if (!subscription) throw httpError(404, 'Subscription not found', 'NOT_FOUND');
+
+		const now = new Date();
+		const end = new Date(now);
+		if (verified.interval === 'yearly') {
+			end.setFullYear(end.getFullYear() + 1);
+		} else {
+			end.setMonth(end.getMonth() + 1);
+		}
+
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			status: 'active',
+			billing_status: 'active',
+			current_period_start: now.toISOString(),
+			current_period_end: end.toISOString(),
+			grace_period_ends_at: null,
+			last_payment_status: 'succeeded',
+			last_payment_at: now.toISOString(),
+			paddle_transaction_id: verified.transactionId || subscription.paddle_transaction_id || '',
+			paddle_price_id: verified.priceId || subscription.paddle_price_id || '',
+			billing_interval: verified.interval || subscription.billing_interval || '',
+			billing_environment: verified.environment || subscription.billing_environment || '',
+			last_webhook_event_id: String(eventId || '').slice(0, 180),
+			last_verified_at: new Date().toISOString(),
+		});
+
+		const config = await resolveBillingConfig();
+		let resetResult = null;
+		if (config.autoResetCredits) {
+			resetResult = await resetMonthlyCredits({ workspaceKey, actor, force: true });
+			await clearCreditThresholdFlags(subscription.id);
+			await notifyCreditsReset(subscription, resetResult?.balance);
+		}
+
+		const result = {
+			renewed: true,
+			kind: 'renewal',
+			workspaceKey,
+			periodStart: now.toISOString(),
+			periodEnd: end.toISOString(),
+			transactionId: verified.transactionId || '',
+			reset: resetResult,
+		};
+
+		await logBillingAction({
+			action: 'Paddle subscription renewed after API verification',
+			eventType: 'renewed',
+			workspaceKey,
+			workspaceName: subscription.workspace_name,
+			actor,
+			provider: 'paddle',
+			idempotencyKey: key,
+			metadata: result,
+		});
+
+		await completeIdempotency(idem.record.id, result);
+		return result;
+	} catch (error) {
+		await failIdempotency(idem.record.id, error?.message || String(error));
+		throw error;
+	}
+}
+
+export async function handlePaddleCancellation({
+	workspaceKey = '',
+	paddleSubscriptionId = '',
+	cancelAtPeriodEnd = true,
+	eventId = '',
+	actor = 'webhook:paddle',
+	reason = 'paddle_subscription_canceled',
+} = {}) {
+	let subscription = null;
+	if (workspaceKey) {
+		subscription = await loadSubscription(workspaceKey);
+	} else if (paddleSubscriptionId) {
+		subscription = await pocketbaseClient.collection('workspace_subscriptions').getFirstListItem(
+			pocketbaseClient.filter('paddle_subscription_id = {:id}', { id: paddleSubscriptionId }),
+			{ requestKey: null },
+		).catch(() => null);
+	}
+
+	if (!subscription) {
+		return { handled: false, activated: false, error: 'paddle_subscription_not_found' };
+	}
+
+	if (paddleSubscriptionId && subscription.paddle_subscription_id
+		&& subscription.paddle_subscription_id !== paddleSubscriptionId) {
+		return { handled: false, activated: false, error: 'paddle_subscription_identity_mismatch' };
+	}
+
+	const resolvedWorkspaceKey = subscription.workspace_key;
+
+	if (cancelAtPeriodEnd) {
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			cancel_at_period_end: true,
+			billing_status: 'cancel_scheduled',
+			last_webhook_event_id: String(eventId || '').slice(0, 180),
+			last_verified_at: new Date().toISOString(),
+		});
+	} else {
+		const free = await loadPlan('free');
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			status: 'canceled',
+			billing_status: 'canceled',
+			cancel_at_period_end: false,
+			plan: free?.id || subscription.plan,
+			last_webhook_event_id: String(eventId || '').slice(0, 180),
+			last_verified_at: new Date().toISOString(),
+		});
+		if (free) {
+			await syncEntitlementMirrors({
+				workspaceKey: resolvedWorkspaceKey,
+				plan: free,
+				subscriptionId: subscription.id,
+				actor,
+				source: 'paddle_webhook',
+			});
+		}
+	}
+
+	await logBillingAction({
+		action: cancelAtPeriodEnd ? 'Paddle cancellation scheduled' : 'Paddle subscription canceled',
+		eventType: 'cancelled',
+		workspaceKey: resolvedWorkspaceKey,
+		workspaceName: subscription.workspace_name,
+		actor,
+		provider: 'paddle',
+		message: reason,
+		metadata: { paddleSubscriptionId, cancelAtPeriodEnd, eventId },
+	});
+
+	return {
+		handled: true,
+		activated: false,
+		cancelled: true,
+		atPeriodEnd: cancelAtPeriodEnd,
+		workspaceKey: resolvedWorkspaceKey,
+	};
+}
+
+export async function handlePaddlePaymentFailure({
+	workspaceKey,
+	eventId = '',
+	transactionId = '',
+	subscriptionId = '',
+	reason = 'paddle_payment_failed',
+	actor = 'webhook:paddle',
+	idempotencyKey = '',
+} = {}) {
+	if (!workspaceKey) {
+		return { handled: true, activated: false, ignored: true, reason: 'payment_failed_without_workspace' };
+	}
+
+	const key = idempotencyKey || `paddle-fail:${eventId || workspaceKey}`;
+	const result = await handleFailedPayment(workspaceKey, {
+		actor,
+		reason,
+		idempotencyKey: key,
+	});
+
+	const subscription = await loadSubscription(workspaceKey);
+	if (subscription) {
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			last_webhook_event_id: String(eventId || '').slice(0, 180),
+			last_verified_at: new Date().toISOString(),
+			paddle_transaction_id: transactionId || subscription.paddle_transaction_id || '',
+			paddle_subscription_id: subscriptionId || subscription.paddle_subscription_id || '',
+		}).catch(() => null);
+	}
+
+	return { ...result, handled: true, activated: false, kind: 'payment_failed' };
+}
+
+function buildPayPalSubscriptionPatch(verified, eventId) {
+	const nowIso = new Date().toISOString();
+	return {
+		activation_source: 'system',
+		billing_source: 'system',
+		last_webhook_event_id: String(eventId || '').slice(0, 180),
+		last_verified_at: nowIso,
+		provider: 'paypal',
+		provider_subscription_id: verified.subscriptionId
+			? String(verified.subscriptionId).slice(0, 180)
+			: '',
+		last_payment_status: 'succeeded',
+		last_payment_at: nowIso,
+	};
+}
+
+export async function activatePayPalSubscription({
+	workspaceKey,
+	verified = {},
+	eventId = '',
+	idempotencyKey = '',
+	actor = 'webhook:paypal',
+} = {}) {
+	const plan = await loadPlan(verified.planIdRecord || verified.planSlug);
+	if (!plan) throw httpError(404, 'Plan not found', 'PLAN_NOT_FOUND');
+
+	const key = String(
+		idempotencyKey || `sub-fulfill:paypal-sub:${verified.subscriptionId || 'unknown'}`,
+	).slice(0, 180);
+
+	const idem = await claimIdempotencyKey({
+		idempotencyKey: key,
+		scope: 'paypal_activation',
+		workspaceKey,
+		provider: 'paypal',
+		eventType: 'paypal_subscription_activated',
+		payload: { subscriptionId: verified.subscriptionId },
+	});
+	if (idem.duplicate) {
+		return { duplicate: true, fulfilled: true, activated: false, result: idem.result };
+	}
+
+	try {
+		const subscription = await ensureWorkspaceWallet(workspaceKey);
+		const fromPlan = subscription.expand?.plan?.slug
+			|| (await loadPlan(subscription.plan))?.slug
+			|| '';
+
+		const now = new Date();
+		const end = new Date(now);
+		end.setMonth(end.getMonth() + 1);
+
+		const creditsBalance = computeInitialActivationCredits(subscription, plan);
+
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			plan: plan.id,
+			status: 'active',
+			billing_status: 'active',
+			pending_plan: '',
+			credits_balance: creditsBalance,
+			current_period_start: now.toISOString(),
+			current_period_end: end.toISOString(),
+			grace_period_ends_at: null,
+			cancel_at_period_end: false,
+			...buildPayPalSubscriptionPatch(verified, eventId),
+		});
+
+		await syncEntitlementMirrors({
+			workspaceKey,
+			plan,
+			subscriptionId: subscription.id,
+			actor,
+			source: 'system',
+		});
+
+		await pocketbaseClient.collection('credit_transactions').create({
+			workspace_key: workspaceKey,
+			workspace_name: subscription.workspace_name || workspaceKey,
+			amount: Number(plan.credits) || 0,
+			type: 'grant',
+			reason: `PayPal subscription activated (${plan.name})`,
+			balance: creditsBalance,
+			created_by: actor,
+			idempotency_key: key,
+			reference_id: verified.subscriptionId || '',
+			metadata: {
+				provider: 'paypal',
+				planSlug: plan.slug,
+				subscriptionId: verified.subscriptionId || '',
+			},
+		}).catch(() => null);
+
+		const result = {
+			fulfilled: true,
+			activated: true,
+			kind: 'activation',
+			workspaceKey,
+			fromPlan,
+			toPlan: plan.slug,
+			provider: 'paypal',
+			subscriptionId: verified.subscriptionId || '',
+			creditsBalance,
+		};
+
+		await logBillingAction({
+			action: 'PayPal subscription activated after API verification',
+			eventType: 'upgrade',
+			workspaceKey,
+			workspaceName: subscription.workspace_name,
+			actor,
+			fromPlan,
+			toPlan: plan.slug,
+			credits: Number(plan.credits) || 0,
+			provider: 'paypal',
+			idempotencyKey: key,
+			metadata: result,
+		});
+
+		await notifyPlanUpgraded(
+			{ ...subscription, credits_balance: creditsBalance, plan: plan.id },
+			fromPlan,
+			plan.slug,
+		).catch(() => null);
+
+		await completeIdempotency(idem.record.id, result);
+		return result;
+	} catch (error) {
+		await failIdempotency(idem.record.id, error?.message || String(error));
+		throw error;
+	}
+}
+
+export async function renewPayPalSubscription({
+	workspaceKey,
+	verified = {},
+	eventId = '',
+	idempotencyKey = '',
+	actor = 'webhook:paypal',
+} = {}) {
+	const key = String(
+		idempotencyKey || `paypal-renew:sale:${verified.saleId || workspaceKey}`,
+	).slice(0, 180);
+
+	const idem = await claimIdempotencyKey({
+		idempotencyKey: key,
+		scope: 'paypal_renewal',
+		workspaceKey,
+		provider: 'paypal',
+		eventType: 'paypal_subscription_renewed',
+		payload: { saleId: verified.saleId, subscriptionId: verified.subscriptionId },
+	});
+	if (idem.duplicate) {
+		return { duplicate: true, renewed: true, result: idem.result };
+	}
+
+	try {
+		const subscription = await loadSubscription(workspaceKey);
+		if (!subscription) throw httpError(404, 'Subscription not found', 'NOT_FOUND');
+
+		const now = new Date();
+		const end = new Date(now);
+		end.setMonth(end.getMonth() + 1);
+
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			status: 'active',
+			billing_status: 'active',
+			current_period_start: now.toISOString(),
+			current_period_end: end.toISOString(),
+			grace_period_ends_at: null,
+			last_payment_status: 'succeeded',
+			last_payment_at: now.toISOString(),
+			last_webhook_event_id: String(eventId || '').slice(0, 180),
+			last_verified_at: new Date().toISOString(),
+			provider_subscription_id: verified.subscriptionId || subscription.provider_subscription_id || '',
+		});
+
+		const config = await resolveBillingConfig();
+		let resetResult = null;
+		if (config.autoResetCredits) {
+			resetResult = await resetMonthlyCredits({ workspaceKey, actor, force: true });
+			await clearCreditThresholdFlags(subscription.id);
+			await notifyCreditsReset(subscription, resetResult?.balance);
+		}
+
+		const result = {
+			renewed: true,
+			kind: 'renewal',
+			workspaceKey,
+			periodStart: now.toISOString(),
+			periodEnd: end.toISOString(),
+			saleId: verified.saleId || '',
+			subscriptionId: verified.subscriptionId || '',
+			reset: resetResult,
+		};
+
+		await logBillingAction({
+			action: 'PayPal subscription renewed after API verification',
+			eventType: 'renewed',
+			workspaceKey,
+			workspaceName: subscription.workspace_name,
+			actor,
+			provider: 'paypal',
+			idempotencyKey: key,
+			metadata: result,
+		});
+
+		await completeIdempotency(idem.record.id, result);
+		return result;
+	} catch (error) {
+		await failIdempotency(idem.record.id, error?.message || String(error));
+		throw error;
+	}
+}
+
+export async function handlePayPalCancellation({
+	workspaceKey = '',
+	paypalSubscriptionId = '',
+	cancelAtPeriodEnd = true,
+	eventId = '',
+	actor = 'webhook:paypal',
+	reason = 'paypal_subscription_canceled',
+} = {}) {
+	let subscription = null;
+	if (workspaceKey) {
+		subscription = await loadSubscription(workspaceKey);
+	} else if (paypalSubscriptionId) {
+		subscription = await pocketbaseClient.collection('workspace_subscriptions').getFirstListItem(
+			pocketbaseClient.filter('provider_subscription_id = {:id} && provider = {:provider}', {
+				id: paypalSubscriptionId,
+				provider: 'paypal',
+			}),
+			{ requestKey: null },
+		).catch(() => null);
+	}
+
+	if (!subscription) {
+		return { handled: false, activated: false, error: 'paypal_subscription_not_found' };
+	}
+
+	if (paypalSubscriptionId && subscription.provider_subscription_id
+		&& subscription.provider_subscription_id !== paypalSubscriptionId) {
+		return { handled: false, activated: false, error: 'paypal_subscription_identity_mismatch' };
+	}
+
+	const resolvedWorkspaceKey = subscription.workspace_key;
+
+	if (cancelAtPeriodEnd) {
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			cancel_at_period_end: true,
+			billing_status: 'cancel_scheduled',
+			last_webhook_event_id: String(eventId || '').slice(0, 180),
+			last_verified_at: new Date().toISOString(),
+		});
+	} else {
+		const free = await loadPlan('free');
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			status: 'canceled',
+			billing_status: 'canceled',
+			cancel_at_period_end: false,
+			plan: free?.id || subscription.plan,
+			last_webhook_event_id: String(eventId || '').slice(0, 180),
+			last_verified_at: new Date().toISOString(),
+		});
+		if (free) {
+			await syncEntitlementMirrors({
+				workspaceKey: resolvedWorkspaceKey,
+				plan: free,
+				subscriptionId: subscription.id,
+				actor,
+				source: 'system',
+			});
+		}
+	}
+
+	await logBillingAction({
+		action: cancelAtPeriodEnd ? 'PayPal cancellation scheduled' : 'PayPal subscription canceled',
+		eventType: 'cancelled',
+		workspaceKey: resolvedWorkspaceKey,
+		workspaceName: subscription.workspace_name,
+		actor,
+		provider: 'paypal',
+		message: reason,
+		metadata: { paypalSubscriptionId, cancelAtPeriodEnd, eventId },
+	});
+
+	return {
+		handled: true,
+		activated: false,
+		cancelled: true,
+		atPeriodEnd: cancelAtPeriodEnd,
+		workspaceKey: resolvedWorkspaceKey,
+	};
+}
+
+export async function handlePayPalPaymentFailure({
+	workspaceKey,
+	eventId = '',
+	subscriptionId = '',
+	reason = 'paypal_payment_failed',
+	actor = 'webhook:paypal',
+	idempotencyKey = '',
+} = {}) {
+	if (!workspaceKey) {
+		return { handled: true, activated: false, ignored: true, reason: 'payment_failed_without_workspace' };
+	}
+
+	const key = idempotencyKey || `paypal-fail:${eventId || workspaceKey}`;
+	const result = await handleFailedPayment(workspaceKey, {
+		actor,
+		reason,
+		idempotencyKey: key,
+	});
+
+	const subscription = await loadSubscription(workspaceKey);
+	if (subscription) {
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+			last_webhook_event_id: String(eventId || '').slice(0, 180),
+			last_verified_at: new Date().toISOString(),
+			provider_subscription_id: subscriptionId || subscription.provider_subscription_id || '',
+			last_payment_status: 'failed',
+		}).catch(() => null);
+	}
+
+	return { ...result, handled: true, activated: false, kind: 'payment_failed' };
 }

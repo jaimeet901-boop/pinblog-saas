@@ -6,19 +6,51 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { PaddleBillingProvider } from './paddle.js';
 import {
 	buildPaddleWebhookParseResult,
 	classifyPaddleWebhookEvent,
 	extractPaddleWebhookContext,
+	normalizeCheckoutBillingInterval,
 	parsePaddleSignatureHeader,
 	resolveCheckoutPaddlePriceId,
 	resolveExpectedPaddlePriceId,
+	resolveExpectedPaddlePriceIdForInterval,
 	resolvePaddlePriceId,
 	validatePaddlePriceForPlan,
 	verifyPaddleWebhookSignature,
 } from './paddle-webhook-helpers.js';
+import { normalizeRegistryEntry } from '../price-registry.js';
 import { NoneBillingProvider } from './none.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const helpersSource = readFileSync(join(__dirname, 'paddle-webhook-helpers.js'), 'utf8');
+const fulfillmentSource = readFileSync(
+	join(__dirname, '..', 'paddle-webhook-fulfillment.js'),
+	'utf8',
+);
+
+function subscriptionUpdatedFixture(overrides = {}) {
+	const { data: dataOverrides = {}, ...restOverrides } = overrides;
+	return {
+		event_id: 'evt_01test_sub_updated',
+		event_type: 'subscription.updated',
+		data: {
+			id: 'sub_01test',
+			status: 'active',
+			custom_data: {
+				workspaceKey: 'ws-kitchen',
+				planSlug: 'pro',
+			},
+			items: [{ price: { id: 'pri_pro_monthly' } }],
+			...dataOverrides,
+		},
+		...restOverrides,
+	};
+}
 
 const TEST_SECRET = 'pdl_test_secret_key_for_unit_tests_only';
 
@@ -139,6 +171,33 @@ describe('verifyPaddleWebhookSignature', () => {
 		assert.equal(result.ok, false);
 		assert.equal(result.error, 'paddle_webhook_raw_body_missing');
 	});
+
+	it('accepts slightly delayed event within 300s tolerance', () => {
+		const ts = Math.floor(Date.now() / 1000) - 120;
+		const signedPayload = `${ts}:${rawBody}`;
+		const h1 = crypto.createHmac('sha256', TEST_SECRET).update(signedPayload, 'utf8').digest('hex');
+		const result = verifyPaddleWebhookSignature({
+			rawBody,
+			signatureHeader: `ts=${ts};h1=${h1}`,
+			secret: TEST_SECRET,
+			toleranceSeconds: 300,
+		});
+		assert.equal(result.ok, true);
+	});
+
+	it('rejects expired event beyond tolerance', () => {
+		const ts = Math.floor(Date.now() / 1000) - 400;
+		const signedPayload = `${ts}:${rawBody}`;
+		const h1 = crypto.createHmac('sha256', TEST_SECRET).update(signedPayload, 'utf8').digest('hex');
+		const result = verifyPaddleWebhookSignature({
+			rawBody,
+			signatureHeader: `ts=${ts};h1=${h1}`,
+			secret: TEST_SECRET,
+			toleranceSeconds: 300,
+		});
+		assert.equal(result.ok, false);
+		assert.equal(result.error, 'paddle_webhook_timestamp_expired');
+	});
 });
 
 describe('PaddleBillingProvider.verifyWebhook production bypass', () => {
@@ -209,12 +268,22 @@ describe('classifyPaddleWebhookEvent', () => {
 		assert.equal(classifyPaddleWebhookEvent('subscription.created').routing, 'ignored');
 	});
 
-	it('routes subscription.updated to ignored', () => {
-		assert.equal(classifyPaddleWebhookEvent('subscription.updated').routing, 'ignored');
+	it('routes subscription.updated to subscription_reconcile (Phase 4.4-B)', () => {
+		const result = classifyPaddleWebhookEvent('subscription.updated');
+		assert.equal(result.routing, 'subscription_reconcile');
+		assert.equal(result.routingReason, 'subscription_updated_reconciliation');
 	});
 
 	it('routes subscription.canceled to cancel', () => {
 		assert.equal(classifyPaddleWebhookEvent('subscription.canceled').routing, 'cancel');
+	});
+
+	it('routes adjustment.created to refund_adjustment (Phase 4.2)', () => {
+		assert.equal(classifyPaddleWebhookEvent('adjustment.created').routing, 'refund_adjustment');
+	});
+
+	it('routes adjustment.updated to refund_adjustment (Phase 4.2)', () => {
+		assert.equal(classifyPaddleWebhookEvent('adjustment.updated').routing, 'refund_adjustment');
 	});
 
 	it('routes transaction.payment_failed to payment_failed', () => {
@@ -225,6 +294,74 @@ describe('classifyPaddleWebhookEvent', () => {
 		const result = classifyPaddleWebhookEvent('customer.created');
 		assert.equal(result.routing, 'ignored');
 		assert.match(result.routingReason, /unknown_paddle_event/);
+	});
+});
+
+describe('Phase 4.4-B subscription.updated reconciliation routing', () => {
+	it('subscription.updated routes to subscription_reconcile', () => {
+		const result = classifyPaddleWebhookEvent('subscription.updated');
+		assert.equal(result.routing, 'subscription_reconcile');
+		assert.equal(result.routingReason, 'subscription_updated_reconciliation');
+	});
+
+	it('subscription.updated no longer routes to ignored', () => {
+		const result = classifyPaddleWebhookEvent('subscription.updated');
+		assert.notEqual(result.routing, 'ignored');
+	});
+
+	it('buildPaddleWebhookParseResult preserves subscription_reconcile routing', () => {
+		const parsed = buildPaddleWebhookParseResult(subscriptionUpdatedFixture());
+		assert.equal(parsed.routing, 'subscription_reconcile');
+		assert.equal(parsed.routingReason, 'subscription_updated_reconciliation');
+		assert.equal(parsed.eventType, 'subscription.updated');
+	});
+
+	it('transaction.completed remains fulfillment (subscription_success)', () => {
+		assert.equal(
+			classifyPaddleWebhookEvent('transaction.completed').routing,
+			'subscription_success',
+		);
+	});
+
+	it('subscription.canceled remains cancellation routing', () => {
+		assert.equal(classifyPaddleWebhookEvent('subscription.canceled').routing, 'cancel');
+		assert.equal(classifyPaddleWebhookEvent('subscription.cancelled').routing, 'cancel');
+	});
+
+	it('adjustment refund routing remains unchanged', () => {
+		assert.equal(classifyPaddleWebhookEvent('adjustment.created').routing, 'refund_adjustment');
+		assert.equal(classifyPaddleWebhookEvent('adjustment.updated').routing, 'refund_adjustment');
+	});
+
+	it('unknown event routing remains unchanged', () => {
+		const result = classifyPaddleWebhookEvent('customer.created');
+		assert.equal(result.routing, 'ignored');
+		assert.match(result.routingReason, /unknown_paddle_event/);
+	});
+
+	it('subscription.activated and subscription.created remain ignored (not reconcile)', () => {
+		assert.equal(classifyPaddleWebhookEvent('subscription.activated').routing, 'ignored');
+		assert.equal(classifyPaddleWebhookEvent('subscription.created').routing, 'ignored');
+	});
+
+	it('classifier does not reference activation or renewal handlers', () => {
+		assert.equal(helpersSource.includes('activatePaddleSubscription'), false);
+		assert.equal(helpersSource.includes('renewPaddleSubscription'), false);
+	});
+
+	it('fulfillment ingress registers subscription_reconcile handler (Phase 4.4-C)', () => {
+		assert.match(fulfillmentSource, /routing === 'subscription_reconcile'/);
+		assert.match(fulfillmentSource, /handlePaddleSubscriptionUpdatedEvent/);
+		assert.match(fulfillmentSource, /paddle-subscription-updated-handler\.js/);
+		assert.equal(fulfillmentSource.includes('reconcilePaddleSubscription'), true);
+	});
+
+	it('subscription_reconcile route is separate from subscription_success fulfillment', () => {
+		const reconcile = classifyPaddleWebhookEvent('subscription.updated');
+		const fulfill = classifyPaddleWebhookEvent('transaction.completed');
+		assert.equal(reconcile.routing, 'subscription_reconcile');
+		assert.equal(fulfill.routing, 'subscription_success');
+		assert.notEqual(reconcile.routing, fulfill.routing);
 	});
 });
 
@@ -447,6 +584,174 @@ describe('resolveCheckoutPaddlePriceId', () => {
 	});
 });
 
+describe('Phase 3.8 — yearly price key normalization', () => {
+	const legacyConfigWithYearly = {
+		priceIds: {
+			pro: 'pri_pro_monthly',
+			pro_yearly: 'pri_pro_yearly',
+		},
+	};
+
+	const registryEntriesBoth = [
+		normalizeRegistryEntry({
+			provider: 'paddle',
+			environment: 'sandbox',
+			planSlug: 'pro',
+			interval: 'monthly',
+			priceId: 'pri_registry_pro_monthly',
+		}),
+		normalizeRegistryEntry({
+			provider: 'paddle',
+			environment: 'sandbox',
+			planSlug: 'pro',
+			interval: 'yearly',
+			priceId: 'pri_registry_pro_yearly',
+		}),
+	];
+
+	it('resolves monthly registry row when interval is monthly', () => {
+		const result = resolveCheckoutPaddlePriceId('pro', legacyConfigWithYearly, {
+			registryEntries: registryEntriesBoth,
+			environment: 'sandbox',
+			interval: 'monthly',
+		});
+		assert.equal(result.ok, true);
+		assert.equal(result.priceId, 'pri_registry_pro_monthly');
+		assert.equal(result.interval, 'monthly');
+		assert.equal(result.source, 'registry');
+	});
+
+	it('resolves yearly registry row when interval is yearly', () => {
+		const result = resolveCheckoutPaddlePriceId('pro', legacyConfigWithYearly, {
+			registryEntries: registryEntriesBoth,
+			environment: 'sandbox',
+			interval: 'yearly',
+		});
+		assert.equal(result.ok, true);
+		assert.equal(result.priceId, 'pri_registry_pro_yearly');
+		assert.equal(result.interval, 'yearly');
+		assert.equal(result.source, 'registry');
+	});
+
+	it('uses plan_slug pro not pro_yearly for yearly registry lookup', () => {
+		const result = resolveCheckoutPaddlePriceId('pro', legacyConfigWithYearly, {
+			registryEntries: registryEntriesBoth,
+			environment: 'sandbox',
+			interval: 'yearly',
+		});
+		assert.equal(result.planSlug, 'pro');
+		assert.equal(result.priceId, 'pri_registry_pro_yearly');
+	});
+
+	it('fails closed when registry authoritative but yearly row missing', () => {
+		const monthlyOnlyRegistry = [registryEntriesBoth[0]];
+		const result = resolveCheckoutPaddlePriceId('pro', legacyConfigWithYearly, {
+			registryEntries: monthlyOnlyRegistry,
+			environment: 'sandbox',
+			interval: 'yearly',
+		});
+		assert.equal(result.ok, false);
+		assert.equal(result.error, 'paddle_price_not_in_registry');
+		assert.equal(result.interval, 'yearly');
+	});
+
+	it('legacy monthly fallback uses priceIds[planSlug]', () => {
+		const result = resolveCheckoutPaddlePriceId('pro', legacyConfigWithYearly, {
+			interval: 'monthly',
+		});
+		assert.equal(result.ok, true);
+		assert.equal(result.priceId, 'pri_pro_monthly');
+		assert.equal(result.source, 'legacy');
+	});
+
+	it('legacy yearly fallback uses priceIds[planSlug_yearly]', () => {
+		const result = resolveCheckoutPaddlePriceId('pro', legacyConfigWithYearly, {
+			interval: 'yearly',
+		});
+		assert.equal(result.ok, true);
+		assert.equal(result.priceId, 'pri_pro_yearly');
+		assert.equal(result.source, 'legacy');
+	});
+
+	it('fails closed on yearly request when only monthly legacy mapping exists', () => {
+		const result = resolveCheckoutPaddlePriceId('pro', { priceIds: { pro: 'pri_pro_monthly' } }, {
+			interval: 'yearly',
+		});
+		assert.equal(result.ok, false);
+		assert.equal(result.error, 'paddle_price_mapping_missing');
+		assert.equal(result.interval, 'yearly');
+	});
+
+	it('does not use yearly key when interval is monthly', () => {
+		const result = resolveCheckoutPaddlePriceId('pro', legacyConfigWithYearly, {
+			interval: 'monthly',
+		});
+		assert.equal(result.priceId, 'pri_pro_monthly');
+		assert.notEqual(result.priceId, 'pri_pro_yearly');
+	});
+
+	it('normalizes YEARLY interval casing', () => {
+		const result = resolveCheckoutPaddlePriceId('pro', legacyConfigWithYearly, {
+			interval: 'YEARLY',
+		});
+		assert.equal(result.ok, true);
+		assert.equal(result.priceId, 'pri_pro_yearly');
+	});
+
+	it('rejects invalid interval values', () => {
+		const result = resolveCheckoutPaddlePriceId('pro', legacyConfigWithYearly, {
+			interval: 'weekly',
+		});
+		assert.equal(result.ok, false);
+		assert.equal(result.error, 'invalid_billing_interval');
+	});
+
+	it('defaults missing interval to monthly', () => {
+		const result = resolveCheckoutPaddlePriceId('pro', legacyConfigWithYearly);
+		assert.equal(result.ok, true);
+		assert.equal(result.priceId, 'pri_pro_monthly');
+		assert.equal(result.interval, 'monthly');
+	});
+
+	it('resolveExpectedPaddlePriceIdForInterval resolves yearly env key', () => {
+		const prev = process.env.PADDLE_PRICE_PRO_YEARLY;
+		process.env.PADDLE_PRICE_PRO_YEARLY = 'pri_pro_env_yearly';
+		try {
+			assert.equal(
+				resolveExpectedPaddlePriceIdForInterval('pro', {}, 'yearly'),
+				'pri_pro_env_yearly',
+			);
+		} finally {
+			if (prev === undefined) delete process.env.PADDLE_PRICE_PRO_YEARLY;
+			else process.env.PADDLE_PRICE_PRO_YEARLY = prev;
+		}
+	});
+
+	it('validatePaddlePriceForPlan accepts yearly legacy mapping at webhook parse', () => {
+		const result = validatePaddlePriceForPlan('pro', 'pri_pro_yearly', legacyConfigWithYearly);
+		assert.equal(result.ok, true);
+		assert.equal(result.interval, 'yearly');
+	});
+
+	it('validatePaddlePriceForPlan accepts yearly registry price by price id', () => {
+		const result = validatePaddlePriceForPlan('pro', 'pri_registry_pro_yearly', legacyConfigWithYearly, {
+			registryEntries: registryEntriesBoth,
+			environment: 'sandbox',
+		});
+		assert.equal(result.ok, true);
+		assert.equal(result.interval, 'yearly');
+		assert.equal(result.source, 'registry');
+	});
+
+	it('normalizeCheckoutBillingInterval defaults to monthly', () => {
+		assert.deepEqual(normalizeCheckoutBillingInterval(undefined), { ok: true, value: 'monthly' });
+	});
+
+	it('normalizeCheckoutBillingInterval accepts Yearly casing', () => {
+		assert.deepEqual(normalizeCheckoutBillingInterval('Yearly'), { ok: true, value: 'yearly' });
+	});
+});
+
 describe('PaddleBillingProvider.createSubscriptionCheckout price isolation', () => {
 	const originalFetch = globalThis.fetch;
 	const checkoutInput = {
@@ -514,5 +819,60 @@ describe('PaddleBillingProvider.createSubscriptionCheckout price isolation', () 
 		assert.equal(result.checkoutUrl, 'https://checkout.paddle.test/session');
 		assert.equal(capturedBody.items[0].price_id, 'pri_pro_monthly');
 		assert.equal(capturedBody.custom_data.planSlug, 'pro');
+		assert.equal(result.billingInterval, 'monthly');
+		assert.equal(result.priceId, 'pri_pro_monthly');
+	});
+
+	it('creates transaction with yearly price when billingInterval is yearly', async () => {
+		let capturedBody = null;
+		globalThis.fetch = async (_url, opts) => {
+			capturedBody = JSON.parse(opts.body);
+			return {
+				ok: true,
+				json: async () => ({
+					data: { id: 'txn_yearly', checkout: { url: 'https://checkout.paddle.test/yearly' } },
+				}),
+			};
+		};
+
+		const provider = new PaddleBillingProvider({
+			apiKey: 'paddle_test_key',
+			sandbox: true,
+			priceIds: {
+				pro: 'pri_pro_monthly',
+				pro_yearly: 'pri_pro_yearly',
+			},
+		});
+		const result = await provider.createSubscriptionCheckout({
+			...checkoutInput,
+			billingInterval: 'yearly',
+		});
+
+		assert.equal(result.checkoutUrl, 'https://checkout.paddle.test/yearly');
+		assert.equal(result.billingInterval, 'yearly');
+		assert.equal(result.priceId, 'pri_pro_yearly');
+		assert.equal(capturedBody.items[0].price_id, 'pri_pro_yearly');
+	});
+
+	it('rejects invalid billingInterval without calling Paddle API', async () => {
+		let fetchCalled = false;
+		globalThis.fetch = async () => {
+			fetchCalled = true;
+			return { ok: true, json: async () => ({}) };
+		};
+
+		const provider = new PaddleBillingProvider({
+			apiKey: 'paddle_test_key',
+			sandbox: true,
+			priceIds: { pro: 'pri_pro_monthly', pro_yearly: 'pri_pro_yearly' },
+		});
+		const result = await provider.createSubscriptionCheckout({
+			...checkoutInput,
+			billingInterval: 'quarterly',
+		});
+
+		assert.equal(fetchCalled, false);
+		assert.equal(result.errorCode, 'invalid_billing_interval');
+		assert.equal(result.checkoutUrl, null);
 	});
 });

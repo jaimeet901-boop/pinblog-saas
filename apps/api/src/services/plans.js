@@ -11,8 +11,9 @@ import {
 	DEFAULT_DOWNGRADE_RULES,
 	DEFAULT_TRIAL_CONFIG,
 	DEFAULT_UPGRADE_RULES,
-	writeBillingEvent,
 } from './credits-engine.js';
+import { resolveBillingTypeFromPlan } from './billing/billing-model.js';
+export { assignWorkspacePlan } from './billing/assign-workspace-plan.js';
 
 export { isFeatureEnabled, normalizeFeatures, normalizeFeatureValue, validateFeaturesPayload } from './plan-features.js';
 
@@ -167,6 +168,7 @@ export function mapPlanDto(record, stats = {}) {
 		upgradeRules,
 		downgradeRules,
 		topupPacks,
+		billingType: record.billing_type || resolveBillingTypeFromPlan(record),
 		created: record.created,
 		updated: record.updated,
 	};
@@ -224,6 +226,7 @@ export async function ensurePlansSeeded() {
 				name: seed.name,
 				slug: seed.slug,
 				description: seed.description,
+				billing_type: resolveBillingTypeFromPlan(seed),
 				monthly_price: seed.monthly_price,
 				yearly_price: seed.yearly_price,
 				currency: seed.currency,
@@ -501,69 +504,6 @@ export async function deletePlan(id) {
 
 	await pocketbaseClient.collection('plans').delete(id);
 	return { ok: true, id };
-}
-
-export async function assignWorkspacePlan(payload = {}) {
-	const workspaceKey = slugify(payload.workspaceKey || payload.workspace_key || payload.workspaceName || payload.workspace_name);
-	const workspaceName = String(payload.workspaceName || payload.workspace_name || workspaceKey).trim();
-	if (!workspaceKey || !workspaceName) {
-		throw httpError(422, 'workspaceKey and workspaceName are required', 'VALIDATION_ERROR');
-	}
-	const plan = await pocketbaseClient.collection('plans').getOne(payload.planId || payload.plan);
-	const now = new Date();
-	const end = new Date(now);
-	end.setMonth(end.getMonth() + 1);
-
-	let existing = null;
-	try {
-		existing = await pocketbaseClient.collection('workspace_subscriptions').getFirstListItem(
-			pocketbaseClient.filter('workspace_key = {:key}', { key: workspaceKey }),
-			{ expand: 'plan' },
-		);
-	} catch {
-		existing = null;
-	}
-
-	const fromPlan = existing?.expand?.plan?.slug || existing?.plan || '';
-	const body = {
-		workspace_key: workspaceKey,
-		workspace_name: workspaceName,
-		owner_email: payload.ownerEmail || existing?.owner_email || '',
-		plan: plan.id,
-		status: payload.status || 'active',
-		billing_status: payload.billingStatus || payload.status || 'active',
-		seats: Number(payload.seats) || existing?.seats || 1,
-		current_period_start: now.toISOString(),
-		current_period_end: end.toISOString(),
-		credits_balance: Number(payload.creditsBalance ?? existing?.credits_balance ?? plan.credits) || 0,
-	};
-
-	const record = existing
-		? await pocketbaseClient.collection('workspace_subscriptions').update(existing.id, body)
-		: await pocketbaseClient.collection('workspace_subscriptions').create(body);
-
-	const eventType = !existing
-		? 'plan_assign'
-		: ((Number(plan.monthly_price) || 0) > (Number(existing.expand?.plan?.monthly_price) || 0) ? 'upgrade' : 'downgrade');
-	await writeBillingEvent({
-		workspaceKey,
-		workspaceName,
-		eventType: existing ? eventType : 'plan_assign',
-		fromPlan: String(fromPlan || ''),
-		toPlan: plan.slug || plan.name,
-		actor: payload.actor || 'admin',
-		message: `Assigned plan ${plan.name}`,
-	});
-
-	return {
-		id: record.id,
-		workspaceKey: record.workspace_key,
-		workspaceName: record.workspace_name,
-		planId: plan.id,
-		planName: plan.name,
-		status: record.status,
-		creditsBalance: record.credits_balance,
-	};
 }
 
 export async function listSubscriptions() {

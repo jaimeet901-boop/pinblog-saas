@@ -14,6 +14,7 @@ import {
 	getWorkspaceUsage,
 	getWorkspaceCredits,
 	purchaseWorkspaceCreditPack,
+	cancelWorkspaceSubscription,
 } from '../../services/workspace-billing.js';
 import { getWorkspaceDashboard } from '../../services/workspace-dashboard.js';
 import {
@@ -298,6 +299,10 @@ router.post('/subscription/change', async (req, res) => {
 
 router.post('/subscription/checkout', async (req, res) => {
 	res.status(201).json(await startWorkspaceSubscriptionCheckout(req, req.body || {}));
+});
+
+router.post('/subscription/cancel', async (req, res) => {
+	res.json(await cancelWorkspaceSubscription(req, req.body || {}));
 });
 
 router.get('/usage', async (req, res) => {

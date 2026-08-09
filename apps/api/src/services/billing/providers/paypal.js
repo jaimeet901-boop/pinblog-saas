@@ -7,6 +7,37 @@ const PAYPAL_API_BASE = Object.freeze({
 
 const HTTP_TIMEOUT_MS = 15000;
 
+export class PayPalApiError extends Error {
+	constructor(message, {
+		status = 502,
+		code = 'paypal_api_error',
+		isTimeout = false,
+		isServerError = false,
+	} = {}) {
+		super(message);
+		this.name = 'PayPalApiError';
+		this.status = status;
+		this.code = code;
+		this.isTimeout = isTimeout;
+		this.isServerError = isServerError;
+	}
+}
+
+function buildPayPalApiError(response, data, fallbackMessage) {
+	const status = response?.status >= 400 && response?.status < 600 ? response.status : 502;
+	return new PayPalApiError(
+		data?.message || data?.error_description || fallbackMessage || `PayPal API error (${status})`,
+		{
+			status,
+			code: status === 404 ? 'paypal_not_found'
+				: status === 401 || status === 403 ? 'paypal_auth_failed'
+				: status >= 500 ? 'paypal_server_error'
+					: 'paypal_api_error',
+			isServerError: status >= 500,
+		},
+	);
+}
+
 export function resolvePayPalApiBase(mode = 'sandbox') {
 	const normalized = String(mode || '').trim().toLowerCase();
 	if (normalized === 'live') return PAYPAL_API_BASE.live;
@@ -50,16 +81,133 @@ function headerValue(headers, name) {
 	return key ? String(headers[key] || '').trim() : '';
 }
 
-async function paypalFetch(url, options = {}) {
+async function paypalFetch(url, options = {}, fetchImpl = fetch) {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
 	try {
-		const response = await fetch(url, { ...options, signal: controller.signal });
+		const response = await fetchImpl(url, { ...options, signal: controller.signal });
 		const data = await response.json().catch(() => ({}));
 		return { response, data };
+	} catch (error) {
+		if (error?.name === 'AbortError') {
+			throw new PayPalApiError('PayPal API request timed out', {
+				status: 504,
+				code: 'paypal_api_timeout',
+				isTimeout: true,
+			});
+		}
+		throw error;
 	} finally {
 		clearTimeout(timer);
 	}
+}
+
+function resolvePayPalSubscriptionStatus(subscription = {}) {
+	return String(subscription?.status || subscription?.raw?.status || '').trim().toUpperCase();
+}
+
+/** Verify PayPal suspend response — SUSPENDED = period-end cancellation per webhook contract. */
+export function verifyPayPalPeriodEndCancellationResponse(subscription = {}) {
+	const status = resolvePayPalSubscriptionStatus(subscription);
+	if (!status) {
+		return { ok: false, error: 'paypal_subscription_status_missing' };
+	}
+	if (status === 'SUSPENDED') {
+		return {
+			ok: true,
+			status,
+			subscriptionId: String(subscription?.subscriptionId || subscription?.id || '').trim(),
+		};
+	}
+	if (status === 'CANCELLED' || status === 'EXPIRED') {
+		return { ok: false, error: 'paypal_subscription_immediately_canceled', status };
+	}
+	return { ok: false, error: 'paypal_subscription_not_suspended', status };
+}
+
+/** Verify PayPal cancel response — CANCELLED/EXPIRED = immediate termination. */
+export function verifyPayPalImmediateCancellationResponse(subscription = {}) {
+	const status = resolvePayPalSubscriptionStatus(subscription);
+	if (!status) {
+		return { ok: false, error: 'paypal_subscription_status_missing' };
+	}
+	if (status === 'CANCELLED' || status === 'EXPIRED') {
+		return {
+			ok: true,
+			status,
+			subscriptionId: String(subscription?.subscriptionId || subscription?.id || '').trim(),
+		};
+	}
+	if (status === 'SUSPENDED') {
+		return { ok: false, error: 'paypal_subscription_still_suspended', status };
+	}
+	return { ok: false, error: 'paypal_subscription_not_cancelled', status };
+}
+
+async function paypalSubscriptionAction(subscriptionId, action, {
+	apiBase,
+	accessToken,
+	reason,
+	fetchImpl = fetch,
+}) {
+	const id = String(subscriptionId || '').trim();
+	if (!id) {
+		throw new PayPalApiError('PayPal subscription ID is required', {
+			status: 422,
+			code: 'paypal_subscription_id_missing',
+		});
+	}
+	const { response, data } = await paypalFetch(
+		`${apiBase}/v1/billing/subscriptions/${encodeURIComponent(id)}/${action}`,
+		{
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+				'Content-Type': 'application/json',
+				Accept: 'application/json',
+			},
+			body: JSON.stringify({ reason: String(reason || 'Customer requested cancellation').slice(0, 128) }),
+		},
+		fetchImpl,
+	);
+	if (!response.ok) {
+		throw buildPayPalApiError(
+			response,
+			data,
+			`PayPal ${action} subscription failed (${response.status})`,
+		);
+	}
+	return { subscriptionId: id };
+}
+
+/** POST /v1/billing/subscriptions/{id}/suspend — period-end cancellation semantics (SUSPENDED). */
+export async function suspendPayPalSubscription(subscriptionId, {
+	apiBase,
+	accessToken,
+	reason,
+	fetchImpl = fetch,
+} = {}) {
+	return paypalSubscriptionAction(subscriptionId, 'suspend', {
+		apiBase,
+		accessToken,
+		reason,
+		fetchImpl,
+	});
+}
+
+/** POST /v1/billing/subscriptions/{id}/cancel — immediate termination (CANCELLED). */
+export async function cancelPayPalSubscriptionImmediate(subscriptionId, {
+	apiBase,
+	accessToken,
+	reason,
+	fetchImpl = fetch,
+} = {}) {
+	return paypalSubscriptionAction(subscriptionId, 'cancel', {
+		apiBase,
+		accessToken,
+		reason,
+		fetchImpl,
+	});
 }
 
 /**
@@ -110,7 +258,7 @@ export class PayPalBillingProvider extends BillingProvider {
 		return String(process.env[envKey] || this.config?.defaultPlanId || process.env.PAYPAL_DEFAULT_PLAN_ID || '').trim();
 	}
 
-	async getAccessToken() {
+	async getAccessToken(fetchImpl = fetch) {
 		if (!this.ready) {
 			throw notImplemented('paypal', 'getAccessToken');
 		}
@@ -123,11 +271,9 @@ export class PayPalBillingProvider extends BillingProvider {
 				Accept: 'application/json',
 			},
 			body: 'grant_type=client_credentials',
-		});
+		}, fetchImpl);
 		if (!response.ok || !data?.access_token) {
-			const error = new Error(data?.error_description || data?.message || `PayPal OAuth failed (${response.status})`);
-			error.status = response.status >= 400 && response.status < 600 ? response.status : 502;
-			throw error;
+			throw buildPayPalApiError(response, data, `PayPal OAuth failed (${response.status})`);
 		}
 		return data.access_token;
 	}
@@ -231,37 +377,104 @@ export class PayPalBillingProvider extends BillingProvider {
 
 	async cancelSubscription(input = {}) {
 		if (!this.ready) throw notImplemented('paypal', 'cancelSubscription');
-		const subscriptionId = String(input.subscriptionId || input.providerSubscriptionId || '').trim();
+
+		const atPeriodEnd = input.atPeriodEnd !== false;
+		const subscriptionId = String(
+			input.providerSubscriptionId
+			|| input.subscriptionId
+			|| '',
+		).trim();
 		if (!subscriptionId) {
+			const error = new Error('PayPal subscription ID is required for cancellation');
+			error.status = 422;
+			error.errorCode = 'PAYPAL_SUBSCRIPTION_ID_MISSING';
+			throw error;
+		}
+
+		const fetchImpl = input.fetchImpl || fetch;
+		const reason = String(input.reason || 'Customer requested cancellation').slice(0, 128);
+		const accessToken = await this.getAccessToken(fetchImpl);
+
+		const currentSub = await this.retrieveSubscription(subscriptionId, { fetchImpl });
+		const currentStatus = resolvePayPalSubscriptionStatus(currentSub);
+
+		if (atPeriodEnd) {
+			if (currentStatus === 'SUSPENDED') {
+				return {
+					ready: true,
+					provider: 'paypal',
+					cancelled: true,
+					localOnly: false,
+					subscriptionId,
+					atPeriodEnd: true,
+					alreadyScheduled: true,
+				};
+			}
+			if (currentStatus === 'CANCELLED' || currentStatus === 'EXPIRED') {
+				const error = new Error('PayPal subscription is already terminated; period-end cancellation is not applicable');
+				error.status = 422;
+				error.errorCode = 'PAYPAL_PERIOD_END_CANCEL_UNSUPPORTED';
+				throw error;
+			}
+			if (currentStatus !== 'ACTIVE') {
+				const error = new Error(`PayPal subscription status "${currentStatus}" cannot be suspended for period-end cancellation`);
+				error.status = 422;
+				error.errorCode = 'PAYPAL_CANCEL_STATE_INVALID';
+				throw error;
+			}
+
+			await suspendPayPalSubscription(subscriptionId, {
+				apiBase: this.apiBase,
+				accessToken,
+				reason,
+				fetchImpl,
+			});
+
+			const verifiedSub = await this.retrieveSubscription(subscriptionId, { fetchImpl });
+			const verified = verifyPayPalPeriodEndCancellationResponse(verifiedSub);
+			if (!verified.ok) {
+				const error = new Error(verified.error || 'PayPal period-end cancellation response invalid');
+				error.status = 502;
+				error.errorCode = 'PAYPAL_CANCEL_RESPONSE_INVALID';
+				throw error;
+			}
+
 			return {
 				ready: true,
 				provider: 'paypal',
-				cancelled: false,
-				message: 'providerSubscriptionId is required to cancel a PayPal subscription.',
+				cancelled: true,
+				localOnly: false,
+				subscriptionId: verified.subscriptionId || subscriptionId,
+				atPeriodEnd: true,
 			};
 		}
 
-		const accessToken = await this.getAccessToken();
-		const { response, data } = await paypalFetch(
-			`${this.apiBase}/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
-			{
-				method: 'POST',
-				headers: {
-					Authorization: `Bearer ${accessToken}`,
-					'Content-Type': 'application/json',
-					Accept: 'application/json',
-				},
-				body: JSON.stringify({ reason: String(input.reason || 'Customer requested cancellation').slice(0, 128) }),
-			},
-		);
-
-		if (!response.ok) {
+		if (currentStatus === 'CANCELLED' || currentStatus === 'EXPIRED') {
 			return {
 				ready: true,
 				provider: 'paypal',
-				cancelled: false,
-				message: data?.message || `PayPal cancel subscription failed (${response.status})`,
+				cancelled: true,
+				localOnly: false,
+				subscriptionId,
+				atPeriodEnd: false,
+				alreadyCancelled: true,
 			};
+		}
+
+		await cancelPayPalSubscriptionImmediate(subscriptionId, {
+			apiBase: this.apiBase,
+			accessToken,
+			reason,
+			fetchImpl,
+		});
+
+		const verifiedSub = await this.retrieveSubscription(subscriptionId, { fetchImpl });
+		const verified = verifyPayPalImmediateCancellationResponse(verifiedSub);
+		if (!verified.ok) {
+			const error = new Error(verified.error || 'PayPal immediate cancellation response invalid');
+			error.status = 502;
+			error.errorCode = 'PAYPAL_CANCEL_RESPONSE_INVALID';
+			throw error;
 		}
 
 		return {
@@ -269,7 +482,8 @@ export class PayPalBillingProvider extends BillingProvider {
 			provider: 'paypal',
 			cancelled: true,
 			localOnly: false,
-			subscriptionId,
+			subscriptionId: verified.subscriptionId || subscriptionId,
+			atPeriodEnd: false,
 		};
 	}
 
@@ -283,16 +497,16 @@ export class PayPalBillingProvider extends BillingProvider {
 		return { ready: true, provider: 'paypal', changed: false, input };
 	}
 
-	async retrievePayment(paymentId) {
-		if (!this.ready) throw notImplemented('paypal', 'retrievePayment');
-		const subscriptionId = String(paymentId || '').trim();
-		if (!subscriptionId) {
-			throw notImplemented('paypal', 'retrievePayment');
+	async retrieveSubscription(subscriptionId, { fetchImpl = fetch } = {}) {
+		if (!this.ready) throw notImplemented('paypal', 'retrieveSubscription');
+		const id = String(subscriptionId || '').trim();
+		if (!id) {
+			throw notImplemented('paypal', 'retrieveSubscription');
 		}
 
-		const accessToken = await this.getAccessToken();
+		const accessToken = await this.getAccessToken(fetchImpl);
 		const { response, data } = await paypalFetch(
-			`${this.apiBase}/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`,
+			`${this.apiBase}/v1/billing/subscriptions/${encodeURIComponent(id)}`,
 			{
 				method: 'GET',
 				headers: {
@@ -300,21 +514,59 @@ export class PayPalBillingProvider extends BillingProvider {
 					Accept: 'application/json',
 				},
 			},
+			fetchImpl,
 		);
 
 		if (!response.ok) {
-			const error = new Error(data?.message || `PayPal subscription lookup failed (${response.status})`);
-			error.status = response.status >= 400 && response.status < 600 ? response.status : 502;
-			throw error;
+			throw buildPayPalApiError(response, data, `PayPal subscription lookup failed (${response.status})`);
 		}
 
 		return {
 			ready: true,
 			provider: 'paypal',
-			subscriptionId: data?.id || subscriptionId,
+			subscriptionId: data?.id || id,
 			status: data?.status || '',
 			customId: data?.custom_id || '',
 			planId: data?.plan_id || '',
+			raw: data,
+		};
+	}
+
+	async retrievePayment(paymentId, options = {}) {
+		return this.retrieveSubscription(paymentId, options);
+	}
+
+	async retrieveSale(saleId, { fetchImpl = fetch } = {}) {
+		if (!this.ready) throw notImplemented('paypal', 'retrieveSale');
+		const id = String(saleId || '').trim();
+		if (!id) {
+			throw notImplemented('paypal', 'retrieveSale');
+		}
+
+		const accessToken = await this.getAccessToken(fetchImpl);
+		const { response, data } = await paypalFetch(
+			`${this.apiBase}/v1/payments/sale/${encodeURIComponent(id)}`,
+			{
+				method: 'GET',
+				headers: {
+					Authorization: `Bearer ${accessToken}`,
+					Accept: 'application/json',
+				},
+			},
+			fetchImpl,
+		);
+
+		if (!response.ok) {
+			throw buildPayPalApiError(response, data, `PayPal sale lookup failed (${response.status})`);
+		}
+
+		return {
+			ready: true,
+			provider: 'paypal',
+			saleId: data?.id || id,
+			state: data?.state || '',
+			billingAgreementId: data?.billing_agreement_id || '',
+			amount: data?.amount || null,
 			raw: data,
 		};
 	}
@@ -369,7 +621,7 @@ export class PayPalBillingProvider extends BillingProvider {
 		};
 	}
 
-	async verifyWebhook(req) {
+	async verifyWebhook(req, { fetchImpl = fetch } = {}) {
 		if (!this.ready || !this.webhookId) {
 			return { ok: false, error: 'paypal_webhook_not_configured' };
 		}
@@ -390,7 +642,7 @@ export class PayPalBillingProvider extends BillingProvider {
 		}
 
 		try {
-			const accessToken = await this.getAccessToken();
+			const accessToken = await this.getAccessToken(fetchImpl);
 			const { response, data } = await paypalFetch(`${this.apiBase}/v1/notifications/verify-webhook-signature`, {
 				method: 'POST',
 				headers: {
@@ -407,7 +659,7 @@ export class PayPalBillingProvider extends BillingProvider {
 					webhook_id: this.webhookId,
 					webhook_event: webhookEvent,
 				}),
-			});
+			}, fetchImpl);
 
 			if (!response.ok) {
 				return { ok: false, error: 'paypal_webhook_verification_request_failed' };

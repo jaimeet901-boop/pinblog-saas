@@ -3,6 +3,8 @@ import { claimIdempotencyKey, completeIdempotency, failIdempotency } from './ide
 import { fulfillCreditPackPurchase } from './payg.js';
 import { fulfillSubscriptionPurchase, handleFailedPayment, renewSubscription } from './subscriptions.js';
 import { logBillingAction } from './audit.js';
+import { handlePaddleBillingWebhook } from './paddle-webhook-fulfillment.js';
+import { handlePayPalBillingWebhook } from './paypal-webhook-fulfillment.js';
 
 function extractWebhookContext(payload = {}) {
 	const obj = payload.data?.object || payload.data?.attributes || payload.object || {};
@@ -73,6 +75,15 @@ function isCancelOrFailEvent(eventType) {
 export async function handleBillingWebhook(req, providerCode = '') {
 	const config = await resolveBillingConfig();
 	const code = providerCode || config.provider;
+
+	if (code === 'paddle') {
+		return handlePaddleBillingWebhook(req);
+	}
+
+	if (code === 'paypal') {
+		return handlePayPalBillingWebhook(req);
+	}
+
 	const provider = await getBillingProvider(code);
 
 	const verified = await provider.verifyWebhook(req).catch(() => ({ ok: false, error: 'verify_failed' }));

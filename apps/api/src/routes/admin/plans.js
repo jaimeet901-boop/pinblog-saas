@@ -46,7 +46,10 @@ router.get('/subscriptions', asyncHandler(async (req, res) => {
 }));
 
 router.post('/assign', asyncHandler(async (req, res) => {
-	res.status(201).json(await assignWorkspacePlan(req.body || {}));
+	res.status(201).json(await assignWorkspacePlan(req.body || {}, {
+		actorUserId: req.adminUser?.id || req.pocketbaseUserId || '',
+		actor: req.adminUser?.email || req.adminUser?.name || req.adminUser?.id || 'admin',
+	}));
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {
