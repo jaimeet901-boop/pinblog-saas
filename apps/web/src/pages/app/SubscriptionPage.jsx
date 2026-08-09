@@ -111,6 +111,8 @@ function BillingUnavailableModal({ open, onClose, supportMailto }) {
 
 const CHART_COLORS = ['hsl(12 80% 55%)', 'hsl(38 90% 55%)', 'hsl(142 45% 40%)', 'hsl(210 55% 45%)'];
 
+const BILLING_INTERVALS = Object.freeze(['monthly', 'yearly']);
+
 const CURRENT_FEATURES = [
 	{ label: 'AI Writer', key: 'writer' },
 	{ label: 'AI Images', key: 'images' },
@@ -135,15 +137,37 @@ function planItemsFromDto(plan) {
 }
 
 function mapPlanCard(plan) {
+	const monthlyPrice = Number(plan.monthlyPrice ?? plan.price) || 0;
+	const yearlyPrice = Number(plan.yearlyPrice) || 0;
 	return {
 		id: plan.slug || plan.id,
 		planId: plan.id,
 		name: plan.name,
-		price: Number(plan.monthlyPrice ?? plan.price) || 0,
+		monthlyPrice,
+		yearlyPrice,
+		price: monthlyPrice,
 		credits: plan.credits,
 		popular: Boolean(plan.highlight),
 		items: planItemsFromDto(plan),
 		placeholder: false,
+	};
+}
+
+function planPriceDisplay(plan, billingInterval) {
+	if (plan.placeholder) {
+		return { amountLabel: 'Custom', periodLabel: '' };
+	}
+	const monthlyPrice = plan.monthlyPrice ?? plan.price;
+	const yearlyPrice = plan.yearlyPrice;
+	if (monthlyPrice == null && yearlyPrice == null) {
+		return { amountLabel: 'Custom', periodLabel: '' };
+	}
+	const amount = billingInterval === 'yearly'
+		? (Number(yearlyPrice) || Number(monthlyPrice) || 0)
+		: (Number(monthlyPrice) || 0);
+	return {
+		amountLabel: `$${amount}`,
+		periodLabel: billingInterval === 'yearly' ? '/yr' : '/mo',
 	};
 }
 
@@ -158,6 +182,7 @@ export default function SubscriptionPage() {
 	const [subscription, setSubscription] = useState(null);
 	const [planDto, setPlanDto] = useState(null);
 	const [billing, setBilling] = useState(null);
+	const [billingInterval, setBillingInterval] = useState('monthly');
 	const [billingUnavailableOpen, setBillingUnavailableOpen] = useState(false);
 	const [credits, setCredits] = useState({ balance: 0, quota: 0, used: 0, remaining: 0 });
 	const [usage, setUsage] = useState({
@@ -181,12 +206,21 @@ export default function SubscriptionPage() {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					planSlug,
+					billingInterval,
 					successUrl: origin ? `${origin}/app/subscription?checkout=success` : '',
 					cancelUrl: origin ? `${origin}/app/subscription?checkout=cancel` : '',
 				}),
 			});
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
+				if (response.status === 422 && payload.errorCode === 'INVALID_BILLING_INTERVAL') {
+					toast({
+						variant: 'destructive',
+						title: 'Billing interval unavailable',
+						description: payload.message || 'Yearly billing is not available for the current payment provider.',
+					});
+					return;
+				}
 				if (
 					response.status === 404
 					|| payload.errorCode === 'PLAN_NOT_FOUND'
@@ -293,6 +327,15 @@ export default function SubscriptionPage() {
 		);
 		loadUsage();
 	}, []);
+
+	const activeProvider = billing?.provider && billing.provider !== 'none' ? billing.provider : null;
+	const yearlyBillingAvailable = activeProvider === 'paddle';
+
+	useEffect(() => {
+		if (activeProvider && activeProvider !== 'paddle' && billingInterval === 'yearly') {
+			setBillingInterval('monthly');
+		}
+	}, [activeProvider, billingInterval]);
 
 	const currentPlanId = subscription?.planSlug || planDto?.slug || user?.plan || 'free';
 	const currentPlan = plans.find((plan) => plan.id === currentPlanId)
@@ -568,10 +611,39 @@ export default function SubscriptionPage() {
 								Upgrade Plans
 							</div>
 						</div>
+						<div
+							className="bill-interval"
+							role="group"
+							aria-label="Billing interval"
+						>
+							{BILLING_INTERVALS.map((interval) => {
+								const selected = billingInterval === interval;
+								const disabled = interval === 'yearly' && !yearlyBillingAvailable;
+								const label = interval === 'yearly' ? 'Yearly' : 'Monthly';
+								return (
+									<button
+										key={interval}
+										type="button"
+										className={`bill-interval__option${selected ? ' is-active' : ''}`}
+										aria-pressed={selected}
+										disabled={disabled}
+										title={disabled ? 'Yearly billing is available with Paddle checkout only' : undefined}
+										onClick={() => setBillingInterval(interval)}
+									>
+										{label}
+									</button>
+								);
+							})}
+						</div>
+						{activeProvider && activeProvider !== 'paddle' ? (
+							<p className="bill-interval__note">
+								Yearly checkout is available when Paddle is the active billing provider.
+							</p>
+						) : null}
 						<div className="bill-plans">
 							{allPlanCards.map((plan) => {
 								const current = !plan.placeholder && plan.id === currentPlanId;
-								const priceLabel = plan.price == null ? 'Custom' : `$${plan.price}`;
+								const { amountLabel, periodLabel } = planPriceDisplay(plan, billingInterval);
 								return (
 									<div key={plan.id} className={`bill-plan ${plan.popular ? 'is-popular' : ''} ${current ? 'is-current' : ''}`}>
 										<div className="flex items-center justify-between gap-2">
@@ -581,8 +653,8 @@ export default function SubscriptionPage() {
 											{current ? <Badge tone="blue">Current</Badge> : null}
 										</div>
 										<p className="bill-plan__price">
-											{priceLabel}
-											{plan.price != null ? <span>/mo</span> : null}
+											{amountLabel}
+											{periodLabel ? <span>{periodLabel}</span> : null}
 										</p>
 										<p className="text-xs text-muted-foreground">Credits: {plan.credits}</p>
 										<ul>

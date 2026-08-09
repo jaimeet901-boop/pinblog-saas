@@ -235,6 +235,58 @@
 	grid-template-columns: repeat(1, minmax(0, 1fr));
 }
 
+.bill-interval {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.25rem;
+	margin-bottom: 1rem;
+	border-radius: 999px;
+	border: 1px solid hsl(var(--border) / 0.9);
+	background: hsl(var(--background) / 0.55);
+}
+
+.bill-interval__option {
+	appearance: none;
+	border: none;
+	border-radius: 999px;
+	background: transparent;
+	color: hsl(var(--muted-foreground));
+	font-size: 0.82rem;
+	font-weight: 600;
+	line-height: 1;
+	padding: 0.55rem 1rem;
+	cursor: pointer;
+	transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.bill-interval__option:hover:not(:disabled) {
+	color: hsl(var(--foreground));
+	background: hsl(var(--secondary) / 0.65);
+}
+
+.bill-interval__option:focus-visible {
+	outline: 2px solid hsl(var(--primary));
+	outline-offset: 2px;
+}
+
+.bill-interval__option.is-active {
+	background: hsl(var(--card));
+	color: hsl(var(--foreground));
+	box-shadow: 0 8px 20px -16px hsl(var(--foreground) / 0.45);
+}
+
+.bill-interval__option:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.bill-interval__note {
+	margin: -0.35rem 0 1rem;
+	font-size: 0.75rem;
+	color: hsl(var(--muted-foreground));
+}
+
 @media (min-width: 720px) {
 	.bill-plans {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
