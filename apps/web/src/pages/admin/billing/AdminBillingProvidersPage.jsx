@@ -76,9 +76,44 @@ const PROVIDER_FIELDS = {
 			type: 'text',
 		},
 		{
-			key: 'defaultPlanId',
-			label: 'Default Plan ID',
+			type: 'section',
+			key: 'planIdsSection',
+			label: 'Per-plan PayPal Plan IDs',
+			description: 'Each paid tier needs its own PayPal Sandbox plan ID. Checkout uses these before Default Plan ID.',
+		},
+		{
+			key: 'planIds_starter',
+			label: 'Starter PayPal Plan ID',
 			type: 'text',
+			planIdsSlug: 'starter',
+			hint: '$19/mo · existing Sandbox plan',
+		},
+		{
+			key: 'planIds_pro',
+			label: 'Pro PayPal Plan ID',
+			type: 'text',
+			planIdsSlug: 'pro',
+			hint: '$49/mo',
+		},
+		{
+			key: 'planIds_business',
+			label: 'Business PayPal Plan ID',
+			type: 'text',
+			planIdsSlug: 'business',
+			hint: '$129/mo',
+		},
+		{
+			key: 'planIds_enterprise',
+			label: 'Enterprise PayPal Plan ID',
+			type: 'text',
+			planIdsSlug: 'enterprise',
+			hint: '$399/mo',
+		},
+		{
+			key: 'defaultPlanId',
+			label: 'Default Plan ID (Starter fallback only)',
+			type: 'text',
+			hint: 'Keep as Starter plan ID. Do not use for Pro/Business/Enterprise.',
 		},
 	],
 };
@@ -109,11 +144,39 @@ function buildDraft(provider) {
 			draft[field.key] = config[field.setKey] ? MASK : '';
 		} else if (field.type === 'toggle') {
 			draft[field.key] = Boolean(config[field.key] ?? draft[field.key]);
-		} else if (field.key !== 'mode' && field.key !== 'enabled') {
+		} else if (field.planIdsSlug) {
+			draft[field.key] = config.planIds?.[field.planIdsSlug] || '';
+		} else if (field.key !== 'mode' && field.key !== 'enabled' && field.type !== 'section') {
 			draft[field.key] = config[field.key] || '';
 		}
 	}
 	return draft;
+}
+
+function buildProviderSaveBody(code, draft, fields, { updatedAt, canWriteSecrets }) {
+	const body = { expectedUpdatedAt: updatedAt };
+	for (const field of fields) {
+		if (field.type === 'section') continue;
+		if (field.secret) {
+			if (!canWriteSecrets) continue;
+			const value = draft[field.key];
+			if (value && value !== MASK && !String(value).includes('•')) {
+				body[field.key] = value;
+			}
+		} else if (!field.planIdsSlug) {
+			body[field.key] = draft[field.key];
+		}
+	}
+	if (code === 'paypal') {
+		const planIds = {};
+		for (const field of fields) {
+			if (!field.planIdsSlug) continue;
+			const value = String(draft[field.key] || '').trim();
+			if (value) planIds[field.planIdsSlug] = value;
+		}
+		body.planIds = planIds;
+	}
+	return body;
 }
 
 export default function AdminBillingProvidersPage() {
@@ -183,19 +246,11 @@ export default function AdminBillingProvidersPage() {
 		if (!selected || !draft || !canManage) return;
 		setSaving(true);
 		try {
-			const body = { expectedUpdatedAt: updatedAt };
 			const fields = PROVIDER_FIELDS[selected.code] || [];
-			for (const field of fields) {
-				if (field.secret) {
-					if (!canWriteSecrets) continue;
-					const value = draft[field.key];
-					if (value && value !== MASK && !String(value).includes('•')) {
-						body[field.key] = value;
-					}
-				} else {
-					body[field.key] = draft[field.key];
-				}
-			}
+			const body = buildProviderSaveBody(selected.code, draft, fields, {
+				updatedAt,
+				canWriteSecrets,
+			});
 			const response = await apiServerClient.fetch(`/admin/v1/billing/control-plane/providers/${selected.code}`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
@@ -474,6 +529,16 @@ export default function AdminBillingProvidersPage() {
 
 						<div className="mt-4 space-y-3">
 							{(PROVIDER_FIELDS[selected.code] || []).map((field) => {
+								if (field.type === 'section') {
+									return (
+										<div key={field.key} className="pt-2">
+											<p className="admin-stat__label mb-1">{field.label}</p>
+											{field.description ? (
+												<p className="admin-note mb-0">{field.description}</p>
+											) : null}
+										</div>
+									);
+								}
 								if (field.type === 'toggle') {
 									return (
 										<label key={field.key} className="admin-field flex items-center justify-between gap-3">
@@ -510,6 +575,11 @@ export default function AdminBillingProvidersPage() {
 									<label key={field.key} className="admin-field">
 										<span>
 											{field.label}
+											{field.hint ? (
+												<span style={{ color: 'var(--admin-muted)', marginLeft: 8 }}>
+													{field.hint}
+												</span>
+											) : null}
 											{field.secret ? (
 												<span style={{ color: 'var(--admin-muted)', marginLeft: 8 }}>
 													{configured ? 'Configured' : 'Not Configured'}

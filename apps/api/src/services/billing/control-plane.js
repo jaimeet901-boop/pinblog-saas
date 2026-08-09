@@ -15,6 +15,7 @@ import {
 	decryptField,
 	isMaskedSecret,
 	normalizeProviderCodeLocal,
+	normalizePayPalPlanIds,
 	publicProviderConfig,
 	resolveProviderRuntimeConfig,
 	sanitizeBillingForPublic,
@@ -272,6 +273,10 @@ function applySecretUpdates(code, currentRaw, incoming = {}) {
 	if (incoming.enabled !== undefined) next.enabled = Boolean(incoming.enabled);
 	if (incoming.mode !== undefined) next.mode = incoming.mode === 'live' ? 'live' : 'test';
 	if (incoming.sandbox !== undefined) next.sandbox = Boolean(incoming.sandbox);
+
+	if (code === 'paypal' && incoming.planIds !== undefined) {
+		next.planIds = normalizePayPalPlanIds(incoming.planIds, currentRaw.planIds);
+	}
 
 	for (const field of secrets) {
 		const cipherKey = `${field}Cipher`;

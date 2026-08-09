@@ -19,12 +19,29 @@ export const SECRET_FIELDS = Object.freeze({
 	paypal: ['clientSecret'],
 });
 
+/** Paid subscription slugs mapped to PayPal plan IDs (Free is app-internal only). */
+export const PAYPAL_PLAN_ID_SLUGS = Object.freeze(['starter', 'pro', 'business', 'enterprise']);
+
 export const PUBLIC_FIELDS = Object.freeze({
 	stripe: ['mode', 'enabled', 'publishableKey'],
 	paddle: ['mode', 'enabled', 'sandbox', 'defaultPriceId', 'vendorId'],
 	lemonsqueezy: ['mode', 'enabled', 'storeId', 'defaultVariantId'],
 	paypal: ['mode', 'enabled', 'clientId', 'webhookId', 'defaultPlanId'],
 });
+
+export function normalizePayPalPlanIds(incoming = {}, existing = {}) {
+	const base = existing && typeof existing === 'object' ? { ...existing } : {};
+	if (!incoming || typeof incoming !== 'object') {
+		return base;
+	}
+	for (const slug of PAYPAL_PLAN_ID_SLUGS) {
+		if (!Object.prototype.hasOwnProperty.call(incoming, slug)) continue;
+		const trimmed = String(incoming[slug] || '').trim();
+		if (trimmed) base[slug] = trimmed;
+		else delete base[slug];
+	}
+	return base;
+}
 
 export const CONTROL_PLANE_OWNED_BILLING_KEYS = Object.freeze([
 	'provider',
@@ -75,6 +92,14 @@ export function publicProviderConfig(code, raw = {}) {
 	if (raw.healthSnapshot && typeof raw.healthSnapshot === 'object') {
 		out.healthScore = Number(raw.healthSnapshot.healthScore) || undefined;
 		out.healthStatus = raw.healthSnapshot.status || undefined;
+	}
+	if (code === 'paypal') {
+		const planIds = raw.planIds && typeof raw.planIds === 'object' ? raw.planIds : {};
+		out.planIds = {};
+		for (const slug of PAYPAL_PLAN_ID_SLUGS) {
+			const value = String(planIds[slug] || '').trim();
+			if (value) out.planIds[slug] = value;
+		}
 	}
 	return out;
 }

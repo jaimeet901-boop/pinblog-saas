@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { encryptSecret } from '../../utils/secretCrypto.js';
 import {
+	PAYPAL_PLAN_ID_SLUGS,
+	normalizePayPalPlanIds,
 	resolveProviderRuntimeConfig,
 	sanitizeBillingForPublic,
 	stripControlPlaneBillingWrites,
 	toPublicBillingConfig,
+	publicProviderConfig,
 } from './control-plane-helpers.js';
 import { getBillingRequestCache, runWithBillingRequestCache } from './request-cache.js';
 
@@ -136,4 +139,46 @@ test('billing request cache is request-scoped and not global', async () => {
 		assert.equal(await again.resolvedConfigPromise.then((c) => c.provider), 'stripe');
 	});
 	assert.equal(getBillingRequestCache(), null);
+});
+
+test('normalizePayPalPlanIds trims and removes empty slugs', () => {
+	const normalized = normalizePayPalPlanIds({
+		starter: ' P-STARTER ',
+		pro: '',
+		business: 'P-BUSINESS',
+	}, { starter: 'old', enterprise: 'P-ENT' });
+	assert.equal(normalized.starter, 'P-STARTER');
+	assert.equal(normalized.business, 'P-BUSINESS');
+	assert.equal(normalized.enterprise, 'P-ENT');
+	assert.equal(normalized.pro, undefined);
+});
+
+test('publicProviderConfig exposes paypal planIds without secrets', () => {
+	const config = publicProviderConfig('paypal', {
+		mode: 'test',
+		enabled: true,
+		clientId: 'client_test',
+		defaultPlanId: 'P-STARTER',
+		planIds: {
+			starter: 'P-STARTER',
+			pro: 'P-PRO',
+		},
+		clientSecretCipher: 'enc:v1:secret',
+		clientSecretSet: true,
+	});
+	assert.deepEqual(config.planIds, { starter: 'P-STARTER', pro: 'P-PRO' });
+	assert.equal(config.defaultPlanId, 'P-STARTER');
+	assert.equal(config.clientSecretSet, true);
+	assert.equal(config.clientSecret, undefined);
+	assert.deepEqual(PAYPAL_PLAN_ID_SLUGS, ['starter', 'pro', 'business', 'enterprise']);
+});
+
+test('resolveProviderRuntimeConfig passes through paypal planIds', () => {
+	const resolved = resolveProviderRuntimeConfig('paypal', {
+		mode: 'test',
+		planIds: { pro: 'P-PRO' },
+		defaultPlanId: 'P-STARTER',
+	});
+	assert.equal(resolved.planIds.pro, 'P-PRO');
+	assert.equal(resolved.defaultPlanId, 'P-STARTER');
 });
