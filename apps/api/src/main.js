@@ -126,6 +126,9 @@ app.use(morgan('combined'));
 app.use(globalRateLimit);
 app.use(express.json({
 	limit: BodyLimit,
+	verify: (req, _res, buf) => {
+		req.rawBody = buf.toString('utf8');
+	},
 }));
 app.use(express.urlencoded({ 
 	extended: true,

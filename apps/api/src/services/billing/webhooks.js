@@ -9,6 +9,7 @@ function extractWebhookContext(payload = {}) {
 	const meta = {
 		...(payload.metadata || {}),
 		...(obj.metadata || {}),
+		...(payload.data?.custom_data || {}),
 		...(payload.data?.meta?.custom_data || {}),
 		...(payload.meta?.custom_data || {}),
 	};
@@ -102,11 +103,103 @@ export async function handleBillingWebhook(req, providerCode = '') {
 	try {
 		const eventType = String(parsed.eventType || '').toLowerCase();
 		const payload = parsed.payload || {};
-		const { workspaceKey, planSlug, pack, paymentRef } = extractWebhookContext(payload);
+		const extracted = extractWebhookContext(payload);
+		const providerContext = parsed.context && typeof parsed.context === 'object'
+			? parsed.context
+			: null;
+		const workspaceKey = String(providerContext?.workspaceKey || extracted.workspaceKey || '').trim();
+		const planSlug = String(providerContext?.planSlug || extracted.planSlug || '').trim().toLowerCase();
+		const pack = extracted.pack || providerContext?.pack || null;
+		const paymentRef = String(
+			providerContext?.paymentRef
+			|| extracted.paymentRef
+			|| '',
+		).slice(0, 180);
 
 		let result = { handled: false, eventType };
 
-		if (isCancelOrFailEvent(eventType)) {
+		if (parsed.routing) {
+			switch (parsed.routing) {
+				case 'subscription_success': {
+					if (parsed.priceValidation && parsed.priceValidation.ok === false) {
+						result = {
+							handled: true,
+							activated: false,
+							blocked: true,
+							safety: 'paddle_price_plan_mismatch',
+							reason: parsed.priceValidation.error,
+							planSlug,
+							workspaceKey,
+							priceValidation: parsed.priceValidation,
+						};
+						break;
+					}
+					if (workspaceKey && planSlug) {
+						const fulfillKey = String(parsed.fulfillmentKey || idempotencyKey).slice(0, 180);
+						result = await fulfillSubscriptionPurchase({
+							workspaceKey,
+							planSlug,
+							planId: providerContext?.planId || '',
+							provider: code,
+							idempotencyKey: `sub-fulfill:${fulfillKey}`,
+							paymentRef,
+							actor: `webhook:${code}`,
+						});
+					} else {
+						result = {
+							handled: false,
+							deferred: true,
+							activated: false,
+							message: parsed.routingReason
+								|| 'Webhook acknowledged; subscription fulfillment requires workspaceKey + planSlug metadata.',
+						};
+					}
+					break;
+				}
+				case 'payment_failed':
+					if (workspaceKey) {
+						result = await handleFailedPayment(workspaceKey, {
+							actor: `webhook:${code}`,
+							reason: parsed.routingReason || eventType,
+							idempotencyKey: `fail:${idempotencyKey}`,
+						});
+					} else {
+						result = {
+							handled: true,
+							activated: false,
+							ignored: true,
+							reason: 'payment_failed_without_workspace',
+						};
+					}
+					break;
+				case 'cancel':
+					result = {
+						handled: true,
+						activated: false,
+						cancelled: true,
+						eventType,
+						reason: parsed.routingReason || eventType,
+					};
+					break;
+				case 'deferred':
+					result = {
+						handled: false,
+						deferred: true,
+						activated: false,
+						message: parsed.routingReason
+							|| 'Webhook deferred; required metadata missing or invalid.',
+					};
+					break;
+				default:
+					result = {
+						handled: false,
+						ignored: true,
+						activated: false,
+						eventType,
+						reason: parsed.routingReason || 'paddle_event_ignored',
+					};
+			}
+		} else if (isCancelOrFailEvent(eventType)) {
 			if (
 				eventType.includes('payment_failed')
 				|| eventType.includes('invoice.payment_failed')
@@ -144,14 +237,6 @@ export async function handleBillingWebhook(req, providerCode = '') {
 					actor: `webhook:${code}`,
 				});
 			} else if (workspaceKey && pack) {
-				result = await fulfillCreditPackPurchase({
-					workspaceKey,
-					pack,
-					idempotencyKey: `fulfill:${idempotencyKey}`,
-					provider: code,
-					paymentRef,
-				});
-			} else if (eventType.includes('credit') && workspaceKey && pack) {
 				result = await fulfillCreditPackPurchase({
 					workspaceKey,
 					pack,
