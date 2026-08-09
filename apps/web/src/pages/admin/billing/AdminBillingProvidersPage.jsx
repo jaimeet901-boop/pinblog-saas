@@ -127,6 +127,7 @@ export default function AdminBillingProvidersPage() {
 	const [selectedCode, setSelectedCode] = useState('');
 	const [draft, setDraft] = useState(null);
 	const [permissions, setPermissions] = useState({});
+	const [checking, setChecking] = useState('');
 
 	const selected = useMemo(
 		() => items.find((item) => item.code === selectedCode) || null,
@@ -268,6 +269,35 @@ export default function AdminBillingProvidersPage() {
 		}
 	};
 
+	const canTestConnection = (provider) => (
+		Boolean(provider?.configurable && provider?.connected)
+	);
+
+	const testConnection = async (code) => {
+		if (!canManage || checking) return;
+		setChecking(code);
+		try {
+			const response = await apiServerClient.fetch(`/admin/v1/billing/control-plane/providers/${code}/health-check`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ expectedUpdatedAt: updatedAt, probeConnectivity: true }),
+			});
+			if (!response.ok) throw new Error(await readApiError(response));
+			const provider = await response.json();
+			upsertLocal(provider);
+			setUpdatedAt(provider.updatedAt || updatedAt);
+			toast({
+				title: 'Connection test complete',
+				description: `${provider.name}: ${provider.status || provider.healthLabel || 'Unknown'} · score ${provider.healthScore ?? '—'}`,
+			});
+			await load();
+		} catch (err) {
+			toast({ variant: 'destructive', title: 'Connection test failed', description: err?.message });
+		} finally {
+			setChecking('');
+		}
+	};
+
 	const stats = useMemo(() => ({
 		total: items.length,
 		connected: items.filter((item) => item.connected).length,
@@ -387,8 +417,14 @@ export default function AdminBillingProvidersPage() {
 								>
 									<Settings2 size={12} /> Configure
 								</button>
-								<button type="button" className="admin-btn" disabled title="Connection test arrives in a later phase">
-									<PlugZap size={12} /> Test Connection
+								<button
+									type="button"
+									className="admin-btn"
+									disabled={!canManage || !canTestConnection(provider) || Boolean(checking)}
+									onClick={() => testConnection(provider.code)}
+								>
+									<PlugZap size={12} />
+									{checking === provider.code ? ' Testing…' : ' Test Connection'}
 								</button>
 								<button
 									type="button"
