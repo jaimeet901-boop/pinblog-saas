@@ -8,6 +8,9 @@ import { logWorkflowStep } from './workspace-notify.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
 import { resolveJobCreateStamps } from './queue/job-ownership.js';
 import { andWorkspaceScope, recordBelongsToWorkspace } from './workspace-ownership.js';
+import { rollupWordpressPublishAnalytics } from './wordpress-publish-analytics-rollup.js';
+
+export { rollupWordpressPublishAnalytics } from './wordpress-publish-analytics-rollup.js';
 
 async function loadOwnedPublishJob(ownerId, jobId, req = null) {
 	const job = await pocketbaseClient.collection('publish_jobs').getOne(jobId).catch(() => null);
@@ -340,7 +343,7 @@ export async function getWordpressPublishAnalytics(ownerId, query = {}, req = nu
 	const historyFilter = buildOwnerScopedFilter(ownerId, req, siteFilter);
 	const jobsFilter = buildOwnerScopedFilter(ownerId, req, siteFilter);
 
-	const [history, jobs, failedJobs] = await Promise.all([
+	const [history, jobs, failedJobRows] = await Promise.all([
 		pocketbaseClient.collection('publish_history').getFullList({
 			filter: historyFilter,
 			requestKey: null,
@@ -349,29 +352,16 @@ export async function getWordpressPublishAnalytics(ownerId, query = {}, req = nu
 			filter: jobsFilter,
 			requestKey: null,
 		}).catch(() => ({ totalItems: 0 })),
-		pocketbaseClient.collection('publish_jobs').getList(1, 1, {
+		pocketbaseClient.collection('publish_jobs').getFullList({
 			filter: `${jobsFilter} && status = "failed"`,
 			requestKey: null,
-		}).catch(() => ({ totalItems: 0 })),
+		}).catch(() => []),
 	]);
 
-	const published = history.filter((row) => row.result === 'published').length;
-	const drafts = history.filter((row) => row.result === 'draft').length;
-	const scheduled = history.filter((row) => row.result === 'scheduled').length;
-	const failed = history.filter((row) => row.result === 'failed').length
-		+ (Number(failedJobs.totalItems) || 0);
-	const attempts = history.length || Number(jobs.totalItems) || 0;
-	const successRate = attempts
-		? Math.round((published / Math.max(attempts, 1)) * 1000) / 10
-		: 0;
+	const rollup = rollupWordpressPublishAnalytics(history, failedJobRows);
 
 	return {
-		published,
-		drafts,
-		scheduled,
-		failed,
-		attempts,
-		successRate,
+		...rollup,
 		jobs: Number(jobs.totalItems) || 0,
 		history: history.slice(0, 25).map(mapPublishHistory),
 	};
