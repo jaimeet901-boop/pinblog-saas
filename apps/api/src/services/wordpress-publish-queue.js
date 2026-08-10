@@ -114,6 +114,25 @@ async function markAuthFailure(siteId, websiteId, message) {
 	}
 }
 
+async function persistWordpressPostIdentity(jobId, wpPostId, wpPostUrl, progress = 70) {
+	try {
+		return await pocketbaseClient.collection('publish_jobs').update(jobId, {
+			wp_post_id: wpPostId,
+			wp_post_url: wpPostUrl,
+			progress,
+		});
+	} catch (persistError) {
+		const err = new Error(persistError.message || 'Failed to persist WordPress post id');
+		err.wpPostId = wpPostId;
+		err.wpPostUrl = wpPostUrl;
+		throw err;
+	}
+}
+
+function resolveWordpressUpdatePostId(job) {
+	return job.payload?.updatePostId || job.wp_post_id || null;
+}
+
 async function processJob(job) {
 	const started = Date.now();
 	const ownerId = job.owner;
@@ -131,8 +150,12 @@ async function processJob(job) {
 		},
 	});
 
-	if (job.wp_post_id && job.wp_post_url && job.status === 'publishing') {
-		// Idempotent success path if already published mid-flight
+	if (Number(job.wp_post_id) > 0 && job.status === 'published') {
+		return;
+	}
+
+	if (Number(job.wp_post_id) > 0 && job.status === 'publishing') {
+		// WordPress post already created in a prior attempt; finalize local state only.
 		await pocketbaseClient.collection('publish_jobs').update(job.id, {
 			status: 'published',
 			progress: 100,
@@ -204,7 +227,7 @@ async function processJob(job) {
 		await pocketbaseClient.collection('publish_jobs').update(job.id, { progress: 55 }).catch(() => null);
 	}
 
-	const updatePostId = job.payload?.updatePostId || job.wp_post_id || null;
+	const updatePostId = resolveWordpressUpdatePostId(job);
 	const contentType = job.payload?.contentType === 'page' ? 'page' : 'post';
 	const result = await createOrUpdateWordpressPost({
 		url: site.url,
@@ -228,6 +251,9 @@ async function processJob(job) {
 		contentType,
 		logContext,
 	});
+
+	await persistWordpressPostIdentity(job.id, result.id, result.link, 70);
+	job = { ...job, wp_post_id: result.id, wp_post_url: result.link };
 
 	const completedAt = new Date().toISOString();
 	const durationMs = Date.now() - started;
@@ -306,6 +332,18 @@ async function processJob(job) {
 }
 
 async function failOrRetry(job, error) {
+	if (error?.wpPostId) {
+		await pocketbaseClient.collection('publish_jobs').update(job.id, {
+			wp_post_id: error.wpPostId,
+			wp_post_url: error.wpPostUrl || job.wp_post_url || '',
+		}).catch(() => null);
+		job = {
+			...job,
+			wp_post_id: error.wpPostId,
+			wp_post_url: error.wpPostUrl || job.wp_post_url || '',
+		};
+	}
+
 	const attempt = Number(job.attempt_count || 0) + 1;
 	const maxAttempts = Number(job.max_attempts) || 3;
 	const authFailed = Boolean(error?.authFailed === true || error?.errorCode === 'WP_AUTH_FAILED');
