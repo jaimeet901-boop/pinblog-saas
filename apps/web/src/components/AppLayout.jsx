@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useActiveWebsite } from '@/context/ActiveWebsiteContext';
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher';
+import FreePlanUpgradeBanner from '@/components/FreePlanUpgradeBanner';
 import PlatformBrandMark from '@/components/PlatformBrandMark';
 import { usePlatformDocumentTitle, usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import {
@@ -240,6 +241,7 @@ export default function AppLayout({ children }) {
 					transition={{ duration: 0.25, ease: 'easeOut' }}
 					className="px-4 py-6 lg:px-8 lg:py-8"
 				>
+					<FreePlanUpgradeBanner className="mb-6" />
 					{children}
 				</motion.main>
 			</div>
