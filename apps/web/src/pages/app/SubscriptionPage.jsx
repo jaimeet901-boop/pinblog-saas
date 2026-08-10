@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-	Check, Crown, CreditCard, Download, RefreshCw, Sparkles, Gauge,
+	Check, Crown, Download, RefreshCw, Sparkles, Gauge,
 	FileText, Image as ImageIcon, Pin, Globe, HardDrive, AlertTriangle,
 	Settings, Coins, X, LifeBuoy,
 } from 'lucide-react';
@@ -741,25 +741,6 @@ export default function SubscriptionPage() {
 				</div>
 
 				<aside className="bill-side">
-					<section className="bill-panel">
-						<div className="bill-panel__head">
-							<div className="bill-panel__title">
-								<span className="bill-panel__icon"><CreditCard size={14} /></span>
-								Payment Method
-							</div>
-						</div>
-						<div className="bill-card-box">
-							<p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Current card</p>
-							<p className="bill-card-box__number">•••• •••• •••• — — — —</p>
-							<p className="mt-2 text-xs text-muted-foreground">No payment method on file · Stripe placeholder</p>
-						</div>
-						<div className="mt-3 grid gap-2">
-							<Button size="sm" variant="outline" onClick={() => notifyBillingPlaceholder('Add Card')}>Add Card</Button>
-							<Button size="sm" variant="outline" onClick={() => notifyBillingPlaceholder('Change Card')}>Change Card</Button>
-							<Button size="sm" variant="ghost" onClick={() => notifyBillingPlaceholder('Remove Card')}>Remove Card</Button>
-						</div>
-					</section>
-
 					<section className="bill-panel">
 						<div className="bill-panel__head">
 							<div className="bill-panel__title">

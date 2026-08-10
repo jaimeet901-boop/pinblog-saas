@@ -401,22 +401,6 @@
 	vertical-align: middle;
 }
 
-.bill-card-box {
-	border-radius: 1rem;
-	border: 1px solid hsl(var(--border) / 0.9);
-	background:
-		linear-gradient(135deg, hsl(var(--primary) / 0.12), hsl(var(--accent) / 0.1)),
-		hsl(var(--background) / 0.55);
-	padding: 1rem;
-}
-
-.bill-card-box__number {
-	margin-top: 0.75rem;
-	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-	letter-spacing: 0.12em;
-	font-size: 0.95rem;
-}
-
 .bill-reco {
 	border-radius: 0.95rem;
 	border: 1px solid hsl(var(--border) / 0.85);
