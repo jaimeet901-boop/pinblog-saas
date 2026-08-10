@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-	LayoutDashboard, Globe, PenLine, Image, CalendarDays, BarChart3,
+	LayoutDashboard, Globe, PenLine, CalendarDays, BarChart3,
 	CreditCard, Settings, Shield, User, LogOut, Menu, X, Moon, Sun, Pin, ChevronDown, Bell, Wand2, History, Facebook,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -21,7 +21,6 @@ const NAV = [
 	{ to: '/app', label: 'Dashboard', icon: LayoutDashboard, end: true },
 	{ to: '/app/websites', label: 'Websites', icon: Globe },
 	{ to: '/app/writer', label: 'AI Writer', icon: PenLine, needsWebsite: true },
-	{ to: '/app/images', label: 'Image Generator', icon: Image, needsWebsite: true },
 	{ to: '/app/ai-pins', label: 'AI Pins', icon: Wand2, needsWebsite: true, end: true },
 	{ to: '/app/pinterest', label: 'Pinterest', icon: Pin, needsWebsite: true },
 	{ to: '/app/facebook', label: 'Facebook', icon: Facebook, needsWebsite: true },

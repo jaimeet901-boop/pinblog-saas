@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
 	PenLine,
-	Image as ImageIcon,
 	Palette,
 	Pin,
 	Facebook,
@@ -43,7 +42,6 @@ const ICON_SM = { size: 14, strokeWidth: 1.75 };
 
 const FEATURE_ICONS = {
 	'ai-writer': PenLine,
-	'ai-image-studio': ImageIcon,
 	'brand-kit': Palette,
 	'pinterest-hub': Pin,
 	'facebook-hub': Facebook,
@@ -81,7 +79,6 @@ function ProductPreview() {
 				<aside className="lp-preview__rail">
 					<span className="lp-preview__rail-item is-active"><CalendarDays {...ICON_SM} /></span>
 					<span className="lp-preview__rail-item"><PenLine {...ICON_SM} /></span>
-					<span className="lp-preview__rail-item"><ImageIcon {...ICON_SM} /></span>
 					<span className="lp-preview__rail-item"><Send {...ICON_SM} /></span>
 					<span className="lp-preview__rail-item"><BarChart3 {...ICON_SM} /></span>
 					<span className="lp-preview__rail-item"><Pin {...ICON_SM} /></span>
@@ -118,15 +115,6 @@ function ProductPreview() {
 							<span style={{ width: '78%' }} />
 							<span style={{ width: '86%' }} />
 							<span style={{ width: '64%' }} />
-						</div>
-					</div>
-					<div className="lp-preview__panel">
-						<header className="lp-preview__panel-head">
-							<strong>AI Image Studio</strong>
-							<em>3 ready</em>
-						</header>
-						<div className="lp-preview__tiles">
-							<span /><span /><span />
 						</div>
 					</div>
 					<div className="lp-preview__panel">

@@ -23,7 +23,7 @@ export const R0_HERO = Object.freeze({
 });
 
 export const R0_INTRO =
-	'Chef IA brings creation, branding, channel connections, scheduling, and analytics into a single workspace. Start from your websites, generate articles and images with AI, publish through connected channels, and keep everything visible in one calendar — without rebuilding your workflow when you add the next channel.';
+	'Chef IA brings creation, branding, channel connections, scheduling, and analytics into a single workspace. Start from your websites, generate articles with AI, publish through connected channels, and keep everything visible in one calendar — without rebuilding your workflow when you add the next channel.';
 
 export const R0_FEATURE_GROUPS = Object.freeze([
 	{
@@ -34,11 +34,6 @@ export const R0_FEATURE_GROUPS = Object.freeze([
 				id: 'ai-writer',
 				title: 'AI Writer',
 				desc: 'Generate SEO-ready articles with titles, structure, and on-page essentials for your websites.',
-			},
-			{
-				id: 'ai-image-studio',
-				title: 'AI Image Studio',
-				desc: 'Create branded visuals in the formats your channels need — ready for templates and publishing.',
 			},
 		],
 	},

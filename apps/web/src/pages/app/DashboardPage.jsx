@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-	Globe, FileText, Image as ImageIcon, CalendarClock, Activity, Gauge,
+	Globe, FileText, CalendarClock, Activity, Gauge,
 	PenLine, Sparkles, Pin, LayoutTemplate, Palette, ListOrdered,
 	Settings, Wand2, Clock, ArrowUpRight, CheckCircle2, AlertTriangle,
 } from 'lucide-react';
@@ -18,7 +18,6 @@ import './DashboardPage.css';
 
 const QUICK_ACTIONS = [
 	{ label: 'Write Article', to: '/app/writer', icon: PenLine },
-	{ label: 'Generate Image', to: '/app/images', icon: ImageIcon },
 	{ label: 'Create Pins', to: '/app/ai-pins', icon: Wand2 },
 	// Templates + Brand Kit remain available via Admin Console only.
 	{ label: 'Open Templates', to: '/app/ai-pins/templates', icon: LayoutTemplate, adminOnly: true },
@@ -145,7 +144,6 @@ export default function DashboardPage() {
 	const statCards = [
 		{ label: 'Articles Created', value: usageDash.generatedArticles ?? stats.articles, to: '/app/writer', hint: null },
 		{ label: 'Pins Generated', value: usageDash.generatedPins ?? stats.pins, to: '/app/ai-pins', hint: null },
-		{ label: 'Images Generated', value: usageDash.generatedImages ?? stats.images ?? recentImages.length, to: '/app/images', hint: 'From pin library' },
 		{ label: 'Pinterest published', value: usageDash.pinterestPublications ?? stats.publishedPins ?? 0, to: '/app/pinterest-history', hint: null },
 		{ label: 'WordPress published', value: usageDash.wordpressPublications ?? stats.publishedWordpress ?? 0, to: '/app/history', hint: null },
 		{ label: 'Published posts', value: publishedPins, to: '/app/pinterest-history', hint: null },
@@ -202,7 +200,7 @@ export default function DashboardPage() {
 						<Badge tone={health.label === 'healthy' ? 'green' : health.label === 'watch' ? 'amber' : 'red'}>{health.label || 'n/a'}</Badge>
 					</div>
 					<ul className="space-y-1.5 text-sm">
-						{health.recommendations.slice(0, 4).map((item) => (
+						{health.recommendations.filter((item) => item.to !== '/app/images').slice(0, 4).map((item) => (
 							<li key={item.code} className="flex items-center justify-between gap-3">
 								<span className="text-muted-foreground">{item.label}</span>
 								<Link to={item.to} className="text-xs font-medium text-primary hover:underline">Fix</Link>
@@ -301,33 +299,6 @@ export default function DashboardPage() {
 							)}
 						</div>
 
-						<div className="mb-4">
-							<div className="dash-panel__head">
-								<p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Recent AI Images</p>
-								<Link to={withWebsiteQuery('/app/images', activeWebsiteId)} className="text-xs font-medium text-primary hover:underline">Image studio</Link>
-							</div>
-							{loading ? (
-								<div className="dash-gallery">{[0, 1, 2].map((i) => <div key={i} className="dash-skeleton" style={{ height: '6rem' }} />)}</div>
-							) : recentImages.length === 0 ? (
-								<div className="dash-empty">
-									<p>No images yet</p>
-									<p>Generate visuals in the AI Image Studio.</p>
-									<Link to={withWebsiteQuery('/app/images', activeWebsiteId)} className="mt-3 inline-block"><Button size="sm">Generate image</Button></Link>
-								</div>
-							) : (
-								<div className="dash-gallery">
-									{recentImages.map((pin) => (
-										<div key={pin.id} className="dash-gallery__item">
-											<img src={pin.image_url} alt={pin.title || 'Generated'} loading="lazy" decoding="async" />
-											<p>
-												{pin.created ? new Date(pin.created).toLocaleString() : '—'}
-											</p>
-										</div>
-									))}
-								</div>
-							)}
-						</div>
-
 						<div>
 							<div className="dash-panel__head">
 								<p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Recent Pins</p>
@@ -412,7 +383,7 @@ export default function DashboardPage() {
 								: WORKSPACE_QUICK_ACTIONS
 							).map((action) => {
 								const Icon = action.icon;
-								const needsWebsite = ['/app/writer', '/app/images', '/app/ai-pins', '/app/pinterest-history', '/app/analytics', '/app/pinterest', '/app/calendar'].includes(action.to);
+								const needsWebsite = ['/app/writer', '/app/ai-pins', '/app/pinterest-history', '/app/analytics', '/app/pinterest', '/app/calendar'].includes(action.to);
 								const href = needsWebsite ? withWebsiteQuery(action.to, activeWebsiteId) : action.to;
 								return (
 									<Link key={action.to} to={href} className="dash-action">

@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
 	PenLine,
-	Image as ImageIcon,
 	Palette,
 	Pin,
 	Facebook,
@@ -31,7 +30,6 @@ const ICON = { size: 14, strokeWidth: 1.75 };
 
 const AUTH_FEATURE_CHIPS = [
 	{ icon: PenLine, title: 'AI Writer' },
-	{ icon: ImageIcon, title: 'AI Image Studio' },
 	{ icon: Palette, title: 'Brand Kit' },
 	{ icon: Pin, title: 'Pinterest Hub' },
 	{ icon: Facebook, title: 'Facebook Hub' },

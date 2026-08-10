@@ -538,7 +538,6 @@ export default function WebsiteDashboardPage() {
 	const analyticsHref = `/app/analytics?websiteId=${encodeURIComponent(website.id)}`;
 	const pinsHref = `/app/ai-pins?websiteId=${encodeURIComponent(website.id)}`;
 	const writerHref = `/app/writer?websiteId=${encodeURIComponent(website.id)}`;
-	const imagesHref = `/app/images?websiteId=${encodeURIComponent(website.id)}`;
 
 	return (
 		<div>
@@ -661,7 +660,6 @@ export default function WebsiteDashboardPage() {
 						<OperateContentProduction
 							onWriter={() => navigate(writerHref)}
 							onAiPins={() => navigate(pinsHref)}
-							onImages={() => navigate(imagesHref)}
 							onTemplates={() => navigate('/app/ai-pins/templates')}
 							showTemplates={showTemplates}
 						/>
