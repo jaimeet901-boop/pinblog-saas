@@ -3,6 +3,10 @@ import { buildWordpressAuthHeader, normalizeWpAuthType, WP_AUTH_TYPES } from './
 import { writeWordpressApiLog } from './wordpress-api-log.js';
 import {
 	createWordpressError,
+	createMediaDownloadError,
+	createMediaDownloadHttpError,
+	createMediaUploadNetworkError,
+	refineMediaUploadRestError,
 	WORDPRESS_ERROR_CODES,
 } from './wordpress-errors.js';
 
@@ -910,18 +914,12 @@ export async function uploadWordpressMedia({
 	let imageResponse;
 	try {
 		const { safeFetch } = await import('../utils/ssrf-guard.js');
-		imageResponse = await safeFetch(imageUrl, { fieldName: 'featured_image_url' });
+		({ response: imageResponse } = await safeFetch(imageUrl, { fieldName: 'featured_image_url' }));
 	} catch (err) {
-		throw createWordpressError(
-			WORDPRESS_ERROR_CODES.WP_MEDIA_ERROR,
-			`Failed to download featured image: ${err.message}`,
-		);
+		throw createMediaDownloadError(err);
 	}
 	if (!imageResponse.ok) {
-		throw createWordpressError(
-			WORDPRESS_ERROR_CODES.WP_MEDIA_ERROR,
-			`Featured image download failed (${imageResponse.status})`,
-		);
+		throw createMediaDownloadHttpError(imageResponse.status);
 	}
 
 	const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
@@ -951,11 +949,7 @@ export async function uploadWordpressMedia({
 				durationMs: Date.now() - started,
 			});
 		}
-		throw createWordpressError(
-			WORDPRESS_ERROR_CODES.WP_MEDIA_ERROR,
-			`Media upload failed: ${err.message}`,
-			{ retryable: true },
-		);
+		throw createMediaUploadNetworkError(err);
 	}
 
 	const text = await response.text().catch(() => '');
@@ -980,11 +974,7 @@ export async function uploadWordpressMedia({
 	}
 
 	if (!response.ok) {
-		throw createWordpressError(
-			WORDPRESS_ERROR_CODES.WP_MEDIA_ERROR,
-			`Media upload failed: ${data?.message || response.statusText}`,
-			{ retryable: response.status >= 500 || response.status === 429 },
-		);
+		throw refineMediaUploadRestError(buildWordpressRestFailure(response, data, text));
 	}
 
 	return {

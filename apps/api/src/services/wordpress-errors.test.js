@@ -168,15 +168,16 @@ describe('wordpress structured error codes (P1-8)', () => {
 	it('normalizes legacy persisted error codes to canonical codes', () => {
 		assert.equal(normalizeWordpressErrorCode('WP_UNREACHABLE'), 'WP_CONNECTION_FAILED');
 		assert.equal(normalizeWordpressErrorCode('WP_REQUEST_FAILED'), 'WP_API_ERROR');
-		assert.equal(normalizeWordpressErrorCode('MEDIA_UPLOAD_FAILED'), 'WP_MEDIA_ERROR');
-		assert.equal(normalizeWordpressErrorCode('MEDIA_DOWNLOAD_FAILED'), 'WP_MEDIA_ERROR');
+		assert.equal(normalizeWordpressErrorCode('MEDIA_UPLOAD_FAILED'), 'WP_MEDIA_UPLOAD_FAILED');
+		assert.equal(normalizeWordpressErrorCode('MEDIA_DOWNLOAD_FAILED'), 'WP_MEDIA_DOWNLOAD_FAILED');
+		assert.equal(normalizeWordpressErrorCode('WP_MEDIA_ERROR'), 'WP_MEDIA_ERROR');
 		assert.equal(normalizeWordpressErrorCode('WP_AUTH_FAILED'), 'WP_AUTH_FAILED');
 		const job = {
 			last_error: 'unreachable',
 			payload: { lastErrorCode: 'WP_UNREACHABLE' },
 		};
 		assert.equal(resolvePublishJobErrorCode(job), 'WP_CONNECTION_FAILED');
-		assert.equal(Object.keys(LEGACY_WORDPRESS_ERROR_CODE_ALIASES).length, 4);
+		assert.equal(Object.keys(LEGACY_WORDPRESS_ERROR_CODE_ALIASES).length, 5);
 	});
 
 	it('respondWordpressApiError returns structured errors without stack traces or secrets', () => {

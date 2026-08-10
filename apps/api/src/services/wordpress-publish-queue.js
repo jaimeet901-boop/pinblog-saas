@@ -225,7 +225,7 @@ async function processJob(job) {
 				metadata: { error: error.message },
 			});
 			// Retryable media failure — bubble unless attempts exhausted later
-			error.retryable = true;
+			if (error.retryable === undefined) error.retryable = true;
 			throw error;
 		}
 	} else {

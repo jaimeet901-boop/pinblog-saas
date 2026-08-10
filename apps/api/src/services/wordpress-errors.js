@@ -14,6 +14,8 @@ export const WORDPRESS_ERROR_CODES = Object.freeze({
 	WP_API_ERROR: 'WP_API_ERROR',
 	WP_RATE_LIMITED: 'WP_RATE_LIMITED',
 	WP_MEDIA_ERROR: 'WP_MEDIA_ERROR',
+	WP_MEDIA_DOWNLOAD_FAILED: 'WP_MEDIA_DOWNLOAD_FAILED',
+	WP_MEDIA_UPLOAD_FAILED: 'WP_MEDIA_UPLOAD_FAILED',
 	WP_PUBLISH_FAILED: 'WP_PUBLISH_FAILED',
 	WP_UNKNOWN_ERROR: 'WP_UNKNOWN_ERROR',
 	VALIDATION_ERROR: 'VALIDATION_ERROR',
@@ -23,8 +25,9 @@ export const WORDPRESS_ERROR_CODES = Object.freeze({
 export const LEGACY_WORDPRESS_ERROR_CODE_ALIASES = Object.freeze({
 	WP_UNREACHABLE: 'WP_CONNECTION_FAILED',
 	WP_REQUEST_FAILED: 'WP_API_ERROR',
-	MEDIA_UPLOAD_FAILED: 'WP_MEDIA_ERROR',
-	MEDIA_DOWNLOAD_FAILED: 'WP_MEDIA_ERROR',
+	MEDIA_UPLOAD_FAILED: 'WP_MEDIA_UPLOAD_FAILED',
+	MEDIA_DOWNLOAD_FAILED: 'WP_MEDIA_DOWNLOAD_FAILED',
+	WP_MEDIA_ERROR: 'WP_MEDIA_ERROR',
 });
 
 export function normalizeWordpressErrorCode(code) {
@@ -144,4 +147,100 @@ export function createPublishJobFailureError(job) {
 		job?.last_error || 'WordPress publish failed',
 		{ status: httpStatusForWordpressErrorCode(errorCode) },
 	);
+}
+
+const DOWNLOAD_VALIDATION_CODES = new Set([
+	'VALIDATION_ERROR',
+	'INVALID_URL',
+	'INVALID_URL_PROTOCOL',
+	'SSRF_BLOCKED',
+	'SSRF_REDIRECT_LIMIT',
+]);
+
+function retryableForHttpStatus(status) {
+	return status >= 500 || status === 429;
+}
+
+export function createMediaDownloadError(cause) {
+	const status = Number(cause?.status) || 0;
+	const sourceCode = String(cause?.errorCode || '');
+
+	if (status === 422 || DOWNLOAD_VALIDATION_CODES.has(sourceCode)) {
+		return createWordpressError(
+			WORDPRESS_ERROR_CODES.VALIDATION_ERROR,
+			cause?.message || 'Invalid featured image URL',
+			{ status: 422, retryable: false },
+		);
+	}
+
+	if (status === 404) {
+		return createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_NOT_FOUND,
+			cause?.message || 'Featured image not found',
+			{ status: 404, retryable: false },
+		);
+	}
+
+	if (status === 429) {
+		return createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_RATE_LIMITED,
+			cause?.message || 'Featured image download rate limited',
+			{ status: 429, retryable: true },
+		);
+	}
+
+	if (status >= 400 && status < 600) {
+		return createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_MEDIA_DOWNLOAD_FAILED,
+			cause?.message || `Featured image download failed (${status})`,
+			{ status, retryable: retryableForHttpStatus(status) },
+		);
+	}
+
+	return createWordpressError(
+		WORDPRESS_ERROR_CODES.WP_MEDIA_DOWNLOAD_FAILED,
+		`Failed to download featured image: ${cause?.message || 'network error'}`,
+		{ retryable: true },
+	);
+}
+
+export function createMediaDownloadHttpError(httpStatus) {
+	const status = Number(httpStatus) || 502;
+
+	if (status === 404) {
+		return createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_NOT_FOUND,
+			`Featured image not found (${status})`,
+			{ status: 404, retryable: false },
+		);
+	}
+
+	if (status === 429) {
+		return createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_RATE_LIMITED,
+			`Featured image download rate limited (${status})`,
+			{ status: 429, retryable: true },
+		);
+	}
+
+	return createWordpressError(
+		WORDPRESS_ERROR_CODES.WP_MEDIA_DOWNLOAD_FAILED,
+		`Featured image download failed (${status})`,
+		{ status, retryable: retryableForHttpStatus(status) },
+	);
+}
+
+export function createMediaUploadNetworkError(cause) {
+	return createWordpressError(
+		WORDPRESS_ERROR_CODES.WP_CONNECTION_FAILED,
+		`Media upload failed: ${cause?.message || 'network error'}`,
+		{ retryable: true },
+	);
+}
+
+export function refineMediaUploadRestError(error) {
+	if (error?.errorCode === WORDPRESS_ERROR_CODES.WP_API_ERROR) {
+		error.errorCode = WORDPRESS_ERROR_CODES.WP_MEDIA_UPLOAD_FAILED;
+	}
+	return error;
 }
