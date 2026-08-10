@@ -233,6 +233,7 @@ router.post('/publish', async (req, res) => {
 		ownerId: req.workspaceOwnerId || req.pocketbaseUserId,
 		workspaceId: req.workspace?.id || '',
 		workspaceKey: req.workspaceKey || '',
+		req,
 	}, {
 		...(req.body || {}),
 		status: req.body?.status || 'publish',
@@ -259,6 +260,7 @@ router.post('/schedule', async (req, res) => {
 		ownerId: req.workspaceOwnerId || req.pocketbaseUserId,
 		workspaceId: req.workspace?.id || '',
 		workspaceKey: req.workspaceKey || '',
+		req,
 	}, {
 		...(req.body || {}),
 		status: 'future',

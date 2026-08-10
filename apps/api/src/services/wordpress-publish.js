@@ -68,11 +68,12 @@ export function mapPublishHistory(row) {
 
 export async function enqueueWordpressPublish(ownerOrCtx, payload = {}) {
 	const ctx = typeof ownerOrCtx === 'string'
-		? { ownerId: ownerOrCtx, workspaceId: '', workspaceKey: '' }
+		? { ownerId: ownerOrCtx, workspaceId: '', workspaceKey: '', req: null }
 		: {
 			ownerId: ownerOrCtx?.ownerId || '',
 			workspaceId: ownerOrCtx?.workspaceId || '',
 			workspaceKey: ownerOrCtx?.workspaceKey || '',
+			req: ownerOrCtx?.req || null,
 		};
 	const ownerId = String(ctx.ownerId || '').trim();
 	if (!ownerId) throw httpError(422, 'owner is required', 'VALIDATION_ERROR');
@@ -82,6 +83,7 @@ export async function enqueueWordpressPublish(ownerOrCtx, payload = {}) {
 		ownerId,
 		siteId,
 		websiteId: payload.websiteId,
+		req: ctx.req,
 	});
 
 	const stamps = await resolveJobCreateStamps({
