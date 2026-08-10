@@ -15,6 +15,8 @@ import {
 	getWordpressMedia,
 } from './wordpress-client.js';
 import { ensureUserWorkspace } from './workspace-context.js';
+import { getWorkspaceActor, recordBelongsToWorkspace } from './workspace-ownership.js';
+import { resolveStoredHealthFromLookup } from './wordpress-health-readonly.js';
 
 function workspaceKeyFor(userId) {
 	return String(userId || '').trim();
@@ -400,10 +402,66 @@ async function withSiteClient(ownerId, siteId, fn, req = null) {
 	});
 }
 
+async function findLinkedWordpressSiteReadOnly(website, resolvedOwner, req = null) {
+	const { andWorkspaceScope } = await import('./workspace-ownership.js');
+	try {
+		const findFilter = req
+			? andWorkspaceScope(req, pocketbaseClient.filter('website = {:website}', { website: website.id }))
+			: pocketbaseClient.filter('website = {:website} && owner = {:owner}', {
+				website: website.id,
+				owner: resolvedOwner,
+			});
+		return await pocketbaseClient.collection('wordpress_sites').getFirstListItem(
+			findFilter,
+			{ requestKey: null },
+		);
+	} catch {
+		try {
+			const urlFilter = req
+				? andWorkspaceScope(req, pocketbaseClient.filter('url = {:url}', { url: website.url }))
+				: pocketbaseClient.filter('url = {:url} && owner = {:owner}', {
+					url: website.url,
+					owner: resolvedOwner,
+				});
+			return await pocketbaseClient.collection('wordpress_sites').getFirstListItem(
+				urlFilter,
+				{ requestKey: null },
+			);
+		} catch {
+			return null;
+		}
+	}
+}
+
+export async function getStoredWordpressSiteHealth(ownerId, siteId, req = null) {
+	const resolvedOwner = req ? (getWorkspaceActor(req).workspaceOwnerId || ownerId) : ownerId;
+	const wordpressSite = await pocketbaseClient.collection('wordpress_sites').getOne(siteId).catch(() => null);
+
+	if (wordpressSite) {
+		const owned = req ? recordBelongsToWorkspace(wordpressSite, req) : wordpressSite.owner === resolvedOwner;
+		if (owned) {
+			return wordpressSite.health ?? null;
+		}
+	}
+
+	const website = await pocketbaseClient.collection('websites').getOne(siteId).catch(() => null);
+	let linkedWordpressSite = null;
+	if (website && (req ? recordBelongsToWorkspace(website, req) : website.owner === resolvedOwner)) {
+		linkedWordpressSite = await findLinkedWordpressSiteReadOnly(website, resolvedOwner, req);
+	}
+
+	return resolveStoredHealthFromLookup({
+		ownerId,
+		wordpressSite,
+		website,
+		linkedWordpressSite,
+		req,
+	});
+}
+
 export async function getSiteTaxonomy(ownerId, siteId, kind, req = null) {
 	if (kind === 'health') {
-		const tested = await testOwnedWordpressSite(ownerId, siteId, req);
-		return tested.health;
+		return getStoredWordpressSiteHealth(ownerId, siteId, req);
 	}
 	return withSiteClient(ownerId, siteId, async (client) => {
 		if (kind === 'categories') return { items: await fetchWordpressCategories(client) };
