@@ -32,7 +32,7 @@ export default function FreePlanUpgradeBanner({ className = '' }) {
 						</p>
 					</div>
 				</div>
-				<Link to="/app/subscription" className="shrink-0 sm:ml-4">
+				<Link to="/app/subscription#bill-upgrade-plans" className="shrink-0 sm:ml-4">
 					<Button size="sm" className="w-full sm:w-auto">
 						Upgrade to Pro
 					</Button>
