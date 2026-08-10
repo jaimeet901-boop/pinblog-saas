@@ -1,19 +1,20 @@
 import { decryptSecret } from '../utils/secretCrypto.js';
 import { buildWordpressAuthHeader, normalizeWpAuthType, WP_AUTH_TYPES } from './wordpress-auth.js';
 import { writeWordpressApiLog } from './wordpress-api-log.js';
+import {
+	createWordpressError,
+	WORDPRESS_ERROR_CODES,
+} from './wordpress-errors.js';
 
 function httpError(status, message, errorCode) {
-	const error = new Error(message);
-	error.status = status;
-	error.errorCode = errorCode;
-	return error;
+	return createWordpressError(errorCode, message, { status });
 }
 
 export function resolveWordpressOrigin(url) {
 	try {
 		return new URL(url).origin;
 	} catch {
-		throw httpError(422, 'Invalid website URL', 'VALIDATION_ERROR');
+		throw httpError(422, 'Invalid website URL', WORDPRESS_ERROR_CODES.VALIDATION_ERROR);
 	}
 }
 
@@ -26,7 +27,7 @@ export function assertWordpressHttps(url, { allowLocalHttp = true } = {}) {
 	try {
 		parsed = new URL(url);
 	} catch {
-		throw httpError(422, 'Invalid website URL', 'VALIDATION_ERROR');
+		throw httpError(422, 'Invalid website URL', WORDPRESS_ERROR_CODES.VALIDATION_ERROR);
 	}
 
 	const host = parsed.hostname.toLowerCase();
@@ -59,7 +60,7 @@ export function assertWordpressHttps(url, { allowLocalHttp = true } = {}) {
 	throw httpError(
 		422,
 		'WordPress site must use HTTPS for Application Password authentication',
-		'WP_HTTPS_REQUIRED',
+		WORDPRESS_ERROR_CODES.WP_HTTPS_REQUIRED,
 	);
 }
 
@@ -152,7 +153,7 @@ function buildWordpressRestFailure(response, data, text = '') {
 
 	if (wpStatus === 401 || normalizedCode === 'rest_not_logged_in') {
 		errorStatus = 401;
-		errorCode = 'WP_AUTH_FAILED';
+		errorCode = WORDPRESS_ERROR_CODES.WP_AUTH_FAILED;
 		authFailed = true;
 		retryable = false;
 	} else if (
@@ -164,43 +165,43 @@ function buildWordpressRestFailure(response, data, text = '') {
 		|| (wpStatus === 403 && normalizedCode === 'rest_forbidden')
 	) {
 		errorStatus = 403;
-		errorCode = 'WP_CAPABILITY_DENIED';
+		errorCode = WORDPRESS_ERROR_CODES.WP_CAPABILITY_DENIED;
 		authFailed = false;
 		retryable = false;
 	} else if (wpStatus === 403) {
 		errorStatus = 403;
-		errorCode = 'WP_FORBIDDEN';
+		errorCode = WORDPRESS_ERROR_CODES.WP_FORBIDDEN;
 		authFailed = false;
 		retryable = false;
 	} else if (wpStatus === 404) {
 		errorStatus = 404;
-		errorCode = 'WP_NOT_FOUND';
+		errorCode = WORDPRESS_ERROR_CODES.WP_NOT_FOUND;
 		authFailed = false;
 		retryable = false;
 	} else if (wpStatus === 429) {
-		errorStatus = 502;
-		errorCode = 'WP_REQUEST_FAILED';
+		errorStatus = 429;
+		errorCode = WORDPRESS_ERROR_CODES.WP_RATE_LIMITED;
 		authFailed = false;
 		retryable = true;
 	} else if (wpStatus >= 500) {
 		errorStatus = 502;
-		errorCode = 'WP_REQUEST_FAILED';
+		errorCode = WORDPRESS_ERROR_CODES.WP_API_ERROR;
 		authFailed = false;
 		retryable = true;
 	} else {
 		errorStatus = 502;
-		errorCode = 'WP_REQUEST_FAILED';
+		errorCode = WORDPRESS_ERROR_CODES.WP_API_ERROR;
 		authFailed = false;
 		retryable = false;
 	}
 
-	const error = httpError(errorStatus, `WordPress error: ${message}`, errorCode);
-	error.wpStatus = wpStatus;
-	error.retryable = retryable;
-	error.authFailed = authFailed;
-	if (wpCode) {
-		error.wpCode = wpCode;
-	}
+	const error = createWordpressError(errorCode, `WordPress error: ${message}`, {
+		status: errorStatus,
+		authFailed,
+		retryable,
+		wpStatus,
+		wpCode: wpCode || undefined,
+	});
 	return error;
 }
 
@@ -230,7 +231,11 @@ async function wpFetch(base, auth, path, options = {}) {
 				error: err.message,
 			});
 		}
-		throw httpError(502, `Could not reach WordPress: ${err.message}`, 'WP_UNREACHABLE');
+		throw createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_CONNECTION_FAILED,
+			`Could not reach WordPress: ${err.message}`,
+			{ retryable: true },
+		);
 	}
 
 	const text = await response.text().catch(() => '');
@@ -349,9 +354,9 @@ export function wordpressStatusRequiresPublishCapability(wpStatus) {
 }
 
 function buildWordpressCapabilityError(message) {
-	const error = httpError(403, message, 'WP_CAPABILITY_DENIED');
-	error.authFailed = false;
-	return error;
+	return createWordpressError(WORDPRESS_ERROR_CODES.WP_CAPABILITY_DENIED, message, {
+		authFailed: false,
+	});
 }
 
 export function assertWordpressConnectionCapabilities(me, username) {
@@ -397,12 +402,11 @@ export async function testWordpressConnection({
 	const publicIndex = await probePublicRest(base);
 
 	if (!publicIndex.ok) {
-		throw httpError(
-			502,
+		throw createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_REST_UNAVAILABLE,
 			publicIndex.error
 				? `WordPress REST API unreachable: ${publicIndex.error}`
 				: `WordPress REST API unavailable (HTTP ${publicIndex.status || 0})`,
-			'WP_REST_UNAVAILABLE',
 		);
 	}
 
@@ -684,7 +688,11 @@ async function wpFetchRaw(base, auth, path, options = {}) {
 				error: err.message,
 			});
 		}
-		throw httpError(502, `Could not reach WordPress: ${err.message}`, 'WP_UNREACHABLE');
+		throw createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_CONNECTION_FAILED,
+			`Could not reach WordPress: ${err.message}`,
+			{ retryable: true },
+		);
 	}
 
 	const text = await response.text().catch(() => '');
@@ -904,10 +912,16 @@ export async function uploadWordpressMedia({
 		const { safeFetch } = await import('../utils/ssrf-guard.js');
 		imageResponse = await safeFetch(imageUrl, { fieldName: 'featured_image_url' });
 	} catch (err) {
-		throw httpError(502, `Failed to download featured image: ${err.message}`, 'MEDIA_DOWNLOAD_FAILED');
+		throw createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_MEDIA_ERROR,
+			`Failed to download featured image: ${err.message}`,
+		);
 	}
 	if (!imageResponse.ok) {
-		throw httpError(502, `Featured image download failed (${imageResponse.status})`, 'MEDIA_DOWNLOAD_FAILED');
+		throw createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_MEDIA_ERROR,
+			`Featured image download failed (${imageResponse.status})`,
+		);
 	}
 
 	const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
@@ -937,7 +951,11 @@ export async function uploadWordpressMedia({
 				durationMs: Date.now() - started,
 			});
 		}
-		throw httpError(502, `Media upload failed: ${err.message}`, 'MEDIA_UPLOAD_FAILED');
+		throw createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_MEDIA_ERROR,
+			`Media upload failed: ${err.message}`,
+			{ retryable: true },
+		);
 	}
 
 	const text = await response.text().catch(() => '');
@@ -962,13 +980,11 @@ export async function uploadWordpressMedia({
 	}
 
 	if (!response.ok) {
-		const error = httpError(
-			502,
+		throw createWordpressError(
+			WORDPRESS_ERROR_CODES.WP_MEDIA_ERROR,
 			`Media upload failed: ${data?.message || response.statusText}`,
-			'MEDIA_UPLOAD_FAILED',
+			{ retryable: response.status >= 500 || response.status === 429 },
 		);
-		error.retryable = response.status >= 500 || response.status === 429;
-		throw error;
 	}
 
 	return {

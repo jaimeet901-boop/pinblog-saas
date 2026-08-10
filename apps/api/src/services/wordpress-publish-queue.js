@@ -14,6 +14,11 @@ import {
 } from './publish-pipeline.js';
 import { logWorkflowStep } from './workspace-notify.js';
 import { enqueueAnalyticsRefresh } from './analytics/refresh.js';
+import {
+	clearPublishJobFailurePayload,
+	extractWordpressErrorCode,
+	withPublishJobFailurePayload,
+} from './wordpress-errors.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.WORDPRESS_QUEUE_POLL_MS || '10000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.WORDPRESS_QUEUE_BATCH || '5', 10);
@@ -272,6 +277,7 @@ async function processJob(job) {
 		last_error: '',
 		next_retry_at: '',
 		dead_letter: false,
+		payload: clearPublishJobFailurePayload(job.payload),
 	});
 
 	await writeWordpressPublishQueueAudit({
@@ -346,8 +352,10 @@ async function failOrRetry(job, error) {
 
 	const attempt = Number(job.attempt_count || 0) + 1;
 	const maxAttempts = Number(job.max_attempts) || 3;
-	const authFailed = Boolean(error?.authFailed === true || error?.errorCode === 'WP_AUTH_FAILED');
+	const errorCode = extractWordpressErrorCode(error);
+	const authFailed = Boolean(error?.authFailed === true || errorCode === 'WP_AUTH_FAILED');
 	const retryable = !authFailed && (error?.retryable !== false) && attempt < maxAttempts;
+	const failurePayload = withPublishJobFailurePayload(job.payload, error);
 
 	if (authFailed) {
 		const site = await pocketbaseClient.collection('wordpress_sites').getOne(job.site).catch(() => null);
@@ -362,6 +370,7 @@ async function failOrRetry(job, error) {
 			last_error: error.message,
 			progress: 0,
 			claim_token: '',
+			payload: failurePayload,
 		});
 		await notifyWordpressPublishFailure({ job, error, retrying: true }).catch(() => null);
 		return;
@@ -376,6 +385,7 @@ async function failOrRetry(job, error) {
 		progress: 100,
 		dead_letter: true,
 		claim_token: '',
+		payload: failurePayload,
 	});
 	await writeWordpressPublishQueueAudit({
 		...job,

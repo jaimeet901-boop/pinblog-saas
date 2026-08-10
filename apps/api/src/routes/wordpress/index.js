@@ -27,6 +27,12 @@ import { discoverOwnedWordpressSite } from '../../services/wordpress-discovery.j
 import { syncOwnedWordpressSite, processDueWordpressSyncs } from '../../services/wordpress-sync.js';
 import { ensureWordpressIntegrationSchema } from '../../utils/ensure-wordpress-integration-schema.js';
 import { getWorkspaceActor } from '../../services/workspace-ownership.js';
+import {
+	createPublishJobFailureError,
+	createWordpressError,
+	respondWordpressApiError,
+	WORDPRESS_ERROR_CODES,
+} from '../../services/wordpress-errors.js';
 
 const router = Router();
 
@@ -58,9 +64,7 @@ async function waitForJobResult(ownerId, jobId, { timeoutMs = 25000, intervalMs 
 			};
 		}
 		if (job.status === 'failed' || job.status === 'cancelled') {
-			const error = new Error(job.last_error || 'WordPress publish failed');
-			error.status = 502;
-			error.errorCode = 'WP_PUBLISH_FAILED';
+			const error = createPublishJobFailureError(job);
 			error.job = mapPublishJob(job);
 			throw error;
 		}
@@ -242,10 +246,7 @@ router.post('/publish', async (req, res) => {
 		const result = await waitForJobResult(wordpressJobOwner(req), job.id);
 		res.status(result.queued ? 202 : 200).json(result);
 	} catch (error) {
-		res.status(error.status || 502).json({
-			ok: false,
-			message: error.message,
-			errorCode: error.errorCode || 'WP_PUBLISH_FAILED',
+		respondWordpressApiError(res, error, {
 			job: error.job || job,
 		});
 	}
@@ -254,7 +255,10 @@ router.post('/publish', async (req, res) => {
 router.post('/schedule', async (req, res) => {
 	const scheduledAt = req.body?.scheduledAt || req.body?.scheduled_at;
 	if (!scheduledAt) {
-		return res.status(422).json({ message: 'scheduledAt is required', errorCode: 'VALIDATION_ERROR' });
+		return respondWordpressApiError(res, createWordpressError(
+			WORDPRESS_ERROR_CODES.VALIDATION_ERROR,
+			'scheduledAt is required',
+		));
 	}
 	const job = await enqueueWordpressPublish({
 		ownerId: req.workspaceOwnerId || req.pocketbaseUserId,
@@ -301,6 +305,11 @@ router.get('/analytics', async (req, res) => {
 
 router.get('/queue/stats', async (req, res) => {
 	res.json(getWordpressQueueStats());
+});
+
+router.use((err, req, res, next) => {
+	if (res.headersSent) return next(err);
+	respondWordpressApiError(res, err);
 });
 
 export default router;

@@ -60,6 +60,9 @@ export function mapPublishJob(job) {
 		startedAt: job.started_at || null,
 		completedAt: job.completed_at || null,
 		lastError: job.last_error || '',
+		errorCode: (job.payload && typeof job.payload === 'object' && job.payload.lastErrorCode)
+			? String(job.payload.lastErrorCode)
+			: '',
 		wpPostId: job.wp_post_id || null,
 		wpPostUrl: job.wp_post_url || '',
 		wpMediaId: job.wp_media_id || null,
