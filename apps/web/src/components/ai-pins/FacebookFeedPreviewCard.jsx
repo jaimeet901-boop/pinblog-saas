@@ -18,10 +18,12 @@ export default function FacebookFeedPreviewCard({
 	publishedAtLabel = 'Just now',
 	className = '',
 	compact = false,
+	mediaAspectClass = 'aspect-[1200/630]',
 }) {
 	const mediaUrl = imageUrl || featuredImageUrl || '';
 	const domain = formatPinDomain(linkUrl);
 	const message = [title, description].filter(Boolean).join('\n\n');
+	const mediaFrameClass = String(mediaAspectClass || 'aspect-[1200/630]').trim() || 'aspect-[1200/630]';
 
 	return (
 		<div className={`fb-feed-preview ${compact ? 'is-compact' : ''} ${className}`.trim()}>
@@ -50,7 +52,7 @@ export default function FacebookFeedPreviewCard({
 			) : null}
 
 			{mediaUrl ? (
-				<div className="fb-feed-preview__media">
+				<div className={`fb-feed-preview__media ${mediaFrameClass}`.trim()}>
 					<img src={mediaUrl} alt={title || 'Post preview'} loading="lazy" decoding="async" />
 				</div>
 			) : null}

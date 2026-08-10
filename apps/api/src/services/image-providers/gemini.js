@@ -7,6 +7,7 @@
 
 import logger from '../../utils/logger.js';
 import { normalizeGeminiModelId } from '../text-providers/gemini-models.js';
+import { PINTEREST_GENERATION_TARGET } from '../image-generation-target.js';
 
 function joinUrl(base, path) {
 	const normalizedBase = String(base || '').replace(/\/+$/, '');
@@ -55,6 +56,7 @@ function extractInlineImage(payload) {
  *   baseUrl?: string,
  *   timeoutMs?: number,
  *   aspectRatio?: string,
+ *   generationTarget?: import('../image-generation-target.js').ImageGenerationTarget,
  * }} params
  * @returns {Promise<Array<{ bytes: Buffer, contentType: string, provider: string, model: string }>>}
  */
@@ -67,10 +69,14 @@ export async function generateWithGemini({
 	baseUrl = 'https://generativelanguage.googleapis.com/v1beta',
 	timeoutMs = 90000,
 	aspectRatio = '2:3',
+	generationTarget,
 }) {
 	if (!apiKey) {
 		throw new Error('Google Gemini API key is not configured');
 	}
+
+	const target = generationTarget || PINTEREST_GENERATION_TARGET;
+	const resolvedAspectRatio = target.geminiAspectRatio || aspectRatio || '2:3';
 
 	const modelId = normalizeGeminiModelId(model);
 	if (!modelId) {
@@ -90,7 +96,7 @@ export async function generateWithGemini({
 		logger.info('[gemini-image-adapter] Calling Generative Language API', {
 			model: modelId,
 			modelSource,
-			aspectRatio,
+			aspectRatio: resolvedAspectRatio,
 			attempt: index + 1,
 			of: count,
 		});
@@ -114,7 +120,7 @@ export async function generateWithGemini({
 					generationConfig: {
 						responseModalities: ['TEXT', 'IMAGE'],
 						imageConfig: {
-							aspectRatio: aspectRatio || '2:3',
+							aspectRatio: resolvedAspectRatio,
 						},
 					},
 				}),

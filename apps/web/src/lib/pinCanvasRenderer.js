@@ -16,6 +16,10 @@ import { getPocketbaseAuthHeader } from '@/lib/pocketbaseClient';
 import { renderDocument } from '@/lib/pinLayerCompositor';
 import { applyExportCanvasSize } from '@/lib/pinExportEngine';
 import { getExportProfile } from '@/lib/pinExportProfiles';
+import {
+	drawFacebookBackground,
+	isFacebookExportProfile,
+} from '@/lib/facebookBackgroundFit';
 import { traceImageLifecycle } from '@/services/ai-pins/imageLifecycleTrace.js';
 
 function loadImageFromUrl(url) {
@@ -786,6 +790,7 @@ export async function renderFeaturedPinToBlob({
 			: applyExportCanvasSize(templateConfig, width, height);
 		const { bytes, mimeType } = await renderDocument(sizedDocument, {
 			format: 'png',
+			exportProfileId: profile.id,
 			variables: {
 				...context,
 				image: featuredImageUrl || context.image || context.imageUrl || '',
@@ -838,10 +843,16 @@ export async function renderFeaturedPinToBlob({
 			fileName: 'apps/web/src/lib/pinCanvasRenderer.js',
 			lineNumber: 47,
 		});
-		drawCoverImage(ctx, featured, width, height, {
-			focusY: config.layout.foodFocusY ?? 0.38,
-			focusX: 0.5,
-		});
+		if (isFacebookExportProfile(profile.id)) {
+			drawFacebookBackground(ctx, featured, width, height, {
+				backgroundColor: config.background.color || '#111111',
+			});
+		} else {
+			drawCoverImage(ctx, featured, width, height, {
+				focusY: config.layout.foodFocusY ?? 0.38,
+				focusX: 0.5,
+			});
+		}
 		if (typeof featured.close === 'function') {
 			try { featured.close(); } catch { /* ImageBitmap cleanup */ }
 		}

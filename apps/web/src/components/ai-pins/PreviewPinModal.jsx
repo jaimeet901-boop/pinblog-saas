@@ -11,6 +11,7 @@ export default function PreviewPinModal({
 	publishing = false,
 	labels = null,
 	previewVariant = 'pinterest',
+	mediaAspectClass = 'aspect-[1200/630]',
 }) {
 	if (!open || !preview) return null;
 
@@ -42,6 +43,7 @@ export default function PreviewPinModal({
 						imageUrl={preview.imageUrl || ''}
 						pageName={preview.boardName || L.previewDefaultPageName}
 						linkUrl={destinationUrl}
+						mediaAspectClass={mediaAspectClass}
 					/>
 				) : (
 					<div className="overflow-hidden rounded-2xl border border-border bg-secondary">

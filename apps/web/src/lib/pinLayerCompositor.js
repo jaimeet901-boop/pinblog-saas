@@ -11,6 +11,10 @@ import {
 } from './pinLayerSchema.js';
 import { getRenderTarget, MINIMAL_PNG_BYTES } from './pinRenderTargets.js';
 import { resolveVariablesInDocument } from './pinVariableRegistry.js';
+import {
+	drawFacebookBackgroundOnSurface,
+	isFacebookExportProfile,
+} from './facebookBackgroundFit.js';
 
 /**
  * Browser canvas RenderSurface.
@@ -237,7 +241,8 @@ function drawCover(surface, image, x, y, w, h, focusX = 0.5, focusY = 0.5) {
 	surface.drawImage(image, x, y, w, h, sx, sy, sw, sh);
 }
 
-async function drawLayer(surface, layer, { loadImageFn }) {
+async function drawLayer(surface, layer, options = {}) {
+	const { loadImageFn, exportProfileId = '' } = options;
 	if (!layer || layer.visible === false) return;
 	const { x, y, width, height, rotation, opacity, borderRadius, props = {}, type } = layer;
 
@@ -255,14 +260,23 @@ async function drawLayer(surface, layer, { loadImageFn }) {
 
 	switch (type) {
 		case 'background': {
-			surface.fillRect(0, 0, width, height, props.color || '#111111');
+			const backgroundColor = props.color || '#111111';
 			const backgroundSrc = String(props.imageSrc || props.src || '').trim();
 			if (backgroundSrc && !backgroundSrc.includes('{{')) {
 				const img = await loadImage(backgroundSrc, loadImageFn);
 				if (!img) {
 					throw new Error(`Background image failed to load: ${backgroundSrc.slice(0, 120)}`);
 				}
-				drawCover(surface, img, 0, 0, width, height);
+				if (isFacebookExportProfile(exportProfileId)) {
+					drawFacebookBackgroundOnSurface(surface, img, 0, 0, width, height, {
+						backgroundColor,
+					});
+				} else {
+					surface.fillRect(0, 0, width, height, backgroundColor);
+					drawCover(surface, img, 0, 0, width, height);
+				}
+			} else {
+				surface.fillRect(0, 0, width, height, backgroundColor);
 			}
 			break;
 		}
@@ -296,6 +310,8 @@ async function drawLayer(surface, layer, { loadImageFn }) {
 				const dw = iw * scale;
 				const dh = ih * scale;
 				surface.drawImage(img, (width - dw) / 2, (height - dh) / 2, dw, dh);
+			} else if (isFacebookExportProfile(exportProfileId) && (type === 'image' || type === 'aiImage')) {
+				drawFacebookBackgroundOnSurface(surface, img, 0, 0, width, height);
 			} else {
 				drawCover(surface, img, 0, 0, width, height, props.focusX, props.focusY);
 			}
@@ -421,6 +437,7 @@ export async function renderDocument(rawDocument, options = {}) {
 
 	await composeDocument(document, surface, {
 		loadImageFn: options.loadImageFn,
+		exportProfileId: options.exportProfileId || '',
 	});
 
 	const bytes = await target.encode(surface, {

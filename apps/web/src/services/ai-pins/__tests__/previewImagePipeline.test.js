@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
 	buildComposeInputsFromJobs,
+	queuePreviewImageJobs,
 	resolvePinBackgroundFromJob,
 	resolvePreviewImageProvider,
 } from '../previewImagePipeline.js';
@@ -66,5 +67,32 @@ describe('previewImagePipeline', () => {
 		});
 		expect(inputs[0].featuredImage).toBe('https://cdn.example/ai.png');
 		expect(inputs[0]._usedArticleFallback).toBe(false);
+	});
+
+	it('queuePreviewImageJobs forwards channel and exportProfileId', async () => {
+		const fetchFn = vi.fn(async () => ({
+			ok: true,
+			json: async () => ({ items: [] }),
+		}));
+
+		await queuePreviewImageJobs({
+			fetchFn,
+			pins: [{
+				tempId: 't1',
+				articleId: 'art-1',
+				title: 'Test',
+				description: '',
+				overlayText: '',
+				suggestedKeywords: [],
+				imagePrompt: 'prompt',
+				category: 'food',
+			}],
+			channel: 'facebook',
+			exportProfileId: 'facebook_post',
+		});
+
+		const body = JSON.parse(fetchFn.mock.calls[0][1].body);
+		expect(body.items[0].channel).toBe('facebook');
+		expect(body.items[0].exportProfileId).toBe('facebook_post');
 	});
 });

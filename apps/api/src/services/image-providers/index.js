@@ -41,6 +41,7 @@ async function resolveRegistryImageModel(providerCode, preferredModelId = '') {
  *   preferredModelId?: string,
  *   baseUrl?: string,
  *   timeoutMs?: number,
+ *   generationTarget?: import('../image-generation-target.js').ImageGenerationTarget,
  * }} params
  * @returns {Promise<GeneratedImage[]>}
  */
@@ -53,6 +54,7 @@ export async function generateImagesWithProvider({
 	preferredModelId,
 	baseUrl,
 	timeoutMs,
+	generationTarget,
 }) {
 	const normalizedCount = normalizeImageCount(count);
 	const code = resolveImageAdapterCode(provider) || 'openai';
@@ -97,6 +99,7 @@ export async function generateImagesWithProvider({
 		modelSource,
 		baseUrl,
 		timeoutMs,
+		generationTarget,
 	});
 }
 

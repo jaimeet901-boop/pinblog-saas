@@ -1,9 +1,13 @@
 import { PINTEREST_IMAGE_SIZE } from './index.js';
+import { PINTEREST_GENERATION_TARGET } from '../image-generation-target.js';
 
-export async function generateWithOpenAI({ apiKey, prompt, count = 1 }) {
+export async function generateWithOpenAI({ apiKey, prompt, count = 1, generationTarget }) {
 	if (!apiKey) {
 		throw new Error('OpenAI API key is not configured');
 	}
+
+	const target = generationTarget || PINTEREST_GENERATION_TARGET;
+	const size = process.env.OPENAI_IMAGES_SIZE || target.openaiSize || PINTEREST_IMAGE_SIZE;
 
 	const images = [];
 	for (let index = 0; index < count; index += 1) {
@@ -16,7 +20,7 @@ export async function generateWithOpenAI({ apiKey, prompt, count = 1 }) {
 			body: JSON.stringify({
 				model: process.env.OPENAI_IMAGES_MODEL || 'gpt-image-1',
 				prompt,
-				size: process.env.OPENAI_IMAGES_SIZE || PINTEREST_IMAGE_SIZE,
+				size,
 			}),
 		});
 

@@ -24,6 +24,10 @@ import {
 	andWorkspaceScope,
 } from '../services/workspace-ownership.js';
 import { buildBackgroundImagePrompt } from '../services/ai-pin-background-prompt.js';
+import {
+	resolveImageGenerationTarget,
+	serializeImageGenerationTarget,
+} from '../services/image-generation-target.js';
 
 const router = Router();
 
@@ -197,7 +201,17 @@ async function createImageJobRecord({
 		articleId,
 		clientToken,
 		rawItemProvider: rawItem?.provider ?? null,
+		channel: rawItem?.channel ?? null,
+		exportProfileId: rawItem?.exportProfileId ?? rawItem?.export_profile_id ?? null,
 	});
+
+	const channel = normalizeString(rawItem?.channel, 'channel', { max: 40 });
+	const exportProfileId = normalizeString(
+		rawItem?.exportProfileId || rawItem?.export_profile_id,
+		'exportProfileId',
+		{ max: 80 },
+	);
+	const generationTarget = resolveImageGenerationTarget({ channel, exportProfileId });
 
 	const prompt = appendProviderMarker(
 		buildBackgroundImagePrompt({
@@ -205,6 +219,9 @@ async function createImageJobRecord({
 			keywords,
 			imagePrompt,
 			recipeContext: article.meta_description || '',
+			channel,
+			exportProfileId,
+			generationTarget,
 		}),
 		provider,
 	);
@@ -220,6 +237,9 @@ async function createImageJobRecord({
 		imagePrompt,
 		provider,
 		requestedProvider: requestedProvider || provider,
+		...(channel ? { channel } : {}),
+		...(exportProfileId ? { exportProfileId } : {}),
+		generationTarget: serializeImageGenerationTarget(generationTarget),
 		...(generationRunId ? { generationRunId } : {}),
 	};
 

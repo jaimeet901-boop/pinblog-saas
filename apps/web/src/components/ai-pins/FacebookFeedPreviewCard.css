@@ -97,13 +97,16 @@
 .fb-feed-preview__media {
 	border-top: 1px solid hsl(var(--border) / 0.65);
 	background: hsl(var(--muted));
+	width: 100%;
+	overflow: hidden;
 }
 
 .fb-feed-preview__media img {
 	display: block;
 	width: 100%;
-	aspect-ratio: 1200 / 630;
-	object-fit: cover;
+	height: 100%;
+	object-fit: contain;
+	object-position: center;
 }
 
 .fb-feed-preview__link {

@@ -176,10 +176,15 @@ export async function queuePreviewImageJobs({
 	fetchFn,
 	pins,
 	imageProvider = '',
+	channel = '',
+	exportProfileId = '',
 } = {}) {
 	if (!Array.isArray(pins) || pins.length === 0) {
 		return [];
 	}
+
+	const normalizedChannel = String(channel || '').trim();
+	const normalizedExportProfileId = String(exportProfileId || '').trim();
 
 	const response = await fetchFn('/ai-pin-images/jobs', {
 		method: 'POST',
@@ -197,6 +202,8 @@ export async function queuePreviewImageJobs({
 				featuredImageUrl: pin.featuredImage || pin.sourceImageUrl || '',
 				imageMode: 'generate_ai',
 				...(imageProvider ? { provider: imageProvider } : {}),
+				...(normalizedChannel ? { channel: normalizedChannel } : {}),
+				...(normalizedExportProfileId ? { exportProfileId: normalizedExportProfileId } : {}),
 			})),
 		}),
 	});
@@ -260,6 +267,7 @@ export async function runPreviewImagePipeline({
 	imageProvider = '',
 	brandKit = null,
 	exportProfileId = 'pinterest_standard',
+	channel = '',
 	onJobsUpdate,
 	isCancelled = () => false,
 } = {}) {
@@ -268,7 +276,13 @@ export async function runPreviewImagePipeline({
 	}
 
 	const pinPatches = [];
-	const queuedJobs = await queuePreviewImageJobs({ fetchFn, pins, imageProvider });
+	const queuedJobs = await queuePreviewImageJobs({
+		fetchFn,
+		pins,
+		imageProvider,
+		channel,
+		exportProfileId,
+	});
 	if (isCancelled()) {
 		return { pinPatches: [], pollTimedOut: false, lastResort: null };
 	}

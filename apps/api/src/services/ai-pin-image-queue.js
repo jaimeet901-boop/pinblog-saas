@@ -17,6 +17,9 @@ import { assertJobPinOwnership } from './queue/job-ownership.js';
 import { isImmediateImageFallbackError } from '../constants/image-source-strategy.js';
 import { safeTransitionArticleLifecycle } from './article-lifecycle.js';
 import { buildBackgroundImagePrompt } from './ai-pin-background-prompt.js';
+import {
+	resolveImageGenerationTargetFromPayload,
+} from './image-generation-target.js';
 
 function parsePositiveIntMs(raw, fallback) {
 	const parsed = Number.parseInt(String(raw ?? '').trim(), 10);
@@ -101,13 +104,20 @@ function normalizeText(value, max = 0) {
 	return text.slice(0, max);
 }
 
-function buildPinterestImagePrompt(job) {
+function buildJobBackgroundImagePrompt(job) {
 	const payload = job.prompt_payload || {};
+	const generationTarget = resolveImageGenerationTargetFromPayload(payload.generationTarget, {
+		channel: payload.channel,
+		exportProfileId: payload.exportProfileId,
+	});
 	return buildBackgroundImagePrompt({
 		category: payload.category || '',
 		keywords: Array.isArray(payload.keywords) ? payload.keywords : [],
 		imagePrompt: payload.imagePrompt || '',
 		recipeContext: payload.metaDescription || '',
+		channel: payload.channel || '',
+		exportProfileId: payload.exportProfileId || '',
+		generationTarget,
 	});
 }
 
@@ -423,9 +433,14 @@ async function processJob(job) {
 		120,
 	);
 
-	const prompt = normalizeText(job.prompt, 5000) || buildPinterestImagePrompt({
+	const prompt = normalizeText(job.prompt, 5000) || buildJobBackgroundImagePrompt({
 		...job,
 		prompt_payload: promptPayload,
+	});
+
+	const generationTarget = resolveImageGenerationTargetFromPayload(promptPayload.generationTarget, {
+		channel: promptPayload.channel,
+		exportProfileId: promptPayload.exportProfileId,
 	});
 
 	dumpProviderTrace('[ai-pin-image-queue] Final provider passed to image-providers registry', {
@@ -437,6 +452,14 @@ async function processJob(job) {
 		storedProvider: storedProvider || null,
 		'job.image_provider': job.image_provider ?? null,
 		'prompt_payload.provider': promptPayload.provider ?? null,
+		channel: promptPayload.channel ?? null,
+		exportProfileId: promptPayload.exportProfileId ?? null,
+		generationTarget: {
+			aspectRatio: generationTarget.aspectRatio,
+			openaiSize: generationTarget.openaiSize,
+			falImageSize: generationTarget.falImageSize,
+			geminiAspectRatio: generationTarget.geminiAspectRatio,
+		},
 	});
 
 	const generatedList = await generateImagesWithProvider({
@@ -447,6 +470,7 @@ async function processJob(job) {
 		preferredModelId,
 		baseUrl: readyProvider.config?.baseUrl || readyProvider.endpoint || undefined,
 		timeoutMs: readyProvider.timeoutMs || undefined,
+		generationTarget,
 	});
 	const generated = generatedList[0];
 	if (!generated) {

@@ -1,7 +1,12 @@
-export async function generateWithFal({ apiKey, prompt, count = 1, model }) {
+import { PINTEREST_GENERATION_TARGET } from '../image-generation-target.js';
+
+export async function generateWithFal({ apiKey, prompt, count = 1, model, generationTarget }) {
 	if (!apiKey) {
 		throw new Error('Fal.ai API key is not configured');
 	}
+
+	const target = generationTarget || PINTEREST_GENERATION_TARGET;
+	const imageSize = target.falImageSize || { width: 1000, height: 1500 };
 
 	const endpointModel = model || process.env.FAL_IMAGE_MODEL || 'fal-ai/flux/dev';
 	const images = [];
@@ -16,8 +21,8 @@ export async function generateWithFal({ apiKey, prompt, count = 1, model }) {
 			body: JSON.stringify({
 				prompt,
 				image_size: {
-					width: 1000,
-					height: 1500,
+					width: imageSize.width,
+					height: imageSize.height,
 				},
 				num_images: 1,
 			}),

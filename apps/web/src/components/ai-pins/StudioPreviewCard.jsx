@@ -12,6 +12,7 @@ export default function StudioPreviewCard({
 	imageUrl = '',
 	className = '',
 	compact = false,
+	mediaAspectClass = 'aspect-[1200/630]',
 }) {
 	if (variant === 'facebook') {
 		return (
@@ -25,6 +26,7 @@ export default function StudioPreviewCard({
 				linkUrl={linkUrl || context?.website || ''}
 				className={className}
 				compact={compact}
+				mediaAspectClass={mediaAspectClass}
 			/>
 		);
 	}

@@ -1190,6 +1190,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				pins,
 				imageProvider,
 				brandKit,
+				channel: studioChannel,
 				exportProfileId: selectedExportProfileId,
 				isCancelled,
 				onJobsUpdate: (jobs) => {
@@ -2858,6 +2859,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 													<StudioPreviewCard
 														variant={previewVariant}
 														compact
+														mediaAspectClass={inspectorPreviewAspectClass}
 														imageUrl={pin.imageUrl || ''}
 														featuredImageUrl={pin.featuredImage || ''}
 														logoUrl={selectedBrandKit?.logoUrl || ''}
@@ -3081,6 +3083,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 														<StudioPreviewCard
 															variant={previewVariant}
 															compact
+															mediaAspectClass={inspectorPreviewAspectClass}
 															imageUrl={pin.imageUrl || ''}
 															featuredImageUrl={pin.featuredImage || ''}
 															logoUrl={selectedBrandKit?.logoUrl || ''}
@@ -3194,6 +3197,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 								{isFacebookStudio ? (
 									<StudioPreviewCard
 										variant={previewVariant}
+										mediaAspectClass={inspectorPreviewAspectClass}
 										imageUrl={inspectorPin.imageUrl || ''}
 										featuredImageUrl={inspectorPin.featuredImage || ''}
 										logoUrl={selectedBrandKit?.logoUrl || ''}
@@ -3387,6 +3391,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				publishing={publishing}
 				labels={L}
 				previewVariant={previewVariant}
+				mediaAspectClass={inspectorPreviewAspectClass}
 				onPublish={() => {
 					const pin = savedPins.find((item) => item.id === previewModal?.id);
 					setPreviewModal(null);
