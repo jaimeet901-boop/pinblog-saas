@@ -14,6 +14,10 @@ import {
 	buildFacebookStudioHref,
 	fetchFacebookStudioProgress,
 } from '@/lib/websites/facebookDashboardProgress';
+import {
+	buildWordpressSyncSuccessMessage,
+	triggerWordpressArticleSync,
+} from '@/lib/websites/wordpressDashboardSync';
 import { usePinterestConnected } from '@/hooks/usePinterestConnected';
 import SetupProgressCard from '@/components/websites/SetupProgressCard';
 import OperateStatusStrip from '@/components/websites/OperateStatusStrip';
@@ -198,6 +202,7 @@ export default function WebsiteDashboardPage() {
 	const [dashboard, setDashboard] = useState(null);
 	const [loading, setLoading] = useState(true);
 	const [scanning, setScanning] = useState(false);
+	const [syncing, setSyncing] = useState(false);
 	const [publishing, setPublishing] = useState(false);
 	const [scanMessages, setScanMessages] = useState([]);
 	const [scanSummary, setScanSummary] = useState(null);
@@ -365,16 +370,22 @@ export default function WebsiteDashboardPage() {
 	};
 
 	const handleSync = async () => {
+		if (syncing) {
+			return;
+		}
+
+		setSyncing(true);
 		try {
-			const response = await apiServerClient.fetch('/wordpress/sites', { method: 'GET' });
-			const data = await readJson(response);
-			if (!response.ok) {
-				throw new Error(data?.message || 'Failed to sync WordPress sites');
-			}
-			toast({ title: 'Sync complete', description: 'WordPress refreshed. Next: scan articles if content looks stale.' });
-			await handleScan();
+			const data = await triggerWordpressArticleSync(apiServerClient, websiteId);
+			toast({
+				title: 'Sync complete',
+				description: buildWordpressSyncSuccessMessage(data?.stats),
+			});
+			await loadWebsite({ silent: true });
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Sync failed', description: error.message });
+		} finally {
+			setSyncing(false);
 		}
 	};
 
@@ -747,6 +758,7 @@ export default function WebsiteDashboardPage() {
 											<MetaLine label="Version">{wordpress.site.wpVersion || '—'}</MetaLine>
 											<MetaLine label="Auth">{wordpress.site.authType || '—'}</MetaLine>
 											<MetaLine label="Last tested">{formatDateTime(wordpress.site.lastTestedAt)}</MetaLine>
+											<MetaLine label="Last synced">{formatDateTime(wordpress.site.lastSyncedAt)}</MetaLine>
 										</div>
 									) : (
 										<EmptyLines text="No linked WordPress site yet. Add credentials and use Test." />
@@ -811,10 +823,17 @@ export default function WebsiteDashboardPage() {
 										key={action.id}
 										size="sm"
 										variant="outline"
-										disabled={(publishing && action.action === 'publish_ready')}
+										disabled={
+											(publishing && action.action === 'publish_ready')
+											|| (syncing && action.action === 'sync')
+										}
 										onClick={() => runQuickAction(action)}
 									>
-										{action.action === 'publish_ready' && publishing ? 'Publishing...' : action.label}
+										{action.action === 'publish_ready' && publishing
+											? 'Publishing...'
+											: action.action === 'sync' && syncing
+												? 'Syncing...'
+												: action.label}
 									</Button>
 								))}
 							</div>
