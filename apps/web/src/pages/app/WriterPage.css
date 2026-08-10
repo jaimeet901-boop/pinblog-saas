@@ -94,8 +94,12 @@
 
 .wr-publish-success__url {
 	font-size: 0.75rem;
-	color: hsl(var(--primary));
+	color: hsl(var(--foreground));
 	word-break: break-all;
+}
+
+.wr-publish-success__url-link {
+	color: hsl(var(--primary));
 	text-decoration: underline;
 	text-underline-offset: 2px;
 }

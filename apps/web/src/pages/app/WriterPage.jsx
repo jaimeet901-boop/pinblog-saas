@@ -43,6 +43,13 @@ import {
 } from '@/lib/writer-leave-protection';
 import { sanitizeRichHtml } from '@/lib/sanitizeHtml';
 import { createPublishLock } from '@/lib/writer-publish-lock';
+import {
+	applyPublishedUrlPatch,
+	buildGenerationMediaPreserve,
+	resolvePublishedUrlFromResponse,
+	shouldApplyPublishedUrlToArticle,
+	shouldShowPublishedSuccessBanner,
+} from '@/lib/writer-published-url';
 import './WriterPage.css';
 const initForm = {
 	keyword: '',
@@ -452,8 +459,6 @@ export default function WriterPage() {
 	const preservedMediaRef = useRef({
 		featured_image: '',
 		gallery_images: [],
-		published_url: '',
-		published_at: '',
 	});
 
 	const loadRecentDrafts = async () => {
@@ -694,14 +699,11 @@ Respond ONLY with the JSON object described in your instructions.`;
 			articleBaseline,
 			savedFingerprint,
 		});
-		const preserved = {
-			featured_image: article?.featured_image || preservedMediaRef.current.featured_image || '',
-			gallery_images: normalizeGallery(article?.gallery_images?.length
-				? article.gallery_images
-				: preservedMediaRef.current.gallery_images),
-			published_url: article?.published_url || preservedMediaRef.current.published_url || '',
-			published_at: article?.published_at || preservedMediaRef.current.published_at || '',
-		};
+		const preserved = buildGenerationMediaPreserve({
+			article,
+			previous: preservedMediaRef.current,
+		});
+		preserved.gallery_images = normalizeGallery(preserved.gallery_images);
 		preservedMediaRef.current = preserved;
 		// Clear article for streaming UX — leave protection stays active via `generating`.
 		setArticle(null);
@@ -744,6 +746,8 @@ Respond ONLY with the JSON object described in your instructions.`;
 				sections: json.sections || [],
 				faq: json.faq || [],
 				...preserved,
+				published_url: '',
+				published_at: '',
 				custom_prompt: form.customPrompt || '',
 			});
 			generationSnapshotRef.current = null;
@@ -967,7 +971,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 				throw new Error(data.message || data.error || 'Publish failed');
 			}
 
-			const publishedUrl = String(data.link || data.url || '').trim();
+			const publishedUrl = resolvePublishedUrlFromResponse(data);
 			const publishedAt = new Date().toISOString();
 
 			if (data.queued && !publishedUrl) {
@@ -984,13 +988,16 @@ Respond ONLY with the JSON object described in your instructions.`;
 				});
 			}
 
-			if (publishedUrl && wpStatus === 'publish' && !extras.scheduledAt) {
-				const nextArticle = {
-					...article,
-					published_url: publishedUrl,
-					published_at: publishedAt,
-					custom_prompt: form.customPrompt || '',
-				};
+			if (shouldApplyPublishedUrlToArticle({
+				wpStatus,
+				scheduledAt: extras.scheduledAt,
+				publishedUrl,
+			})) {
+				const nextArticle = applyPublishedUrlPatch(article, {
+					publishedUrl,
+					publishedAt,
+					customPrompt: form.customPrompt,
+				});
 				setArticle(nextArticle);
 				setArticleBaseline(nextArticle);
 				if (articleRecordId) {
@@ -1271,6 +1278,11 @@ Respond ONLY with the JSON object described in your instructions.`;
 		return sanitizeRichHtml(composeHtml(article));
 	}, [article]);
 
+	const showPublishedSuccess = shouldShowPublishedSuccessBanner({
+		publishedUrl: article?.published_url,
+		publishing,
+	});
+
 	return (
 		<div className="wr-atelier">
 			<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -1367,8 +1379,8 @@ Respond ONLY with the JSON object described in your instructions.`;
 				</div>
 			) : null}
 
-			{article?.published_url ? (
-				<div className="wr-publish-success">
+			{showPublishedSuccess ? (
+				<div className="wr-publish-success" data-testid="writer-published-success">
 					<div className="wr-publish-success__head">
 						<CheckCircle2 size={16} className="text-emerald-600" />
 						<span className="font-medium">Published successfully</span>
@@ -1377,16 +1389,23 @@ Respond ONLY with the JSON object described in your instructions.`;
 					{article.published_at ? (
 						<p className="text-[11px] text-muted-foreground">{formatPublishedAt(article.published_at)}</p>
 					) : null}
-					<a
-						href={article.published_url}
-						target="_blank"
-						rel="noreferrer"
-						className="wr-publish-success__url"
-					>
-						{article.published_url}
-					</a>
+					<p className="wr-publish-success__url">
+						<span aria-hidden="true">🔗 </span>
+						<a
+							href={article.published_url}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="wr-publish-success__url-link"
+						>
+							{article.published_url}
+						</a>
+					</p>
 					<div className="flex flex-wrap gap-2 pt-1">
-						<Button size="sm" variant="outline" onClick={() => window.open(article.published_url, '_blank', 'noopener,noreferrer')}>
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={() => window.open(article.published_url, '_blank', 'noopener,noreferrer')}
+						>
 							<ExternalLink size={14} /> Open Article
 						</Button>
 						<Button size="sm" variant="ghost" onClick={() => copyText(article.published_url, 'URL')}>
