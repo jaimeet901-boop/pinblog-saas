@@ -2,8 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
 	History, Search, Download, Copy, RefreshCw, ExternalLink, Pin,
-	Sparkles, LayoutGrid, List, Coins, Clock,
+	Sparkles, LayoutGrid, List, Coins, Clock, Trash2,
 } from 'lucide-react';
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import apiServerClient from '@/lib/apiServerClient';
 import { AI_PINS_PRODUCT } from '@/lib/studio/products';
 import { Badge, Button, Select } from '@/components/kit';
@@ -116,6 +126,10 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 	const [dateRange, setDateRange] = useState('');
 	const [quickFilter, setQuickFilter] = useState('all');
 	const [exportFormat, setExportFormat] = useState('csv');
+	const [deleteTarget, setDeleteTarget] = useState(null);
+	const [deletingId, setDeletingId] = useState('');
+
+	const enableHistoryDelete = product.id === 'ai-pins';
 
 	useEffect(() => {
 		if (preferredWebsiteId) setWebsiteFilter(preferredWebsiteId);
@@ -326,6 +340,27 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 		anchor.target = '_blank';
 		anchor.rel = 'noreferrer';
 		anchor.click();
+	};
+
+	const confirmDeleteHistory = async () => {
+		if (!deleteTarget?.id || deletingId) return;
+		setDeletingId(deleteTarget.id);
+		try {
+			const response = await apiServerClient.fetch(`/ai-pins/history/${deleteTarget.id}`, { method: 'DELETE' });
+			if (!response.ok) {
+				const payload = await response.json().catch(() => ({}));
+				throw new Error(payload?.message || `Delete failed (${response.status})`);
+			}
+			setItems((prev) => prev.filter((row) => row.id !== deleteTarget.id));
+			setTotalItems((prev) => Math.max(0, prev - 1));
+			setSelectedId((prev) => (prev === deleteTarget.id ? '' : prev));
+			setDeleteTarget(null);
+			toast({ title: 'History record deleted' });
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Delete failed', description: error.message });
+		} finally {
+			setDeletingId('');
+		}
 	};
 
 	useEffect(() => {
@@ -540,6 +575,18 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 													<div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
 														<Button size="sm" variant="ghost" onClick={() => setSelectedId(item.id)}>View</Button>
 														<Button size="sm" variant="ghost" disabled={!item.prompt} onClick={() => copyPrompt(item.prompt)}><Copy size={12} /></Button>
+														{enableHistoryDelete ? (
+															<Button
+																size="sm"
+																variant="ghost"
+																title="Delete history record"
+																aria-label="Delete history record"
+																disabled={deletingId === item.id}
+																onClick={() => setDeleteTarget(item)}
+															>
+																<Trash2 size={12} />
+															</Button>
+														) : null}
 													</div>
 												</td>
 											</tr>
@@ -715,6 +762,37 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 					</div>
 				</aside>
 			</div>
+
+			{enableHistoryDelete ? (
+				<AlertDialog
+					open={Boolean(deleteTarget)}
+					onOpenChange={(open) => {
+						if (!open && !deletingId) setDeleteTarget(null);
+					}}
+				>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>Delete this history record?</AlertDialogTitle>
+							<AlertDialogDescription>
+								This only removes the history record. It will not delete the Pinterest Pin, image, article, or affect credits.
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel disabled={Boolean(deletingId)}>Cancel</AlertDialogCancel>
+							<AlertDialogAction
+								className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+								disabled={Boolean(deletingId)}
+								onClick={(event) => {
+									event.preventDefault();
+									confirmDeleteHistory();
+								}}
+							>
+								{deletingId ? 'Deleting…' : 'Delete'}
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+			) : null}
 		</div>
 	);
 }

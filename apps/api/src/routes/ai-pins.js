@@ -583,6 +583,26 @@ router.get('/history', async (req, res) => {
 	}
 });
 
+/**
+ * DELETE /ai-pins/history/:id
+ * Remove a generation history row only — does not delete pins, images, articles, or credits.
+ */
+router.delete('/history/:id', async (req, res) => {
+	if (!req.pocketbaseUserId) {
+		throw httpError(401, 'You must be signed in');
+	}
+
+	const existing = await getWorkspaceOwnedRecord('ai_pin_generation_history', req.params.id, req, {
+		notFoundMessage: 'History record not found',
+	}).catch(() => null);
+	if (!existing) {
+		throw httpError(404, 'History record not found');
+	}
+
+	await pocketbaseClient.collection('ai_pin_generation_history').delete(existing.id);
+	res.status(204).end();
+});
+
 function mapBrandKit(record) {
 	return {
 		id: record.id,
