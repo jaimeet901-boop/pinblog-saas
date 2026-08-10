@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { httpError } from '../middleware/require-admin.js';
-import { mapWpStatus } from './wordpress-client.js';
+import { mapWpStatus, assertWordpressStatusAllowed, wordpressCapabilitiesFromKeys } from './wordpress-client.js';
 import { resolvePublishSite } from './wordpress-sites.js';
 import { newWorkflowId } from './publish-pipeline.js';
 import { logWorkflowStep } from './workspace-notify.js';
@@ -123,6 +123,16 @@ export async function enqueueWordpressPublish(ownerOrCtx, payload = {}) {
 
 	const scheduledAt = payload.scheduledAt || payload.scheduled_at || null;
 	const wpStatus = mapWpStatus(payload.status || payload.wpStatus || 'draft', scheduledAt);
+
+	const cachedCapabilityKeys = site?.health?.capabilities;
+	if (Array.isArray(cachedCapabilityKeys) && cachedCapabilityKeys.length) {
+		assertWordpressStatusAllowed(
+			{ capabilities: wordpressCapabilitiesFromKeys(cachedCapabilityKeys), name: site.name || site.url },
+			wpStatus,
+			site.name || site.url || ownerId,
+		);
+	}
+
 	const immediate = !scheduledAt && wpStatus !== 'future';
 	const idempotencyKey = String(payload.idempotencyKey || payload.clientToken || '').trim()
 		|| `wp-${ownerId}-${site.id}-${Date.now()}-${randomBytes(4).toString('hex')}`;

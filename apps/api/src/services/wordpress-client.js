@@ -338,27 +338,48 @@ function hasWordpressCapability(capabilities, key) {
 	return Boolean(capabilities[key]);
 }
 
-function assertWordpressPublishCapabilities(me, username) {
-	const displayName = me?.name || username || 'WordPress user';
+export function wordpressCapabilitiesFromKeys(keys = []) {
+	if (!Array.isArray(keys)) return {};
+	return Object.fromEntries(keys.filter(Boolean).map((key) => [key, true]));
+}
 
+export function wordpressStatusRequiresPublishCapability(wpStatus) {
+	const normalized = String(wpStatus || '').toLowerCase();
+	return normalized === 'publish' || normalized === 'future' || normalized === 'private';
+}
+
+function buildWordpressCapabilityError(message) {
+	const error = httpError(403, message, 'WP_CAPABILITY_DENIED');
+	error.authFailed = false;
+	return error;
+}
+
+export function assertWordpressConnectionCapabilities(me, username) {
+	const displayName = me?.name || username || 'WordPress user';
 	if (!hasWordpressCapability(me?.capabilities, 'edit_posts')) {
-		const error = httpError(
-			403,
+		throw buildWordpressCapabilityError(
 			`WordPress account "${displayName}" is authenticated but cannot create or edit posts (edit_posts capability missing).`,
-			'WP_CAPABILITY_DENIED',
 		);
-		error.authFailed = false;
-		throw error;
+	}
+}
+
+export function assertWordpressStatusAllowed(me, wpStatus, username) {
+	const displayName = me?.name || username || 'WordPress user';
+	const capabilities = me?.capabilities || {};
+
+	if (!hasWordpressCapability(capabilities, 'edit_posts')) {
+		throw buildWordpressCapabilityError(
+			`WordPress account "${displayName}" is authenticated but cannot create or edit posts (edit_posts capability missing).`,
+		);
 	}
 
-	if (!hasWordpressCapability(me?.capabilities, 'publish_posts')) {
-		const error = httpError(
-			403,
-			`WordPress account "${displayName}" is authenticated but cannot publish posts (publish_posts capability missing).`,
-			'WP_CAPABILITY_DENIED',
+	if (wordpressStatusRequiresPublishCapability(wpStatus) && !hasWordpressCapability(capabilities, 'publish_posts')) {
+		const action = String(wpStatus || '').toLowerCase() === 'future'
+			? 'schedule posts for publication'
+			: 'publish posts publicly';
+		throw buildWordpressCapabilityError(
+			`WordPress account "${displayName}" cannot ${action} (publish_posts capability missing).`,
 		);
-		error.authFailed = false;
-		throw error;
 	}
 }
 
@@ -389,7 +410,7 @@ export async function testWordpressConnection({
 		logContext,
 	});
 
-	assertWordpressPublishCapabilities(me, username);
+	assertWordpressConnectionCapabilities(me, username);
 
 	const authenticated = {
 		posts: false,
@@ -983,6 +1004,11 @@ export async function createOrUpdateWordpressPost({
 	const auth = authFromOptions({ authType, username, appPassword, password });
 	const wpStatus = mapWpStatus(status, scheduledAt);
 	const resource = contentType === 'page' ? 'pages' : 'posts';
+
+	const me = await wpFetch(base, auth, '/wp-json/wp/v2/users/me?context=edit', {
+		logContext,
+	});
+	assertWordpressStatusAllowed(me, wpStatus, username);
 
 	const categoryIds = contentType === 'page'
 		? []
