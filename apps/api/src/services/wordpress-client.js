@@ -137,6 +137,73 @@ function authFromOptions(options = {}) {
 	});
 }
 
+function buildWordpressRestFailure(response, data, text = '') {
+	const wpStatus = response.status;
+	const wpCode = data?.code ? String(data.code) : '';
+	const normalizedCode = wpCode.toLowerCase();
+	const message = data?.message
+		|| data?.code
+		|| `${response.status} ${response.statusText}${text ? ` — ${text.slice(0, 240)}` : ''}`;
+
+	let errorStatus;
+	let errorCode;
+	let authFailed;
+	let retryable;
+
+	if (wpStatus === 401 || normalizedCode === 'rest_not_logged_in') {
+		errorStatus = 401;
+		errorCode = 'WP_AUTH_FAILED';
+		authFailed = true;
+		retryable = false;
+	} else if (
+		normalizedCode === 'rest_cannot_create'
+		|| normalizedCode === 'rest_cannot_edit'
+		|| normalizedCode === 'rest_cannot_delete'
+		|| normalizedCode === 'rest_cannot_publish'
+		|| normalizedCode.startsWith('rest_cannot_')
+		|| (wpStatus === 403 && normalizedCode === 'rest_forbidden')
+	) {
+		errorStatus = 403;
+		errorCode = 'WP_CAPABILITY_DENIED';
+		authFailed = false;
+		retryable = false;
+	} else if (wpStatus === 403) {
+		errorStatus = 403;
+		errorCode = 'WP_FORBIDDEN';
+		authFailed = false;
+		retryable = false;
+	} else if (wpStatus === 404) {
+		errorStatus = 404;
+		errorCode = 'WP_NOT_FOUND';
+		authFailed = false;
+		retryable = false;
+	} else if (wpStatus === 429) {
+		errorStatus = 502;
+		errorCode = 'WP_REQUEST_FAILED';
+		authFailed = false;
+		retryable = true;
+	} else if (wpStatus >= 500) {
+		errorStatus = 502;
+		errorCode = 'WP_REQUEST_FAILED';
+		authFailed = false;
+		retryable = true;
+	} else {
+		errorStatus = 502;
+		errorCode = 'WP_REQUEST_FAILED';
+		authFailed = false;
+		retryable = false;
+	}
+
+	const error = httpError(errorStatus, `WordPress error: ${message}`, errorCode);
+	error.wpStatus = wpStatus;
+	error.retryable = retryable;
+	error.authFailed = authFailed;
+	if (wpCode) {
+		error.wpCode = wpCode;
+	}
+	return error;
+}
+
 async function wpFetch(base, auth, path, options = {}) {
 	const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
 	const started = Date.now();
@@ -192,18 +259,7 @@ async function wpFetch(base, auth, path, options = {}) {
 	}
 
 	if (!response.ok) {
-		const message = data?.message
-			|| data?.code
-			|| `${response.status} ${response.statusText}${text ? ` — ${text.slice(0, 240)}` : ''}`;
-		const error = httpError(
-			response.status === 401 || response.status === 403 ? response.status : 502,
-			`WordPress error: ${message}`,
-			response.status === 401 || response.status === 403 ? 'WP_AUTH_FAILED' : 'WP_REQUEST_FAILED',
-		);
-		error.wpStatus = response.status;
-		error.retryable = response.status >= 500 || response.status === 429;
-		error.authFailed = response.status === 401 || response.status === 403;
-		throw error;
+		throw buildWordpressRestFailure(response, data, text);
 	}
 
 	return data;
@@ -637,18 +693,7 @@ async function wpFetchRaw(base, auth, path, options = {}) {
 	}
 
 	if (!response.ok) {
-		const message = data?.message
-			|| data?.code
-			|| `${response.status} ${response.statusText}${text ? ` — ${text.slice(0, 240)}` : ''}`;
-		const error = httpError(
-			response.status === 401 || response.status === 403 ? response.status : 502,
-			`WordPress error: ${message}`,
-			response.status === 401 || response.status === 403 ? 'WP_AUTH_FAILED' : 'WP_REQUEST_FAILED',
-		);
-		error.wpStatus = response.status;
-		error.retryable = response.status >= 500 || response.status === 429;
-		error.authFailed = response.status === 401 || response.status === 403;
-		throw error;
+		throw buildWordpressRestFailure(response, data, text);
 	}
 
 	return {

@@ -308,7 +308,7 @@ async function processJob(job) {
 async function failOrRetry(job, error) {
 	const attempt = Number(job.attempt_count || 0) + 1;
 	const maxAttempts = Number(job.max_attempts) || 3;
-	const authFailed = Boolean(error?.authFailed || error?.status === 401 || error?.status === 403);
+	const authFailed = Boolean(error?.authFailed === true || error?.errorCode === 'WP_AUTH_FAILED');
 	const retryable = !authFailed && (error?.retryable !== false) && attempt < maxAttempts;
 
 	if (authFailed) {
