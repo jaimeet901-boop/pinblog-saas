@@ -277,6 +277,35 @@ function endpointChecklist(indexPayload, authenticated) {
 	};
 }
 
+function hasWordpressCapability(capabilities, key) {
+	if (!capabilities || typeof capabilities !== 'object') return false;
+	return Boolean(capabilities[key]);
+}
+
+function assertWordpressPublishCapabilities(me, username) {
+	const displayName = me?.name || username || 'WordPress user';
+
+	if (!hasWordpressCapability(me?.capabilities, 'edit_posts')) {
+		const error = httpError(
+			403,
+			`WordPress account "${displayName}" is authenticated but cannot create or edit posts (edit_posts capability missing).`,
+			'WP_CAPABILITY_DENIED',
+		);
+		error.authFailed = false;
+		throw error;
+	}
+
+	if (!hasWordpressCapability(me?.capabilities, 'publish_posts')) {
+		const error = httpError(
+			403,
+			`WordPress account "${displayName}" is authenticated but cannot publish posts (publish_posts capability missing).`,
+			'WP_CAPABILITY_DENIED',
+		);
+		error.authFailed = false;
+		throw error;
+	}
+}
+
 export async function testWordpressConnection({
 	url,
 	username,
@@ -303,6 +332,8 @@ export async function testWordpressConnection({
 	const me = await wpFetch(base, auth, '/wp-json/wp/v2/users/me?context=edit', {
 		logContext,
 	});
+
+	assertWordpressPublishCapabilities(me, username);
 
 	const authenticated = {
 		posts: false,
