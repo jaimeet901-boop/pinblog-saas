@@ -82,8 +82,8 @@ async function fetchPublicSiteBits(url) {
 /**
  * Discover WordPress site metadata and cache it on wordpress_sites.discovery.
  */
-export async function discoverOwnedWordpressSite(ownerId, siteId, { refreshConnection = true } = {}) {
-	const { site, username, appPassword, authType } = await resolvePublishSite({ ownerId, siteId });
+export async function discoverOwnedWordpressSite(ownerId, siteId, { refreshConnection = true, req = null } = {}) {
+	const { site, username, appPassword, authType } = await resolvePublishSite({ ownerId, siteId, req });
 	assertWordpressHttps(site.url);
 
 	const client = {

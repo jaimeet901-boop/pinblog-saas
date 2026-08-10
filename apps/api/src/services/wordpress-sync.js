@@ -276,13 +276,14 @@ export async function syncOwnedWordpressSite(ownerId, siteId, {
 	mode: rawMode = 'manual',
 	maxPages = MAX_PAGES,
 	alreadyClaimed = false,
+	req = null,
 } = {}) {
 	await ensureWordpressIntegrationSchema(pocketbaseClient);
 	const articlesSchema = await ensureWebsiteArticlesSchema(pocketbaseClient);
 	const websiteField = articlesSchema.websiteField;
 	const statusField = articlesSchema.statusField;
 
-	const { site: resolvedSite, username, appPassword, authType } = await resolvePublishSite({ ownerId, siteId });
+	const { site: resolvedSite, username, appPassword, authType } = await resolvePublishSite({ ownerId, siteId, req });
 	assertWordpressHttps(resolvedSite.url);
 
 	let site = resolvedSite;

@@ -156,6 +156,7 @@ router.post('/sites/:id/connect', async (req, res) => {
 router.post('/sites/:id/discover', async (req, res) => {
 	const result = await discoverOwnedWordpressSite(req.pocketbaseUserId, req.params.id, {
 		refreshConnection: req.body?.refreshConnection !== false,
+		req,
 	});
 	res.json(result);
 });
@@ -186,7 +187,7 @@ router.get('/sites/:id/profile', async (req, res) => {
 
 router.post('/sites/:id/sync', async (req, res) => {
 	const mode = req.body?.mode || 'manual';
-	const result = await syncOwnedWordpressSite(req.pocketbaseUserId, req.params.id, { mode });
+	const result = await syncOwnedWordpressSite(req.pocketbaseUserId, req.params.id, { mode, req });
 	res.json(result);
 });
 
