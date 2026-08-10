@@ -270,33 +270,33 @@ router.post('/schedule', async (req, res) => {
 });
 
 router.get('/jobs', async (req, res) => {
-	res.json(await listPublishJobs(wordpressJobOwner(req), req.query));
+	res.json(await listPublishJobs(wordpressJobOwner(req), req.query, req));
 });
 
 router.get('/jobs/:id', async (req, res) => {
-	res.json(await getPublishJob(wordpressJobOwner(req), req.params.id));
+	res.json(await getPublishJob(wordpressJobOwner(req), req.params.id, req));
 });
 
 router.post('/jobs/:id/retry', async (req, res) => {
-	const job = await retryPublishJob(wordpressJobOwner(req), req.params.id);
+	const job = await retryPublishJob(wordpressJobOwner(req), req.params.id, req);
 	res.json({ ok: true, job });
 });
 
 router.post('/jobs/:id/cancel', async (req, res) => {
-	const job = await cancelPublishJob(wordpressJobOwner(req), req.params.id);
+	const job = await cancelPublishJob(wordpressJobOwner(req), req.params.id, req);
 	res.json({ ok: true, job });
 });
 
 router.get('/history', async (req, res) => {
-	res.json(await listPublishHistory(wordpressJobOwner(req), req.query));
+	res.json(await listPublishHistory(wordpressJobOwner(req), req.query, req));
 });
 
 router.get('/logs', async (req, res) => {
-	res.json(await listWordpressApiLogs(wordpressJobOwner(req), req.query));
+	res.json(await listWordpressApiLogs(wordpressJobOwner(req), req.query, req));
 });
 
 router.get('/analytics', async (req, res) => {
-	res.json(await getWordpressPublishAnalytics(wordpressJobOwner(req), req.query));
+	res.json(await getWordpressPublishAnalytics(wordpressJobOwner(req), req.query, req));
 });
 
 router.get('/queue/stats', async (req, res) => {

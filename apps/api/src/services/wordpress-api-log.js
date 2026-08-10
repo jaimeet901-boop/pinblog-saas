@@ -1,4 +1,19 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
+import { getWorkspaceActor } from './workspace-ownership.js';
+
+function buildApiLogScopeFilter(ownerId, req) {
+	if (!req) {
+		return pocketbaseClient.filter('owner = {:owner}', { owner: ownerId });
+	}
+	const actor = getWorkspaceActor(req);
+	if (actor.workspaceKey) {
+		return pocketbaseClient.filter('owner = {:owner} && workspace_key = {:key}', {
+			owner: ownerId,
+			key: actor.workspaceKey,
+		});
+	}
+	return pocketbaseClient.filter('owner = {:owner}', { owner: ownerId });
+}
 
 function redact(value) {
 	if (value == null) return value;
@@ -59,10 +74,10 @@ export async function writeWordpressApiLog({
 	return pocketbaseClient.collection('wordpress_api_logs').create(payload).catch(() => null);
 }
 
-export async function listWordpressApiLogs(ownerId, query = {}) {
+export async function listWordpressApiLogs(ownerId, query = {}, req = null) {
 	const page = Math.max(1, Number(query.page) || 1);
 	const perPage = Math.min(100, Math.max(1, Number(query.perPage) || 20));
-	const parts = [pocketbaseClient.filter('owner = {:owner}', { owner: ownerId })];
+	const parts = [buildApiLogScopeFilter(ownerId, req)];
 	if (query.siteId) {
 		parts.push(pocketbaseClient.filter('(site = {:site} || site_id = {:site})', { site: query.siteId }));
 	}

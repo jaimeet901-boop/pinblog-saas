@@ -7,6 +7,29 @@ import { newWorkflowId } from './publish-pipeline.js';
 import { logWorkflowStep } from './workspace-notify.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
 import { resolveJobCreateStamps } from './queue/job-ownership.js';
+import { andWorkspaceScope, recordBelongsToWorkspace } from './workspace-ownership.js';
+
+async function loadOwnedPublishJob(ownerId, jobId, req = null) {
+	const job = await pocketbaseClient.collection('publish_jobs').getOne(jobId).catch(() => null);
+	if (!job || job.owner !== ownerId) {
+		throw httpError(404, 'Publish job not found', 'NOT_FOUND');
+	}
+	if (req && !recordBelongsToWorkspace(job, req)) {
+		throw httpError(404, 'Publish job not found', 'NOT_FOUND');
+	}
+	return job;
+}
+
+function buildOwnerScopedFilter(ownerId, req, extraFilter = '') {
+	if (req) {
+		return andWorkspaceScope(req, extraFilter);
+	}
+	const extra = String(extraFilter || '').trim();
+	if (!extra) {
+		return pocketbaseClient.filter('owner = {:owner}', { owner: ownerId });
+	}
+	return `${pocketbaseClient.filter('owner = {:owner}', { owner: ownerId })} && (${extra})`;
+}
 
 function asStringArray(value) {
 	if (!value) return [];
@@ -186,14 +209,14 @@ export async function enqueueWordpressPublish(ownerOrCtx, payload = {}) {
 	return mapPublishJob(job);
 }
 
-export async function listPublishJobs(ownerId, query = {}) {
+export async function listPublishJobs(ownerId, query = {}, req = null) {
 	const page = Math.max(1, Number(query.page) || 1);
 	const perPage = Math.min(100, Math.max(1, Number(query.perPage) || 20));
 	const status = String(query.status || '').trim();
-	let filter = pocketbaseClient.filter('owner = {:owner}', { owner: ownerId });
-	if (status) {
-		filter = pocketbaseClient.filter('owner = {:owner} && status = {:status}', { owner: ownerId, status });
-	}
+	const statusFilter = status
+		? pocketbaseClient.filter('status = {:status}', { status })
+		: '';
+	const filter = buildOwnerScopedFilter(ownerId, req, statusFilter);
 	const result = await pocketbaseClient.collection('publish_jobs').getList(page, perPage, {
 		filter,
 		sort: '-created',
@@ -209,19 +232,13 @@ export async function listPublishJobs(ownerId, query = {}) {
 	};
 }
 
-export async function getPublishJob(ownerId, jobId) {
-	const job = await pocketbaseClient.collection('publish_jobs').getOne(jobId).catch(() => null);
-	if (!job || job.owner !== ownerId) {
-		throw httpError(404, 'Publish job not found', 'NOT_FOUND');
-	}
+export async function getPublishJob(ownerId, jobId, req = null) {
+	const job = await loadOwnedPublishJob(ownerId, jobId, req);
 	return mapPublishJob(job);
 }
 
-export async function retryPublishJob(ownerId, jobId) {
-	const job = await pocketbaseClient.collection('publish_jobs').getOne(jobId).catch(() => null);
-	if (!job || job.owner !== ownerId) {
-		throw httpError(404, 'Publish job not found', 'NOT_FOUND');
-	}
+export async function retryPublishJob(ownerId, jobId, req = null) {
+	const job = await loadOwnedPublishJob(ownerId, jobId, req);
 	if (!['failed', 'cancelled'].includes(job.status)) {
 		throw httpError(400, 'Only failed or cancelled jobs can be retried', 'INVALID_STATUS');
 	}
@@ -237,11 +254,8 @@ export async function retryPublishJob(ownerId, jobId) {
 	return mapPublishJob(updated);
 }
 
-export async function cancelPublishJob(ownerId, jobId) {
-	const job = await pocketbaseClient.collection('publish_jobs').getOne(jobId).catch(() => null);
-	if (!job || job.owner !== ownerId) {
-		throw httpError(404, 'Publish job not found', 'NOT_FOUND');
-	}
+export async function cancelPublishJob(ownerId, jobId, req = null) {
+	const job = await loadOwnedPublishJob(ownerId, jobId, req);
 	if (['published', 'cancelled'].includes(job.status)) {
 		throw httpError(400, 'Job cannot be cancelled', 'INVALID_STATUS');
 	}
@@ -253,11 +267,11 @@ export async function cancelPublishJob(ownerId, jobId) {
 	return mapPublishJob(updated);
 }
 
-export async function listPublishHistory(ownerId, query = {}) {
+export async function listPublishHistory(ownerId, query = {}, req = null) {
 	const page = Math.max(1, Number(query.page) || 1);
 	const perPage = Math.min(100, Math.max(1, Number(query.perPage) || 20));
 	const result = await pocketbaseClient.collection('publish_history').getList(page, perPage, {
-		filter: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId }),
+		filter: buildOwnerScopedFilter(ownerId, req),
 		sort: '-created',
 		requestKey: null,
 	}).catch(() => ({ items: [], page: 1, perPage, totalItems: 0, totalPages: 0 }));
@@ -305,14 +319,13 @@ export async function writePublishHistory({
 	}).catch(() => null);
 }
 
-export async function getWordpressPublishAnalytics(ownerId, query = {}) {
+export async function getWordpressPublishAnalytics(ownerId, query = {}, req = null) {
 	const siteId = String(query.siteId || '').trim();
-	const historyFilter = siteId
-		? pocketbaseClient.filter('owner = {:owner} && site = {:site}', { owner: ownerId, site: siteId })
-		: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId });
-	const jobsFilter = siteId
-		? pocketbaseClient.filter('owner = {:owner} && site = {:site}', { owner: ownerId, site: siteId })
-		: pocketbaseClient.filter('owner = {:owner}', { owner: ownerId });
+	const siteFilter = siteId
+		? pocketbaseClient.filter('site = {:site}', { site: siteId })
+		: '';
+	const historyFilter = buildOwnerScopedFilter(ownerId, req, siteFilter);
+	const jobsFilter = buildOwnerScopedFilter(ownerId, req, siteFilter);
 
 	const [history, jobs, failedJobs] = await Promise.all([
 		pocketbaseClient.collection('publish_history').getFullList({
