@@ -5,7 +5,7 @@
 1. Freeze deployment window and notify stakeholders.
 2. Confirm latest commit passed CI workflow checks.
 3. Verify secrets are configured in `apps/api/.env` from the template.
-4. Confirm CloudPanel site is configured to proxy traffic to `http://127.0.0.1:8080` (or your configured `APP_HTTP_PORT`).
+4. Confirm edge reverse proxy (CloudPanel, host nginx, Caddy, etc.) is configured to proxy traffic to `http://127.0.0.1:18080` (or your configured `APP_HTTP_PORT`).
 5. PocketBase runtime binary:
    - No manual binary permission step is needed.
    - Docker Compose downloads the correct Linux PocketBase binary automatically based on CPU architecture.

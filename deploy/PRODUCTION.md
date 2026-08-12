@@ -4,7 +4,7 @@
 - Ubuntu 22.04+
 - Install Docker and Docker Compose plugin
 - CloudPanel nginx remains the public web server on ports 80/443.
-- Docker nginx is bound only to localhost high port (`APP_HTTP_PORT`, default `8080`).
+- Docker nginx is bound only to localhost high port (`APP_HTTP_PORT`, default **`18080`**).
 
 ## 2) Configure environment
 - Copy `apps/api/.env.example` to `apps/api/.env`
@@ -35,9 +35,9 @@ Do not add `--env-file` to `Dockerfile.api` while Compose also uses `env_file`; 
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-CloudPanel reverse proxy target example:
-- Proxy `https://YOUR_DOMAIN` to `http://127.0.0.1:8080`
-- If you change `APP_HTTP_PORT`, update the CloudPanel proxy target accordingly.
+CloudPanel reverse proxy target example (e.g. `seodeva.com`):
+- Proxy `https://seodeva.com` to `http://127.0.0.1:18080`
+- If you change `APP_HTTP_PORT`, update the edge proxy target accordingly.
 - No Docker service should bind directly to public `80/443`.
 
 Container verification (Oracle server):

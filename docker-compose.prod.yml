@@ -61,7 +61,7 @@ services:
     environment:
       - NODE_ENV=production
       - PB_BASE_URL=http://pocketbase:8090
-      - WEBSITE_DOMAIN=tbuy.store
+      # WEBSITE_DOMAIN and all public URLs come from env_file (apps/api/.env on the server).
     depends_on:
       pocketbase:
         condition: service_healthy
