@@ -98,6 +98,37 @@ async function ensureFields(pocketbaseClient, collectionName, requiredFields) {
 	return collection;
 }
 
+/**
+ * UNIQUE(workspace, slug) gate — mirrors migration 1786600000 / legal versions.
+ * Skip UNIQUE when 2+ blank composite keys would collide as "" or when
+ * non-blank (workspace, slug) pairs duplicate. Return false on read error.
+ */
+async function canAddWorkspaceRolesSlugUnique(pocketbaseClient) {
+	try {
+		const rows = await pocketbaseClient.collection('workspace_roles').getFullList({
+			fields: 'id,workspace,slug',
+			requestKey: null,
+		});
+		if (!rows.length) return true;
+		const seen = new Set();
+		let blanks = 0;
+		for (const row of rows) {
+			const workspace = String(row.workspace || '').trim();
+			const slug = String(row.slug || '').trim();
+			if (!workspace && !slug) {
+				blanks += 1;
+				continue;
+			}
+			const key = `${workspace}::${slug}`;
+			if (seen.has(key)) return false;
+			seen.add(key);
+		}
+		return blanks <= 1;
+	} catch {
+		return false;
+	}
+}
+
 export async function ensureWorkspaceEnterpriseSchema(pocketbaseClient) {
 	await ensureFields(pocketbaseClient, 'workspace_members', [
 		buildJsonField('permissions'),
@@ -110,12 +141,29 @@ export async function ensureWorkspaceEnterpriseSchema(pocketbaseClient) {
 		buildTextField('suspended_reason', 500),
 	]);
 
+	const workspaces = await pocketbaseClient.collections.getOne('workspaces').catch(() => null);
+	const users = await pocketbaseClient.collections.getOne('users').catch(() => null);
+	if (!workspaces) return;
+
+	const rolesFields = [
+		buildRelationField('workspace', workspaces.id, { required: true, cascadeDelete: true }),
+		{ ...buildTextField('name', 80), required: true },
+		{ ...buildTextField('slug', 64), required: true },
+		buildTextField('description', 500),
+		buildJsonField('permissions'),
+		buildBoolField('is_system'),
+		buildBoolField('active'),
+		users
+			? buildRelationField('created_by', users.id)
+			: buildTextField('created_by', 64),
+		buildAutodateField('created', { onCreate: true, onUpdate: false }),
+		buildAutodateField('updated', { onCreate: true, onUpdate: true }),
+	];
+	const rolesIndex =
+		'CREATE UNIQUE INDEX `idx_workspace_roles_slug` ON `workspace_roles` (`workspace`, `slug`)';
+
 	let roles = await pocketbaseClient.collections.getOne('workspace_roles').catch(() => null);
 	if (!roles) {
-		const workspaces = await pocketbaseClient.collections.getOne('workspaces').catch(() => null);
-		const users = await pocketbaseClient.collections.getOne('users').catch(() => null);
-		if (!workspaces) return;
-
 		logger.warn('Creating workspace_roles collection');
 		roles = await pocketbaseClient.collections.create({
 			type: 'base',
@@ -125,27 +173,38 @@ export async function ensureWorkspaceEnterpriseSchema(pocketbaseClient) {
 			createRule: null,
 			updateRule: null,
 			deleteRule: null,
-			fields: [
-				buildRelationField('workspace', workspaces.id, { required: true, cascadeDelete: true }),
-				buildTextField('name', 80),
-				buildTextField('slug', 64),
-				buildTextField('description', 500),
-				buildJsonField('permissions'),
-				buildBoolField('is_system'),
-				buildBoolField('active'),
-				users
-					? buildRelationField('created_by', users.id)
-					: buildTextField('created_by', 64),
-				buildAutodateField('created', { onCreate: true, onUpdate: false }),
-				buildAutodateField('updated', { onCreate: true, onUpdate: true }),
-			],
-			indexes: [
-				'CREATE UNIQUE INDEX `idx_workspace_roles_slug` ON `workspace_roles` (`workspace`, `slug`)',
-			],
+			fields: rolesFields,
+			indexes: [rolesIndex],
 		}).catch((error) => {
 			logger.warn('Failed creating workspace_roles', { message: error?.message });
 			return null;
 		});
 		if (roles) clearCollectionSchemaCache('workspace_roles');
+		return;
+	}
+
+	const missing = rolesFields.filter((field) => !hasField(roles, field.name));
+	const indexes = Array.isArray(roles.indexes) ? [...roles.indexes] : [];
+	if (!indexes.some((sql) => String(sql).includes('idx_workspace_roles_slug'))) {
+		if (await canAddWorkspaceRolesSlugUnique(pocketbaseClient)) {
+			indexes.push(rolesIndex);
+		}
+	}
+	const indexesChanged = JSON.stringify(indexes) !== JSON.stringify(roles.indexes || []);
+	if (missing.length || indexesChanged) {
+		logger.warn('Healing workspace_roles husk/incomplete schema', {
+			missing: missing.map((field) => field.name),
+			uniqueSlug: indexes.some((sql) => String(sql).includes('idx_workspace_roles_slug')),
+		});
+		await pocketbaseClient.collections.update(roles.id, {
+			fields: [...getFieldsArray(roles), ...missing],
+			indexes,
+			listRule: null,
+			viewRule: null,
+			createRule: null,
+			updateRule: null,
+			deleteRule: null,
+		});
+		clearCollectionSchemaCache('workspace_roles');
 	}
 }

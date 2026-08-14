@@ -101,6 +101,24 @@ export async function ensureBillingAutomationSchema(pocketbaseClient) {
 		}
 	}
 
+	const idemFields = [
+		{ ...buildTextField('idempotency_key', 180), required: true },
+		buildTextField('scope', 40),
+		buildTextField('workspace_key', 120),
+		buildTextField('provider', 40),
+		buildTextField('event_type', 120),
+		{ ...buildSelectField('status', ['processing', 'completed', 'failed']), required: true },
+		buildJsonField('payload'),
+		buildJsonField('result'),
+		buildDateField('processed_at'),
+		buildAutodateField('created', { onCreate: true, onUpdate: false }),
+		buildAutodateField('updated', { onCreate: true, onUpdate: true }),
+	];
+	const idemIndexes = [
+		'CREATE UNIQUE INDEX `idx_billing_idempotency_key` ON `billing_idempotency` (`idempotency_key`)',
+		'CREATE INDEX `idx_billing_idempotency_ws` ON `billing_idempotency` (`workspace_key`, `created`)',
+	];
+
 	let idem = await pocketbaseClient.collections.getOne('billing_idempotency').catch(() => null);
 	if (!idem) {
 		idem = await pocketbaseClient.collections.create({
@@ -111,26 +129,36 @@ export async function ensureBillingAutomationSchema(pocketbaseClient) {
 			createRule: null,
 			updateRule: null,
 			deleteRule: null,
-			fields: [
-				{ ...buildTextField('idempotency_key', 180), required: true },
-				buildTextField('scope', 40),
-				buildTextField('workspace_key', 120),
-				buildTextField('provider', 40),
-				buildTextField('event_type', 120),
-				buildSelectField('status', ['processing', 'completed', 'failed']),
-				buildJsonField('payload'),
-				buildJsonField('result'),
-				buildDateField('processed_at'),
-				buildAutodateField('created', { onCreate: true, onUpdate: false }),
-				buildAutodateField('updated', { onCreate: true, onUpdate: true }),
-			],
-			indexes: [
-				'CREATE UNIQUE INDEX `idx_billing_idempotency_key` ON `billing_idempotency` (`idempotency_key`)',
-			],
+			fields: idemFields,
+			indexes: idemIndexes,
 		}).catch((error) => {
 			logger.warn('billing_idempotency create skipped', { message: error?.message || String(error) });
 			return null;
 		});
+		if (idem) clearCollectionSchemaCache('billing_idempotency');
+	} else {
+		const missing = idemFields.filter((field) => !hasField(idem, field.name));
+		const indexes = Array.isArray(idem.indexes) ? [...idem.indexes] : [];
+		for (const sql of idemIndexes) {
+			const marker = sql.includes('_ws') ? 'idx_billing_idempotency_ws' : 'idx_billing_idempotency_key';
+			if (!indexes.some((item) => String(item).includes(marker))) indexes.push(sql);
+		}
+		const indexesChanged = JSON.stringify(indexes) !== JSON.stringify(idem.indexes || []);
+		if (missing.length || indexesChanged) {
+			logger.warn('Healing billing_idempotency husk/incomplete schema', {
+				missing: missing.map((field) => field.name),
+			});
+			idem = await pocketbaseClient.collections.update(idem.id, {
+				fields: [...getFieldsArray(idem), ...missing],
+				indexes,
+				listRule: null,
+				viewRule: null,
+				createRule: null,
+				updateRule: null,
+				deleteRule: null,
+			});
+			clearCollectionSchemaCache('billing_idempotency');
+		}
 	}
 
 	return { idempotencyReady: Boolean(idem) };

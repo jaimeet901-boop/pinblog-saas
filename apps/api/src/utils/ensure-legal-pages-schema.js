@@ -1,7 +1,16 @@
 import logger from './logger.js';
-import { clearCollectionSchemaCache } from './pocketbase-safe-query.js';
+import { clearCollectionSchemaCache, extractCollectionFieldNames } from './pocketbase-safe-query.js';
 
 const SLUGS = ['privacy', 'terms', 'cookies', 'disclaimer', 'refund'];
+
+const LEGAL_PAGES_STATUS_INDEX =
+	'CREATE INDEX `idx_legal_pages_status` ON `legal_pages` (`status`)';
+const LEGAL_PAGES_SLUG_UNIQUE =
+	'CREATE UNIQUE INDEX `idx_legal_pages_slug` ON `legal_pages` (`slug`)';
+const LEGAL_VERSIONS_PAGE_INDEX =
+	'CREATE INDEX `idx_legal_page_versions_page` ON `legal_page_versions` (`page`)';
+const LEGAL_VERSIONS_SLUG_VER_UNIQUE =
+	'CREATE UNIQUE INDEX `idx_legal_page_versions_slug_ver` ON `legal_page_versions` (`slug`, `version`)';
 
 let ensurePromise = null;
 
@@ -24,6 +33,30 @@ async function getCollectionOrNull(pocketbaseClient, name) {
 		}
 		throw error;
 	}
+}
+
+function getFieldsArray(model) {
+	if (Array.isArray(model?.fields)) return model.fields;
+	if (Array.isArray(model?.schema)) return model.schema;
+	return [];
+}
+
+function hasField(model, name) {
+	return extractCollectionFieldNames(model).has(name);
+}
+
+function collectionHasIndexMarker(collection, marker) {
+	const indexes = Array.isArray(collection?.indexes) ? collection.indexes : [];
+	return indexes.some((sql) => String(sql).includes(marker));
+}
+
+function withIndex(collection, indexSql, marker) {
+	if (collectionHasIndexMarker(collection, marker)) {
+		return Array.isArray(collection.indexes) ? collection.indexes : [];
+	}
+	const indexes = Array.isArray(collection.indexes) ? [...collection.indexes] : [];
+	if (!indexes.includes(indexSql)) indexes.push(indexSql);
+	return indexes;
 }
 
 function legalPagesFields() {
@@ -90,8 +123,128 @@ function legalPageVersionsFields(legalPagesCollectionId) {
 }
 
 /**
+ * UNIQUE slug gate — mirrors migration 1786600000.
+ * Skip UNIQUE when 2+ blank slug values would collide as "".
+ */
+async function canAddLegalPagesSlugUnique(pocketbaseClient) {
+	try {
+		const rows = await pocketbaseClient.collection('legal_pages').getFullList({
+			fields: 'id,slug',
+			requestKey: null,
+		});
+		if (!rows.length) return true;
+		const seen = new Set();
+		let blanks = 0;
+		for (const row of rows) {
+			const slug = String(row.slug || '').trim();
+			if (!slug) {
+				blanks += 1;
+				continue;
+			}
+			if (seen.has(slug)) return false;
+			seen.add(slug);
+		}
+		return blanks <= 1;
+	} catch {
+		// Collection unreadable / husk — treat as unsafe for UNIQUE until fields exist + recount
+		return false;
+	}
+}
+
+async function canAddLegalVersionsSlugVerUnique(pocketbaseClient) {
+	try {
+		const rows = await pocketbaseClient.collection('legal_page_versions').getFullList({
+			fields: 'id,slug,version',
+			requestKey: null,
+		});
+		if (!rows.length) return true;
+		const seen = new Set();
+		let blanks = 0;
+		for (const row of rows) {
+			const slug = String(row.slug || '').trim();
+			const version = row.version == null ? '' : String(row.version);
+			if (!slug && !version) {
+				blanks += 1;
+				continue;
+			}
+			const key = `${slug}::${version}`;
+			if (seen.has(key)) return false;
+			seen.add(key);
+		}
+		return blanks <= 1;
+	} catch {
+		return false;
+	}
+}
+
+async function healLegalPagesCollection(pocketbaseClient, pages) {
+	const expected = legalPagesFields();
+	const missing = expected.filter((field) => !hasField(pages, field.name));
+	let indexes = withIndex(pages, LEGAL_PAGES_STATUS_INDEX, 'idx_legal_pages_status');
+	const allowUnique = await canAddLegalPagesSlugUnique(pocketbaseClient);
+	if (allowUnique) {
+		indexes = (() => {
+			const next = { indexes };
+			const fake = { indexes: next.indexes };
+			return withIndex(fake, LEGAL_PAGES_SLUG_UNIQUE, 'idx_legal_pages_slug');
+		})();
+	}
+
+	const indexesChanged = JSON.stringify(indexes) !== JSON.stringify(pages.indexes || []);
+	if (!missing.length && !indexesChanged) return pages;
+
+	logger.warn('[legal-pages] healing husk/incomplete legal_pages schema', {
+		missing: missing.map((field) => field.name),
+		uniqueSlug: allowUnique,
+	});
+
+	const updated = await pocketbaseClient.collections.update(pages.id, {
+		fields: [...getFieldsArray(pages), ...missing],
+		indexes,
+		listRule: null,
+		viewRule: null,
+		createRule: null,
+		updateRule: null,
+		deleteRule: null,
+	});
+	clearCollectionSchemaCache('legal_pages');
+	return updated;
+}
+
+async function healLegalPageVersionsCollection(pocketbaseClient, versions, pagesId) {
+	const expected = legalPageVersionsFields(pagesId);
+	const missing = expected.filter((field) => !hasField(versions, field.name));
+	let indexes = withIndex(versions, LEGAL_VERSIONS_PAGE_INDEX, 'idx_legal_page_versions_page');
+	const allowUnique = await canAddLegalVersionsSlugVerUnique(pocketbaseClient);
+	if (allowUnique) {
+		const fake = { indexes };
+		indexes = withIndex(fake, LEGAL_VERSIONS_SLUG_VER_UNIQUE, 'idx_legal_page_versions_slug_ver');
+	}
+
+	const indexesChanged = JSON.stringify(indexes) !== JSON.stringify(versions.indexes || []);
+	if (!missing.length && !indexesChanged) return versions;
+
+	logger.warn('[legal-pages] healing husk/incomplete legal_page_versions schema', {
+		missing: missing.map((field) => field.name),
+		uniqueSlugVer: allowUnique,
+	});
+
+	const updated = await pocketbaseClient.collections.update(versions.id, {
+		fields: [...getFieldsArray(versions), ...missing],
+		indexes,
+		listRule: null,
+		viewRule: null,
+		createRule: null,
+		updateRule: null,
+		deleteRule: null,
+	});
+	clearCollectionSchemaCache('legal_page_versions');
+	return updated;
+}
+
+/**
  * Production may lag behind migrations. Self-heal legal CMS collections via
- * the PocketBase superuser collections API.
+ * the PocketBase superuser collections API (create if missing, heal husks).
  */
 export async function ensureLegalPagesSchema(pocketbaseClient) {
 	if (!ensurePromise) {
@@ -108,12 +261,16 @@ export async function ensureLegalPagesSchema(pocketbaseClient) {
 					updateRule: null,
 					deleteRule: null,
 					indexes: [
-						'CREATE UNIQUE INDEX `idx_legal_pages_slug` ON `legal_pages` (`slug`)',
-						'CREATE INDEX `idx_legal_pages_status` ON `legal_pages` (`status`)',
+						LEGAL_PAGES_STATUS_INDEX,
+						// UNIQUE deferred until rows are safe — status-only on create of empty collection is fine;
+						// empty collection can take UNIQUE immediately:
+						LEGAL_PAGES_SLUG_UNIQUE,
 					],
 					fields: legalPagesFields(),
 				});
 				logger.info('[legal-pages] legal_pages collection created', { id: pages.id });
+			} else {
+				pages = await healLegalPagesCollection(pocketbaseClient, pages);
 			}
 
 			let versions = await getCollectionOrNull(pocketbaseClient, 'legal_page_versions');
@@ -128,12 +285,14 @@ export async function ensureLegalPagesSchema(pocketbaseClient) {
 					updateRule: null,
 					deleteRule: null,
 					indexes: [
-						'CREATE INDEX `idx_legal_page_versions_page` ON `legal_page_versions` (`page`)',
-						'CREATE UNIQUE INDEX `idx_legal_page_versions_slug_ver` ON `legal_page_versions` (`slug`, `version`)',
+						LEGAL_VERSIONS_PAGE_INDEX,
+						LEGAL_VERSIONS_SLUG_VER_UNIQUE,
 					],
 					fields: legalPageVersionsFields(pages.id),
 				});
 				logger.info('[legal-pages] legal_page_versions collection created', { id: versions.id });
+			} else {
+				versions = await healLegalPageVersionsCollection(pocketbaseClient, versions, pages.id);
 			}
 
 			clearCollectionSchemaCache('legal_pages');

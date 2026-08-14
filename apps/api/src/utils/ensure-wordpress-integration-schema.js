@@ -183,9 +183,80 @@ export async function ensureWordpressIntegrationSchema(pocketbaseClient) {
 		});
 	}
 
+	// Phase 1 husk heal: wordpress_api_logs
+	const apiLogFields = [
+		buildRelationField('owner', users.id, { cascadeDelete: true }),
+		buildTextField('workspace_key', { max: 120 }),
+	];
+	if (sites) apiLogFields.push(buildRelationField('site', sites.id, { cascadeDelete: true }));
+	apiLogFields.push(
+		buildTextField('site_id', { max: 80 }),
+		buildTextField('job_id', { max: 80 }),
+		buildTextField('method', { max: 20 }),
+		buildTextField('path', { max: 1000 }),
+		buildNumberField('status_code'),
+		buildNumberField('duration_ms'),
+		buildBoolField('ok'),
+		buildTextField('error', { max: 4000 }),
+		buildJsonField('request_meta', 100000),
+		buildJsonField('response_meta', 200000),
+		buildAutodateField('created', { onCreate: true, onUpdate: false }),
+		buildAutodateField('updated', { onCreate: true, onUpdate: true }),
+	);
+	const apiLogIndexes = [
+		'CREATE INDEX `idx_wordpress_api_logs_owner` ON `wordpress_api_logs` (`owner`)',
+		'CREATE INDEX `idx_wordpress_api_logs_site` ON `wordpress_api_logs` (`site_id`)',
+		'CREATE INDEX `idx_wordpress_api_logs_created` ON `wordpress_api_logs` (`created`)',
+	];
+
+	let apiLogs = await pocketbaseClient.collections.getOne('wordpress_api_logs').catch(() => null);
+	if (!apiLogs) {
+		apiLogs = await pocketbaseClient.collections.create({
+			name: 'wordpress_api_logs',
+			type: 'base',
+			listRule: null,
+			viewRule: null,
+			createRule: null,
+			updateRule: null,
+			deleteRule: null,
+			fields: apiLogFields,
+			indexes: apiLogIndexes,
+		}).catch((error) => {
+			logger.warn('wordpress_api_logs create skipped', { message: error?.message || String(error) });
+			return null;
+		});
+		if (apiLogs) clearCollectionSchemaCache('wordpress_api_logs');
+	} else {
+		const missing = apiLogFields.filter((field) => !hasField(apiLogs, field.name));
+		const indexes = Array.isArray(apiLogs.indexes) ? [...apiLogs.indexes] : [];
+		for (const sql of apiLogIndexes) {
+			let marker = 'idx_wordpress_api_logs_created';
+			if (sql.includes('_owner')) marker = 'idx_wordpress_api_logs_owner';
+			else if (sql.includes('site_id')) marker = 'idx_wordpress_api_logs_site';
+			if (!indexes.some((item) => String(item).includes(marker))) indexes.push(sql);
+		}
+		const indexesChanged = JSON.stringify(indexes) !== JSON.stringify(apiLogs.indexes || []);
+		if (missing.length || indexesChanged) {
+			logger.warn('Healing wordpress_api_logs husk/incomplete schema', {
+				missing: missing.map((field) => field.name),
+			});
+			await pocketbaseClient.collections.update(apiLogs.id, {
+				fields: [...getFieldsArray(apiLogs), ...missing],
+				indexes,
+				listRule: null,
+				viewRule: null,
+				createRule: null,
+				updateRule: null,
+				deleteRule: null,
+			});
+			clearCollectionSchemaCache('wordpress_api_logs');
+		}
+	}
+
 	return {
 		sitesReady: Boolean(sites),
 		articlesReady: Boolean(articles),
 		syncRunsId: syncRuns?.id || '',
+		apiLogsReady: Boolean(apiLogs),
 	};
 }

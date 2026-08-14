@@ -16,6 +16,7 @@ const ensureLoaders = {
 	ensureWorkspaceEnterpriseSchema: () => import('./ensure-workspace-enterprise-schema.js'),
 	ensureWorkspaceOwnershipSchema: () => import('./ensure-workspace-ownership-schema.js'),
 	ensureWebsiteLifecycleSchema: () => import('./ensure-website-lifecycle-schema.js'),
+	ensureNotificationTemplatesSchema: () => import('./ensure-notification-templates-schema.js'),
 };
 
 /**

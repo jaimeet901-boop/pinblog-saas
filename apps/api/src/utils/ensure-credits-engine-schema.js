@@ -89,6 +89,26 @@ export async function ensureCreditsEngineSchema(pocketbaseClient) {
 		buildTextField('billing_status', 40),
 	]);
 
+	const reservationFields = [
+		{ ...buildTextField('workspace_key', 120), required: true },
+		buildTextField('workspace_name', 200),
+		{ ...buildNumberField('amount'), required: true },
+		buildTextField('feature', 80),
+		{ ...buildSelectField('status', ['reserved', 'committed', 'released', 'expired']), required: true },
+		buildTextField('reason', 500),
+		buildTextField('reference_id', 120),
+		buildTextField('idempotency_key', 120),
+		buildDateField('expires_at'),
+		buildJsonField('metadata'),
+		buildTextField('created_by_user', 64),
+		buildAutodateField('created', { onCreate: true, onUpdate: false }),
+		buildAutodateField('updated', { onCreate: true, onUpdate: true }),
+	];
+	const reservationIndexes = [
+		'CREATE INDEX `idx_credit_reservations_ws` ON `credit_reservations` (`workspace_key`, `status`)',
+		'CREATE UNIQUE INDEX `idx_credit_reservations_idem` ON `credit_reservations` (`idempotency_key`)',
+	];
+
 	let reservations = await pocketbaseClient.collections.getOne('credit_reservations').catch(() => null);
 	if (!reservations) {
 		reservations = await pocketbaseClient.collections.create({
@@ -99,28 +119,36 @@ export async function ensureCreditsEngineSchema(pocketbaseClient) {
 			createRule: null,
 			updateRule: null,
 			deleteRule: null,
-			fields: [
-				{ ...buildTextField('workspace_key', 120), required: true },
-				buildTextField('workspace_name', 200),
-				{ ...buildNumberField('amount'), required: true },
-				buildTextField('feature', 80),
-				buildSelectField('status', ['reserved', 'committed', 'released', 'expired']),
-				buildTextField('reason', 500),
-				buildTextField('reference_id', 120),
-				buildTextField('idempotency_key', 120),
-				buildDateField('expires_at'),
-				buildJsonField('metadata'),
-				buildTextField('created_by_user', 64),
-				buildAutodateField('created', { onCreate: true, onUpdate: false }),
-				buildAutodateField('updated', { onCreate: true, onUpdate: true }),
-			],
-			indexes: [
-				'CREATE INDEX `idx_credit_reservations_ws` ON `credit_reservations` (`workspace_key`, `status`)',
-			],
+			fields: reservationFields,
+			indexes: reservationIndexes,
 		}).catch((error) => {
 			logger.warn('credit_reservations create skipped', { message: error?.message || String(error) });
 			return null;
 		});
+		if (reservations) clearCollectionSchemaCache('credit_reservations');
+	} else {
+		const missing = reservationFields.filter((field) => !hasField(reservations, field.name));
+		const indexes = Array.isArray(reservations.indexes) ? [...reservations.indexes] : [];
+		for (const sql of reservationIndexes) {
+			const marker = sql.includes('_idem') ? 'idx_credit_reservations_idem' : 'idx_credit_reservations_ws';
+			if (!indexes.some((item) => String(item).includes(marker))) indexes.push(sql);
+		}
+		const indexesChanged = JSON.stringify(indexes) !== JSON.stringify(reservations.indexes || []);
+		if (missing.length || indexesChanged) {
+			logger.warn('Healing credit_reservations husk/incomplete schema', {
+				missing: missing.map((field) => field.name),
+			});
+			reservations = await pocketbaseClient.collections.update(reservations.id, {
+				fields: [...getFieldsArray(reservations), ...missing],
+				indexes,
+				listRule: null,
+				viewRule: null,
+				createRule: null,
+				updateRule: null,
+				deleteRule: null,
+			});
+			clearCollectionSchemaCache('credit_reservations');
+		}
 	}
 
 	let billingEvents = await pocketbaseClient.collections.getOne('billing_events').catch(() => null);
