@@ -1,9 +1,11 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
+import { buildPinterestHistoryCreatePayload } from './pinterest-workspace-isolation.js';
 
 export async function writePinterestPublishHistory({
 	owner,
 	accountId,
 	jobId,
+	workspaceId,
 	workspaceKey,
 	title,
 	boardId,
@@ -16,24 +18,27 @@ export async function writePinterestPublishHistory({
 	attemptCount,
 	error,
 	meta = {},
-}) {
-	return pocketbaseClient.collection('pinterest_publish_history').create({
+}, deps = {}) {
+	const client = deps.pocketbaseClient || pocketbaseClient;
+	const payload = buildPinterestHistoryCreatePayload({
 		owner,
-		account: accountId || undefined,
-		job: jobId || undefined,
-		workspace_key: workspaceKey || String(owner || ''),
-		title: title || '',
-		board_id: boardId || '',
-		board_name: boardName || '',
-		result: result || 'published',
-		pinterest_pin_id: pinterestPinId || '',
-		pinterest_pin_url: pinterestPinUrl || '',
-		published_at: publishedAt || new Date().toISOString(),
-		duration_ms: Number(durationMs) || 0,
-		attempt_count: Number(attemptCount) || 0,
-		error: error || '',
+		accountId,
+		jobId,
+		workspaceId,
+		workspaceKey,
+		title,
+		boardId,
+		boardName,
+		result,
+		pinterestPinId,
+		pinterestPinUrl,
+		publishedAt,
+		durationMs,
+		attemptCount,
+		error,
 		meta,
-	}).catch(() => null);
+	});
+	return client.collection('pinterest_publish_history').create(payload).catch(() => null);
 }
 
 export function mapPinterestHistory(row) {

@@ -15,6 +15,11 @@ import {
 } from './pinterest-app-credentials.js';
 import { DEFAULT_SCOPES, analyzeGrantedScopes, mergeRequiredScopes } from './pinterest-scopes.js';
 import { ensureUserWorkspace } from './workspace-context.js';
+import {
+	assertPinterestAccountWorkspaceBound,
+	buildPinterestBoardSyncFilterParams,
+	buildPinterestSyncedBoardPayload,
+} from './pinterest-workspace-isolation.js';
 import logger from '../utils/logger.js';
 import {
 	buildPinterestOAuthRedirectUrl,
@@ -759,25 +764,38 @@ function extractBoardThumbnail(board) {
 	return '';
 }
 
-export async function syncPinterestBoardsForOwner({ owner, account }) {
+export async function syncPinterestBoardsForOwner({ owner, account }, deps = {}) {
+	const workspaceId = assertPinterestAccountWorkspaceBound({ owner, account });
+	const ensureValid = deps.ensureValidPinterestAccessToken || ensureValidPinterestAccessToken;
+	const fetchBoards = deps.fetchPinterestBoards || fetchPinterestBoards;
+	const client = deps.pocketbaseClient || pocketbaseClient;
+	const markStatus = deps.markPinterestAccountStatus || markPinterestAccountStatus;
 	let accessToken = '';
 	let boards = [];
 
 	try {
-		({ accessToken } = await ensureValidPinterestAccessToken({ account }));
-		boards = await fetchPinterestBoards({ accessToken });
+		({ accessToken } = await ensureValid({ account }));
+		boards = await fetchBoards({ accessToken });
 	} catch (error) {
 		const normalized = normalizePinterestError(error);
 		if (normalized.status === 401) {
-			await markPinterestAccountStatus({ accountId: account.id, status: 'expired', statusError: normalized.message });
+			await markStatus({ accountId: account.id, status: 'expired', statusError: normalized.message });
 		} else {
-			await markPinterestAccountStatus({ accountId: account.id, status: 'error', statusError: normalized.message });
+			await markStatus({ accountId: account.id, status: 'error', statusError: normalized.message });
 		}
 		throw normalized;
 	}
 
-	const existingBoards = await pocketbaseClient.collection('pinterest_boards').getFullList({
-		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
+	const filterParams = buildPinterestBoardSyncFilterParams({
+		owner,
+		workspaceId,
+		accountId: account.id,
+	});
+	const existingBoards = await client.collection('pinterest_boards').getFullList({
+		filter: client.filter(
+			'owner = {:owner} && workspace = {:workspace} && account = {:account}',
+			filterParams,
+		),
 	});
 
 	const existingByBoardId = new Map(existingBoards.map((item) => [item.board_id, item]));
@@ -790,47 +808,46 @@ export async function syncPinterestBoardsForOwner({ owner, account }) {
 		}
 		incomingIds.add(boardId);
 
-		const payload = {
+		const payload = buildPinterestSyncedBoardPayload({
 			owner,
-			account: account.id,
-			account_label: account.label || account.account_name || account.username || '',
-			account_username: account.username || '',
-			board_id: boardId,
-			name: String(board.name || '').trim() || 'Untitled board',
-			thumbnail_url: extractBoardThumbnail(board),
-			description: String(board.description || '').trim(),
-			privacy: String(board.privacy || '').trim(),
-		};
+			workspaceId,
+			account,
+			board,
+			thumbnailUrl: extractBoardThumbnail(board),
+		});
 
 		const existing = existingByBoardId.get(boardId);
 		if (existing) {
-			await pocketbaseClient.collection('pinterest_boards').update(existing.id, payload);
+			await client.collection('pinterest_boards').update(existing.id, payload);
 		} else {
-			await pocketbaseClient.collection('pinterest_boards').create(payload);
+			await client.collection('pinterest_boards').create(payload);
 		}
 	}
 
 	for (const existing of existingBoards) {
 		if (!incomingIds.has(existing.board_id)) {
-			await pocketbaseClient.collection('pinterest_boards').delete(existing.id).catch(() => {});
+			await client.collection('pinterest_boards').delete(existing.id).catch(() => {});
 		}
 	}
 
-	await pocketbaseClient.collection('pinterest_accounts').update(account.id, {
+	await client.collection('pinterest_accounts').update(account.id, {
 		last_sync_at: new Date().toISOString(),
 		status: 'connected',
 		status_error: '',
 	});
 
-	const refreshedBoards = await pocketbaseClient.collection('pinterest_boards').getFullList({
+	const refreshedBoards = await client.collection('pinterest_boards').getFullList({
 		sort: 'name',
-		filter: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id }),
+		filter: client.filter(
+			'owner = {:owner} && workspace = {:workspace} && account = {:account}',
+			filterParams,
+		),
 	});
 
 	// Ensure every account has exactly one default board when boards exist.
 	const hasDefaultBoard = refreshedBoards.some((board) => board.is_default);
 	if (!hasDefaultBoard && refreshedBoards.length > 0) {
-		await pocketbaseClient.collection('pinterest_boards').update(refreshedBoards[0].id, {
+		await client.collection('pinterest_boards').update(refreshedBoards[0].id, {
 			is_default: true,
 		}).catch(() => null);
 		refreshedBoards[0].is_default = true;

@@ -21,6 +21,7 @@ import {
 	verifyCollectionFields,
 } from '../utils/pocketbase-safe-query.js';
 import { writePinterestPublishHistory } from './pinterest-publish-history.js';
+import { assertPinterestQueueWorkspaceIsolation } from './pinterest-workspace-isolation.js';
 import { writeQueueAudit } from './audit/write.js';
 import { promoteWaitingProviderPinterestJobs } from './publish-pipeline.js';
 import { notifyWorkspaceUser, logWorkflowStep } from './workspace-notify.js';
@@ -154,9 +155,30 @@ async function processJob(job) {
 	const startedMs = Date.now();
 
 	const pin = await pocketbaseClient.collection('ai_pins').getOne(job.ai_pin).catch(() => null);
-	if (!pin || pin.owner !== owner) {
-		throw httpError(404, 'Associated AI pin was not found');
-	}
+	const accountId = typeof job.account === 'object'
+		? String(job.account?.id || '').trim()
+		: String(job.account || '').trim();
+	const account = await getOwnedPinterestAccountById({ owner, accountId });
+	const board = account
+		? await pocketbaseClient.collection('pinterest_boards').getFirstListItem(
+			pocketbaseClient.filter(
+				'owner = {:owner} && workspace = {:workspace} && account = {:account} && board_id = {:boardId}',
+				{
+					owner,
+					workspace: String(job.workspace || '').trim(),
+					account: account.id,
+					boardId: job.board_id,
+				},
+			),
+		).catch(() => null)
+		: null;
+
+	const { workspaceId } = assertPinterestQueueWorkspaceIsolation({
+		job,
+		pin,
+		account,
+		board,
+	});
 
 	// Idempotency: if this job (or pin) already has a Pinterest pin id, mark published and skip create.
 	const existingPinId = String(job.pinterest_pin_id || pin.pinterest_pin_id || '').trim();
@@ -204,6 +226,7 @@ async function processJob(job) {
 			owner,
 			accountId: job.account,
 			jobId: job.id,
+			workspaceId,
 			title: pin.title || 'Pin',
 			boardId: job.board_id,
 			boardName: job.board_name,
@@ -216,14 +239,6 @@ async function processJob(job) {
 			meta: { idempotent: true },
 		});
 		return;
-	}
-
-	const accountId = typeof job.account === 'object'
-		? String(job.account?.id || '').trim()
-		: String(job.account || '').trim();
-	const account = await getOwnedPinterestAccountById({ owner, accountId });
-	if (!account?.connected) {
-		throw httpError(422, 'Pinterest account is not connected');
 	}
 
 	const imageUrl = extractPinImageUrl(pin);
@@ -406,6 +421,7 @@ async function processJob(job) {
 		owner,
 		accountId: job.account,
 		jobId: job.id,
+		workspaceId,
 		title: pin.title || 'Pin',
 		boardId: job.board_id,
 		boardName: job.board_name,
@@ -644,6 +660,7 @@ async function processDueJobs() {
 						owner: locked.owner,
 						accountId: locked.account,
 						jobId: locked.id,
+						workspaceId: locked.workspace || '',
 						title: '',
 						boardId: locked.board_id,
 						boardName: locked.board_name,

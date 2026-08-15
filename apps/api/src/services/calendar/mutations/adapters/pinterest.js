@@ -25,7 +25,11 @@ async function assertOwnedJob(deps, req, jobId) {
 		throw freezeError(404, 'Scheduled job not found', 'NOT_FOUND');
 	}
 	if (job.owner !== owner) {
-		throw freezeError(403, 'You do not have access to this scheduled job', 'FORBIDDEN');
+		throw freezeError(404, 'Scheduled job not found', 'NOT_FOUND');
+	}
+	const workspaceId = String(req?.workspace?.id || '').trim();
+	if (!workspaceId || String(job.workspace || '') !== workspaceId) {
+		throw freezeError(404, 'Scheduled job not found', 'NOT_FOUND');
 	}
 	return { job, owner };
 }

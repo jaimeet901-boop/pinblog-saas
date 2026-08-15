@@ -51,11 +51,51 @@ import {
 	getWorkspaceActor,
 	andWorkspaceScope,
 	recordBelongsToWorkspace,
-	stampCreateOwnership,
 } from '../services/workspace-ownership.js';
+import {
+	assertPinterestJobRelationConsistency,
+	assertPinterestStrictWorkspaceRecord,
+	requirePinterestWorkspaceId,
+	stampPinterestJobCreatePayload,
+} from '../services/pinterest-workspace-isolation.js';
 
 function workspaceOwner(req) {
 	return getWorkspaceActor(req).workspaceOwnerId || req.pocketbaseUserId;
+}
+
+function requireWorkspaceId(req) {
+	return requirePinterestWorkspaceId(getWorkspaceActor(req).workspaceId);
+}
+
+function assertStrictWorkspaceRecord(record, req, notFoundMessage) {
+	return assertPinterestStrictWorkspaceRecord(
+		record,
+		{ workspaceId: getWorkspaceActor(req).workspaceId, ownerId: workspaceOwner(req) },
+		notFoundMessage,
+	);
+}
+
+async function assertStrictJobRelations(job, req) {
+	const owner = workspaceOwner(req);
+	const pin = assertStrictWorkspaceRecord(
+		await pocketbaseClient.collection('ai_pins').getOne(job.ai_pin).catch(() => null),
+		req,
+		'Scheduled job not found',
+	);
+	const account = assertStrictWorkspaceRecord(
+		await getOwnedPinterestAccountById({ owner, accountId: job.account, req }),
+		req,
+		'Scheduled job not found',
+	);
+	const board = assertStrictWorkspaceRecord(
+		await getOwnedPinterestBoard({ owner, boardId: job.board_id, accountId: account.id, req }).catch(() => null),
+		req,
+		'Scheduled job not found',
+	);
+	return assertPinterestJobRelationConsistency(
+		{ job, pin, account, board },
+		'Scheduled job not found',
+	);
 }
 const router = Router();
 const DEFAULT_PAGE = 1;
@@ -229,6 +269,7 @@ async function assertPinterestConnected(owner, accountId = '', req = null) {
 }
 
 async function resolveTargetForPin({ owner, pin, defaultTarget, perPinTargets, req = null }) {
+	requireWorkspaceId(req);
 	const override = perPinTargets?.[pin.id] || {};
 	const targetBoardId = normalizeString(override.boardId || defaultTarget.boardId || '', 'boardId', { required: true, max: 120 });
 	const requestedAccountId = normalizeString(override.accountId || defaultTarget.accountId || '', 'accountId', { max: 80 });
@@ -243,6 +284,8 @@ async function resolveTargetForPin({ owner, pin, defaultTarget, perPinTargets, r
 		board = await getOwnedPinterestBoard({ owner, boardId: targetBoardId, req });
 		account = await assertPinterestConnected(owner, board.account, req);
 	}
+	assertStrictWorkspaceRecord(account, req, 'Pinterest account not found');
+	assertStrictWorkspaceRecord(board, req, 'Pinterest board not found');
 
 	return {
 		account,
@@ -251,6 +294,7 @@ async function resolveTargetForPin({ owner, pin, defaultTarget, perPinTargets, r
 }
 
 async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, scheduledAt, timezone, req = null }) {
+	requireWorkspaceId(req);
 	await ensureAiPinsPublishFields(pocketbaseClient);
 
 	const pins = await getOwnedAIPins({ owner, pinIds, req });
@@ -326,11 +370,15 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 	const jobs = [];
 
 	for (const { pin, account, board, destinationUrl } of prepared) {
+		const actor = getWorkspaceActor(req);
 		const createPayload = await sanitizeCollectionPayload({
 			collection: 'pinterest_publish_jobs',
 			context: 'pinterest:create-publish-job',
-			payload: stampCreateOwnership(req || { pocketbaseUserId: owner }, {
-				owner,
+			payload: stampPinterestJobCreatePayload({
+				workspaceId: actor.workspaceId,
+				ownerId: actor.workspaceOwnerId || owner,
+				creatorId: actor.creatorId || req.pocketbaseUserId,
+			}, {
 				account: account.id,
 				account_label: account.label || account.account_name || account.username || '',
 				account_username: account.username || '',
@@ -403,7 +451,7 @@ async function createPublishJobs({ owner, pinIds, defaultTarget, perPinTargets, 
 }
 
 setPublishProvider(new PinterestPublishProvider({
-	createJobs: async ({ mode, owner, pinIds, pins, defaultTarget, perPinTargets, scheduledAt, timezone }) => {
+	createJobs: async ({ mode, owner, pinIds, pins, defaultTarget, perPinTargets, scheduledAt, timezone, req }) => {
 		const jobs = await createPublishJobs({
 			owner,
 			pinIds: pinIds || pins,
@@ -411,6 +459,7 @@ setPublishProvider(new PinterestPublishProvider({
 			perPinTargets,
 			scheduledAt,
 			timezone,
+			req,
 		});
 		return {
 			provider: 'pinterest',
@@ -906,7 +955,7 @@ async function disconnectOwnedAccount({ owner, account, req = null }) {
 		const remaining = await getOwnedPinterestAccounts(owner, req);
 		const next = remaining.find((item) => item.connected && item.status === 'connected') || remaining[0];
 		if (next) {
-			await setDefaultPinterestAccount({ owner, accountId: next.id }).catch(() => null);
+			await setDefaultPinterestAccount({ owner, accountId: next.id, req }).catch(() => null);
 		}
 	}
 }
@@ -947,7 +996,7 @@ router.get('/boards', async (req, res) => {
 
 	if (!accountId) {
 		if (forceSync) {
-			const accounts = await getOwnedPinterestAccounts(owner);
+			const accounts = await getOwnedPinterestAccounts(owner, req);
 			const connectedAccounts = accounts.filter((account) => account.connected && account.status === 'connected');
 			for (const account of connectedAccounts) {
 				await syncPinterestBoardsForOwner({ owner, account });
@@ -1027,6 +1076,7 @@ router.post('/publish', async (req, res) => {
 		scheduledAt,
 		timezone,
 		mode: 'publish',
+		req,
 	});
 	res.status(201).json({ jobs: result.jobs || [] });
 });
@@ -1061,19 +1111,19 @@ router.post('/schedule', async (req, res) => {
 		scheduledAt,
 		timezone,
 		mode: 'schedule',
+		req,
 	});
 	res.status(201).json({ jobs: result.jobs || [] });
 });
 
 router.patch('/jobs/:jobId', async (req, res) => {
 	const owner = workspaceOwner(req);
-	const job = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null);
-	if (!job) {
-		throw httpError(404, 'Scheduled job not found');
-	}
-	if (job.owner !== owner) {
-		throw httpError(403, 'You do not have access to this scheduled job');
-	}
+	const job = assertStrictWorkspaceRecord(
+		await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null),
+		req,
+		'Scheduled job not found',
+	);
+	await assertStrictJobRelations(job, req);
 	if (job.status !== 'scheduled') {
 		throw httpError(422, 'Only scheduled jobs can be edited');
 	}
@@ -1098,16 +1148,18 @@ router.patch('/jobs/:jobId', async (req, res) => {
 	}
 
 	if ('accountId' in body || 'boardId' in body) {
-		const account = await assertPinterestConnected(owner, nextAccountId);
+		const account = await assertPinterestConnected(owner, nextAccountId, req);
 		let board;
 		if ('boardId' in body && nextBoardId) {
-			board = await getOwnedPinterestBoard({ owner, boardId: nextBoardId, accountId: account.id });
+			board = await getOwnedPinterestBoard({ owner, boardId: nextBoardId, accountId: account.id, req });
 		} else {
-			board = await getDefaultPinterestBoard({ owner, accountId: account.id });
+			board = await getDefaultPinterestBoard({ owner, accountId: account.id, req });
 			if (!board) {
 				throw httpError(422, 'Selected account has no boards. Sync boards first.');
 			}
 		}
+		assertStrictWorkspaceRecord(account, req, 'Pinterest account not found');
+		assertStrictWorkspaceRecord(board, req, 'Pinterest board not found');
 
 		updates.account = account.id;
 		updates.account_label = account.label || account.account_name || account.username || '';
@@ -1154,13 +1206,12 @@ router.patch('/jobs/:jobId', async (req, res) => {
 
 router.post('/jobs/:jobId/cancel', async (req, res) => {
 	const owner = workspaceOwner(req);
-	const job = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null);
-	if (!job) {
-		throw httpError(404, 'Scheduled job not found');
-	}
-	if (job.owner !== owner) {
-		throw httpError(403, 'You do not have access to this scheduled job');
-	}
+	const job = assertStrictWorkspaceRecord(
+		await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null),
+		req,
+		'Scheduled job not found',
+	);
+	await assertStrictJobRelations(job, req);
 	if (!['scheduled', 'failed'].includes(job.status)) {
 		throw httpError(422, 'Only scheduled or failed jobs can be cancelled');
 	}
@@ -1202,18 +1253,18 @@ router.post('/jobs/:jobId/cancel', async (req, res) => {
 router.post('/jobs/:jobId/retry', async (req, res) => {
 	const owner = workspaceOwner(req);
 
-	const job = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null);
-	if (!job) {
-		throw httpError(404, 'Job not found');
-	}
-	if (job.owner !== owner) {
-		throw httpError(403, 'You do not have access to this job');
-	}
+	const job = assertStrictWorkspaceRecord(
+		await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null),
+		req,
+		'Job not found',
+	);
+	await assertStrictJobRelations(job, req);
 	if (job.status !== 'failed') {
 		throw httpError(422, 'Only failed jobs can be retried manually');
 	}
 
-	await assertPinterestConnected(owner, job.account);
+	const account = await assertPinterestConnected(owner, job.account, req);
+	assertStrictWorkspaceRecord(account, req, 'Pinterest account not found');
 
 	const now = new Date().toISOString();
 	const retryPayload = await sanitizeCollectionPayload({
@@ -1357,13 +1408,14 @@ router.get('/history', async (req, res) => {
 
 router.post('/jobs/:jobId/publish-now', async (req, res) => {
 	const owner = workspaceOwner(req);
-	const job = await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null);
-	if (!job) {
-		throw httpError(404, 'Scheduled job not found');
-	}
-	if (job.owner !== owner) {
-		throw httpError(403, 'You do not have access to this scheduled job');
-	}
+	const job = assertStrictWorkspaceRecord(
+		await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null),
+		req,
+		'Scheduled job not found',
+	);
+	await assertStrictJobRelations(job, req);
+	const account = await assertPinterestConnected(owner, job.account, req);
+	assertStrictWorkspaceRecord(account, req, 'Pinterest account not found');
 	if (!['scheduled', 'failed'].includes(job.status)) {
 		throw httpError(422, 'Only scheduled or failed jobs can be published now');
 	}
