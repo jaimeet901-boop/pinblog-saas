@@ -111,22 +111,32 @@ export default function SignupPage() {
 		}
 	};
 
-	const buildInlineErrors = () => {
+	const buildInlineErrors = (values) => {
 		const next = { ...EMPTY_ERRORS };
-		if (!String(form.name || '').trim()) next.name = 'Full name is required.';
-		if (!isValidEmail(form.email)) next.email = 'Enter a valid email address.';
-		const passwordIssues = getPasswordIssues(form.password);
+		if (!String(values.name || '').trim()) next.name = 'Full name is required.';
+		if (!isValidEmail(values.email)) next.email = 'Enter a valid email address.';
+		const passwordIssues = getPasswordIssues(values.password);
 		if (passwordIssues.length > 0) next.password = passwordIssues[0];
-		if (String(form.password || '') !== String(form.confirmPassword || '')) {
+		if (String(values.password || '') !== String(values.confirmPassword || '')) {
 			next.confirmPassword = 'Passwords do not match.';
 		}
-		if (!form.acceptTerms) next.acceptTerms = 'Please accept the Terms to create your workspace.';
+		if (!values.acceptTerms) next.acceptTerms = 'Please accept the Terms to create your workspace.';
 		return next;
 	};
 
 	const submit = async (e) => {
 		e.preventDefault();
-		const nextErrors = buildInlineErrors();
+		const native = e.currentTarget;
+		const synced = {
+			...form,
+			password: String(native.elements.namedItem('password')?.value ?? ''),
+			confirmPassword: String(native.elements.namedItem('confirmPassword')?.value ?? ''),
+		};
+		if (synced.password !== form.password || synced.confirmPassword !== form.confirmPassword) {
+			setForm(synced);
+		}
+
+		const nextErrors = buildInlineErrors(synced);
 		const hasInline = Object.entries(nextErrors).some(([key, value]) => key !== 'form' && value);
 		if (hasInline) {
 			setFieldErrors(nextErrors);
@@ -136,10 +146,10 @@ export default function SignupPage() {
 		}
 
 		const validationErrors = validateSignupForm({
-			name: form.name,
-			email: form.email,
-			password: form.password,
-			confirmPassword: form.confirmPassword,
+			name: synced.name,
+			email: synced.email,
+			password: synced.password,
+			confirmPassword: synced.confirmPassword,
 		});
 		if (validationErrors.length > 0) {
 			setFieldErrors({ ...EMPTY_ERRORS, form: validationErrors[0] });
@@ -150,7 +160,7 @@ export default function SignupPage() {
 		setLoading(true);
 		setFieldErrors(EMPTY_ERRORS);
 		try {
-			await signup(form.name.trim(), form.email, form.password);
+			await signup(synced.name.trim(), synced.email, synced.password);
 			const inviteToken = searchParams.get('invite');
 			if (inviteToken) {
 				try {
@@ -243,6 +253,7 @@ export default function SignupPage() {
 						required
 						value={form.password}
 						onChange={set('password')}
+						onInput={set('password')}
 						placeholder="At least 10 characters"
 						error={fieldErrors.password}
 					/>
@@ -250,10 +261,11 @@ export default function SignupPage() {
 						label="Confirm Password"
 						type="password"
 						name="confirmPassword"
-						autoComplete="new-password"
+						autoComplete="off"
 						required
 						value={form.confirmPassword}
 						onChange={set('confirmPassword')}
+						onInput={set('confirmPassword')}
 						placeholder="Repeat your password"
 						error={fieldErrors.confirmPassword}
 					/>
