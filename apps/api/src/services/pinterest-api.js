@@ -19,6 +19,8 @@ import {
 	assertPinterestAccountWorkspaceBound,
 	buildPinterestBoardSyncFilterParams,
 	buildPinterestSyncedBoardPayload,
+	interpretPinterestOAuthStateConsumeResult,
+	rejectPinterestOAuthStateConsume,
 } from './pinterest-workspace-isolation.js';
 import logger from '../utils/logger.js';
 import {
@@ -521,6 +523,31 @@ export async function createPinterestOAuthState({ owner, accountId = '', request
 		workspaceId: resolvedWorkspaceId,
 		workspaceKey: resolvedWorkspaceKey,
 	};
+}
+
+const PINTEREST_OAUTH_STATE_CONSUME_PATH = '/api/pinterest/oauth-states/consume';
+
+/**
+ * F3: atomically consume an OAuth state (used false→true) BEFORE token exchange.
+ * Delegates to the PocketBase conditional UPDATE; never opens the SQLite file.
+ */
+export async function consumePinterestOAuthState(stateRecord) {
+	const id = String(stateRecord?.id || '').trim();
+	if (!id) {
+		rejectPinterestOAuthStateConsume();
+	}
+
+	let result;
+	try {
+		result = await pocketbaseClient.send(PINTEREST_OAUTH_STATE_CONSUME_PATH, {
+			method: 'POST',
+			body: { id },
+		});
+	} catch {
+		rejectPinterestOAuthStateConsume();
+	}
+
+	return interpretPinterestOAuthStateConsumeResult(result, id);
 }
 
 export async function exchangeOAuthCodeForTokens({ code, redirectUri }) {
