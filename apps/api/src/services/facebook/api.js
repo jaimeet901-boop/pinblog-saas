@@ -18,6 +18,17 @@ import {
 	hydrateFacebookAccountSecrets,
 	replaceFacebookAccountSecrets,
 } from './secrets.js';
+import {
+	bindFacebookOAuthAccountToStateWorkspace,
+	buildFacebookOAuthCallbackScope,
+	FACEBOOK_OAUTH_CALLBACK_FAILED_MESSAGE,
+	failClosedFacebookOAuthAccountWrite,
+	interpretFacebookOAuthStateConsumeResult,
+	rejectFacebookOAuthStateConsume,
+	requireFacebookOAuthReconnectAccount,
+	resolveFacebookOAuthCallbackWorkspace,
+	stampFacebookOAuthAccountWorkspace,
+} from './workspace-isolation.js';
 
 const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || 'v22.0';
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -258,6 +269,31 @@ export async function createFacebookOAuthState({
 		scopes,
 		responseType: 'code',
 	};
+}
+
+const FACEBOOK_OAUTH_STATE_CONSUME_PATH = '/api/facebook/oauth-states/consume';
+
+/**
+ * F3: atomically consume an OAuth state (used false→true) BEFORE Graph token exchange.
+ * Delegates to the PocketBase conditional UPDATE; never opens the SQLite file.
+ */
+export async function consumeFacebookOAuthState(stateRecord) {
+	const id = String(stateRecord?.id || '').trim();
+	if (!id) {
+		rejectFacebookOAuthStateConsume();
+	}
+
+	let result;
+	try {
+		result = await pocketbaseClient.send(FACEBOOK_OAUTH_STATE_CONSUME_PATH, {
+			method: 'POST',
+			body: { id },
+		});
+	} catch {
+		rejectFacebookOAuthStateConsume();
+	}
+
+	return interpretFacebookOAuthStateConsumeResult(result, id);
 }
 
 export async function exchangeFacebookCodeForTokens({ code, redirectUri }) {
@@ -571,13 +607,25 @@ export async function completeFacebookOAuthCallback({ code, state }) {
 	).catch(() => null);
 
 	if (!stateRecord) throw httpError(400, 'Invalid OAuth state');
-	if (stateRecord.used) throw httpError(400, 'OAuth state already used');
-	if (new Date(stateRecord.expires_at).getTime() < Date.now()) throw httpError(400, 'OAuth state expired');
+	if (stateRecord.used) rejectFacebookOAuthStateConsume();
+	if (new Date(stateRecord.expires_at).getTime() < Date.now()) rejectFacebookOAuthStateConsume();
 
-	await pocketbaseClient.collection('facebook_oauth_states').update(stateRecord.id, { used: true });
+	const { workspaceId, workspaceKey } = resolveFacebookOAuthCallbackWorkspace(stateRecord);
+	const oauthScope = buildFacebookOAuthCallbackScope({
+		workspaceId,
+		workspaceKey,
+		ownerId: stateRecord.owner,
+	});
+
+	await consumeFacebookOAuthState(stateRecord);
 
 	const redirectUri = await getFacebookRedirectUri();
-	const shortLived = await exchangeFacebookCodeForTokens({ code, redirectUri });
+	let shortLived;
+	try {
+		shortLived = await exchangeFacebookCodeForTokens({ code, redirectUri });
+	} catch {
+		throw httpError(400, FACEBOOK_OAUTH_CALLBACK_FAILED_MESSAGE, 'FACEBOOK_OAUTH_TOKEN_EXCHANGE_FAILED');
+	}
 	const longLived = await exchangeFacebookLongLivedToken(shortLived.access_token).catch(() => shortLived);
 	const accessToken = normalizeString(longLived.access_token || shortLived.access_token, 'access_token', { required: true, max: 4000 });
 	const expiresAt = longLived.expires_in || shortLived.expires_in
@@ -605,12 +653,23 @@ export async function completeFacebookOAuthCallback({ code, state }) {
 
 	const reconnectAccountId = normalizeString(stateRecord.account_id, 'account_id', { max: 80 });
 	const reconnectAccount = reconnectAccountId
-		? await getOwnedFacebookAccountById({ owner: stateRecord.owner, accountId: reconnectAccountId })
+		? requireFacebookOAuthReconnectAccount(
+			await getOwnedFacebookAccountById({
+				owner: stateRecord.owner,
+				accountId: reconnectAccountId,
+				req: oauthScope,
+			}),
+			{ workspaceId, ownerId: stateRecord.owner },
+		)
 		: null;
-	const existingByUser = await getOwnedFacebookAccountByFacebookUserId({
-		owner: stateRecord.owner,
-		facebookUserId,
-	});
+	const existingByUser = bindFacebookOAuthAccountToStateWorkspace(
+		await getOwnedFacebookAccountByFacebookUserId({
+			owner: stateRecord.owner,
+			facebookUserId,
+			req: oauthScope,
+		}),
+		{ workspaceId, ownerId: stateRecord.owner },
+	);
 
 	if (existingByUser && !reconnectAccountId) {
 		throw httpError(409, 'This Facebook account is already connected. Use reconnect instead.');
@@ -619,20 +678,8 @@ export async function completeFacebookOAuthCallback({ code, state }) {
 		throw httpError(409, 'Another connected account already uses this Facebook profile.');
 	}
 
-	let workspaceId = normalizeString(stateRecord.workspace_id || '', 'workspace_id', { max: 80 });
-	let workspaceKey = normalizeString(stateRecord.workspace_key || '', 'workspace_key', { max: 120 });
-	if (!workspaceId || !workspaceKey) {
-		try {
-			const ctx = await ensureUserWorkspace(stateRecord.owner);
-			workspaceId = workspaceId || ctx.workspace?.id || '';
-			workspaceKey = workspaceKey || ctx.workspaceKey || ctx.workspace?.workspace_key || stateRecord.owner;
-		} catch {
-			workspaceKey = workspaceKey || stateRecord.owner;
-		}
-	}
-
 	const requestedLabel = normalizeString(stateRecord.requested_label, 'requested_label', { max: 255 });
-	const payload = {
+	const payload = stampFacebookOAuthAccountWorkspace({
 		owner: stateRecord.owner,
 		facebook_user_id: facebookUserId,
 		username: accountName,
@@ -645,21 +692,29 @@ export async function completeFacebookOAuthCallback({ code, state }) {
 		status_error: '',
 		connected_at: reconnectAccount?.connected_at || new Date().toISOString(),
 		label: requestedLabel || reconnectAccount?.label || existingByUser?.label || accountName || 'Facebook Account',
-		workspace_id: workspaceId,
-		workspace_key: workspaceKey,
 		oauth_app_id: String(credentials.appId || '').trim(),
-	};
-	if (workspaceId) payload.workspace = workspaceId;
+	}, { workspaceId, workspaceKey });
 
 	const target = reconnectAccount || existingByUser;
-	const accounts = await getOwnedFacebookAccounts(stateRecord.owner);
+	const accounts = await getOwnedFacebookAccounts(stateRecord.owner, oauthScope);
 	if (!target && accounts.every((item) => !item.is_default)) {
 		payload.is_default = true;
 	}
 
-	const saved = target
-		? await pocketbaseClient.collection('facebook_accounts').update(target.id, payload)
-		: await pocketbaseClient.collection('facebook_accounts').create(payload);
+	let saved;
+	try {
+		saved = target
+			? await pocketbaseClient.collection('facebook_accounts').update(target.id, payload)
+			: await pocketbaseClient.collection('facebook_accounts').create(payload);
+	} catch (error) {
+		logger.error('[facebook-oauth] account write failed; refusing unscoped retry', {
+			hasWorkspace: Boolean(payload.workspace),
+			hasWorkspaceId: Boolean(payload.workspace_id),
+			errStatus: error?.status,
+			errMessage: error?.message,
+		});
+		failClosedFacebookOAuthAccountWrite(payload);
+	}
 
 	await replaceFacebookAccountSecrets({
 		owner: stateRecord.owner,
@@ -668,6 +723,15 @@ export async function completeFacebookOAuthCallback({ code, state }) {
 		accessToken,
 		refreshToken: '',
 	});
+
+	const workspaceAccounts = await getOwnedFacebookAccounts(stateRecord.owner, oauthScope);
+	if (!workspaceAccounts.some((item) => item.is_default)) {
+		await setDefaultFacebookAccount({
+			owner: stateRecord.owner,
+			accountId: saved.id,
+			req: oauthScope,
+		}).catch(() => null);
+	}
 
 	let pagesSyncWarning = '';
 	try {
