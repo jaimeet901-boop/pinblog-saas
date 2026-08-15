@@ -8,8 +8,6 @@
 
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { getPlatformSettings, DEFAULT_PLATFORM_SETTINGS } from './platform-settings.js';
-import { listProviders } from './ai-providers.js';
-import { listModels } from './ai-models.js';
 import { getWorkspaceCredits } from './workspace-billing.js';
 import { listWorkspaceTemplates } from './workspace-templates.js';
 import { getSubscriptionPlan } from './workspace-context.js';
@@ -47,51 +45,6 @@ export {
 	withProvenance,
 	workspaceConfigEtag,
 };
-
-function mapPublicProvider(provider, workspaceId, updatedAt) {
-	return withProvenance({
-		id: provider.id,
-		code: provider.code,
-		name: provider.name,
-		badge: provider.badge,
-		status: provider.status,
-		enabled: Boolean(provider.enabled),
-		health: provider.health,
-		currentModel: provider.currentModel || provider.config?.defaultModel || '',
-		endpoint: provider.endpoint || provider.config?.baseUrl || '',
-		priority: provider.priority,
-		hasCredentials: Boolean(provider.config?.hasApiKey || provider.config?.hasSecretKey),
-		capabilityHints: Array.isArray(provider.models) ? provider.models.slice(0, 20) : [],
-	}, {
-		workspaceId,
-		source: 'platform',
-		version: String(getWorkspaceConfigPlatformVersion()),
-		updatedAt: provider.updated || updatedAt,
-	});
-}
-
-function mapPublicModel(model, workspaceId) {
-	return withProvenance({
-		id: model.id,
-		modelId: model.modelId,
-		name: model.displayName || model.name,
-		providerId: model.providerId,
-		providerCode: model.providerCode,
-		provider: model.provider,
-		capability: model.capability,
-		capabilities: model.capabilities || [],
-		enabled: Boolean(model.enabled) && model.status !== 'disabled' && model.status !== 'deprecated',
-		isDefault: Boolean(model.isDefault),
-		supportsVision: Boolean(model.supportsVision),
-		supportsStreaming: Boolean(model.supportsStreaming),
-		contextWindow: model.contextWindow || 0,
-	}, {
-		workspaceId,
-		source: 'platform',
-		version: String(getWorkspaceConfigPlatformVersion()),
-		updatedAt: model.updated || model.updatedAt,
-	});
-}
 
 async function listBrandKits(ownerId, workspaceId) {
 	const rows = await pocketbaseClient.collection('brand_kits').getFullList({
@@ -169,9 +122,7 @@ export async function buildWorkspaceConfig(req) {
 		settings.prompts = mergePromptSettings(defaultPrompts(), settings.prompts);
 	}
 
-	const [providersRaw, modelsRaw, credits, templatesResult, brandKits, plan, pinCredits] = await Promise.all([
-		listProviders().catch(() => []),
-		listModels({}).catch(() => ({ items: [] })),
+	const [credits, templatesResult, brandKits, plan, pinCredits] = await Promise.all([
 		getWorkspaceCredits(req).catch(() => ({
 			balance: 0,
 			quota: 0,
@@ -192,34 +143,6 @@ export async function buildWorkspaceConfig(req) {
 	]);
 
 	const version = String(getWorkspaceConfigPlatformVersion());
-
-	const providers = (Array.isArray(providersRaw) ? providersRaw : [])
-		.filter((item) => (
-			item
-			&& item.enabled
-			&& (item.config?.hasApiKey || item.config?.hasSecretKey)
-		))
-		.map((item) => mapPublicProvider(item, workspaceId, settingsMeta.updatedAt));
-
-	const models = (modelsRaw.items || modelsRaw || [])
-		.filter((item) => item && item.enabled !== false && item.status !== 'disabled')
-		.map((item) => mapPublicModel(item, workspaceId));
-
-	const textModels = models.filter((item) => item.capability === 'text' || !item.capability);
-	const imageModels = models.filter((item) => item.capability === 'image');
-
-	const textProviderCodes = new Set(textModels.map((item) => item.providerCode).filter(Boolean));
-	const imageProviderCodes = new Set(imageModels.map((item) => item.providerCode).filter(Boolean));
-
-	const textProviders = providers.filter((item) => (
-		textProviderCodes.size === 0 || textProviderCodes.has(item.code) || !imageProviderCodes.has(item.code)
-	));
-	const imageProviders = providers.filter((item) => (
-		imageProviderCodes.size === 0
-		|| imageProviderCodes.has(item.code)
-		|| String(item.code || '').toLowerCase().includes('fal')
-		|| String(item.code || '').toLowerCase() === 'gemini'
-	));
 
 	const templates = (templatesResult.items || []).map((item) => withProvenance({
 		id: item.id,
@@ -276,11 +199,18 @@ export async function buildWorkspaceConfig(req) {
 		source: settingsMeta.source === 'pocketbase' ? 'platform' : 'derived',
 		workspace_id: workspaceId,
 		featureFlags: buildFeatureFlags(settings, workspaceId, settingsMeta.updatedAt, version),
-		ai: withProvenance(settings.ai || DEFAULT_PLATFORM_SETTINGS.ai, {
+		ai: withProvenance({
+			available: true,
+		}, {
 			...stamp,
 			source: 'platform',
 		}),
-		images: withProvenance(settings.images || DEFAULT_PLATFORM_SETTINGS.images, {
+		images: withProvenance({
+			available: true,
+			imageSourceStrategy: settings.images?.imageSourceStrategy || 'ai_first',
+			estimateCreditsPerAiPin: Number(settings.images?.estimateCreditsPerAiPin) || 0,
+			watermark: Boolean(settings.images?.watermark),
+		}, {
 			...stamp,
 			source: 'platform',
 		}),
@@ -321,11 +251,6 @@ export async function buildWorkspaceConfig(req) {
 		typographyHints: withProvenance({
 			defaultLanguage: settings.general?.defaultLanguage || 'en',
 		}, { ...stamp, source: 'platform' }),
-		textProviders,
-		imageProviders,
-		models,
-		textModels,
-		imageModels,
 		credits: withProvenance({
 			balance: Number(credits.balance) || 0,
 			quota: Number(credits.quota) || 0,

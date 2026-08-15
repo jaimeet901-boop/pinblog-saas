@@ -128,7 +128,6 @@ describe('Pin Generation Module 7', () => {
 		const result = await runPinGenerationPipeline(
 			{
 				imageMode: 'generate_ai',
-				imageProvider: 'openai',
 				templateConfiguration: sampleDoc(),
 				format: 'png',
 				content: { title: 'AI' },

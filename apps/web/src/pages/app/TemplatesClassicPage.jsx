@@ -697,7 +697,7 @@ export default function TemplatesClassicPage() {
 								<div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
 									<p className="font-medium text-foreground">Dynamic variables</p>
 									<p className="mt-1">{TEMPLATE_VARIABLES.join(' • ')}</p>
-									<p className="mt-2">Featured Image mode renders locally (canvas) — no Gemini / Fal.</p>
+									<p className="mt-2">Featured Image mode renders locally in the canvas without AI image generation.</p>
 								</div>
 								<div className="grid grid-cols-2 gap-3">
 									<Input label="Canvas width" type="number" value={draftConfig.canvas.width} onChange={(e) => updatePath(['canvas', 'width'], Number(e.target.value))} />

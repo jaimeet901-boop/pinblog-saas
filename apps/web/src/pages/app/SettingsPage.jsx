@@ -565,7 +565,7 @@ export default function SettingsPage() {
 								{isSuperAdmin ? (
 									<div className="set-managed">
 										<strong>This workspace uses centrally managed AI services.</strong>
-										Platform API keys (OpenAI, Gemini, Fal.ai, SMTP, and provider secrets) are managed exclusively by the Super User Admin Panel.
+										AI services are managed by the platform and are not configured from this page.
 										<span className="mt-2 block text-muted-foreground">This setting is managed by the platform administrator.</span>
 									</div>
 								) : null}
@@ -1042,7 +1042,7 @@ export default function SettingsPage() {
 								{isSuperAdmin ? (
 									<div className="set-managed">
 										<strong>This workspace uses centrally managed AI services.</strong>
-										OpenAI, Gemini, Claude, Fal.ai, SMTP, email provider keys, and Pinterest access tokens are not configurable here.
+										AI services are managed by the platform and are not configurable here.
 										<span className="mt-2 block text-muted-foreground">This setting is managed by the platform administrator.</span>
 									</div>
 								) : null}

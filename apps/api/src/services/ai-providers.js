@@ -377,6 +377,14 @@ export async function resolveConfiguredImageProvider(providerCode = '', options 
 	throw error;
 }
 
+/**
+ * Workspace users never select image routing. Resolve the current Admin default
+ * from the platform registry for every image job execution.
+ */
+export async function resolveAdminConfiguredImageProvider() {
+	return resolveConfiguredImageProvider('', { allowWorkspaceDefault: true });
+}
+
 /** Backend gate for AI image jobs (Fal / OpenAI Images / Gemini Image). */
 export async function assertImageProviderConfigured(providerCode = '') {
 	const hasExplicit = Boolean(String(providerCode || '').trim());

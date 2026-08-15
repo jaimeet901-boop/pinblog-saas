@@ -4,6 +4,7 @@ import logger from '../utils/logger.js';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { getPublicFileUrl } from '../utils/public-file-url.js';
 import { streamTextWithRegistry } from '../services/text-providers/index.js';
+import { userSafeTextError } from '../services/ai-user-safe-errors.js';
 
 const MessageRole = Object.freeze({
 	User: 'user',
@@ -287,7 +288,6 @@ export async function stream({
 	(async () => {
 		/** @type {SSEEventHistory[]} */
 		const contentEvents = [];
-		let providerLabel = 'text-provider';
 		let firstTokenAt = null;
 		let settledSuccess = false;
 
@@ -302,14 +302,9 @@ export async function stream({
 				if (firstTokenAt == null) {
 					firstTokenAt = Date.now();
 				}
-				if (chunk.provider?.name || chunk.provider?.code) {
-					providerLabel = chunk.provider.name || chunk.provider.code;
-				}
-
 				const event = {
 					type: SSEEventType.Content,
 					data: { content: chunk.text },
-					metadata: { agent_name: providerLabel },
 				};
 				contentEvents.push(event);
 				passThrough.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -338,7 +333,7 @@ export async function stream({
 		} catch (error) {
 			settledSuccess = false;
 			logger.error('Text provider stream failed', error);
-			const message = error?.message || 'Text generation failed';
+			const message = userSafeTextError();
 			passThrough.write(`data: ${JSON.stringify({
 				type: SSEEventType.Error,
 				data: { content: message },

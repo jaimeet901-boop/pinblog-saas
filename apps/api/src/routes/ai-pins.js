@@ -9,6 +9,7 @@ import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
 import { analyzeArticleForPin, generateImagePromptForPin, PIN_STYLES } from '../services/ai-pin-analysis.js';
 import { normalizeStudioPromptChannel, resolvePromptPackForRequest } from '../services/studio/prompt-packs.js';
 import { consumeBillableAiFeature, getUserCreditUsage, recordGenerationHistory } from '../services/ai-pin-credits.js';
+import { userSafeTextError } from '../services/ai-user-safe-errors.js';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { uploadFiles } from '../middleware/file-upload.js';
 import { normalizeDestinationUrl } from '../utils/pin-publish-destination.js';
@@ -46,6 +47,25 @@ function normalizePositiveInt(value, fallback) {
 		return fallback;
 	}
 	return parsed;
+}
+
+function stripUserUnsafeAiMetadata(metadata) {
+	if (Array.isArray(metadata)) {
+		return metadata.map(stripUserUnsafeAiMetadata);
+	}
+	if (!metadata || typeof metadata !== 'object') {
+		return metadata;
+	}
+	const unsafe = /provider|model|endpoint|credential|secret|health|priority|adapter|source/i;
+	return Object.fromEntries(
+		Object.entries(metadata)
+			.filter(([key]) => !unsafe.test(key))
+			.map(([key, value]) => [key, stripUserUnsafeAiMetadata(value)]),
+	);
+}
+
+function mapUserHistoryAnalysis(analysis) {
+	return stripUserUnsafeAiMetadata(analysis) || null;
 }
 
 function normalizeOptionalString(value, fieldName, max = 0) {
@@ -374,15 +394,16 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 			promptPack,
 		});
 	} catch (error) {
+		logger.error('AI pin analysis failed', { message: error?.message });
 		await safeTransitionArticleLifecycle(articleId, 'FAILED', {
 			ownerId,
 			source: 'ai_pins.analyze',
-			message: error?.message || 'AI analysis failed',
-			failureReason: error?.message || 'AI analysis failed',
+			message: userSafeTextError(),
+			failureReason: userSafeTextError(),
 			failedStage: 'AI_GENERATING',
 			force: true,
 		});
-		throw error;
+		throw httpError(503, userSafeTextError());
 	}
 
 	const charged = await consumeBillableAiFeature(pocketbaseClient, {
@@ -420,7 +441,7 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 	});
 
 	const credits = await getUserCreditUsage(pocketbaseClient, ownerId, req.workspaceKey || '');
-	res.json({ analysis, credits });
+	res.json({ analysis: mapUserHistoryAnalysis(analysis), credits });
 });
 
 router.post('/prompts', integratedAiRateLimit, async (req, res) => {
@@ -467,15 +488,16 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 			promptPack,
 		});
 	} catch (error) {
+		logger.error('AI pin prompt generation failed', { message: error?.message });
 		await safeTransitionArticleLifecycle(articleId, 'FAILED', {
 			ownerId,
 			source: 'ai_pins.prompts',
-			message: error?.message || 'AI prompt generation failed',
-			failureReason: error?.message || 'AI prompt generation failed',
+			message: userSafeTextError(),
+			failureReason: userSafeTextError(),
 			failedStage: 'AI_GENERATING',
 			force: true,
 		});
-		throw error;
+		throw httpError(503, userSafeTextError());
 	}
 
 	let analyzeCharged = null;
@@ -537,8 +559,8 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 
 	const credits = await getUserCreditUsage(pocketbaseClient, ownerId, req.workspaceKey || '');
 	res.json({
-		...promptResult,
-		analysis: resolvedAnalysis,
+		...stripUserUnsafeAiMetadata(promptResult || {}),
+		analysis: mapUserHistoryAnalysis(resolvedAnalysis),
 		credits,
 	});
 });
@@ -563,8 +585,10 @@ router.get('/history', async (req, res) => {
 				eventType: item.event_type,
 				prompt: item.prompt || '',
 				imageUrl: item.image_url || '',
-				analysis: item.analysis || null,
-				metadata: item.metadata || null,
+				analysis: mapUserHistoryAnalysis(item.analysis),
+				metadata: item.metadata && typeof item.metadata === 'object'
+					? stripUserUnsafeAiMetadata(item.metadata)
+					: null,
 				articleId: item.articleId || '',
 				websiteId: item.websiteId || '',
 				aiPinId: item.ai_pin || '',

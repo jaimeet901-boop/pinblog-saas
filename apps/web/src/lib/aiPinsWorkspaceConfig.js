@@ -29,69 +29,24 @@ export function languageLabelFromConfig(config) {
 }
 
 export function resolveDefaultImageProvider(config) {
-	const preferred = String(config?.images?.defaultImageProvider || '').trim().toLowerCase();
-	const providers = Array.isArray(config?.imageProviders)
-		? config.imageProviders.filter((item) => item?.enabled !== false && item?.hasCredentials !== false)
-		: [];
-	if (preferred) {
-		const exactCode = providers.find((item) => String(item.code || '').toLowerCase() === preferred);
-		if (exactCode?.code) return exactCode.code;
-		const exactName = providers.find((item) => String(item.name || '').toLowerCase() === preferred);
-		if (exactName?.code) return exactName.code;
-		// Admin labels like "Fal.ai" / "Google Gemini"
-		if (preferred === 'fal.ai' || preferred === 'falai' || preferred === 'flux') {
-			const fal = providers.find((item) => ['fal', 'flux'].includes(String(item.code || '').toLowerCase()));
-			if (fal?.code) return fal.code;
-		}
-		if (preferred.includes('gemini') || preferred === 'google') {
-			const gemini = providers.find((item) => String(item.code || '').toLowerCase() === 'gemini');
-			if (gemini?.code) return gemini.code;
-		}
-		if (preferred.includes('openai') || preferred === 'open ai') {
-			const openai = providers.find((item) => String(item.code || '').toLowerCase() === 'openai');
-			if (openai?.code) return openai.code;
-		}
-	}
-	return providers[0]?.code || '';
+	return '';
 }
 
 export function resolveDefaultTextProvider(config) {
-	const preferred = String(
-		config?.ai?.defaultProvider
-		|| config?.ai?.fallbackProvider
-		|| '',
-	).trim().toLowerCase();
-	const providers = Array.isArray(config?.textProviders)
-		? config.textProviders.filter((item) => item?.enabled !== false && item?.hasCredentials)
-		: [];
-	if (preferred) {
-		const match = providers.find((item) => {
-			const code = String(item.code || '').toLowerCase();
-			const name = String(item.name || '').toLowerCase();
-			return code === preferred
-				|| name === preferred
-				|| (preferred.length >= 3 && (name.includes(preferred) || preferred.includes(code)));
-		});
-		if (match?.code) return match.code;
-	}
-	return providers[0]?.code || '';
+	return '';
 }
 
 export function buildImageQualityOptions(config) {
-	const providers = Array.isArray(config?.imageProviders)
-		? config.imageProviders.filter((item) => item && item.enabled !== false && item.code)
-		: [];
 	const estimate = Number(config?.images?.estimateCreditsPerAiPin);
 	const aiCreditHint = Number.isFinite(estimate) ? estimate : 0;
 
-	const providerOptions = providers.map((provider) => ({
-		id: `provider:${provider.code}`,
-		label: provider.name || provider.code,
-		hint: `AI · ${provider.badge || provider.name || provider.code}`,
+	const providerOptions = [{
+		id: 'ai',
+		label: 'AI image',
+		hint: 'Generated image',
 		imageMode: 'generate_ai',
-		imageProvider: provider.code,
 		creditHint: aiCreditHint,
-	}));
+	}];
 
 	return [
 		...providerOptions,
@@ -100,7 +55,6 @@ export function buildImageQualityOptions(config) {
 			label: 'Featured',
 			hint: 'Article image · no AI',
 			imageMode: 'use_featured',
-			imageProvider: '',
 			creditHint: 0,
 		},
 	];
@@ -114,24 +68,18 @@ export function resolveDefaultImageQualityId(config, qualities) {
 		if (featured) return featured.id;
 	}
 	if (strategy === 'always_ai' || strategy === 'ai_first' || strategy === 'ai_image_first' || !strategy) {
-		const preferred = resolveDefaultImageProvider(config);
-		const match = list.find((item) => item.imageMode === 'generate_ai' && item.imageProvider === preferred);
-		return match?.id || list.find((item) => item.imageMode === 'generate_ai')?.id || list[0]?.id || 'featured';
+		return list.find((item) => item.imageMode === 'generate_ai')?.id || list[0]?.id || 'featured';
 	}
 
-	const preferredLabel = String(config?.images?.defaultImageProvider || '').trim().toLowerCase();
 	const qualitySetting = String(config?.images?.quality || '').toLowerCase();
 	if (
-		preferredLabel.includes('feature')
-		|| qualitySetting.includes('feature')
+		qualitySetting.includes('feature')
 		|| qualitySetting === 'budget'
 	) {
 		const featured = list.find((item) => item.imageMode === 'use_featured');
 		if (featured) return featured.id;
 	}
-	const preferred = resolveDefaultImageProvider(config);
-	const match = list.find((item) => item.imageMode === 'generate_ai' && item.imageProvider === preferred);
-	return match?.id || list.find((item) => item.imageMode === 'generate_ai')?.id || list[0]?.id || 'featured';
+	return list.find((item) => item.imageMode === 'generate_ai')?.id || list[0]?.id || 'featured';
 }
 
 export function buildPinCountOptions(config) {

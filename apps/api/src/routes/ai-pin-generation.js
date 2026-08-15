@@ -33,7 +33,7 @@ router.get('/meta', (_req, res) => {
 		pipeline: [
 			'Content',
 			'Variables',
-			'AI Image Provider',
+			'AI Image',
 			'Template Engine (read-only clone)',
 			'Renderer',
 			'Export Engine',
@@ -43,7 +43,7 @@ router.get('/meta', (_req, res) => {
 		notes: {
 			templatesReadOnly: true,
 			metadataCollection: 'ai_pin_generation_runs',
-			usesExistingProviders: true,
+			usesAiGeneration: true,
 			usesExportEngine: true,
 		},
 	});

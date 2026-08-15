@@ -7,7 +7,6 @@
  */
 
 import { listArticleImageCandidates } from '@/lib/imageSourceStrategy';
-import { resolveDefaultImageProvider } from '@/lib/aiPinsWorkspaceConfig';
 import { composeAndUploadFeaturedPins } from '@/services/ai-pins/featuredComposeService';
 import { withUpdatedImageSourceMeta } from '@/lib/aiPinsPinCopy';
 
@@ -18,16 +17,8 @@ const POLL_ATTEMPTS = 48;
 const POLL_INTERVAL_MS = 2500;
 
 export function resolvePreviewImageProvider({
-	imageProviderOverride = '',
-	panelImageProvider = '',
-	config = {},
 } = {}) {
-	return String(
-		imageProviderOverride
-		|| panelImageProvider
-		|| resolveDefaultImageProvider(config)
-		|| '',
-	).trim();
+	return '';
 }
 
 /**
@@ -38,7 +29,6 @@ export function resolvePinBackgroundFromJob({ pin, job, pollTimedOut = false } =
 	const articleCandidates = listArticleImageCandidates(pin);
 	const aiUrl = String(job?.imageUrl || '').trim();
 	const status = String(job?.status || '').toLowerCase();
-	const aiError = String(job?.lastError || '').trim();
 
 	if (status === 'completed' && aiUrl) {
 		return {
@@ -55,7 +45,7 @@ export function resolvePinBackgroundFromJob({ pin, job, pollTimedOut = false } =
 			background: aiUrl,
 			usedArticleFallback: true,
 			aiStatus: 'fallback',
-			aiError: aiError || 'Image provider unavailable — article image used.',
+			aiError: 'Using article image.',
 			hasArticleCandidates: articleCandidates.length > 0,
 		};
 	}
@@ -69,10 +59,7 @@ export function resolvePinBackgroundFromJob({ pin, job, pollTimedOut = false } =
 			background: articleCandidates[0],
 			usedArticleFallback: true,
 			aiStatus: pollTimedOut ? 'failed' : (status || 'failed'),
-			aiError: aiError
-				|| (pollTimedOut
-					? 'Image generation timed out — article image used.'
-					: 'Image generation failed — article image used.'),
+			aiError: 'Using article image.',
 			hasArticleCandidates: true,
 		};
 	}
@@ -81,8 +68,9 @@ export function resolvePinBackgroundFromJob({ pin, job, pollTimedOut = false } =
 		background: aiUrl || '',
 		usedArticleFallback: false,
 		aiStatus: status || (pollTimedOut ? 'failed' : ''),
-		aiError: aiError
-			|| (pollTimedOut ? 'Image generation timed out and no article image was available.' : ''),
+		aiError: pollTimedOut || status === 'failed'
+			? 'Image generation is unavailable right now. Please try again later.'
+			: '',
 		hasArticleCandidates: articleCandidates.length > 0,
 	};
 }
@@ -175,7 +163,6 @@ export function mapComposeResultToPinPatch(pin, input, result) {
 export async function queuePreviewImageJobs({
 	fetchFn,
 	pins,
-	imageProvider = '',
 	channel = '',
 	exportProfileId = '',
 } = {}) {
@@ -201,7 +188,6 @@ export async function queuePreviewImageJobs({
 				category: pin.category,
 				featuredImageUrl: pin.featuredImage || pin.sourceImageUrl || '',
 				imageMode: 'generate_ai',
-				...(imageProvider ? { provider: imageProvider } : {}),
 				...(normalizedChannel ? { channel: normalizedChannel } : {}),
 				...(normalizedExportProfileId ? { exportProfileId: normalizedExportProfileId } : {}),
 			})),
@@ -264,7 +250,6 @@ export async function pollPreviewImageJobs({
 export async function runPreviewImagePipeline({
 	fetchFn,
 	pins,
-	imageProvider = '',
 	brandKit = null,
 	exportProfileId = 'pinterest_standard',
 	channel = '',
@@ -279,7 +264,6 @@ export async function runPreviewImagePipeline({
 	const queuedJobs = await queuePreviewImageJobs({
 		fetchFn,
 		pins,
-		imageProvider,
 		channel,
 		exportProfileId,
 	});

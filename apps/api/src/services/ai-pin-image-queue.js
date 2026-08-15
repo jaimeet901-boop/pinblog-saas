@@ -1,9 +1,9 @@
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { getPublicFileUrl } from '../utils/public-file-url.js';
 import logger from '../utils/logger.js';
-import { getDecryptedOpenAIKey, getDecryptedFalKey } from './user-settings.js';
 import { generateImagesWithProvider } from './image-providers/index.js';
 import { consumeCredits, recordGenerationHistory } from './ai-pin-credits.js';
+import { userSafeImageError } from './ai-user-safe-errors.js';
 import {
 	buildSchemaSafeFilter,
 	clearCollectionSchemaCache,
@@ -272,23 +272,6 @@ function readProviderFromPromptMarker(prompt) {
 	return match?.[1] ? String(match[1]).trim().toLowerCase() : '';
 }
 
-function readJobImageProvider(job) {
-	const payload = readJobPromptPayload(job);
-	const candidates = [
-		job?.image_provider,
-		payload.provider,
-		payload.requestedProvider,
-		job?.provider,
-		readProviderFromPromptMarker(job?.prompt),
-	];
-	for (const candidate of candidates) {
-		if (typeof candidate === 'string' && candidate.trim()) {
-			return candidate.trim();
-		}
-	}
-	return '';
-}
-
 async function processJob(job) {
 	if (job.ai_pin) {
 		await assertAndGetJobPin(job);
@@ -310,42 +293,30 @@ async function processJob(job) {
 	}
 
 	const {
-		assertImageProviderConfigured,
 		getPlatformProviderApiKey,
-		normalizeImageProviderAlias,
-		resolveConfiguredImageProvider,
+		resolveAdminConfiguredImageProvider,
 	} = await import('./ai-providers.js');
 	const { getPlatformSettings } = await import('./platform-settings.js');
 
 	const promptPayload = readJobPromptPayload(job);
-	const storedProvider = readJobImageProvider(job);
-	const hasExplicitProvider = Boolean(storedProvider);
-
 	dumpProviderTrace('[ai-pin-image-queue] before assertImageProviderConfigured', {
 		jobId: job.id,
-		requestedProvider: promptPayload.requestedProvider ?? null,
-		storedProvider: storedProvider || null,
 		'job.image_provider': job.image_provider ?? null,
 		'job.provider': job.provider ?? null,
 		'prompt_payload.provider': promptPayload.provider ?? null,
-		'prompt_payload.requestedProvider': promptPayload.requestedProvider ?? null,
 		promptMarker: readProviderFromPromptMarker(job.prompt) || null,
 		prompt_payload_full: promptPayload,
 		prompt_payload_raw_type: typeof job.prompt_payload,
-		hasExplicitProvider,
 	});
 
-	// Job-specified provider must win. Never allow workspace default to replace it.
-	const readyProvider = hasExplicitProvider
-		? await resolveConfiguredImageProvider(storedProvider, { allowWorkspaceDefault: false })
-		: await assertImageProviderConfigured('');
+	// Legacy job metadata can contain a user-selected provider. It is never trusted:
+	// execution always follows the current Admin-controlled platform default.
+	const readyProvider = await resolveAdminConfiguredImageProvider();
 
 	const provider = readyProvider.code;
 
 	dumpProviderTrace('[ai-pin-image-queue] after assertImageProviderConfigured', {
 		jobId: job.id,
-		requestedProvider: promptPayload.requestedProvider ?? null,
-		storedProvider: storedProvider || null,
 		resolvedProvider: provider,
 		providerName: readyProvider.name || null,
 		providerCode: readyProvider.code || null,
@@ -353,22 +324,8 @@ async function processJob(job) {
 		'prompt_payload.provider': promptPayload.provider ?? null,
 	});
 
-	if (hasExplicitProvider) {
-		const expected = normalizeImageProviderAlias(storedProvider);
-		if (provider !== expected) {
-			const error = new Error(
-				`Image provider mutated in worker: job had "${storedProvider}" but resolved "${provider}".`,
-			);
-			error.status = 500;
-			error.errorCode = 'AI_IMAGE_PROVIDER_MUTATED';
-			throw error;
-		}
-	}
-
-	const openaiKey = await getDecryptedOpenAIKey(job.owner)
-		|| await getPlatformProviderApiKey('openai');
-	const falKey = await getDecryptedFalKey(job.owner)
-		|| await getPlatformProviderApiKey('fal');
+	const openaiKey = await getPlatformProviderApiKey('openai');
+	const falKey = await getPlatformProviderApiKey('fal');
 	const geminiKey = await getPlatformProviderApiKey('gemini');
 
 	if (provider === 'openai' && !openaiKey) {
@@ -377,11 +334,11 @@ async function processJob(job) {
 				job,
 				status: 'fallback',
 				imageUrl: fallbackImage,
-				lastError: 'OpenAI API key is not configured',
+				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
 			});
 			return;
 		}
-		throw new Error('OpenAI API key is not configured');
+		throw new Error('Image generation is unavailable');
 	}
 
 	if ((provider === 'fal' || provider === 'flux') && !falKey) {
@@ -390,11 +347,11 @@ async function processJob(job) {
 				job,
 				status: 'fallback',
 				imageUrl: fallbackImage,
-				lastError: 'Fal.ai API key is not configured',
+				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
 			});
 			return;
 		}
-		throw new Error('Fal.ai API key is not configured');
+		throw new Error('Image generation is unavailable');
 	}
 
 	if (provider === 'gemini' && !geminiKey) {
@@ -403,11 +360,11 @@ async function processJob(job) {
 				job,
 				status: 'fallback',
 				imageUrl: fallbackImage,
-				lastError: 'Google Gemini API key is not configured',
+				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
 			});
 			return;
 		}
-		throw new Error('Google Gemini API key is not configured');
+		throw new Error('Image generation is unavailable');
 	}
 
 	if (!['openai', 'fal', 'flux', 'gemini'].includes(provider)
@@ -417,18 +374,16 @@ async function processJob(job) {
 				job,
 				status: 'fallback',
 				imageUrl: fallbackImage,
-				lastError: 'Image provider API key is not configured',
+				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
 			});
 			return;
 		}
-		throw new Error('Image provider API key is not configured');
+		throw new Error('Image generation is unavailable');
 	}
 
 	const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
 	const preferredModelId = normalizeText(
-		promptPayload.model
-		|| promptPayload.imageModel
-		|| settings?.images?.defaultImageModel
+		settings?.images?.defaultImageModel
 		|| '',
 		120,
 	);
@@ -448,8 +403,6 @@ async function processJob(job) {
 		provider,
 		providerName: readyProvider.name || null,
 		preferredModelId: preferredModelId || null,
-		requestedProvider: promptPayload.requestedProvider ?? null,
-		storedProvider: storedProvider || null,
 		'job.image_provider': job.image_provider ?? null,
 		'prompt_payload.provider': promptPayload.provider ?? null,
 		channel: promptPayload.channel ?? null,
@@ -704,7 +657,7 @@ async function processDueJobs() {
 						job: fullJob,
 						status: 'fallback',
 						imageUrl: fallbackImage,
-						lastError: error?.message || 'Image generation failed. Fallback image used.',
+						lastError: userSafeImageError({ status: 'fallback', hasError: true }),
 					});
 					processedTotal += 1;
 					lastSuccessAt = new Date().toISOString();
@@ -718,7 +671,7 @@ async function processDueJobs() {
 						job: fullJob,
 						status: 'fallback',
 						imageUrl: fallbackImage,
-						lastError: error?.message || 'Image generation failed. Fallback image used.',
+						lastError: userSafeImageError({ status: 'fallback', hasError: true }),
 					});
 					processedTotal += 1;
 					lastSuccessAt = new Date().toISOString();
@@ -732,7 +685,7 @@ async function processDueJobs() {
 					payload: {
 						status: shouldRetry ? 'queued' : 'failed',
 						attempt_count: nextAttempts,
-						last_error: error?.message || 'Image generation failed',
+						last_error: userSafeImageError({ hasError: true }),
 						next_retry_at: shouldRetry ? nextRetryDate(nextAttempts) : null,
 						claim_token: '',
 					},
@@ -745,7 +698,7 @@ async function processDueJobs() {
 						await assertAndGetJobPin(fullJob);
 						await pocketbaseClient.collection('ai_pins').update(fullJob.ai_pin, {
 							image_generation_status: shouldRetry ? 'queued' : 'failed',
-							image_generation_error: error?.message || 'Image generation failed',
+							image_generation_error: userSafeImageError({ hasError: true }),
 							image_job_id: fullJob.id,
 						}).catch(() => null);
 					} catch (ownershipError) {

@@ -23,12 +23,6 @@ function hasStoredSecret(value) {
 export function mapSettingsResponse(record) {
 	if (!record) {
 		return {
-			openai_key: '',
-			has_openai_key: false,
-			gemini_key: '',
-			has_gemini_key: false,
-			fal_key: '',
-			has_fal_key: false,
 			pinterest_token: '',
 			has_pinterest_token: false,
 			email_from: '',
@@ -36,12 +30,6 @@ export function mapSettingsResponse(record) {
 	}
 
 	return {
-		openai_key: '',
-		has_openai_key: hasStoredSecret(record.openai_key),
-		gemini_key: '',
-		has_gemini_key: hasStoredSecret(record.gemini_key),
-		fal_key: '',
-		has_fal_key: hasStoredSecret(record.fal_key),
 		pinterest_token: '',
 		has_pinterest_token: hasStoredSecret(record.pinterest_token),
 		email_from: record.email_from || '',
@@ -81,17 +69,8 @@ export async function upsertOwnedUserSettings({ owner, payload, req = null }) {
 		updates.email_from = payload.email_from || '';
 	}
 
-	if ('gemini_key' in payload) {
-		updates.gemini_key = encryptOptionalSecret(payload.gemini_key);
-	}
-	if ('fal_key' in payload) {
-		updates.fal_key = encryptOptionalSecret(payload.fal_key);
-	}
 	if ('pinterest_token' in payload) {
 		updates.pinterest_token = encryptOptionalSecret(payload.pinterest_token);
-	}
-	if (typeof payload.openai_key === 'string') {
-		updates.openai_key = encryptOptionalSecret(payload.openai_key);
 	}
 
 	if (existing) {
@@ -101,30 +80,12 @@ export async function upsertOwnedUserSettings({ owner, payload, req = null }) {
 	const actor = req ? getWorkspaceActor(req) : null;
 	const createPayload = {
 		owner: actor?.workspaceOwnerId || owner,
-		openai_key: updates.openai_key || '',
-		gemini_key: updates.gemini_key || '',
-		fal_key: updates.fal_key || '',
 		pinterest_token: updates.pinterest_token || '',
 		email_from: updates.email_from || '',
 	};
 	return pocketbaseClient.collection('user_settings').create(
 		req ? stampCreateOwnership(req, createPayload) : createPayload,
 	);
-}
-
-export async function getDecryptedOpenAIKey(owner) {
-	const settings = await getOwnedUserSettings(owner);
-	return readDecryptedField(settings, 'openai_key');
-}
-
-export async function getDecryptedFalKey(owner) {
-	const settings = await getOwnedUserSettings(owner);
-	return readDecryptedField(settings, 'fal_key');
-}
-
-export async function getDecryptedGeminiKey(owner) {
-	const settings = await getOwnedUserSettings(owner);
-	return readDecryptedField(settings, 'gemini_key');
 }
 
 export async function getDecryptedPinterestToken(owner) {

@@ -82,7 +82,7 @@ function downloadBlob(filename, content, type) {
 }
 
 function toCsv(rows) {
-	const headers = ['id', 'eventType', 'article', 'prompt', 'template', 'model', 'credits', 'created', 'status'];
+	const headers = ['id', 'eventType', 'article', 'prompt', 'template', 'credits', 'created', 'status'];
 	const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 	const lines = [headers.join(',')];
 	for (const item of rows) {
@@ -92,7 +92,6 @@ function toCsv(rows) {
 			item.analysis?.title || '',
 			item.prompt || '',
 			metaGet(item, ['template', 'templateName', 'template_id']),
-			metaGet(item, ['model', 'aiModel', 'provider']),
 			creditsTotal(item),
 			item.created || '',
 			isFailed(item) ? 'failed' : 'successful',
@@ -121,7 +120,6 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 	const [searchQuery, setSearchQuery] = useState('');
 	const [websiteFilter, setWebsiteFilter] = useState(preferredWebsiteId);
 	const [templateFilter, setTemplateFilter] = useState('');
-	const [modelFilter, setModelFilter] = useState('');
 	const [statusFilter, setStatusFilter] = useState('');
 	const [dateRange, setDateRange] = useState('');
 	const [quickFilter, setQuickFilter] = useState('all');
@@ -178,15 +176,6 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 		return [...set];
 	}, [items]);
 
-	const modelOptions = useMemo(() => {
-		const set = new Set();
-		for (const item of items) {
-			const value = metaGet(item, ['model', 'aiModel', 'provider']);
-			if (value) set.add(value);
-		}
-		return [...set];
-	}, [items]);
-
 	const filteredItems = useMemo(() => {
 		const query = searchQuery.trim().toLowerCase();
 		const today = startOfDay();
@@ -196,7 +185,6 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 		return items.filter((item) => {
 			if (websiteFilter && item.websiteId !== websiteFilter) return false;
 			if (templateFilter && metaGet(item, ['template', 'templateName', 'template_id']) !== templateFilter) return false;
-			if (modelFilter && metaGet(item, ['model', 'aiModel', 'provider']) !== modelFilter) return false;
 			if (statusFilter === 'failed' && !isFailed(item)) return false;
 			if (statusFilter === 'successful' && !isSuccessful(item)) return false;
 
@@ -217,11 +205,11 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 				item.prompt,
 				item.analysis?.title,
 				item.websiteId,
-				metaGet(item, ['template', 'templateName', 'model', 'aiModel', 'provider']),
+				metaGet(item, ['template', 'templateName', 'template_id']),
 			].join(' ').toLowerCase();
 			return haystack.includes(query);
 		});
-	}, [items, searchQuery, websiteFilter, templateFilter, modelFilter, statusFilter, dateRange, quickFilter]);
+	}, [items, searchQuery, websiteFilter, templateFilter, statusFilter, dateRange, quickFilter]);
 
 	const selected = useMemo(
 		() => filteredItems.find((item) => item.id === selectedId) || items.find((item) => item.id === selectedId) || null,
@@ -285,22 +273,21 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 	}, [filteredItems]);
 
 	const insights = useMemo(() => {
-		const modelCounts = new Map();
 		const websiteCounts = new Map();
 		const templateCounts = new Map();
 		let creditSum = 0;
+		let imageCount = 0;
 		for (const item of items) {
 			creditSum += creditsTotal(item);
-			const model = metaGet(item, ['model', 'aiModel', 'provider']);
+			if (item.imageUrl || String(item.eventType || '').toLowerCase().includes('image')) imageCount += 1;
 			const template = metaGet(item, ['template', 'templateName', 'template_id']);
-			if (model) modelCounts.set(model, (modelCounts.get(model) || 0) + 1);
 			if (template) templateCounts.set(template, (templateCounts.get(template) || 0) + 1);
 			if (item.websiteId) websiteCounts.set(item.websiteId, (websiteCounts.get(item.websiteId) || 0) + 1);
 		}
 		const top = (map) => [...map.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 		return [
 			{ title: 'Most used template', body: top(templateCounts) || 'No template metadata on this page yet.' },
-			{ title: 'Most used AI model', body: top(modelCounts) || 'Model fields appear when metadata includes a provider.' },
+			{ title: 'Images generated', body: `${imageCount} image generation${imageCount === 1 ? '' : 's'} on this page.` },
 			{ title: 'Most active website', body: top(websiteCounts) || 'Website IDs will show once generations are tagged.' },
 			{
 				title: 'Average credits per generation',
@@ -483,10 +470,6 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 						<option value="">All templates</option>
 						{templateOptions.map((name) => <option key={name} value={name}>{name}</option>)}
 					</Select>
-					<Select label="AI model" value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
-						<option value="">All models</option>
-						{modelOptions.map((name) => <option key={name} value={name}>{name}</option>)}
-					</Select>
 					<Select label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
 						<option value="">All statuses</option>
 						<option value="successful">Successful</option>
@@ -541,7 +524,6 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 											<th>Article</th>
 											<th>Prompt</th>
 											<th>Template</th>
-											<th>AI Model</th>
 											<th>Credits</th>
 											<th>Duration</th>
 											<th>Date</th>
@@ -566,7 +548,6 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 												<td><p className="max-w-[9rem] truncate font-medium">{item.analysis?.title || item.eventType || 'Generation'}</p></td>
 												<td><p className="max-w-[12rem] truncate text-muted-foreground">{item.prompt || '—'}</p></td>
 												<td className="text-muted-foreground">{metaGet(item, ['template', 'templateName', 'template_id'], '—')}</td>
-												<td className="text-muted-foreground">{metaGet(item, ['model', 'aiModel', 'provider'], '—')}</td>
 												<td>{creditsTotal(item)}</td>
 												<td className="text-muted-foreground">—</td>
 												<td className="whitespace-nowrap text-muted-foreground">{formatDate(item.created)}</td>
@@ -708,7 +689,6 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 							<div className="hist-meta">
 								<div className="hist-meta__row"><span>Credits used</span><span>{creditsTotal(selected)}</span></div>
 								<div className="hist-meta__row"><span>Generation time</span><span>{formatDate(selected.created)}</span></div>
-								<div className="hist-meta__row"><span>AI model</span><span>{metaGet(selected, ['model', 'aiModel', 'provider'], '—')}</span></div>
 								<div className="hist-meta__row"><span>Quality</span><span>{metaGet(selected, ['quality', 'imageQuality'], '—')}</span></div>
 								<div className="hist-meta__row"><span>Template</span><span>{metaGet(selected, ['template', 'templateName', 'template_id'], '—')}</span></div>
 								<div className="hist-meta__row"><span>Website</span><span>{selected.websiteId || '—'}</span></div>

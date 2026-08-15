@@ -52,9 +52,7 @@ import {
 	mapStudioCredits,
 	mapStudioPinStyles,
 	mapStudioTemplates,
-	resolveDefaultImageProvider,
 	resolveDefaultImageQualityId,
-	resolveDefaultTextProvider,
 	resolvePublishingConfig,
 } from '@/lib/aiPinsWorkspaceConfig';
 import { resolveStudioAssets } from '@/lib/studio/resolveStudioAssets';
@@ -97,7 +95,6 @@ import {
 	mapPollJobToPinPatch,
 	pollPreviewImageJobs,
 	resolvePinBackgroundFromJob,
-	resolvePreviewImageProvider,
 	runLastResortArticleCompose,
 	runPreviewImagePipeline,
 } from '@/services/ai-pins/previewImagePipeline';
@@ -295,7 +292,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		count: 3,
 		imageMode: 'generate_ai',
 		style: '',
-		imageProvider: resolveDefaultImageProvider(config),
 	});
 	const [analysis, setAnalysis] = useState(null);
 	const [analyzing, setAnalyzing] = useState(false);
@@ -342,11 +338,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const credits = useMemo(() => mapStudioCredits(config), [config]);
 	const imageQualities = useMemo(() => buildImageQualityOptions(config), [config]);
 	const pinCounts = useMemo(() => buildPinCountOptions(config), [config]);
-	const imageProviders = useMemo(
-		() => (Array.isArray(config?.imageProviders) ? config.imageProviders.filter((item) => item?.enabled !== false) : []),
-		[config],
-	);
-
 	const showBrandKit = isFeatureEnabled('brand-kit', true);
 	const showTemplates = isFeatureEnabled('templates', true);
 	const showHistory = isFeatureEnabled('history', true);
@@ -357,7 +348,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		if (!hasValidConfig || defaultsAppliedRef.current) return;
 		defaultsAppliedRef.current = true;
 
-		const defaultProvider = resolveDefaultImageProvider(config);
 		const defaultQualityId = resolveDefaultImageQualityId(config);
 		const defaultQuality = imageQualities.find((item) => item.id === defaultQualityId) || imageQualities[0];
 		const styles = mapStudioPinStyles(config);
@@ -374,9 +364,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			toneOfVoice: prev.toneOfVoice || defaultTone,
 			targetAudience: prev.targetAudience || defaultAudience,
 			style: prev.style || styles[0] || '',
-			imageProvider: defaultQuality?.imageMode === 'use_featured'
-				? ''
-				: (defaultQuality?.imageProvider || defaultProvider || prev.imageProvider),
 			imageMode: defaultQuality?.imageMode || prev.imageMode,
 			count: pinCounts.includes(prev.count) ? prev.count : (pinCounts[1] || pinCounts[0] || 1),
 		}));
@@ -392,7 +379,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	}, [product.destinationId, studioAssets.defaultAspectRatioId]);
 
 	useEffect(() => {
-		// Sync Admin default provider only when workspace config version changes.
+		// Sync the safe image mode default only when workspace config version changes.
 		// Do not depend on panel.* or this effect will loop (Maximum update depth → blank page).
 		if (!hasValidConfig || imageQualities.length === 0) {
 			return;
@@ -402,18 +389,14 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		if (!quality) {
 			return;
 		}
-		const nextProvider = quality.imageMode === 'use_featured'
-			? ''
-			: (quality.imageProvider || resolveDefaultImageProvider(config) || '');
 		setImageQuality((prev) => (prev === quality.id ? prev : quality.id));
 		setPanel((prev) => {
-			if (prev.imageMode === quality.imageMode && prev.imageProvider === nextProvider) {
+			if (prev.imageMode === quality.imageMode) {
 				return prev;
 			}
 			return {
 				...prev,
 				imageMode: quality.imageMode || 'generate_ai',
-				imageProvider: nextProvider,
 			};
 		});
 	}, [configVersion, hasValidConfig, imageQualities, config]);
@@ -1166,7 +1149,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 
 	const startPreviewImageGeneration = async (
 		pins,
-		imageProviderOverride = '',
 		brandKit = null,
 	) => {
 		if (!Array.isArray(pins) || pins.length === 0) {
@@ -1179,16 +1161,9 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 
 		setGeneratingImages(true);
 		try {
-			const imageProvider = resolvePreviewImageProvider({
-				imageProviderOverride,
-				panelImageProvider: panel.imageProvider,
-				config,
-			});
-
 			const { pinPatches, pollTimedOut } = await runPreviewImagePipeline({
 				fetchFn: (url, options) => apiServerClient.fetch(url, options),
 				pins,
-				imageProvider,
 				brandKit,
 				channel: studioChannel,
 				exportProfileId: selectedExportProfileId,
@@ -1390,16 +1365,8 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		const websiteLabel = activeWebsite?.domain || activeWebsite?.url || activeWebsite?.name || '';
 		const imageSourceStrategy = normalizeImageSourceStrategy(config?.images?.imageSourceStrategy);
 
-		// Explicit UI selection wins. Workspace default is last-resort only.
-		const textProviderCode = resolveDefaultTextProvider(config);
-		const imageProviderCode = String(panel.imageProvider || '').trim()
-			|| String(quality?.imageProvider || '').trim()
-			|| resolveDefaultImageProvider(config);
-
 		let workingPanel = {
 			...panel,
-			imageProvider: imageProviderCode || quality?.imageProvider || '',
-			textProvider: textProviderCode || '',
 		};
 
 		if (createMode === 'prompt') {
@@ -1434,7 +1401,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 
 		setPanel((prev) => ({
 			...prev,
-			imageProvider: workingPanel.imageProvider,
 			pinTitle: workingPanel.pinTitle,
 			pinDescription: workingPanel.pinDescription,
 			textOverlay: workingPanel.textOverlay,
@@ -1545,7 +1511,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				const articlePanel = {
 					...workingPanel,
 					imageMode: 'generate_ai',
-					imageProvider: workingPanel.imageProvider || imageProviderCode,
 				};
 
 				setBulkProgress({
@@ -1688,8 +1653,8 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				toast({
 					title: 'Using local pin copy',
 					description: localTextFallbackReason
-						? `The text AI provider was temporarily unavailable (${localTextFallbackReason}). Pin copy was generated from the article; images are generating in the background.`
-						: 'The text AI provider was temporarily unavailable. Pin copy was generated from the article; images are generating in the background.',
+						? 'AI generation is temporarily unavailable. Pin copy was generated from the article; images are generating in the background.'
+						: 'AI generation is temporarily unavailable. Pin copy was generated from the article; images are generating in the background.',
 				});
 			} else {
 				toast({
@@ -1699,12 +1664,14 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			}
 			void startPreviewImageGeneration(
 				generatedRecords,
-				imageProviderCode,
 				selectedBrand,
 			);
 		} catch (error) {
-			const detail = error?.message || (error?.status ? `HTTP ${error.status}` : 'Unknown error');
-			toast({ variant: 'destructive', title: 'Generation failed', description: detail });
+			toast({
+				variant: 'destructive',
+				title: 'Generation failed',
+				description: 'AI generation is unavailable right now. Please try again later.',
+			});
 		} finally {
 			setGenerating(false);
 			setBulkProgress({ active: false, current: 0, total: 0, message: '' });
@@ -2216,7 +2183,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		setPanel((prev) => ({
 			...prev,
 			imageMode: quality.imageMode,
-			imageProvider: quality.imageProvider,
 		}));
 	};
 
@@ -2746,27 +2712,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 								<Input label="Target audience" value={panel.targetAudience} onChange={(e) => setPanel((prev) => ({ ...prev, targetAudience: e.target.value }))} />
 								<Input label="Tone of voice" value={panel.toneOfVoice} onChange={(e) => setPanel((prev) => ({ ...prev, toneOfVoice: e.target.value }))} />
 								<Input label="Language" value={panel.language} onChange={(e) => setPanel((prev) => ({ ...prev, language: e.target.value }))} />
-								{/* Image provider is Admin Console only (defaultImageProvider). */}
-								{false ? (
-								<Select
-									label="Image provider"
-									value={panel.imageProvider}
-									onChange={(e) => {
-										const code = e.target.value;
-										setPanel((prev) => ({ ...prev, imageProvider: code, imageMode: code ? 'generate_ai' : prev.imageMode }));
-										const match = imageQualities.find((item) => (
-											item.imageMode === 'generate_ai' && item.imageProvider === code
-										));
-										if (match) setImageQuality(match.id);
-									}}
-									disabled={!showAiImages || panel.imageMode !== 'generate_ai'}
-								>
-									<option value="">Select provider</option>
-									{imageProviders.map((provider) => (
-										<option key={provider.id || provider.code} value={provider.code}>{provider.name || provider.code}</option>
-									))}
-								</Select>
-								) : null}
 								{analysis ? (
 									<div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground space-y-1">
 										<p><span className="font-medium text-foreground">CTA:</span> {analysis.cta || '—'}</p>

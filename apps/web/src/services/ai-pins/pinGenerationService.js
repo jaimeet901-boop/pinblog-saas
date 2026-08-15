@@ -158,7 +158,6 @@ export async function generatePin(request = {}, options = {}) {
 		templateConfiguration: request.templateConfiguration,
 		exportProfileId: request.exportProfileId || request.profileId,
 		format: request.format || request.outputFormat || 'png',
-		imageProvider: request.imageProvider || request.provider,
 		imageMode: request.imageMode || 'generate_ai',
 		content: request.content,
 		variables: request.variables,
@@ -185,7 +184,6 @@ export async function generatePin(request = {}, options = {}) {
 				templateId: run.templateId || request.templateId,
 				exportProfileId: run.exportProfileId,
 				format: run.outputFormat,
-				imageProvider: run.imageProvider || request.imageProvider,
 				signal: activeSignal,
 			},
 			{
@@ -199,8 +197,8 @@ export async function generatePin(request = {}, options = {}) {
 				async loadTemplate() {
 					return cloneTemplateForGeneration(templateSnapshot);
 				},
-				async generateImage({ provider, content, prompt }) {
-					// Reuse existing AI image jobs API (provider interface behind the queue).
+				async generateImage({ content, prompt }) {
+					// Reuse existing Admin-routed AI image jobs API.
 					if (!request.articleId) {
 						throw new PinGenerationError('articleId required for generate_ai', {
 							code: 'VALIDATION_ERROR',
@@ -215,7 +213,6 @@ export async function generatePin(request = {}, options = {}) {
 								pinId: request.aiPinId || request.pinId,
 								clientToken: request.clientToken || `gen_${runId}`,
 								imageMode: 'generate_ai',
-								provider: provider || request.imageProvider,
 								title: content.title || request.content?.title,
 								description: content.description || request.content?.description,
 								overlayText: content.overlayText || request.content?.overlayText,

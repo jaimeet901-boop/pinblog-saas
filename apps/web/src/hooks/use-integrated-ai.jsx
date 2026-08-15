@@ -51,7 +51,6 @@ import { pocketbaseClient } from '@/lib/pocketbaseClient';
  * @property {string[]} [images]
  * @property {Array<{ id: string, type: string, function: { name: string, arguments: string } }>} [tool_calls]
  * @property {string} [tool_call_id]
- * @property {string} [agent_name]
  */
 
 const MessageRole = Object.freeze({
@@ -125,14 +124,11 @@ function mapAssistantMessages({ message }) {
 	const mapped = [];
 
 	for (const event of message) {
-		const agentName = event?.metadata?.agent_name;
-
 		if (event.type === SSEEventType.ToolResult) {
 			mapped.push({
 				role: MessageRole.Tool,
 				tool_call_id: event.data.tool_call_id,
 				content: event.data.content,
-				...(agentName && { agent_name: agentName }),
 			});
 			continue;
 		}
@@ -150,7 +146,6 @@ function mapAssistantMessages({ message }) {
 					},
 				})),
 			}),
-			...(agentName && { agent_name: agentName }),
 		});
 	}
 

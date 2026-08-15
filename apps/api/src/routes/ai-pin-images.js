@@ -28,6 +28,7 @@ import {
 	resolveImageGenerationTarget,
 	serializeImageGenerationTarget,
 } from '../services/image-generation-target.js';
+import { userSafeImageError } from '../services/ai-user-safe-errors.js';
 
 const router = Router();
 
@@ -62,6 +63,19 @@ function appendProviderMarker(prompt, provider) {
 	const base = String(prompt || '').replace(IMAGE_PROVIDER_MARKER_RE, '').trim();
 	if (!code) return base;
 	return `${base}\n[pinblog_image_provider:${code}]`;
+}
+
+async function resolveAdminImageProviderForUserRequest() {
+	try {
+		const { resolveAdminConfiguredImageProvider } = await import('../services/ai-providers.js');
+		return await resolveAdminConfiguredImageProvider();
+	} catch (error) {
+		logger.error('Admin image provider resolution failed', {
+			message: error?.message,
+			errorCode: error?.errorCode,
+		});
+		throw httpError(503, userSafeImageError({ hasError: true }));
+	}
 }
 
 function normalizeString(value, fieldName, { required = false, max = 0 } = {}) {
@@ -191,16 +205,13 @@ async function createImageJobRecord({
 	imagePrompt,
 	featuredImageUrl,
 	provider,
-	requestedProvider,
 	generationRunId,
 }) {
 	dumpProviderTrace('[ai-pin-images] Provider flow (create job)', {
-		requestedProvider: requestedProvider || null,
 		resolvedProvider: provider || null,
 		imageMode,
 		articleId,
 		clientToken,
-		rawItemProvider: rawItem?.provider ?? null,
 		channel: rawItem?.channel ?? null,
 		exportProfileId: rawItem?.exportProfileId ?? rawItem?.export_profile_id ?? null,
 	});
@@ -236,7 +247,6 @@ async function createImageJobRecord({
 		pinDescription: description,
 		imagePrompt,
 		provider,
-		requestedProvider: requestedProvider || provider,
 		...(channel ? { channel } : {}),
 		...(exportProfileId ? { exportProfileId } : {}),
 		generationTarget: serializeImageGenerationTarget(generationTarget),
@@ -282,12 +292,10 @@ async function createImageJobRecord({
 
 	dumpProviderTrace('[ai-pin-images] Provider stored on ai_pin_image_jobs', {
 		jobId: job.id,
-		requestedProvider: requestedProvider || null,
 		resolvedProvider: provider || null,
 		'job.image_provider': job.image_provider ?? null,
 		'job.provider': job.provider ?? null,
 		'prompt_payload.provider': storedPayload?.provider ?? null,
-		'prompt_payload.requestedProvider': storedPayload?.requestedProvider ?? null,
 		prompt_payload_raw_type: typeof job.prompt_payload,
 		prompt_payload_full: storedPayload,
 		promptMarker: String(job.prompt || '').match(IMAGE_PROVIDER_MARKER_RE)?.[1] || null,
@@ -316,11 +324,6 @@ async function createImageJobRecord({
 }
 
 function mapJob(job) {
-	const payload = job.prompt_payload && typeof job.prompt_payload === 'object' && !Array.isArray(job.prompt_payload)
-		? job.prompt_payload
-		: (typeof job.prompt_payload === 'string'
-			? (() => { try { return JSON.parse(job.prompt_payload); } catch { return {}; } })()
-			: {});
 	return {
 		id: job.id,
 		aiPinId: job.ai_pin || '',
@@ -329,10 +332,15 @@ function mapJob(job) {
 		clientToken: job.client_token || '',
 		status: job.status,
 		imageMode: job.image_mode,
-		provider: job.image_provider || payload.provider || '',
 		imageUrl: job.image_url || '',
 		featuredImageUrl: job.featured_image_url || '',
-		lastError: job.last_error || '',
+		ready: ['completed', 'fallback'].includes(String(job.status || '').toLowerCase()),
+		failed: String(job.status || '').toLowerCase() === 'failed',
+		usingArticleImage: String(job.status || '').toLowerCase() === 'fallback',
+		lastError: userSafeImageError({
+			status: job.status,
+			hasError: Boolean(job.last_error),
+		}),
 		attemptCount: job.attempt_count || 0,
 		maxAttempts: job.max_attempts || 3,
 		createdAt: job.created,
@@ -343,8 +351,7 @@ function mapJob(job) {
 router.use(pocketbaseAuth);
 
 router.get('/providers', async (req, res) => {
-	const { listImageProviders } = await import('../services/image-providers/index.js');
-	res.json({ providers: listImageProviders(), counts: [1, 3, 5], size: '1000x1500' });
+	res.json({ available: true });
 });
 
 /**
@@ -501,17 +508,10 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		const keywords = normalizeKeywords(rawItem?.keywords || pin?.suggested_keywords || []);
 		const imagePrompt = normalizeString(rawItem?.imagePrompt || pin?.image_prompt || '', 'imagePrompt', { max: 1200 });
 		const featuredImageUrl = normalizeString(rawItem?.featuredImageUrl || article.featured_image || '', 'featuredImageUrl', { max: 1000 });
-		const requestedProvider = normalizeString(rawItem?.provider || '', 'provider', { max: 40 });
-		let provider = requestedProvider;
+		let provider = '';
 		if (imageMode === 'generate_ai') {
-			const { resolveConfiguredImageProvider } = await import('../services/ai-providers.js');
-			const ready = await resolveConfiguredImageProvider(provider, {
-				allowWorkspaceDefault: !provider,
-			});
+			const ready = await resolveAdminImageProviderForUserRequest();
 			provider = ready.code;
-		}
-		if (provider && !['openai', 'fal', 'flux', 'gemini'].includes(provider)) {
-			throw httpError(422, 'provider must be openai, fal, flux, or gemini');
 		}
 
 		const generationRunId = normalizeString(rawItem?.generationRunId || rawItem?.generation_run_id || '', 'generationRunId', { max: 80 });
@@ -532,7 +532,6 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			imagePrompt,
 			featuredImageUrl,
 			provider,
-			requestedProvider,
 			generationRunId,
 		});
 	}
@@ -558,7 +557,6 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 			imagePrompt: plan.imagePrompt,
 			featuredImageUrl: plan.featuredImageUrl,
 			provider: plan.provider,
-			requestedProvider: plan.requestedProvider,
 			generationRunId: plan.generationRunId,
 		});
 	}));
@@ -603,6 +601,8 @@ router.post('/jobs/:jobId/regenerate', integratedAiRateLimit, async (req, res) =
 		throw httpError(404, 'Job not found');
 	}
 
+	const readyProvider = await resolveAdminImageProviderForUserRequest();
+	const originalPrompt = normalizeString(req.body?.prompt, 'prompt', { max: 5000 }) || sourceJob.prompt;
 	const clonePayload = await sanitizeCollectionPayload({
 		collection: 'ai_pin_image_jobs',
 		context: 'ai-pin-images:regenerate-job',
@@ -614,11 +614,12 @@ router.post('/jobs/:jobId/regenerate', integratedAiRateLimit, async (req, res) =
 		client_token: normalizeString(req.body?.clientToken, 'clientToken', { max: 120 }) || sourceJob.client_token || '',
 		source_type: sourceJob.source_type,
 		image_mode: 'generate_ai',
-		prompt: normalizeString(req.body?.prompt, 'prompt', { max: 5000 }) || sourceJob.prompt,
-		prompt_payload: sourceJob.prompt_payload || null,
-		image_provider: sourceJob.image_provider
-			|| (typeof sourceJob.prompt_payload === 'object' ? sourceJob.prompt_payload?.provider : '')
-			|| '',
+		prompt: appendProviderMarker(originalPrompt, readyProvider.code),
+		prompt_payload: {
+			...(typeof sourceJob.prompt_payload === 'object' ? sourceJob.prompt_payload : {}),
+			provider: readyProvider.code,
+		},
+		image_provider: readyProvider.code,
 		featured_image_url: sourceJob.featured_image_url || '',
 		status: 'queued',
 		attempt_count: 0,

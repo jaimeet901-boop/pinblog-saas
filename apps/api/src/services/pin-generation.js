@@ -16,6 +16,7 @@ import {
 	isRecoverableGenerationError,
 } from '../constants/pin-generation.js';
 import { assertTemplateUseAccess } from './plan-access-guard.js';
+import { userSafeImageError } from './ai-user-safe-errors.js';
 
 function deepClone(value) {
 	return JSON.parse(JSON.stringify(value ?? null));
@@ -32,6 +33,21 @@ function createStep(stage, status, detail = {}) {
 		at: nowIso(),
 		...detail,
 	};
+}
+
+function mapUserSafeGenerationData(value) {
+	if (Array.isArray(value)) {
+		return value.map(mapUserSafeGenerationData);
+	}
+	if (!value || typeof value !== 'object') {
+		return value;
+	}
+	const unsafe = /provider|model|endpoint|credential|secret|health|priority|adapter/i;
+	return Object.fromEntries(
+		Object.entries(value)
+			.filter(([key]) => !unsafe.test(key))
+			.map(([key, item]) => [key, mapUserSafeGenerationData(item)]),
+	);
 }
 
 export function mapGenerationRun(record, options = {}) {
@@ -54,19 +70,18 @@ export function mapGenerationRun(record, options = {}) {
 		templateChecksum: record.template_checksum || null,
 		exportProfileId: record.export_profile_id || 'pinterest_standard',
 		outputFormat: record.output_format || 'png',
-		imageProvider: record.image_provider || null,
 		imageMode: record.image_mode || 'generate_ai',
 		imageJobId: record.image_job_id || null,
 		aiPinId: record.ai_pin_id || null,
 		articleId: record.article_id || null,
 		clientToken: record.client_token || null,
-		requestSnapshot,
+		requestSnapshot: mapUserSafeGenerationData(requestSnapshot),
 		hasTemplateSnapshot: Boolean(record.template_snapshot),
 		templateSnapshot: options.includeSnapshot ? deepClone(record.template_snapshot) : undefined,
-		steps,
-		result,
-		lastError: record.last_error || '',
-		errorCode: record.error_code || '',
+		steps: mapUserSafeGenerationData(steps),
+		result: mapUserSafeGenerationData(result),
+		lastError: userSafeImageError({ hasError: Boolean(record.last_error) }),
+		errorCode: record.error_code ? 'GENERATION_UNAVAILABLE' : '',
 		attemptCount: Number(record.attempt_count) || 0,
 		maxAttempts: Number(record.max_attempts) || 3,
 		nextRetryAt: record.next_retry_at || null,
@@ -146,7 +161,6 @@ export async function createGenerationRun(req, body = {}) {
 
 	const exportProfileId = String(body.exportProfileId || body.profileId || 'pinterest_standard');
 	const outputFormat = String(body.format || body.outputFormat || 'png').toLowerCase();
-	const imageProvider = body.imageProvider || body.provider || null;
 	const maxAttempts = Math.min(8, Math.max(1, Number(body.maxAttempts) || 3));
 
 	let templateMeta = null;
@@ -174,7 +188,6 @@ export async function createGenerationRun(req, body = {}) {
 		choices: {
 			templateId: body.templateId || templateMeta?.templateId || null,
 			exportProfileId,
-			imageProvider,
 			outputFormat,
 			imageMode,
 		},
@@ -203,7 +216,7 @@ export async function createGenerationRun(req, body = {}) {
 		template_checksum: templateMeta?.templateChecksum || body.templateChecksum || '',
 		export_profile_id: exportProfileId,
 		output_format: outputFormat,
-		image_provider: imageProvider || '',
+		image_provider: '',
 		image_mode: imageMode,
 		image_job_id: '',
 		ai_pin_id: body.aiPinId || body.pinId || '',
@@ -245,7 +258,6 @@ export async function createGenerationRun(req, body = {}) {
 			imageMode,
 			exportProfileId,
 			outputFormat,
-			imageProvider,
 		},
 	});
 

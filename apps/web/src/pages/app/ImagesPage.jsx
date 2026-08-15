@@ -492,7 +492,7 @@ export default function ImagesPage() {
 								<option value="standard">Standard</option>
 								<option value="high">High</option>
 							</Select>
-							<p className="text-[11px] text-muted-foreground -mt-1">UI guide only — does not change OpenAI generation.</p>
+							<p className="text-[11px] text-muted-foreground -mt-1">Image quality guidance is shown here; generated results can vary.</p>
 							<Select label="Number of images" value={String(imageCount)} onChange={(e) => setImageCount(Number(e.target.value))}>
 								{[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
 							</Select>

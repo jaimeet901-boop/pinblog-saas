@@ -7,6 +7,7 @@ import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js
 import { pocketbaseAuth } from '../middleware/pocketbase-auth.js';
 import { attachWorkspace, requireWorkspaceMutation, requireWorkspaceRead } from '../middleware/product-access.js';
 import { assertTextProviderConfigured } from '../services/ai-providers.js';
+import { userSafeTextError } from '../services/ai-user-safe-errors.js';
 import {
 	beginFeatureReservation,
 	settleFeatureReservation,
@@ -20,7 +21,6 @@ import logger from '../utils/logger.js';
 
 const router = Router();
 
-const NO_AI_PROVIDER_MESSAGE = 'No AI provider configured. Please configure an AI provider in Admin Settings.';
 const WRITER_FEATURE_KEY = 'aiWriter';
 /** Credit catalog keys — cost resolved only inside the Credit Engine. */
 const WRITER_CREDIT_FEATURE = 'ai_writer';
@@ -44,20 +44,16 @@ function truncateForLog(value, max = 4000) {
 	return `${text.slice(0, max)}…[truncated ${text.length - max} chars]`;
 }
 
-function resolveProviderLabel() {
-	return 'admin-provider-registry';
-}
-
 async function assertAiProviderConfigured(req) {
 	try {
 		return await assertTextProviderConfigured();
 	} catch (error) {
-		const finalMessage = error?.message || NO_AI_PROVIDER_MESSAGE;
+		const finalMessage = userSafeTextError();
 		logIntegratedAi400({
 			req,
 			rawMessageField: req.body?.message,
 			validationErrors: [
-				'No enabled text AI provider with credentials in Admin Console',
+				error?.message || 'No enabled text AI provider with credentials in Admin Console',
 				...(error?.meta
 					? [
 						`providers_total=${error.meta.providersTotal}`,
@@ -70,7 +66,7 @@ async function assertAiProviderConfigured(req) {
 		});
 
 		const next = httpError(error.status || 400, finalMessage);
-		next.errorCode = error.errorCode || 'AI_PROVIDER_NOT_CONFIGURED';
+		next.errorCode = 'AI_UNAVAILABLE';
 		throw next;
 	}
 }
@@ -92,7 +88,6 @@ function logIntegratedAi400({
 		method: req.method,
 		workspaceId,
 		pocketbaseUserId: req.pocketbaseUserId || null,
-		provider: resolveProviderLabel(),
 		contentType: req.headers['content-type'] || null,
 		messageFieldType: rawMessageField === undefined ? 'undefined' : typeof rawMessageField,
 		messageFieldLength: typeof rawMessageField === 'string' ? rawMessageField.length : null,

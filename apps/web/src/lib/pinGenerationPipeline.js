@@ -80,7 +80,6 @@ export function validateGenerationRequest(request = {}) {
 			templateId: request.templateId || null,
 			exportProfileId: request.exportProfileId || request.profileId || 'pinterest_standard',
 			format,
-			imageProvider: request.imageProvider || request.provider || null,
 			content: request.content || {},
 			variables: request.variables || {},
 			brandKit: request.brandKit || null,
@@ -246,7 +245,6 @@ export async function runPinGenerationPipeline(request = {}, adapters = {}) {
 		templateId: plan.templateId,
 		exportProfileId: plan.exportProfileId,
 		format: plan.format,
-		imageProvider: plan.imageProvider,
 	});
 
 	// --- Image acquisition (AI provider interface or featured/url) ---
@@ -254,7 +252,6 @@ export async function runPinGenerationPipeline(request = {}, adapters = {}) {
 	if (plan.imageMode === 'generate_ai') {
 		await setStage('generating_image', {
 			status: 'started',
-			provider: plan.imageProvider,
 		});
 		if (typeof adapters.generateImage !== 'function') {
 			throw new PinGenerationError('generateImage adapter required for generate_ai', {
@@ -263,7 +260,6 @@ export async function runPinGenerationPipeline(request = {}, adapters = {}) {
 			});
 		}
 		const generated = await adapters.generateImage({
-			provider: plan.imageProvider,
 			content: plan.content,
 			prompt: request.prompt || plan.content.imagePrompt || '',
 			signal,
@@ -368,7 +364,6 @@ export async function runPinGenerationPipeline(request = {}, adapters = {}) {
 		mimeType: exported?.mimeType || null,
 		format: exported?.format || plan.format,
 		profileId: plan.exportProfileId,
-		imageProvider: plan.imageProvider,
 		templateId: plan.templateId,
 		variableContext,
 		/** Cloned template used — never the live DB record. */

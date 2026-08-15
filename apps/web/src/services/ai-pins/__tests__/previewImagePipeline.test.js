@@ -7,17 +7,12 @@ import {
 } from '../previewImagePipeline.js';
 
 describe('previewImagePipeline', () => {
-	it('resolvePreviewImageProvider prefers override then panel then config', () => {
+	it('resolvePreviewImageProvider never exposes a client-selectable provider', () => {
 		expect(resolvePreviewImageProvider({
 			imageProviderOverride: 'flux',
 			panelImageProvider: 'openai',
 			config: { images: { defaultProvider: 'gemini' } },
-		})).toBe('flux');
-
-		expect(resolvePreviewImageProvider({
-			panelImageProvider: 'openai',
-			config: { images: { defaultProvider: 'gemini' } },
-		})).toBe('openai');
+		})).toBe('');
 	});
 
 	it('resolvePinBackgroundFromJob uses AI URL on completed jobs', () => {
@@ -94,5 +89,6 @@ describe('previewImagePipeline', () => {
 		const body = JSON.parse(fetchFn.mock.calls[0][1].body);
 		expect(body.items[0].channel).toBe('facebook');
 		expect(body.items[0].exportProfileId).toBe('facebook_post');
+		expect(body.items[0]).not.toHaveProperty('provider');
 	});
 });

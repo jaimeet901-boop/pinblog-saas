@@ -29,10 +29,10 @@ const PENDING_JOB_STATUSES = new Set([
 
 function toneFromStatus(status) {
 	const value = String(status || '').toLowerCase();
-	if (['connected', 'active', 'ready', 'healthy', 'operational', 'ok', 'published', 'completed'].includes(value)) {
+	if (['connected', 'active', 'ready', 'healthy', 'operational', 'ok', 'published', 'completed', 'available'].includes(value)) {
 		return 'green';
 	}
-	if (['failed', 'error', 'down', 'disconnected', 'not_configured'].includes(value)) {
+	if (['failed', 'error', 'down', 'disconnected', 'not_configured', 'unavailable'].includes(value)) {
 		return 'red';
 	}
 	if (['running', 'scanning', 'queued', 'pending', 'degraded', 'scheduled', 'paused', 'untested', 'idle', 'configured'].includes(value)) {
@@ -440,12 +440,11 @@ function computeWebsiteScore({ health, jobStats, indicators, website }) {
 	score += pinPts;
 	breakdown.push({ key: 'pinterestConnection', points: pinPts, max: 15 });
 
-	const aiStatus = indicators?.aiImageProvider?.status;
+	const aiStatus = indicators?.imageGeneration?.status;
 	let aiPts = 0;
-	if (aiStatus === 'connected') aiPts = 10;
-	else if (aiStatus === 'configured') aiPts = 5;
+	if (aiStatus === 'available') aiPts = 10;
 	score += aiPts;
-	breakdown.push({ key: 'aiProvider', points: aiPts, max: 10 });
+	breakdown.push({ key: 'imageGeneration', points: aiPts, max: 10 });
 
 	const clamped = Math.max(0, Math.min(100, Math.round(score)));
 	const label = scoreLabel(clamped);
@@ -604,13 +603,10 @@ function buildPinterestStatus({ workspaceIndicators, publishTarget, jobStats, pi
 
 function buildAiConfiguration(aiDefaults) {
 	return {
-		model: aiDefaults?.model || null,
 		language: aiDefaults?.language || null,
 		country: aiDefaults?.country || null,
 		tone: aiDefaults?.tone || null,
 		defaultPromptPreview: aiDefaults?.promptPreview || null,
-		imageProvider: aiDefaults?.imageProvider || null,
-		textProvider: aiDefaults?.textProvider || null,
 		textReady: Boolean(aiDefaults?.textReady),
 		imageReady: Boolean(aiDefaults?.imageReady),
 		editHref: '/app/settings',
@@ -687,16 +683,6 @@ function buildCredentialsHealth({ website, wpSite, workspaceIndicators, aiDefaul
 			configured: String(workspaceIndicators?.pinterestConnection?.status || '').toLowerCase() === 'connected'
 				|| Boolean(userSettingsFlags?.has_pinterest_token),
 		},
-		{
-			key: 'openaiProvider',
-			label: 'OpenAI Provider',
-			configured: Boolean(aiDefaults?.textReady || userSettingsFlags?.has_openai_key || userSettingsFlags?.has_gemini_key),
-		},
-		{
-			key: 'imageProvider',
-			label: 'Image Provider',
-			configured: Boolean(aiDefaults?.imageReady || userSettingsFlags?.has_fal_key),
-		},
 	];
 	return {
 		items: rows.map((row) => ({
@@ -724,15 +710,15 @@ function buildAiReadiness({ website, wordpress, pinterest, aiDefaults, publishin
 		},
 		{
 			key: 'aiConfigured',
-			label: 'AI Configured',
+			label: 'AI generation',
 			ok: Boolean(aiDefaults?.textReady),
-			hint: 'Enable a text AI provider in Admin Settings.',
+			hint: 'AI generation is unavailable right now. Please try again later.',
 		},
 		{
-			key: 'imageProviderReady',
-			label: 'Image Provider Ready',
+			key: 'imageGenerationAvailable',
+			label: 'Image generation',
 			ok: Boolean(aiDefaults?.imageReady),
-			hint: 'Enable an image provider in Admin Settings.',
+			hint: 'Image generation is unavailable right now. Please try again later.',
 		},
 		{
 			key: 'pinterestReady',
@@ -895,13 +881,13 @@ function buildQuickProblems({ health, indicators, website, jobStats, credits }) 
 		});
 	}
 
-	if (['failed', 'not_configured', 'disconnected', 'down'].includes(indicators?.aiImageProvider?.status)) {
+	if (indicators?.imageGeneration?.status === 'unavailable') {
 		problems.push({
-			id: 'ai_provider_unavailable',
-			code: 'ai_provider_unavailable',
-			label: 'AI provider unavailable',
+			id: 'image_generation_unavailable',
+			code: 'image_generation_unavailable',
+			label: 'AI image generation unavailable',
 			tone: 'red',
-			detail: 'Enable an AI image provider in Admin Settings.',
+			detail: 'Image generation is unavailable right now. Please try again later.',
 		});
 	}
 
@@ -1047,14 +1033,17 @@ async function loadWorkspaceStatusIndicators(ownerId) {
 	const defaultBrandKit = (brandKits || []).find((kit) => kit.is_default) || (brandKits || [])[0] || null;
 	const queuePaused = Boolean(queuePausedRow?.paused);
 	const hasCalendar = Number(calendarEvents.totalItems) > 0;
+	const imageGenerationAvailable = Boolean(
+		preferredImage
+		&& preferredImage.enabled
+		&& (preferredImage.config?.hasApiKey || preferredImage.config?.hasSecretKey || preferredImage.status === 'connected'),
+	);
 
 	return {
-		aiImageProvider: indicator(
-			'AI Image Provider',
-			preferredImage
-				? (preferredImage.config?.hasApiKey || preferredImage.status === 'connected' ? 'connected' : preferredImage.status || 'configured')
-				: 'not_configured',
-			preferredImage?.name || 'Not configured',
+		imageGeneration: indicator(
+			'Image Generation',
+			imageGenerationAvailable ? 'available' : 'unavailable',
+			imageGenerationAvailable ? 'Available' : 'Unavailable',
 		),
 		pinterestConnection: indicator(
 			'Pinterest Connection',
@@ -1590,7 +1579,7 @@ export async function getWebsiteDashboard(ownerId, website) {
 				wordpress: control.health.wordpressConnection,
 				restApi: control.health.restApi,
 				pinterest: workspaceIndicators.pinterestConnection,
-				aiProvider: workspaceIndicators.aiImageProvider,
+				imageGeneration: workspaceIndicators.imageGeneration,
 				queue: workspaceIndicators.publishingQueue,
 				scheduler: workspaceIndicators.scheduler,
 			},

@@ -771,7 +771,7 @@ export default function WebsiteDashboardPage() {
 										<MetaLine label="WordPress"><Badge tone={systemHealth.wordpress?.tone || health.wordpressConnection?.tone || statusTone(systemHealth.wordpress?.status || health.wordpressConnection?.status)}>{systemHealth.wordpress?.status || health.wordpressConnection?.status || '—'}</Badge></MetaLine>
 										<MetaLine label="REST API"><Badge tone={systemHealth.restApi?.tone || health.restApi?.tone || statusTone(systemHealth.restApi?.status || health.restApi?.status)}>{systemHealth.restApi?.status || health.restApi?.status || '—'}</Badge></MetaLine>
 										<MetaLine label="Pinterest"><Badge tone={systemHealth.pinterest?.tone || statusTone(systemHealth.pinterest?.status)}>{systemHealth.pinterest?.status || '—'}</Badge></MetaLine>
-										<MetaLine label="AI provider"><Badge tone={systemHealth.aiProvider?.tone || statusTone(systemHealth.aiProvider?.status)}>{systemHealth.aiProvider?.status || '—'}</Badge></MetaLine>
+										<MetaLine label="AI image generation"><Badge tone={systemHealth.imageGeneration?.tone || statusTone(systemHealth.imageGeneration?.status)}>{systemHealth.imageGeneration?.status || '—'}</Badge></MetaLine>
 										<MetaLine label="Queue"><Badge tone={systemHealth.queue?.tone || statusTone(systemHealth.queue?.status)}>{systemHealth.queue?.status || '—'}</Badge></MetaLine>
 									</div>
 								</Card>

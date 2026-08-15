@@ -38,18 +38,13 @@ router.get('/', async (req, res) => {
 router.put('/', requireWorkspaceCapability('workspace.api_keys.manage'), async (req, res) => {
 	const owner = req.pocketbaseUserId;
 	const body = req.body || {};
+	const hasLegacyAiKey = ['openai_key', 'gemini_key', 'fal_key'].some((field) => field in body);
+	if (hasLegacyAiKey) {
+		throw httpError(422, 'AI settings cannot be updated here.');
+	}
 	const payload = {
 		email_from: normalizeOptionalString(body.email_from, 'email_from', 200),
 	};
-	if ('openai_key' in body) {
-		payload.openai_key = normalizeOptionalString(body.openai_key, 'openai_key', 500);
-	}
-	if ('gemini_key' in body) {
-		payload.gemini_key = normalizeOptionalString(body.gemini_key, 'gemini_key', 300);
-	}
-	if ('fal_key' in body) {
-		payload.fal_key = normalizeOptionalString(body.fal_key, 'fal_key', 300);
-	}
 	if ('pinterest_token' in body) {
 		payload.pinterest_token = normalizeOptionalString(body.pinterest_token, 'pinterest_token', 500);
 	}
