@@ -11,14 +11,24 @@ import {
 const baseAccount = {
 	id: 'acc_1',
 	owner: 'user_1',
+	workspace: 'ws_1',
 	connected: true,
 	status: 'connected',
 	page_tokens: { 123456789: 'cipher' },
 };
 
+const basePage = {
+	id: 'page_row_1',
+	owner: 'user_1',
+	workspace: 'ws_1',
+	account: 'acc_1',
+	page_id: '123456789',
+};
+
 const baseJob = {
 	id: 'job_1',
 	owner: 'user_1',
+	workspace: 'ws_1',
 	account: 'acc_1',
 	page_id: '123456789',
 	message: 'Hello Facebook',
@@ -117,6 +127,7 @@ function baseDeps(overrides = {}) {
 			getOwnedFacebookAccountById: async ({ accountId }) => (
 				accountId === baseAccount.id ? { ...baseAccount } : null
 			),
+			getFacebookPageForQueueJob: async () => ({ ...basePage }),
 			decryptPageTokenMap: () => ({ 123456789: 'page-token-plain' }),
 			validateFacebookDestinationPost: async () => validationOk,
 			markFacebookAccountStatus: async () => null,
@@ -351,5 +362,87 @@ describe('facebook F4-4 publish queue executor', () => {
 		assert.equal(store.getJob('job_stuck_open').status, 'scheduled');
 		assert.match(store.getJob('job_stuck_open').last_error, /Recovered after stuck publishing/);
 		assert.equal(store.getJob('job_recent').status, 'publishing');
+	});
+});
+
+describe('facebook queue workspace isolation (P2-5)', () => {
+	it('processJob publishes a WS-A job with a WS-A account', async () => {
+		const { store, deps } = baseDeps();
+		let publishCalls = 0;
+		deps.publishFacebookFeedPost = async () => {
+			publishCalls += 1;
+			return {
+				postId: '123456789_999',
+				postUrl: 'https://www.facebook.com/123456789_999',
+			};
+		};
+		await processJob(baseJob, deps);
+		assert.equal(publishCalls, 1);
+		assert.equal(store.getJob('job_1').status, 'published');
+	});
+
+	it('rejects a WS-A job with a WS-B account and does not call Facebook', async () => {
+		const { store, deps } = baseDeps();
+		let publishCalls = 0;
+		deps.getOwnedFacebookAccountById = async () => ({ ...baseAccount, workspace: 'ws_b' });
+		deps.publishFacebookFeedPost = async () => {
+			publishCalls += 1;
+			return { postId: 'should-not-call', postUrl: '' };
+		};
+
+		await assert.rejects(
+			() => processJob(baseJob, deps),
+			(error) => error.status === 422 && /not connected/.test(error.message),
+		);
+		assert.equal(publishCalls, 0);
+		assert.equal(store.getJob('job_1').status, 'publishing');
+		assert.equal(store.getJob('job_1').facebook_post_id, undefined);
+	});
+
+	it('rejects a job with missing workspace and does not call Facebook', async () => {
+		const { deps } = baseDeps();
+		let publishCalls = 0;
+		deps.publishFacebookFeedPost = async () => {
+			publishCalls += 1;
+			return { postId: 'should-not-call', postUrl: '' };
+		};
+
+		await assert.rejects(
+			() => processJob({ ...baseJob, workspace: '' }, deps),
+			(error) => error.status === 403 && /workspace is missing/.test(error.message) && error.retryable === false,
+		);
+		assert.equal(publishCalls, 0);
+	});
+
+	it('rejects a mismatched account workspace and does not call Facebook', async () => {
+		const { deps } = baseDeps();
+		let publishCalls = 0;
+		deps.getOwnedFacebookAccountById = async () => ({ ...baseAccount, workspace: 'ws_other' });
+		deps.publishFacebookFeedPost = async () => {
+			publishCalls += 1;
+			return { postId: 'should-not-call', postUrl: '' };
+		};
+
+		await assert.rejects(
+			() => processJob(baseJob, deps),
+			(error) => error.status === 422,
+		);
+		assert.equal(publishCalls, 0);
+	});
+
+	it('rejects a mismatched page workspace and does not call Facebook', async () => {
+		const { deps } = baseDeps();
+		let publishCalls = 0;
+		deps.getFacebookPageForQueueJob = async () => ({ ...basePage, workspace: 'ws_b' });
+		deps.publishFacebookFeedPost = async () => {
+			publishCalls += 1;
+			return { postId: 'should-not-call', postUrl: '' };
+		};
+
+		await assert.rejects(
+			() => processJob(baseJob, deps),
+			(error) => error.status === 404 && /Page was not found/.test(error.message),
+		);
+		assert.equal(publishCalls, 0);
 	});
 });

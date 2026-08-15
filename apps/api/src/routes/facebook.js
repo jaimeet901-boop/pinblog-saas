@@ -18,6 +18,13 @@ import {
 	syncFacebookPagesForOwner,
 } from '../services/facebook/api.js';
 import {
+	FACEBOOK_OAUTH_CALLBACK_FAILED_MESSAGE,
+	facebookOAuthCallbackBrowserError,
+	facebookOAuthCallbackFailureLog,
+	facebookOAuthProviderDeniedBrowserError,
+	facebookOAuthProviderDeniedLog,
+} from '../services/facebook/workspace-isolation.js';
+import {
 	assertFacebookAccountConnected,
 	getFacebookDestination,
 	listFacebookDestinations,
@@ -89,10 +96,14 @@ async function getOwnedFacebookPublishJob(req, jobId) {
 /** Public OAuth callback — must stay before auth middleware. */
 router.get('/oauth/callback', asyncHandler(async (req, res) => {
 	const errorParam = String(req.query.error || '').trim();
-	const errorDescription = String(req.query.error_description || req.query.error_message || '').trim();
+	const hasErrorDescription = Boolean(String(req.query.error_description || req.query.error_message || '').trim());
 	if (errorParam) {
+		logger.warn('[facebook-oauth] provider denied', facebookOAuthProviderDeniedLog({
+			hasError: true,
+			hasErrorDescription,
+		}));
 		const redirect = await buildFacebookOAuthAppRedirect({
-			facebook_error: errorDescription || errorParam || 'OAuth denied',
+			facebook_error: facebookOAuthProviderDeniedBrowserError(),
 		});
 		return res.redirect(redirect);
 	}
@@ -100,7 +111,9 @@ router.get('/oauth/callback', asyncHandler(async (req, res) => {
 	const code = String(req.query.code || '').trim();
 	const state = String(req.query.state || '').trim();
 	if (!code || !state) {
-		const redirect = await buildFacebookOAuthAppRedirect({ facebook_error: 'Missing OAuth code or state' });
+		const redirect = await buildFacebookOAuthAppRedirect({
+			facebook_error: FACEBOOK_OAUTH_CALLBACK_FAILED_MESSAGE,
+		});
 		return res.redirect(redirect);
 	}
 
@@ -114,9 +127,9 @@ router.get('/oauth/callback', asyncHandler(async (req, res) => {
 		const redirect = await buildFacebookOAuthAppRedirect(query);
 		return res.redirect(redirect);
 	} catch (error) {
-		logger.warn('[facebook-oauth] callback failed', { message: error.message });
+		logger.warn('[facebook-oauth] callback failed', facebookOAuthCallbackFailureLog(error));
 		const redirect = await buildFacebookOAuthAppRedirect({
-			facebook_error: error.message || 'Facebook connect failed',
+			facebook_error: facebookOAuthCallbackBrowserError(error),
 		});
 		return res.redirect(redirect);
 	}
@@ -134,7 +147,8 @@ router.post('/oauth/start', asyncHandler(async (req, res) => {
 		owner,
 		accountId: String(body.accountId || '').trim(),
 		requestedLabel: String(body.label || '').trim(),
-		workspaceId: req.workspaceId || '',
+		workspaceId: req.workspace?.id || '',
+		workspaceKey: req.workspaceKey || '',
 		returnPath: String(body.returnPath || '').trim(),
 		websiteId: String(body.websiteId || '').trim(),
 	});
@@ -155,7 +169,8 @@ router.post('/accounts/:accountId/reconnect', asyncHandler(async (req, res) => {
 		owner,
 		accountId: account.id,
 		requestedLabel: account.label || '',
-		workspaceId: req.workspaceId || account.workspace || '',
+		workspaceId: req.workspace?.id || '',
+		workspaceKey: req.workspaceKey || '',
 	});
 	res.json({
 		authUrl: result.authUrl,

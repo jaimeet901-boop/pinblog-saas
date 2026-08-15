@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import logger from '../../utils/logger.js';
-import { ensureUserWorkspace } from '../workspace-context.js';
 import { writeAuditLog } from '../audit/write.js';
 import {
 	ensureFacebookChannelSchema,
@@ -19,14 +18,24 @@ import {
 	replaceFacebookAccountSecrets,
 } from './secrets.js';
 import {
+	assertFacebookAccountWorkspaceBound,
 	bindFacebookOAuthAccountToStateWorkspace,
 	buildFacebookOAuthCallbackScope,
+	buildFacebookOAuthStateCreatePayload,
+	buildFacebookPageSyncExistingFilterParams,
+	FACEBOOK_OAUTH_ALREADY_CONNECTED_MESSAGE,
 	FACEBOOK_OAUTH_CALLBACK_FAILED_MESSAGE,
+	FACEBOOK_OAUTH_PAGES_SYNC_WARNING_MESSAGE,
+	FACEBOOK_OAUTH_PROFILE_IN_USE_MESSAGE,
+	facebookOAuthCallbackFailureLog,
+	facebookOAuthPageSyncFailureLog,
+	facebookOAuthStartLogFields,
 	failClosedFacebookOAuthAccountWrite,
 	interpretFacebookOAuthStateConsumeResult,
 	rejectFacebookOAuthStateConsume,
 	requireFacebookOAuthReconnectAccount,
 	resolveFacebookOAuthCallbackWorkspace,
+	selectFacebookExistingPageInWorkspace,
 	stampFacebookOAuthAccountWorkspace,
 } from './workspace-isolation.js';
 
@@ -195,50 +204,19 @@ export async function createFacebookOAuthState({
 	const scopes = scopesForLoginDialog(credentials.scopes?.length ? credentials.scopes : DEFAULT_SCOPES);
 	const scopeParam = scopes.join(',');
 
-	let resolvedWorkspaceId = workspaceId;
-	let resolvedWorkspaceKey = workspaceKey;
-	if (!resolvedWorkspaceId || !resolvedWorkspaceKey) {
-		try {
-			const ctx = await ensureUserWorkspace(owner);
-			resolvedWorkspaceId = resolvedWorkspaceId || ctx.workspace?.id || '';
-			resolvedWorkspaceKey = resolvedWorkspaceKey || ctx.workspaceKey || ctx.workspace?.workspace_key || owner;
-		} catch {
-			resolvedWorkspaceKey = resolvedWorkspaceKey || owner;
-		}
-	}
-
-	if (!resolvedWorkspaceId) {
-		throw httpError(422, 'Workspace is required to start Facebook OAuth.', 'FACEBOOK_WORKSPACE_REQUIRED');
-	}
-
-	const body = {
+	const body = buildFacebookOAuthStateCreatePayload({
 		owner,
 		state,
-		expires_at: expiresAt,
-		used: false,
-		account_id: accountId || '',
-		requested_label: requestedLabel || '',
-		workspace_id: resolvedWorkspaceId || '',
-		workspace_key: resolvedWorkspaceKey || '',
-		return_path: returnPath || '',
-		workspace: resolvedWorkspaceId,
-	};
-	if (websiteId) body.websiteId = websiteId;
+		expiresAt,
+		accountId,
+		requestedLabel,
+		workspaceId,
+		workspaceKey,
+		returnPath,
+		websiteId,
+	});
 
-	try {
-		await pocketbaseClient.collection('facebook_oauth_states').create(body);
-	} catch (error) {
-		// Older / partial schemas may reject optional fields — retry minimal required set.
-		await pocketbaseClient.collection('facebook_oauth_states').create({
-			owner,
-			state,
-			expires_at: expiresAt,
-			used: false,
-			workspace: resolvedWorkspaceId,
-		}).catch(() => {
-			throw error;
-		});
-	}
+	await pocketbaseClient.collection('facebook_oauth_states').create(body);
 
 	const url = new URL(DIALOG_BASE);
 	url.searchParams.set('client_id', clientId);
@@ -248,17 +226,16 @@ export async function createFacebookOAuthState({
 	url.searchParams.set('scope', scopeParam);
 	const authUrl = url.toString();
 
-	logger.info('[facebook-oauth] authorization URL built', {
-		authUrl,
-		clientId,
+	logger.info('[facebook-oauth] authorization URL built', facebookOAuthStartLogFields({
+		hasAuthUrl: Boolean(authUrl),
+		hasState: Boolean(state),
+		stateLength: String(state || '').length,
+		hasClientId: Boolean(clientId),
 		redirectUri,
-		responseType: 'code',
-		scope: scopeParam,
 		scopes,
-		state,
 		dialogBase: DIALOG_BASE,
 		graphVersion: GRAPH_VERSION,
-	});
+	}));
 
 	return {
 		authUrl,
@@ -438,6 +415,8 @@ export async function markFacebookAccountStatus({ accountId, status, statusError
 }
 
 export async function syncFacebookPagesForOwner({ owner, account }) {
+	const workspaceId = assertFacebookAccountWorkspaceBound({ owner, account });
+
 	const hydrated = account.access_token
 		? account
 		: await hydrateFacebookAccountSecrets(account);
@@ -456,15 +435,19 @@ export async function syncFacebookPagesForOwner({ owner, account }) {
 		throw error;
 	}
 
-	// Prefer workspace scope when present on account
-	const existingFilter = account.workspace
-		? pocketbaseClient.filter('account = {:account}', { account: account.id })
-		: pocketbaseClient.filter('owner = {:owner} && account = {:account}', { owner, account: account.id });
+	const filterParams = buildFacebookPageSyncExistingFilterParams({
+		owner,
+		workspaceId,
+		accountId: account.id,
+	});
+	const existingFilter = pocketbaseClient.filter(
+		'owner = {:owner} && workspace = {:workspace} && account = {:account}',
+		filterParams,
+	);
 
 	const existingPages = await pocketbaseClient.collection('facebook_pages').getFullList({
 		filter: existingFilter,
 	});
-	const existingByPageId = new Map(existingPages.map((item) => [item.page_id, item]));
 	const incomingIds = new Set();
 	const pageTokens = {};
 
@@ -477,6 +460,7 @@ export async function syncFacebookPagesForOwner({ owner, account }) {
 		const payload = {
 			owner,
 			account: account.id,
+			workspace: workspaceId,
 			page_id: pageId,
 			name: String(page.name || '').trim() || 'Untitled Page',
 			category: String(page.category || '').trim(),
@@ -485,9 +469,13 @@ export async function syncFacebookPagesForOwner({ owner, account }) {
 			tasks: page.tasks || [],
 			connected: true,
 		};
-		if (account.workspace) payload.workspace = account.workspace;
 
-		const existing = existingByPageId.get(pageId);
+		const existing = selectFacebookExistingPageInWorkspace(existingPages, {
+			owner,
+			workspaceId,
+			accountId: account.id,
+			pageId,
+		});
 		if (existing) {
 			await pocketbaseClient.collection('facebook_pages').update(existing.id, payload);
 		} else {
@@ -504,7 +492,7 @@ export async function syncFacebookPagesForOwner({ owner, account }) {
 
 	await replaceFacebookAccountSecrets({
 		owner,
-		workspaceId: account.workspace || '',
+		workspaceId,
 		accountId: account.id,
 		accessToken,
 		refreshToken: '',
@@ -646,7 +634,13 @@ export async function completeFacebookOAuthCallback({ code, state }) {
 		});
 	}
 
-	const profile = await fetchFacebookProfile({ accessToken });
+	let profile;
+	try {
+		profile = await fetchFacebookProfile({ accessToken });
+	} catch (error) {
+		logger.warn('[facebook-oauth] profile fetch failed', facebookOAuthCallbackFailureLog(error));
+		throw httpError(400, FACEBOOK_OAUTH_CALLBACK_FAILED_MESSAGE, 'FACEBOOK_OAUTH_PROFILE_FAILED');
+	}
 	const facebookUserId = normalizeString(profile?.id || '', 'facebook_user_id', { required: true, max: 120 });
 	const accountName = normalizeString(profile?.name || '', 'account_name', { max: 255 });
 	const profileImageUrl = normalizeString(profile?.picture?.data?.url || '', 'profile_image_url', { max: 1000 });
@@ -672,10 +666,10 @@ export async function completeFacebookOAuthCallback({ code, state }) {
 	);
 
 	if (existingByUser && !reconnectAccountId) {
-		throw httpError(409, 'This Facebook account is already connected. Use reconnect instead.');
+		throw httpError(409, FACEBOOK_OAUTH_ALREADY_CONNECTED_MESSAGE);
 	}
 	if (existingByUser && reconnectAccount && existingByUser.id !== reconnectAccount.id) {
-		throw httpError(409, 'Another connected account already uses this Facebook profile.');
+		throw httpError(409, FACEBOOK_OAUTH_PROFILE_IN_USE_MESSAGE);
 	}
 
 	const requestedLabel = normalizeString(stateRecord.requested_label, 'requested_label', { max: 255 });
@@ -737,8 +731,11 @@ export async function completeFacebookOAuthCallback({ code, state }) {
 	try {
 		await syncFacebookPagesForOwner({ owner: stateRecord.owner, account: saved });
 	} catch (error) {
-		pagesSyncWarning = error.message || 'Page sync failed';
-		logger.warn('[facebook-oauth] page sync failed after connect', { accountId: saved.id, message: pagesSyncWarning });
+		logger.warn('[facebook-oauth] page sync failed after connect', facebookOAuthPageSyncFailureLog({
+			accountId: saved.id,
+			error,
+		}));
+		pagesSyncWarning = FACEBOOK_OAUTH_PAGES_SYNC_WARNING_MESSAGE;
 	}
 
 	await writeAuditLog({

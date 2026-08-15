@@ -25,6 +25,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const baseJob = {
 	id: 'job_credit_1',
 	owner: 'user_1',
+	workspace: 'ws_1',
 	account: 'acc_1',
 	page_id: '123456789',
 	message: 'Hello Facebook',
@@ -63,8 +64,16 @@ function createMinimalDeps(overrides = {}) {
 		getOwnedFacebookAccountById: async () => ({
 			id: 'acc_1',
 			owner: 'user_1',
+			workspace: 'ws_1',
 			connected: true,
 			page_tokens: { 123456789: 'cipher' },
+		}),
+		getFacebookPageForQueueJob: async () => ({
+			id: 'page_row_1',
+			owner: 'user_1',
+			workspace: 'ws_1',
+			account: 'acc_1',
+			page_id: '123456789',
 		}),
 		decryptPageTokenMap: () => ({ 123456789: 'page-token-plain' }),
 		validateFacebookDestinationPost: async () => ({

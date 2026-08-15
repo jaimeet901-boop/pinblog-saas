@@ -11,14 +11,24 @@ import {
 const baseAccount = {
 	id: 'acc_1',
 	owner: 'user_1',
+	workspace: 'ws_1',
 	connected: true,
 	status: 'connected',
 	page_tokens: { 123456789: 'cipher' },
 };
 
+const basePage = {
+	id: 'page_row_1',
+	owner: 'user_1',
+	workspace: 'ws_1',
+	account: 'acc_1',
+	page_id: '123456789',
+};
+
 const publishedJob = {
 	id: 'job_1',
 	owner: 'user_1',
+	workspace: 'ws_1',
 	account: 'acc_1',
 	page_id: '123456789',
 	status: 'published',
@@ -148,6 +158,7 @@ describe('facebook-analytics-sync', () => {
 			pocketbaseClient: client,
 			sanitizePayload: async (payload) => payload,
 			getOwnedFacebookAccountById: async () => baseAccount,
+			getFacebookPageForQueueJob: async () => ({ ...basePage }),
 			decryptPageTokenMap: () => ({ 123456789: 'page-token-plain' }),
 			fetchFacebookPostInsights: async () => ({
 				data: [
@@ -180,6 +191,7 @@ describe('facebook-analytics-sync', () => {
 			client,
 			pocketbaseClient: client,
 			getOwnedFacebookAccountById: async () => ({ ...baseAccount, connected: false }),
+			getFacebookPageForQueueJob: async () => ({ ...basePage }),
 			decryptPageTokenMap: () => ({}),
 			fetchFacebookPostInsights: async () => {
 				fetchCalls += 1;
@@ -195,6 +207,7 @@ describe('facebook-analytics-sync', () => {
 			pocketbaseClient: client,
 			sanitizePayload: async (payload) => payload,
 			getOwnedFacebookAccountById: async () => baseAccount,
+			getFacebookPageForQueueJob: async () => ({ ...basePage }),
 			decryptPageTokenMap: () => ({}),
 			fetchFacebookPostInsights: async () => {
 				fetchCalls += 1;
@@ -229,6 +242,7 @@ describe('facebook-analytics-sync', () => {
 				jobs.get('job_ok'),
 			],
 			getOwnedFacebookAccountById: async () => baseAccount,
+			getFacebookPageForQueueJob: async () => ({ ...basePage }),
 			decryptPageTokenMap: () => ({ 123456789: 'page-token-plain' }),
 			fetchFacebookPostInsights: async ({ postId }) => {
 				if (postId === '123456789_111') {
@@ -248,5 +262,70 @@ describe('facebook-analytics-sync', () => {
 		assert.deepEqual(synced, ['123456789_222']);
 		assert.equal(jobs.get('job_ok').performance.impressions, 10);
 		assert.equal(jobs.get('job_fail').analytics_synced_at, undefined);
+	});
+});
+
+describe('facebook analytics workspace isolation (P2-7)', () => {
+	it('syncs a WS-A job with a WS-A account', async () => {
+		const { jobs, client } = createJobStore([{ ...publishedJob }]);
+		let fetchCalls = 0;
+
+		await syncFacebookJobAnalytics(publishedJob, {
+			client,
+			pocketbaseClient: client,
+			sanitizePayload: async (payload) => payload,
+			getOwnedFacebookAccountById: async () => baseAccount,
+			getFacebookPageForQueueJob: async () => ({ ...basePage }),
+			decryptPageTokenMap: () => ({ 123456789: 'page-token-plain' }),
+			fetchFacebookPostInsights: async () => {
+				fetchCalls += 1;
+				return { data: [{ name: 'post_impressions', values: [{ value: 3 }] }] };
+			},
+		});
+
+		assert.equal(fetchCalls, 1);
+		assert.equal(jobs.get('job_1').performance.impressions, 3);
+	});
+
+	it('skips a WS-A job with a WS-B account and does not call Facebook', async () => {
+		const { jobs, client } = createJobStore([{ ...publishedJob }]);
+		let fetchCalls = 0;
+
+		await syncFacebookJobAnalytics(publishedJob, {
+			client,
+			pocketbaseClient: client,
+			sanitizePayload: async (payload) => payload,
+			getOwnedFacebookAccountById: async () => ({ ...baseAccount, workspace: 'ws_b' }),
+			getFacebookPageForQueueJob: async () => ({ ...basePage }),
+			decryptPageTokenMap: () => ({ 123456789: 'page-token-plain' }),
+			fetchFacebookPostInsights: async () => {
+				fetchCalls += 1;
+				return { data: [] };
+			},
+		});
+
+		assert.equal(fetchCalls, 0);
+		assert.equal(jobs.get('job_1').analytics_synced_at, undefined);
+	});
+
+	it('skips a job with missing workspace and does not call Facebook', async () => {
+		const { jobs, client } = createJobStore([{ ...publishedJob, workspace: '' }]);
+		let fetchCalls = 0;
+
+		await syncFacebookJobAnalytics({ ...publishedJob, workspace: '' }, {
+			client,
+			pocketbaseClient: client,
+			sanitizePayload: async (payload) => payload,
+			getOwnedFacebookAccountById: async () => baseAccount,
+			getFacebookPageForQueueJob: async () => ({ ...basePage }),
+			decryptPageTokenMap: () => ({ 123456789: 'page-token-plain' }),
+			fetchFacebookPostInsights: async () => {
+				fetchCalls += 1;
+				return { data: [] };
+			},
+		});
+
+		assert.equal(fetchCalls, 0);
+		assert.equal(jobs.get('job_1').analytics_synced_at, undefined);
 	});
 });

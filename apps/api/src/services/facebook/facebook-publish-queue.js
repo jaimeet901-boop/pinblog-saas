@@ -19,6 +19,10 @@ import {
 	buildFacebookPublishRetryScheduledEventPayload,
 	recordFacebookPublishEvent,
 } from './publish-events.js';
+import {
+	assertFacebookQueueWorkspaceIsolation,
+	buildFacebookQueuePageFilterParams,
+} from './workspace-isolation.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.FACEBOOK_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.FACEBOOK_QUEUE_BATCH || '10', 10);
@@ -73,6 +77,35 @@ function recordFieldId(value) {
 	if (typeof value === 'string') return value.trim();
 	if (typeof value === 'object') return String(value.id || value.value || '').trim();
 	return String(value).trim();
+}
+
+async function loadFacebookPageForJob({
+	pocketbaseClient,
+	owner,
+	workspaceId,
+	accountId,
+	pageId,
+	loader = null,
+}) {
+	if (typeof loader === 'function') {
+		return loader({ owner, workspaceId, accountId, pageId });
+	}
+	const params = buildFacebookQueuePageFilterParams({
+		owner,
+		workspaceId,
+		accountId,
+		pageId,
+	});
+	if (!params.owner || !params.workspace || !params.account || !params.pageId) {
+		return null;
+	}
+	return pocketbaseClient.collection('facebook_pages').getFirstListItem(
+		pocketbaseClient.filter(
+			'owner = {:owner} && workspace = {:workspace} && account = {:account} && page_id = {:pageId}',
+			params,
+		),
+		{ requestKey: null },
+	).catch(() => null);
 }
 
 function nextRetryDate({ retryAfter = 0, attemptCount = 1, rateLimitRetryAfterMs = 0 }) {
@@ -148,6 +181,7 @@ async function resolveQueueDeps(deps = {}) {
 		decryptPageTokenMap,
 		recordPublishEvent: deps.recordFacebookPublishEvent || recordFacebookPublishEvent,
 		sanitizePayload: deps.sanitizePayload || sanitizeJobPayload,
+		getFacebookPageForQueueJob: deps.getFacebookPageForQueueJob || null,
 		client: pocketbaseClient,
 	};
 }
@@ -226,6 +260,7 @@ export async function processJob(job, deps = {}) {
 		decryptPageTokenMap: decryptPages,
 		recordPublishEvent,
 		sanitizePayload,
+		getFacebookPageForQueueJob,
 	} = await resolveQueueDeps(deps);
 
 	const owner = job.owner;
@@ -262,6 +297,15 @@ export async function processJob(job, deps = {}) {
 	}
 
 	const account = await getOwnedFacebookAccountById({ owner, accountId });
+	const page = await loadFacebookPageForJob({
+		pocketbaseClient: pb,
+		owner,
+		workspaceId: recordFieldId(job.workspace || job.workspace_id),
+		accountId,
+		pageId,
+		loader: getFacebookPageForQueueJob,
+	});
+	assertFacebookQueueWorkspaceIsolation({ job, account, page });
 	if (!account?.connected) {
 		throw httpError(422, 'Facebook account is not connected', { retryable: false });
 	}

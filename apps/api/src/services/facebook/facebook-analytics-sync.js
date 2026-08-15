@@ -9,6 +9,10 @@ import {
 	fetchFacebookPostInsights,
 } from './facebook-analytics.js';
 import { normalizeFacebookGraphError } from './graph-publish.js';
+import {
+	assertFacebookQueueWorkspaceIsolation,
+	buildFacebookQueuePageFilterParams,
+} from './workspace-isolation.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(
 	process.env.FACEBOOK_ANALYTICS_POLL_MS || String(15 * 60 * 1000),
@@ -76,8 +80,45 @@ async function resolveSyncDeps(deps = {}) {
 		getOwnedFacebookAccountById,
 		decryptPageTokenMap,
 		fetchFacebookPostInsights: deps.fetchFacebookPostInsights || fetchFacebookPostInsights,
+		getFacebookPageForQueueJob: deps.getFacebookPageForQueueJob || null,
 		client: pocketbaseClient,
 	};
+}
+
+function recordFieldId(value) {
+	if (value == null || value === '') return '';
+	if (typeof value === 'string') return value.trim();
+	if (typeof value === 'object') return String(value.id || value.value || '').trim();
+	return String(value).trim();
+}
+
+async function loadFacebookPageForJob({
+	pocketbaseClient,
+	owner,
+	workspaceId,
+	accountId,
+	pageId,
+	loader = null,
+}) {
+	if (typeof loader === 'function') {
+		return loader({ owner, workspaceId, accountId, pageId });
+	}
+	const params = buildFacebookQueuePageFilterParams({
+		owner,
+		workspaceId,
+		accountId,
+		pageId,
+	});
+	if (!params.owner || !params.workspace || !params.account || !params.pageId) {
+		return null;
+	}
+	return pocketbaseClient.collection('facebook_pages').getFirstListItem(
+		pocketbaseClient.filter(
+			'owner = {:owner} && workspace = {:workspace} && account = {:account} && page_id = {:pageId}',
+			params,
+		),
+		{ requestKey: null },
+	).catch(() => null);
 }
 
 /**
@@ -172,6 +213,7 @@ export async function syncFacebookJobAnalytics(job, deps = {}) {
 		getOwnedFacebookAccountById,
 		decryptPageTokenMap,
 		fetchFacebookPostInsights: fetchInsights,
+		getFacebookPageForQueueJob,
 	} = resolved;
 
 	const postId = String(job?.facebook_post_id || '').trim();
@@ -179,15 +221,33 @@ export async function syncFacebookJobAnalytics(job, deps = {}) {
 		return;
 	}
 
+	const owner = recordFieldId(job.owner);
+	const accountId = recordFieldId(job.account);
+	const pageId = String(job.page_id || '').trim();
 	const account = await getOwnedFacebookAccountById({
-		owner: job.owner,
-		accountId: job.account,
+		owner,
+		accountId,
 	});
+	const page = await loadFacebookPageForJob({
+		pocketbaseClient,
+		owner,
+		workspaceId: recordFieldId(job.workspace || job.workspace_id),
+		accountId,
+		pageId,
+		loader: getFacebookPageForQueueJob,
+	});
+	try {
+		assertFacebookQueueWorkspaceIsolation({ job, account, page });
+	} catch (isolationError) {
+		syncLog(
+			'warn',
+			`Facebook analytics skipped job ${job.id}: ${isolationError.message}`,
+		);
+		return;
+	}
 	if (!account?.connected) {
 		return;
 	}
-
-	const pageId = String(job.page_id || '').trim();
 	const pageTokens = decryptPageTokenMap(account);
 	const accessToken = pageTokens[pageId] || '';
 	if (!accessToken) {
