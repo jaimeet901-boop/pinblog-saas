@@ -1,16 +1,4 @@
-import pocketbaseClient from '../utils/pocketbaseClient.js';
-import logger from '../utils/logger.js';
-import {
-	ensureValidPinterestAccessToken,
-	fetchPinterestPinAnalytics,
-	getOwnedPinterestAccountById,
-	normalizePinterestError,
-} from './pinterest-api.js';
-import {
-	buildSchemaSafeFilter,
-	safeGetFullList,
-	sanitizeCollectionPayload,
-} from '../utils/pocketbase-safe-query.js';
+import { assertPinterestAnalyticsWorkspaceIsolation } from './pinterest-workspace-isolation.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.PINTEREST_ANALYTICS_POLL_MS || String(15 * 60 * 1000), 10);
 const MAX_PINS_PER_TICK = Number.parseInt(process.env.PINTEREST_ANALYTICS_BATCH || '20', 10);
@@ -22,6 +10,23 @@ let syncedTotal = 0;
 let lastRunAt = '';
 let lastSuccessAt = '';
 let lastErrorMessage = '';
+let pocketbaseClientPromise = null;
+
+function analyticsLog(level, ...args) {
+	import('../utils/logger.js')
+		.then(({ default: logger }) => logger[level](...args))
+		.catch(() => {
+			const fn = console[level] || console.log;
+			fn(...args);
+		});
+}
+
+async function getDefaultPocketbaseClient() {
+	if (!pocketbaseClientPromise) {
+		pocketbaseClientPromise = import('../utils/pocketbaseClient.js').then((mod) => mod.default);
+	}
+	return pocketbaseClientPromise;
+}
 
 function formatDateUtc(date) {
 	return date.toISOString().slice(0, 10);
@@ -50,6 +55,8 @@ function extractSummaryMetrics(payload) {
 }
 
 async function getPublishedJobsNeedingSync() {
+	const pocketbaseClient = await getDefaultPocketbaseClient();
+	const { buildSchemaSafeFilter, safeGetFullList } = await import('../utils/pocketbase-safe-query.js');
 	const { filter } = await buildSchemaSafeFilter({
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest-analytics:published',
@@ -82,15 +89,37 @@ async function getPublishedJobsNeedingSync() {
 }
 
 async function syncJobAnalytics(job) {
-	const account = await getOwnedPinterestAccountById({ owner: job.owner, accountId: job.account });
-	if (!account?.connected) {
+	return syncPinterestJobAnalytics(job);
+}
+
+export async function syncPinterestJobAnalytics(job, deps = {}) {
+	let getAccount = deps.getOwnedPinterestAccountById;
+	let ensureToken = deps.ensureValidPinterestAccessToken;
+	let fetchAnalytics = deps.fetchPinterestPinAnalytics;
+	if (!getAccount || !ensureToken || !fetchAnalytics) {
+		const api = await import('./pinterest-api.js');
+		getAccount = getAccount || api.getOwnedPinterestAccountById;
+		ensureToken = ensureToken || api.ensureValidPinterestAccessToken;
+		fetchAnalytics = fetchAnalytics || api.fetchPinterestPinAnalytics;
+	}
+	const client = deps.pocketbaseClient || await getDefaultPocketbaseClient();
+	let sanitize = deps.sanitizeCollectionPayload;
+	if (!sanitize) {
+		({ sanitizeCollectionPayload: sanitize } = await import('../utils/pocketbase-safe-query.js'));
+	}
+
+	const account = await getAccount({ owner: job.owner, accountId: job.account });
+	try {
+		assertPinterestAnalyticsWorkspaceIsolation({ job, account });
+	} catch (isolationError) {
+		analyticsLog('warn', `Pinterest analytics skipped job ${job.id}: ${isolationError.message}`);
 		return;
 	}
 
-	const tokenState = await ensureValidPinterestAccessToken({ account });
+	const tokenState = await ensureToken({ account });
 	const end = new Date();
 	const start = new Date(end.getTime() - 89 * 24 * 60 * 60 * 1000);
-	const analytics = await fetchPinterestPinAnalytics({
+	const analytics = await fetchAnalytics({
 		accessToken: tokenState.accessToken,
 		pinId: job.pinterest_pin_id,
 		startDate: formatDateUtc(start),
@@ -106,7 +135,7 @@ async function syncJobAnalytics(job) {
 		lastSyncedAt: syncedAt,
 	};
 
-	const payload = await sanitizeCollectionPayload({
+	const payload = await sanitize({
 		collection: 'pinterest_publish_jobs',
 		context: 'pinterest-analytics:update-job',
 		payload: {
@@ -115,18 +144,19 @@ async function syncJobAnalytics(job) {
 		},
 	});
 
-	await pocketbaseClient.collection('pinterest_publish_jobs').update(job.id, payload);
+	await client.collection('pinterest_publish_jobs').update(job.id, payload);
 
 	if (job.ai_pin) {
-		const pin = await pocketbaseClient.collection('ai_pins').getOne(job.ai_pin).catch(() => null);
+		const pin = await client.collection('ai_pins').getOne(job.ai_pin).catch(() => null);
 		try {
 			const { assertJobPinOwnership } = await import('./queue/job-ownership.js');
 			assertJobPinOwnership(job, pin);
-			await pocketbaseClient.collection('ai_pins').update(job.ai_pin, {
+			await client.collection('ai_pins').update(job.ai_pin, {
 				performance,
 			}).catch(() => null);
 		} catch (ownershipError) {
-			logger.warn(
+			analyticsLog(
+				'warn',
 				`Pinterest analytics skipped pin update for job ${job.id}: ${ownershipError.message}`,
 			);
 		}
@@ -148,14 +178,15 @@ async function processAnalyticsSync() {
 				syncedTotal += 1;
 				lastSuccessAt = new Date().toISOString();
 			} catch (error) {
+				const { normalizePinterestError } = await import('./pinterest-api.js');
 				const normalized = normalizePinterestError(error);
 				lastErrorMessage = normalized.message;
-				logger.warn(`Pinterest analytics sync failed for job ${job.id}: ${normalized.message}`);
+				analyticsLog('warn', `Pinterest analytics sync failed for job ${job.id}: ${normalized.message}`);
 			}
 		}
 	} catch (error) {
 		lastErrorMessage = error?.message || 'Analytics sync failed';
-		logger.error('Pinterest analytics sync failed:', error);
+		analyticsLog('error', 'Pinterest analytics sync failed:', error);
 	} finally {
 		running = false;
 	}
@@ -184,7 +215,7 @@ export function startPinterestAnalyticsSync() {
 	}, POLL_INTERVAL_MS);
 
 	processAnalyticsSync();
-	logger.info(`Pinterest analytics sync started (interval ${POLL_INTERVAL_MS}ms)`);
+	analyticsLog('info', `Pinterest analytics sync started (interval ${POLL_INTERVAL_MS}ms)`);
 }
 
 export function stopPinterestAnalyticsSync() {
@@ -193,5 +224,5 @@ export function stopPinterestAnalyticsSync() {
 	}
 	clearInterval(workerTimer);
 	workerTimer = null;
-	logger.info('Pinterest analytics sync stopped');
+	analyticsLog('info', 'Pinterest analytics sync stopped');
 }

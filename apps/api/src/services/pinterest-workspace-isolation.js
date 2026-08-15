@@ -91,6 +91,38 @@ export function assertPinterestQueueWorkspaceIsolation({ job, pin, account, boar
 	return { workspaceId, accountId, owner };
 }
 
+/**
+ * Analytics worker isolation before any Pinterest API or token use.
+ * A WS-A job must never use a WS-B account, even for the same owner.
+ */
+export function assertPinterestAnalyticsWorkspaceIsolation({ job, account } = {}) {
+	const workspaceId = fieldId(job?.workspace || job?.workspace_id);
+	if (!workspaceId) {
+		throw httpError(403, 'Pinterest publish job workspace is missing', {
+			errorCode: 'PINTEREST_JOB_WORKSPACE_MISSING',
+			retryable: false,
+		});
+	}
+
+	const owner = fieldId(job?.owner);
+	const accountId = typeof job?.account === 'object'
+		? fieldId(job.account?.id)
+		: fieldId(job?.account);
+
+	if (!owner || !accountId || !account?.connected
+		|| fieldId(account.id) !== accountId
+		|| fieldId(account.owner) !== owner
+		|| !fieldId(account.workspace)
+		|| fieldId(account.workspace) !== workspaceId) {
+		throw httpError(422, 'Pinterest account is not connected', {
+			errorCode: 'PINTEREST_ACCOUNT_WORKSPACE_MISMATCH',
+			retryable: false,
+		});
+	}
+
+	return { workspaceId, accountId, owner };
+}
+
 /** Board sync may only run for an account bound to a workspace. */
 export function assertPinterestAccountWorkspaceBound({ owner, account }) {
 	const workspaceId = fieldId(account?.workspace);
@@ -158,8 +190,143 @@ export function stampPinterestJobCreatePayload({ workspaceId, ownerId, creatorId
 	};
 }
 
+/** Authenticated OAuth start must prove Hub workspace id + key. */
+export const PINTEREST_OAUTH_START_WORKSPACE_REQUIRED_MESSAGE = 'Workspace is required to start Pinterest OAuth.';
+
+/**
+ * OAuth start workspace comes only from the authenticated Hub workspace.
+ * Missing/empty id or key fails closed — never invent a workspace from the owner.
+ */
+export function resolvePinterestOAuthStartWorkspace({ workspaceId, workspaceKey } = {}) {
+	const id = fieldId(workspaceId);
+	const key = fieldId(workspaceKey);
+	if (!id || !key) {
+		throw httpError(422, PINTEREST_OAUTH_START_WORKSPACE_REQUIRED_MESSAGE, {
+			errorCode: 'PINTEREST_WORKSPACE_REQUIRED',
+		});
+	}
+	return { workspaceId: id, workspaceKey: key };
+}
+
+/** Full pinterest_oauth_states create payload. Never omit workspace or reconnect fields. */
+export function buildPinterestOAuthStateCreatePayload({
+	owner,
+	state,
+	expiresAt,
+	accountId = '',
+	requestedLabel = '',
+	workspaceId = '',
+	workspaceKey = '',
+	returnPath = '',
+	websiteId = '',
+} = {}) {
+	const workspace = resolvePinterestOAuthStartWorkspace({ workspaceId, workspaceKey });
+	const body = {
+		owner,
+		state,
+		expires_at: expiresAt,
+		used: false,
+		account_id: accountId || '',
+		requested_label: requestedLabel || '',
+		workspace_id: workspace.workspaceId,
+		workspace_key: workspace.workspaceKey,
+	};
+	if (returnPath) body.return_path = returnPath;
+	if (websiteId) body.websiteId = websiteId;
+	return body;
+}
+
+/** Operational OAuth-start log fields. Never include state, authUrl, secrets, or codes. */
+export function pinterestOAuthStartLogFields({
+	hasAuthUrl = false,
+	hasState = false,
+	stateLength = 0,
+	hasClientId = false,
+	redirectUri = '',
+	scopes = [],
+	authBase = '',
+	hasAccountId = false,
+} = {}) {
+	return {
+		hasAuthUrl: Boolean(hasAuthUrl),
+		hasState: Boolean(hasState),
+		stateLength: Number(stateLength) || 0,
+		hasClientId: Boolean(hasClientId),
+		hasRedirectUri: Boolean(String(redirectUri || '').trim()),
+		redirectUri: String(redirectUri || ''),
+		responseType: 'code',
+		scopeCount: Array.isArray(scopes) ? scopes.length : 0,
+		authBase: String(authBase || ''),
+		hasAccountId: Boolean(hasAccountId),
+	};
+}
+
 /** Safe browser-facing OAuth failure. No workspace, owner, or DB details. */
 export const PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE = 'Pinterest connection could not be completed. Please try connecting again.';
+
+/** Safe product-level 409 copy. Safe to show in the Hub toast. */
+export const PINTEREST_OAUTH_ALREADY_CONNECTED_MESSAGE = 'This Pinterest account is already connected. Please use reconnect or rename the existing account.';
+export const PINTEREST_OAUTH_PROFILE_IN_USE_MESSAGE = 'Another connected account already uses this Pinterest profile.';
+
+/** Safe Hub warning after connect succeeds but board sync fails. */
+export const PINTEREST_OAUTH_BOARDS_SYNC_WARNING_MESSAGE = 'Some Pinterest boards could not be synced. You can retry from the Pinterest hub.';
+
+const SAFE_PINTEREST_OAUTH_CALLBACK_BROWSER_MESSAGES = new Set([
+	PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+	PINTEREST_OAUTH_ALREADY_CONNECTED_MESSAGE,
+	PINTEREST_OAUTH_PROFILE_IN_USE_MESSAGE,
+]);
+
+function isSafePinterestOAuthCallbackBrowserMessage(message) {
+	return SAFE_PINTEREST_OAUTH_CALLBACK_BROWSER_MESSAGES.has(String(message || '').trim());
+}
+
+/**
+ * Map a callback exception to browser-facing pinterest_error.
+ * Unexpected / Graph / provider / internal text becomes the generic F5 message.
+ * 409 product copy is preserved only when the status and message both match.
+ */
+export function pinterestOAuthCallbackBrowserError(error) {
+	const message = String(error?.message || '').trim();
+	if (Number(error?.status) === 409 && isSafePinterestOAuthCallbackBrowserMessage(message)) {
+		return message;
+	}
+	return PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE;
+}
+
+/** Provider dialog denial — never forward error_description or error= to the browser. */
+export function pinterestOAuthProviderDeniedBrowserError() {
+	return PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE;
+}
+
+/** Operational callback-failure log. Never includes message, tokens, codes, secrets, or state. */
+export function pinterestOAuthCallbackFailureLog(error) {
+	return {
+		status: Number(error?.status) || 0,
+		errorCode: String(error?.errorCode || ''),
+		hasMessage: Boolean(String(error?.message || '').trim()),
+		messageLength: String(error?.message || '').length,
+		safeProductError: Number(error?.status) === 409
+			&& isSafePinterestOAuthCallbackBrowserMessage(error?.message),
+	};
+}
+
+export function pinterestOAuthProviderDeniedLog({ hasError = false, hasErrorDescription = false } = {}) {
+	return {
+		hasError: Boolean(hasError),
+		hasErrorDescription: Boolean(hasErrorDescription),
+	};
+}
+
+export function pinterestOAuthBoardSyncFailureLog({ accountId = '', error } = {}) {
+	return {
+		hasAccountId: Boolean(String(accountId || '').trim()),
+		status: Number(error?.status) || 0,
+		errorCode: String(error?.errorCode || ''),
+		hasMessage: Boolean(String(error?.message || '').trim()),
+		messageLength: String(error?.message || '').length,
+	};
+}
 
 /**
  * Callback workspace comes only from OAuth state.

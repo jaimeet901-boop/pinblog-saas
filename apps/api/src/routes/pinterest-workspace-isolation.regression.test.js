@@ -143,3 +143,152 @@ describe('Pinterest P0 workspace-isolation contract (static guards)', () => {
 		assert.match(seam, /export function createPinterestOAuthStateCasStore/);
 	});
 });
+
+describe('Pinterest OAuth start fail-closed (P2-1 / P2-4 static)', () => {
+	const oauthStart = (() => {
+		const start = boards.indexOf('export async function createPinterestOAuthState');
+		const end = boards.indexOf('export async function consumePinterestOAuthState');
+		assert.ok(start >= 0 && end > start);
+		return boards.slice(start, end);
+	})();
+
+	it('start and reconnect stamp req.workspace.id and req.workspaceKey, not req.workspaceId', () => {
+		const startMarker = "router.post('/oauth/start'";
+		const start = route.slice(route.indexOf(startMarker), route.indexOf("router.post('/accounts/:accountId/reconnect'"));
+		assert.match(start, /workspaceId:\s*req\.workspace\?\.id/);
+		assert.match(start, /workspaceKey:\s*req\.workspaceKey/);
+		assert.doesNotMatch(start, /req\.workspaceId/);
+		assert.doesNotMatch(start, /ensureUserWorkspace/);
+		assert.doesNotMatch(start, /getWorkspaceActor/);
+
+		const reconnectMarker = "router.post('/accounts/:accountId/reconnect'";
+		const reconnect = route.slice(route.indexOf(reconnectMarker), route.indexOf("router.patch('/accounts/:accountId'"));
+		assert.match(reconnect, /workspaceId:\s*req\.workspace\?\.id/);
+		assert.match(reconnect, /workspaceKey:\s*req\.workspaceKey/);
+		assert.match(reconnect, /accountId:\s*account\.id/);
+		assert.doesNotMatch(reconnect, /req\.workspaceId/);
+		assert.doesNotMatch(reconnect, /account\.workspace/);
+		assert.doesNotMatch(reconnect, /ensureUserWorkspace/);
+		assert.doesNotMatch(reconnect, /getWorkspaceActor/);
+	});
+
+	it('createPinterestOAuthState writes the full payload once and does not strip-retry', () => {
+		assert.match(oauthStart, /buildPinterestOAuthStateCreatePayload\(/);
+		assert.equal((oauthStart.match(/\.create\(/g) || []).length, 1);
+		assert.doesNotMatch(oauthStart, /Older schema without workspace fields/);
+		assert.doesNotMatch(oauthStart, /ensureUserWorkspace/);
+		assert.doesNotMatch(boards, /import \{ ensureUserWorkspace \}/);
+		assert.match(seam, /export function buildPinterestOAuthStateCreatePayload/);
+		assert.match(seam, /export function resolvePinterestOAuthStartWorkspace/);
+	});
+
+	it('OAuth start logger never records state, authUrl, or secrets', () => {
+		const logAt = oauthStart.indexOf("logger.info('[pinterest-oauth] authorization URL built'");
+		assert.ok(logAt >= 0);
+		const logBlock = oauthStart.slice(logAt, oauthStart.indexOf('return {', logAt));
+		assert.match(logBlock, /pinterestOAuthStartLogFields\(/);
+		assert.match(logBlock, /hasAuthUrl:/);
+		assert.match(logBlock, /hasState:/);
+		assert.match(logBlock, /stateLength:/);
+		assert.match(logBlock, /hasClientId:/);
+		assert.match(logBlock, /hasAccountId:/);
+		assert.doesNotMatch(logBlock, /^\s*authUrl,/m);
+		assert.doesNotMatch(logBlock, /^\s*state,/m);
+		assert.doesNotMatch(logBlock, /^\s*clientId,/m);
+		assert.doesNotMatch(logBlock, /^\s*requestedScopes,/m);
+		assert.doesNotMatch(logBlock, /access_token|refresh_token|client_secret|cookie/i);
+		assert.match(seam, /export function pinterestOAuthStartLogFields/);
+	});
+
+	it('does not change OAuth callback F5/F4/F3 wiring', () => {
+		const marker = "router.get('/oauth/callback'";
+		const callback = route.slice(route.indexOf(marker), route.indexOf('router.use(pocketbaseAuth)'));
+		assert.match(callback, /resolvePinterestOAuthCallbackWorkspace\(stateRecord\)/);
+		assert.match(callback, /buildPinterestOAuthCallbackScope\(/);
+		assert.match(callback, /consumePinterestOAuthState\(stateRecord\)/);
+		assert.match(callback, /exchangeOAuthCodeForTokens\(/);
+		const resolveAt = callback.indexOf('resolvePinterestOAuthCallbackWorkspace(stateRecord)');
+		const scopeAt = callback.indexOf('buildPinterestOAuthCallbackScope(');
+		const consumeAt = callback.indexOf('consumePinterestOAuthState(stateRecord)');
+		const exchangeAt = callback.indexOf('exchangeOAuthCodeForTokens(');
+		assert.ok(resolveAt < scopeAt);
+		assert.ok(scopeAt < consumeAt);
+		assert.ok(consumeAt < exchangeAt);
+	});
+});
+
+describe('Pinterest OAuth callback error sanitization (P2-3 static)', () => {
+	const callbackRoute = (() => {
+		const marker = "router.get('/oauth/callback'";
+		return route.slice(route.indexOf(marker), route.indexOf('router.use(pocketbaseAuth)'));
+	})();
+
+	it('does not copy provider error_description or error.message into pinterest_error', () => {
+		assert.match(callbackRoute, /pinterestOAuthProviderDeniedBrowserError\(\)/);
+		assert.match(callbackRoute, /pinterestOAuthCallbackBrowserError\(error\)/);
+		assert.doesNotMatch(callbackRoute, /pinterest_error: reason/);
+		assert.doesNotMatch(callbackRoute, /pinterest_error: error\?\.message/);
+		assert.doesNotMatch(callbackRoute, /pinterest_error: error\.message/);
+		assert.doesNotMatch(callbackRoute, /error_description, 'error_description'/);
+		assert.match(seam, /export function pinterestOAuthCallbackBrowserError/);
+		assert.match(seam, /export function pinterestOAuthProviderDeniedBrowserError/);
+	});
+
+	it('wraps profile fetch after consume and keeps F3/F4/F5 order', () => {
+		assert.match(callbackRoute, /PINTEREST_OAUTH_PROFILE_FAILED/);
+		assert.match(callbackRoute, /fetchPinterestProfile\(\{ accessToken \}\)/);
+		const resolveAt = callbackRoute.indexOf('resolvePinterestOAuthCallbackWorkspace(stateRecord)');
+		const scopeAt = callbackRoute.indexOf('buildPinterestOAuthCallbackScope(');
+		const consumeAt = callbackRoute.indexOf('consumePinterestOAuthState(stateRecord)');
+		const exchangeAt = callbackRoute.indexOf('exchangeOAuthCodeForTokens(');
+		const profileAt = callbackRoute.indexOf('fetchPinterestProfile({ accessToken })');
+		assert.ok(resolveAt < scopeAt);
+		assert.ok(scopeAt < consumeAt);
+		assert.ok(consumeAt < exchangeAt);
+		assert.ok(exchangeAt < profileAt);
+		assert.match(callbackRoute, /PINTEREST_OAUTH_TOKEN_EXCHANGE_FAILED/);
+		assert.match(callbackRoute, /PINTEREST_OAUTH_ALREADY_CONNECTED_MESSAGE/);
+		assert.match(callbackRoute, /PINTEREST_OAUTH_PROFILE_IN_USE_MESSAGE/);
+	});
+
+	it('board sync warning is the fixed safe message, not error.message', () => {
+		assert.match(callbackRoute, /boards_sync_warning: PINTEREST_OAUTH_BOARDS_SYNC_WARNING_MESSAGE/);
+		assert.doesNotMatch(callbackRoute, /boards_sync_warning: error\.message/);
+		assert.doesNotMatch(callbackRoute, /boards_sync_warning: '1'/);
+		assert.match(callbackRoute, /pinterestOAuthBoardSyncFailureLog\(/);
+		assert.match(seam, /PINTEREST_OAUTH_BOARDS_SYNC_WARNING_MESSAGE/);
+	});
+
+	it('callback failure logs do not interpolate error.message, state, code, or tokens', () => {
+		assert.match(callbackRoute, /pinterestOAuthCallbackFailureLog\(error\)/);
+		assert.match(callbackRoute, /pinterestOAuthProviderDeniedLog\(/);
+		assert.doesNotMatch(callbackRoute, /\{ message: error\.message \}/);
+		assert.doesNotMatch(callbackRoute, /pinterest_error: error\?\.message/);
+		assert.doesNotMatch(callbackRoute, /error_description:/);
+		const logAt = callbackRoute.indexOf("logger.warn('[pinterest-oauth] callback failed'");
+		assert.ok(logAt >= 0);
+		const catchLog = callbackRoute.slice(logAt, callbackRoute.indexOf('return res.redirect', logAt) + 180);
+		assert.doesNotMatch(catchLog, /error\.message/);
+		assert.doesNotMatch(catchLog, /access_token|refresh_token|client_secret|cookie/i);
+		const deniedAt = callbackRoute.indexOf("logger.warn('[pinterest-oauth] provider denied'");
+		const deniedLog = callbackRoute.slice(deniedAt, callbackRoute.indexOf('return res.redirect', deniedAt));
+		assert.doesNotMatch(deniedLog, /error_description \|\|/);
+		assert.doesNotMatch(deniedLog, /pinterest_error: reason/);
+	});
+});
+
+describe('Pinterest analytics workspace isolation (P2-5 static)', () => {
+	const analytics = read('apps/api/src/services/pinterest-analytics-sync.js');
+
+	it('asserts workspace isolation before token use and Pinterest analytics API', () => {
+		assert.match(analytics, /assertPinterestAnalyticsWorkspaceIsolation\(\{ job, account \}\)/);
+		assert.match(seam, /export function assertPinterestAnalyticsWorkspaceIsolation/);
+		assert.match(analytics, /Pinterest analytics skipped job/);
+		const isolateAt = analytics.indexOf('assertPinterestAnalyticsWorkspaceIsolation({ job, account })');
+		const tokenAt = analytics.indexOf('ensureToken({ account })');
+		const fetchAt = analytics.indexOf('fetchAnalytics({');
+		assert.ok(isolateAt >= 0);
+		assert.ok(tokenAt > isolateAt);
+		assert.ok(fetchAt > tokenAt);
+	});
+});

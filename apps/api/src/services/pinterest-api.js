@@ -14,11 +14,12 @@ import {
 	getPinterestAppCredentials,
 } from './pinterest-app-credentials.js';
 import { DEFAULT_SCOPES, analyzeGrantedScopes, mergeRequiredScopes } from './pinterest-scopes.js';
-import { ensureUserWorkspace } from './workspace-context.js';
 import {
 	assertPinterestAccountWorkspaceBound,
 	buildPinterestBoardSyncFilterParams,
+	buildPinterestOAuthStateCreatePayload,
 	buildPinterestSyncedBoardPayload,
+	pinterestOAuthStartLogFields,
 	interpretPinterestOAuthStateConsumeResult,
 	rejectPinterestOAuthStateConsume,
 } from './pinterest-workspace-isolation.js';
@@ -459,7 +460,15 @@ async function pinterestTokenRequest(params) {
 	return response.json();
 }
 
-export async function createPinterestOAuthState({ owner, accountId = '', requestedLabel = '', workspaceId = '', workspaceKey = '' }) {
+export async function createPinterestOAuthState({
+	owner,
+	accountId = '',
+	requestedLabel = '',
+	workspaceId = '',
+	workspaceKey = '',
+	returnPath = '',
+	websiteId = '',
+}) {
 	const credentials = await assertPinterestOAuthReady();
 	const state = randomBytes(24).toString('hex');
 	const expiresAt = new Date(Date.now() + STATE_TTL_MS).toISOString();
@@ -467,38 +476,19 @@ export async function createPinterestOAuthState({ owner, accountId = '', request
 	const clientId = credentials.appId;
 	const scopes = mergeRequiredScopes(credentials.scopes?.length ? credentials.scopes : DEFAULT_SCOPES);
 
-	let resolvedWorkspaceId = workspaceId;
-	let resolvedWorkspaceKey = workspaceKey;
-	if (!resolvedWorkspaceId || !resolvedWorkspaceKey) {
-		try {
-			const ctx = await ensureUserWorkspace(owner);
-			resolvedWorkspaceId = resolvedWorkspaceId || ctx.workspace?.id || '';
-			resolvedWorkspaceKey = resolvedWorkspaceKey || ctx.workspaceKey || ctx.workspace?.workspace_key || owner;
-		} catch {
-			resolvedWorkspaceKey = resolvedWorkspaceKey || owner;
-		}
-	}
-
-	await pocketbaseClient.collection('pinterest_oauth_states').create({
+	const body = buildPinterestOAuthStateCreatePayload({
 		owner,
 		state,
-		account_id: accountId,
-		requested_label: requestedLabel,
-		expires_at: expiresAt,
-		used: false,
-		workspace_id: resolvedWorkspaceId,
-		workspace_key: resolvedWorkspaceKey,
-	}).catch(async () => {
-		// Older schema without workspace fields.
-		await pocketbaseClient.collection('pinterest_oauth_states').create({
-			owner,
-			state,
-			account_id: accountId,
-			requested_label: requestedLabel,
-			expires_at: expiresAt,
-			used: false,
-		});
+		expiresAt,
+		accountId,
+		requestedLabel,
+		workspaceId,
+		workspaceKey,
+		returnPath,
+		websiteId,
 	});
+
+	await pocketbaseClient.collection('pinterest_oauth_states').create(body);
 
 	const query = new URLSearchParams({
 		response_type: 'code',
@@ -509,19 +499,24 @@ export async function createPinterestOAuthState({ owner, accountId = '', request
 	});
 
 	const authUrl = `${PINTEREST_AUTH_BASE}/?${query.toString()}`;
-	logger.info('[pinterest-oauth] authorization URL built', {
-		requestedScopes: scopes,
+	logger.info('[pinterest-oauth] authorization URL built', pinterestOAuthStartLogFields({
+		hasAuthUrl: Boolean(authUrl),
+		hasState: Boolean(state),
+		stateLength: String(state || '').length,
+		hasClientId: Boolean(clientId),
 		redirectUri,
-		authUrl,
-	});
+		scopes,
+		authBase: PINTEREST_AUTH_BASE,
+		hasAccountId: Boolean(String(accountId || '').trim()),
+	}));
 
 	return {
 		state,
 		authUrl,
 		redirectUri,
 		requestedScopes: scopes,
-		workspaceId: resolvedWorkspaceId,
-		workspaceKey: resolvedWorkspaceKey,
+		workspaceId: body.workspace_id,
+		workspaceKey: body.workspace_key,
 	};
 }
 

@@ -58,7 +58,15 @@ import {
 	bindPinterestOAuthAccountToStateWorkspace,
 	buildPinterestOAuthCallbackScope,
 	failClosedPinterestOAuthAccountWrite,
+	PINTEREST_OAUTH_ALREADY_CONNECTED_MESSAGE,
+	PINTEREST_OAUTH_BOARDS_SYNC_WARNING_MESSAGE,
 	PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+	PINTEREST_OAUTH_PROFILE_IN_USE_MESSAGE,
+	pinterestOAuthBoardSyncFailureLog,
+	pinterestOAuthCallbackBrowserError,
+	pinterestOAuthCallbackFailureLog,
+	pinterestOAuthProviderDeniedBrowserError,
+	pinterestOAuthProviderDeniedLog,
 	rejectPinterestOAuthStateConsume,
 	requirePinterestOAuthReconnectAccount,
 	requirePinterestWorkspaceId,
@@ -540,14 +548,25 @@ async function buildAccountStats(owner, req = null) {
 
 router.get('/oauth/callback', async (req, res) => {
 	const callbackError = normalizeString(req.query.error, 'error', { max: 400 });
+	const hasErrorDescription = Boolean(String(req.query.error_description || req.query.error_message || '').trim());
 
 	if (callbackError) {
-		const reason = normalizeString(req.query.error_description, 'error_description', { max: 1000 }) || callbackError;
-		return res.redirect(await buildPinterestOAuthAppRedirect({ pinterest_error: reason }));
+		logger.warn('[pinterest-oauth] provider denied', pinterestOAuthProviderDeniedLog({
+			hasError: true,
+			hasErrorDescription,
+		}));
+		return res.redirect(await buildPinterestOAuthAppRedirect({
+			pinterest_error: pinterestOAuthProviderDeniedBrowserError(),
+		}));
 	}
 
-	const code = normalizeString(req.query.code, 'code', { required: true, max: 400 });
-	const state = normalizeString(req.query.state, 'state', { required: true, max: 400 });
+	const code = String(req.query.code || '').trim();
+	const state = String(req.query.state || '').trim();
+	if (!code || !state) {
+		return res.redirect(await buildPinterestOAuthAppRedirect({
+			pinterest_error: PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+		}));
+	}
 
 	try {
 		const stateRecord = await pocketbaseClient.collection('pinterest_oauth_states').getFirstListItem(
@@ -555,7 +574,9 @@ router.get('/oauth/callback', async (req, res) => {
 		).catch(() => null);
 
 		if (!stateRecord) {
-			throw httpError(400, 'Invalid OAuth state');
+			throw httpError(400, PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE, {
+				errorCode: 'PINTEREST_OAUTH_INVALID_STATE',
+			});
 		}
 		if (stateRecord.used) {
 			rejectPinterestOAuthStateConsume();
@@ -589,7 +610,9 @@ router.get('/oauth/callback', async (req, res) => {
 		const accessToken = normalizeString(tokenPayload.access_token, 'access_token', { required: true, max: 4000 });
 		const refreshToken = normalizeString(tokenPayload.refresh_token, 'refresh_token', { max: 4000 });
 		if (!refreshToken) {
-			throw httpError(422, 'Pinterest did not return a refresh token. Enable continuous refresh on the Pinterest app and reconnect.');
+			throw httpError(422, PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE, {
+				errorCode: 'PINTEREST_OAUTH_REFRESH_TOKEN_MISSING',
+			});
 		}
 		const expiresAt = tokenPayload.expires_in
 			? new Date(Date.now() + Number(tokenPayload.expires_in) * 1000).toISOString()
@@ -615,15 +638,20 @@ router.get('/oauth/callback', async (req, res) => {
 		});
 
 		if (!scopeCheck.ok) {
-			throw httpError(
-				422,
-				`Pinterest reconnect is missing required scopes: ${scopeCheck.missing.join(', ')}. `
-				+ `Requested: [${scopeCheck.requested.join(', ')}]. Granted: [${scopeCheck.granted.join(', ') || 'none'}]. `
-				+ 'Reconnect and approve all requested permissions.',
-			);
+			throw httpError(422, PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE, {
+				errorCode: 'PINTEREST_OAUTH_SCOPES_MISSING',
+			});
 		}
 
-		const profile = await fetchPinterestProfile({ accessToken });
+		let profile;
+		try {
+			profile = await fetchPinterestProfile({ accessToken });
+		} catch (error) {
+			logger.warn('[pinterest-oauth] profile fetch failed', pinterestOAuthCallbackFailureLog(error));
+			throw httpError(400, PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE, {
+				errorCode: 'PINTEREST_OAUTH_PROFILE_FAILED',
+			});
+		}
 
 		const requestedLabel = normalizeString(stateRecord.requested_label, 'requested_label', { max: 255 });
 		const reconnectAccountId = normalizeString(stateRecord.account_id, 'account_id', { max: 80 });
@@ -647,11 +675,11 @@ router.get('/oauth/callback', async (req, res) => {
 		);
 
 		if (existingByPinterestUser && !reconnectAccountId) {
-			throw httpError(409, 'This Pinterest account is already connected. Please use reconnect or rename the existing account.');
+			throw httpError(409, PINTEREST_OAUTH_ALREADY_CONNECTED_MESSAGE);
 		}
 
 		if (existingByPinterestUser && reconnectAccount && existingByPinterestUser.id !== reconnectAccount.id) {
-			throw httpError(409, 'Another connected account already uses this Pinterest profile.');
+			throw httpError(409, PINTEREST_OAUTH_PROFILE_IN_USE_MESSAGE);
 		}
 
 		const accountName = normalizeString(profile?.account_name || profile?.full_name || profile?.business_name || '', 'account_name', { max: 255 });
@@ -726,14 +754,17 @@ router.get('/oauth/callback', async (req, res) => {
 
 		try {
 			await syncPinterestBoardsForOwner({ owner: stateRecord.owner, account });
-		} catch {
-			// Account is connected; boards can be synced later from the UI.
+		} catch (error) {
+			logger.warn('[pinterest-oauth] board sync failed after connect', pinterestOAuthBoardSyncFailureLog({
+				accountId: account.id,
+				error,
+			}));
 			const { promoteWaitingProviderPinterestJobs } = await import('../services/publish-pipeline.js');
 			await promoteWaitingProviderPinterestJobs({ limit: 50 }).catch(() => null);
 			return res.redirect(await buildPinterestOAuthAppRedirect({
 				pinterest_connected: '1',
 				account_id: account.id,
-				boards_sync_warning: '1',
+				boards_sync_warning: PINTEREST_OAUTH_BOARDS_SYNC_WARNING_MESSAGE,
 			}));
 		}
 
@@ -745,8 +776,9 @@ router.get('/oauth/callback', async (req, res) => {
 			account_id: account.id,
 		}));
 	} catch (error) {
+		logger.warn('[pinterest-oauth] callback failed', pinterestOAuthCallbackFailureLog(error));
 		return res.redirect(await buildPinterestOAuthAppRedirect({
-			pinterest_error: error?.message || 'Pinterest OAuth callback failed',
+			pinterest_error: pinterestOAuthCallbackBrowserError(error),
 		}));
 	}
 });
@@ -839,13 +871,14 @@ router.post('/oauth/start', async (req, res) => {
 	}
 
 	const requestedLabel = normalizeString(req.body?.label, 'label', { max: 255 });
-	const actor = getWorkspaceActor(req);
 	const { authUrl } = await createPinterestOAuthState({
 		owner,
 		accountId,
 		requestedLabel,
-		workspaceId: actor.workspaceId || req.workspace?.id || '',
-		workspaceKey: actor.workspaceKey || req.workspaceKey || '',
+		workspaceId: req.workspace?.id || '',
+		workspaceKey: req.workspaceKey || '',
+		returnPath: String(req.body?.returnPath || '').trim(),
+		websiteId: String(req.body?.websiteId || '').trim(),
 	});
 	res.json({ authUrl });
 });
@@ -857,13 +890,12 @@ router.post('/accounts/:accountId/reconnect', async (req, res) => {
 		throw httpError(404, 'Pinterest account not found');
 	}
 
-	const actor = getWorkspaceActor(req);
 	const { authUrl } = await createPinterestOAuthState({
 		owner,
 		accountId: account.id,
 		requestedLabel: normalizeString(req.body?.label, 'label', { max: 255 }) || account.label || '',
-		workspaceId: actor.workspaceId || req.workspace?.id || '',
-		workspaceKey: actor.workspaceKey || req.workspaceKey || '',
+		workspaceId: req.workspace?.id || '',
+		workspaceKey: req.workspaceKey || '',
 	});
 	res.json({ authUrl });
 });

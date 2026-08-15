@@ -2,18 +2,31 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
 	assertPinterestAccountWorkspaceBound,
+	assertPinterestAnalyticsWorkspaceIsolation,
 	assertPinterestJobRelationConsistency,
 	assertPinterestQueueWorkspaceIsolation,
 	assertPinterestStrictWorkspaceRecord,
 	buildPinterestBoardSyncFilterParams,
 	buildPinterestHistoryCreatePayload,
+	buildPinterestOAuthStateCreatePayload,
 	buildPinterestSyncedBoardPayload,
 	failClosedPinterestOAuthAccountWrite,
+	PINTEREST_OAUTH_ALREADY_CONNECTED_MESSAGE,
+	PINTEREST_OAUTH_BOARDS_SYNC_WARNING_MESSAGE,
 	PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+	PINTEREST_OAUTH_PROFILE_IN_USE_MESSAGE,
+	PINTEREST_OAUTH_START_WORKSPACE_REQUIRED_MESSAGE,
+	pinterestOAuthBoardSyncFailureLog,
+	pinterestOAuthCallbackBrowserError,
+	pinterestOAuthCallbackFailureLog,
+	pinterestOAuthProviderDeniedBrowserError,
+	pinterestOAuthProviderDeniedLog,
+	pinterestOAuthStartLogFields,
 	requirePinterestOAuthReconnectAccount,
 	requirePinterestWorkspaceId,
 	resolveDefaultBoardInWorkspace,
 	resolvePinterestOAuthCallbackWorkspace,
+	resolvePinterestOAuthStartWorkspace,
 	selectPinterestOAuthWorkspaceAccounts,
 	defaultFlagUpdatesForOAuthWorkspace,
 	stampPinterestJobCreatePayload,
@@ -218,6 +231,72 @@ describe('Pinterest P0 workspace isolation (behavioral)', () => {
 					board: fixtureBoard({ workspace: WS_B }),
 				}),
 				(error) => error.status === 404 && /board was not found/.test(error.message),
+			);
+		});
+	});
+
+	describe('analytics workspace isolation', () => {
+		it('allows a WS-A job with a WS-A account', () => {
+			const result = assertPinterestAnalyticsWorkspaceIsolation({
+				job: fixtureJob(),
+				account: fixtureAccount(),
+			});
+			assert.equal(result.workspaceId, WS_A);
+			assert.equal(result.accountId, 'account_a');
+			assert.equal(result.owner, OWNER);
+		});
+
+		it('rejects a missing job workspace', () => {
+			assert.throws(
+				() => assertPinterestAnalyticsWorkspaceIsolation({
+					job: fixtureJob({ workspace: '' }),
+					account: fixtureAccount(),
+				}),
+				(error) => error.status === 403
+					&& error.retryable === false
+					&& /workspace is missing/.test(error.message),
+			);
+		});
+
+		it('rejects a missing account workspace', () => {
+			assert.throws(
+				() => assertPinterestAnalyticsWorkspaceIsolation({
+					job: fixtureJob(),
+					account: fixtureAccount({ workspace: '' }),
+				}),
+				(error) => error.status === 422
+					&& error.retryable === false
+					&& /not connected/.test(error.message),
+			);
+		});
+
+		it('rejects a WS-A job with a WS-B account', () => {
+			assert.throws(
+				() => assertPinterestAnalyticsWorkspaceIsolation({
+					job: fixtureJob(),
+					account: fixtureAccount({ workspace: WS_B }),
+				}),
+				(error) => error.status === 422 && /not connected/.test(error.message),
+			);
+		});
+
+		it('rejects an owner mismatch', () => {
+			assert.throws(
+				() => assertPinterestAnalyticsWorkspaceIsolation({
+					job: fixtureJob(),
+					account: fixtureAccount({ owner: 'other_owner' }),
+				}),
+				(error) => error.status === 422 && /not connected/.test(error.message),
+			);
+		});
+
+		it('rejects an account id mismatch', () => {
+			assert.throws(
+				() => assertPinterestAnalyticsWorkspaceIsolation({
+					job: fixtureJob(),
+					account: fixtureAccount({ id: 'account_other' }),
+				}),
+				(error) => error.status === 422 && /not connected/.test(error.message),
 			);
 		});
 	});
@@ -791,5 +870,279 @@ describe('Pinterest P0 workspace isolation (behavioral)', () => {
 			);
 			assert.doesNotThrow(() => interpretPinterestOAuthStateConsumeResult({ ok: true, id: 'state_1' }, 'state_1'));
 		});
+	});
+});
+
+describe('Pinterest OAuth start workspace fail-closed (P2-1 / P2-4)', () => {
+	const KEY_A = 'key_a';
+
+	function isStartWorkspaceRequired(error) {
+		return error.status === 422
+			&& error.errorCode === 'PINTEREST_WORKSPACE_REQUIRED'
+			&& error.message === PINTEREST_OAUTH_START_WORKSPACE_REQUIRED_MESSAGE;
+	}
+
+	it('stamps the active Hub workspace id and key into the OAuth state payload', () => {
+		const resolved = resolvePinterestOAuthStartWorkspace({
+			workspaceId: WS_A,
+			workspaceKey: KEY_A,
+		});
+		assert.equal(resolved.workspaceId, WS_A);
+		assert.equal(resolved.workspaceKey, KEY_A);
+
+		const payload = buildPinterestOAuthStateCreatePayload({
+			owner: OWNER,
+			state: 'nonce_1',
+			expiresAt: '2026-08-15T18:00:00.000Z',
+			accountId: '',
+			requestedLabel: 'Kitchen',
+			workspaceId: WS_A,
+			workspaceKey: KEY_A,
+			returnPath: '/app/pinterest',
+		});
+		assert.equal(payload.workspace_id, WS_A);
+		assert.equal(payload.workspace_key, KEY_A);
+		assert.equal(payload.owner, OWNER);
+		assert.equal(payload.account_id, '');
+		assert.equal(payload.requested_label, 'Kitchen');
+		assert.equal(payload.return_path, '/app/pinterest');
+		assert.equal(payload.used, false);
+		assert.equal('websiteId' in payload, false);
+	});
+
+	it('fails closed when workspace id or workspaceKey is missing', () => {
+		assert.throws(() => resolvePinterestOAuthStartWorkspace({}), isStartWorkspaceRequired);
+		assert.throws(
+			() => resolvePinterestOAuthStartWorkspace({ workspaceId: WS_A, workspaceKey: '' }),
+			isStartWorkspaceRequired,
+		);
+		assert.throws(
+			() => resolvePinterestOAuthStartWorkspace({ workspaceId: '', workspaceKey: KEY_A }),
+			isStartWorkspaceRequired,
+		);
+		assert.throws(
+			() => buildPinterestOAuthStateCreatePayload({
+				owner: OWNER,
+				state: 'nonce_1',
+				expiresAt: '2026-08-15T18:00:00.000Z',
+			}),
+			isStartWorkspaceRequired,
+		);
+	});
+
+	it('fails closed when workspace id or workspaceKey is whitespace', () => {
+		assert.throws(
+			() => resolvePinterestOAuthStartWorkspace({ workspaceId: '  ', workspaceKey: KEY_A }),
+			isStartWorkspaceRequired,
+		);
+		assert.throws(
+			() => resolvePinterestOAuthStartWorkspace({ workspaceId: WS_A, workspaceKey: '  ' }),
+			isStartWorkspaceRequired,
+		);
+	});
+
+	it('does not invent a workspaceKey from the workspace id', () => {
+		assert.throws(
+			() => resolvePinterestOAuthStartWorkspace({ workspaceId: WS_A }),
+			isStartWorkspaceRequired,
+		);
+	});
+
+	it('reconnect payload retains account_id and uses the initiating Hub workspace', () => {
+		const payload = buildPinterestOAuthStateCreatePayload({
+			owner: OWNER,
+			state: 'nonce_reconnect',
+			expiresAt: '2026-08-15T18:00:00.000Z',
+			accountId: 'account_1',
+			requestedLabel: 'Reconnect',
+			workspaceId: WS_A,
+			workspaceKey: KEY_A,
+		});
+		assert.equal(payload.account_id, 'account_1');
+		assert.equal(payload.workspace_id, WS_A);
+		assert.equal(payload.workspace_key, KEY_A);
+		assert.equal(payload.requested_label, 'Reconnect');
+		assert.equal('return_path' in payload, false);
+		assert.notEqual(payload.workspace_id, WS_B);
+	});
+
+	it('create payload always includes full required state fields and never a reduced retry shape', () => {
+		const payload = buildPinterestOAuthStateCreatePayload({
+			owner: OWNER,
+			state: 'nonce_1',
+			expiresAt: '2026-08-15T18:00:00.000Z',
+			accountId: 'account_1',
+			requestedLabel: 'Label',
+			workspaceId: WS_A,
+			workspaceKey: KEY_A,
+			returnPath: '/app/pinterest',
+			websiteId: 'site_1',
+		});
+		assert.deepEqual(Object.keys(payload).sort(), [
+			'account_id',
+			'expires_at',
+			'owner',
+			'requested_label',
+			'return_path',
+			'state',
+			'used',
+			'websiteId',
+			'workspace_id',
+			'workspace_key',
+		]);
+	});
+
+	it('OAuth start logs never include state, authUrl, secrets, or codes', () => {
+		const fields = pinterestOAuthStartLogFields({
+			hasAuthUrl: true,
+			hasState: true,
+			stateLength: 48,
+			hasClientId: true,
+			redirectUri: 'https://example.com/api/pinterest/oauth/callback',
+			scopes: ['boards:read', 'pins:write'],
+			authBase: 'https://www.pinterest.com/oauth',
+			hasAccountId: true,
+		});
+		assert.equal('authUrl' in fields, false);
+		assert.equal('state' in fields, false);
+		assert.equal('clientId' in fields, false);
+		assert.equal('code' in fields, false);
+		assert.equal('access_token' in fields, false);
+		assert.equal('refresh_token' in fields, false);
+		assert.equal('client_secret' in fields, false);
+		assert.equal('requestedScopes' in fields, false);
+		assert.equal(fields.hasAuthUrl, true);
+		assert.equal(fields.hasState, true);
+		assert.equal(fields.stateLength, 48);
+		assert.equal(fields.hasClientId, true);
+		assert.equal(fields.hasRedirectUri, true);
+		assert.equal(fields.scopeCount, 2);
+		assert.equal(fields.hasAccountId, true);
+		const serialized = JSON.stringify(fields);
+		assert.equal(serialized.includes('nonce'), false);
+		assert.equal(serialized.includes('access_token'), false);
+		assert.equal(serialized.includes('refresh_token'), false);
+		assert.equal(serialized.includes('client_secret'), false);
+	});
+});
+
+describe('Pinterest OAuth callback error sanitization (P2-3)', () => {
+	const GRAPH_LEAK = 'Invalid OAuth access token. Session has expired.';
+	const TOKENISH = 'pinaaaaa.access_token.secret';
+
+	it('never reflects provider error_description or error= into pinterest_error', () => {
+		assert.equal(
+			pinterestOAuthProviderDeniedBrowserError(),
+			PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+		);
+		assert.equal(
+			pinterestOAuthProviderDeniedBrowserError({
+				error: 'access_denied',
+				errorDescription: 'The user denied your request. Visit https://evil.example',
+			}),
+			PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+		);
+	});
+
+	it('never reflects unexpected error.message into pinterest_error', () => {
+		assert.equal(
+			pinterestOAuthCallbackBrowserError({ message: GRAPH_LEAK, status: 502, errorCode: 'PINTEREST_API_ERROR' }),
+			PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+		);
+		assert.equal(
+			pinterestOAuthCallbackBrowserError({ message: TOKENISH, status: 500 }),
+			PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+		);
+		assert.equal(
+			pinterestOAuthCallbackBrowserError({ message: 'Required field missing', status: 422 }),
+			PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+		);
+		assert.equal(
+			pinterestOAuthCallbackBrowserError(new Error(GRAPH_LEAK)),
+			PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+		);
+	});
+
+	it('maps Graph/profile failures to the generic safe callback message', () => {
+		const graph = Object.assign(new Error(GRAPH_LEAK), { status: 401, errorCode: 'PINTEREST_API_ERROR' });
+		assert.equal(pinterestOAuthCallbackBrowserError(graph), PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE);
+		assert.equal(
+			pinterestOAuthCallbackBrowserError({
+				status: 400,
+				message: PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+				errorCode: 'PINTEREST_OAUTH_PROFILE_FAILED',
+			}),
+			PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+		);
+	});
+
+	it('preserves safe product-level 409 copy and rejects 409s with provider text', () => {
+		assert.equal(
+			pinterestOAuthCallbackBrowserError({
+				status: 409,
+				message: PINTEREST_OAUTH_ALREADY_CONNECTED_MESSAGE,
+			}),
+			PINTEREST_OAUTH_ALREADY_CONNECTED_MESSAGE,
+		);
+		assert.equal(
+			pinterestOAuthCallbackBrowserError({
+				status: 409,
+				message: PINTEREST_OAUTH_PROFILE_IN_USE_MESSAGE,
+			}),
+			PINTEREST_OAUTH_PROFILE_IN_USE_MESSAGE,
+		);
+		assert.equal(
+			pinterestOAuthCallbackBrowserError({
+				status: 409,
+				message: GRAPH_LEAK,
+			}),
+			PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+		);
+		assert.equal(
+			pinterestOAuthCallbackBrowserError({
+				status: 502,
+				message: PINTEREST_OAUTH_ALREADY_CONNECTED_MESSAGE,
+			}),
+			PINTEREST_OAUTH_CALLBACK_FAILED_MESSAGE,
+		);
+	});
+
+	it('uses a fixed safe board-sync warning', () => {
+		assert.equal(
+			PINTEREST_OAUTH_BOARDS_SYNC_WARNING_MESSAGE,
+			'Some Pinterest boards could not be synced. You can retry from the Pinterest hub.',
+		);
+		assert.equal(PINTEREST_OAUTH_BOARDS_SYNC_WARNING_MESSAGE.includes(GRAPH_LEAK), false);
+	});
+
+	it('callback and board-sync logs omit messages, tokens, codes, secrets, and state', () => {
+		const log = pinterestOAuthCallbackFailureLog({
+			status: 502,
+			errorCode: 'PINTEREST_API_ERROR',
+			message: `${GRAPH_LEAK} ${TOKENISH} code=AUTHCODE state=deadbeef https://api.pinterest.com/v5/user_account`,
+		});
+		const serialized = JSON.stringify(log);
+		assert.equal(log.status, 502);
+		assert.equal(log.errorCode, 'PINTEREST_API_ERROR');
+		assert.equal(log.hasMessage, true);
+		assert.equal('message' in log, false);
+		assert.equal(serialized.includes(GRAPH_LEAK), false);
+		assert.equal(serialized.includes(TOKENISH), false);
+		assert.equal(serialized.includes('AUTHCODE'), false);
+		assert.equal(serialized.includes('deadbeef'), false);
+		assert.equal(serialized.includes('access_token'), false);
+		assert.equal(serialized.includes('api.pinterest.com'), false);
+
+		const denied = pinterestOAuthProviderDeniedLog({ hasError: true, hasErrorDescription: true });
+		assert.deepEqual(denied, { hasError: true, hasErrorDescription: true });
+		assert.equal(JSON.stringify(denied).includes('denied'), false);
+
+		const boardLog = pinterestOAuthBoardSyncFailureLog({
+			accountId: 'acc_1',
+			error: { status: 401, errorCode: 'PINTEREST_API_ERROR', message: GRAPH_LEAK },
+		});
+		assert.equal(boardLog.hasAccountId, true);
+		assert.equal('message' in boardLog, false);
+		assert.equal(JSON.stringify(boardLog).includes(GRAPH_LEAK), false);
 	});
 });
