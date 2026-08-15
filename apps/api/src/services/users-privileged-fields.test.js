@@ -11,11 +11,13 @@ import {
 	USERS_PRIVILEGED_FIELDS,
 	USERS_SAFE_CREATE_DEFAULTS,
 	buildUsersCreateRule,
+	buildUsersRules,
 	buildUsersUpdateRule,
 	buildAdminUserFieldUpdates,
 	findPrivilegedClientFields,
 	isSafeClientUserCreate,
 	isSafeClientUserUpdate,
+	syncUsersRegistrationCreateRule,
 	usersRulesMatchHardened,
 } from './users-privileged-fields.js';
 
@@ -100,6 +102,52 @@ test('signup create with safe defaults is allowed; escalation create is blocked'
 	assert.match(buildUsersCreateRule(), /plan = 'free'/);
 });
 
+test('registration policy closes only the users create rule', async () => {
+	const hardenedCreateRule = buildUsersCreateRule();
+	assert.equal(buildUsersCreateRule({ allowRegistration: true }), hardenedCreateRule);
+	assert.equal(buildUsersCreateRule({ allowRegistration: false }), null);
+
+	const closed = usersRulesMatchHardened({
+		createRule: null,
+		updateRule: buildUsersUpdateRule(),
+		allowRegistration: false,
+	});
+	assert.equal(closed.createOk, true);
+	assert.equal(closed.updateOk, true);
+
+	const reopened = usersRulesMatchHardened({
+		createRule: hardenedCreateRule,
+		updateRule: buildUsersUpdateRule(),
+		allowRegistration: true,
+	});
+	assert.equal(reopened.createOk, true);
+
+	const updates = [];
+	const client = {
+		collections: {
+			async getOne() {
+				return { id: '_pb_users_auth_', createRule: hardenedCreateRule };
+			},
+			async update(id, body) {
+				updates.push({ id, body });
+			},
+		},
+	};
+
+	const result = await syncUsersRegistrationCreateRule(client, false);
+	assert.deepEqual(result, { updated: true, allowRegistration: false, createRule: null });
+	assert.deepEqual(updates, [{ id: '_pb_users_auth_', body: { createRule: null } }]);
+});
+
+test('closed registration policy retains hardened non-create rules', () => {
+	const rules = buildUsersRules({ allowRegistration: false });
+	assert.equal(rules.createRule, null);
+	assert.equal(rules.updateRule, buildUsersUpdateRule());
+	assert.equal(rules.listRule, `id = @request.auth.id || @request.auth.role = 'admin'`);
+	assert.equal(rules.viewRule, `id = @request.auth.id || @request.auth.role = 'admin'`);
+	assert.equal(rules.deleteRule, `id = @request.auth.id`);
+});
+
 test('Admin allowlist can still set role, plan, status (server path)', () => {
 	const promote = buildAdminUserFieldUpdates({
 		name: 'Ops',
@@ -153,8 +201,9 @@ test('migration, hook, ensure, and main wiring exist and match rule builders', (
 	assert.match(hook, /hasSuperuserAuth/);
 	assert.match(hook, /set\("role", "member"\)/);
 
-	assert.match(ensure, /buildUsersUpdateRule/);
-	assert.match(ensure, /buildUsersCreateRule/);
+	assert.match(ensure, /buildUsersRules/);
+	assert.match(ensure, /getPlatformSettings/);
+	assert.match(ensure, /allowRegistration/);
 	assert.match(main, /runStartupSchemaCompat/);
 	assert.match(readFileSync(path.join(here, '../utils/schema-compat-registry.js'), 'utf8'), /ensureUsersPrivilegedRules/);
 

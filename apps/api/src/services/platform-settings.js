@@ -4,6 +4,7 @@ import { writeAuditLog } from './audit/write.js';
 import { getPinterestAppCredentialsPublic } from './pinterest-app-credentials.js';
 import { listProviders } from './ai-providers.js';
 import { sanitizeBillingForPublic, stripControlPlaneBillingWrites } from './billing/control-plane-helpers.js';
+import { syncUsersRegistrationCreateRule } from './users-privileged-fields.js';
 
 const CONFIG_KEY = 'platform';
 
@@ -564,6 +565,11 @@ export async function upsertPlatformSettings(nextSettings = {}, actor = {}) {
 	const saved = existing
 		? await pocketbaseClient.collection('platform_settings').update(existing.id, body)
 		: await pocketbaseClient.collection('platform_settings').create(body);
+
+	await syncUsersRegistrationCreateRule(
+		pocketbaseClient,
+		merged.general?.allowRegistration !== false,
+	);
 
 	await writeAuditLog({
 		category: 'admin',

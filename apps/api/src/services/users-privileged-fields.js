@@ -38,9 +38,11 @@ export function buildUsersUpdateRule() {
 
 /**
  * PocketBase createRule: public signup allowed, privileged escalation blocked.
+ * When registration is closed, only superusers may create users.
  * plan/role may be omitted or set only to safe defaults (existing AuthContext/OAuth).
  */
-export function buildUsersCreateRule() {
+export function buildUsersCreateRule({ allowRegistration = true } = {}) {
+	if (!allowRegistration) return null;
 	return [
 		`(@request.body.role:isset = false || @request.body.role = '${USERS_SAFE_CREATE_DEFAULTS.role}')`,
 		`(@request.body.plan:isset = false || @request.body.plan = '${USERS_SAFE_CREATE_DEFAULTS.plan}')`,
@@ -62,6 +64,16 @@ export function buildUsersViewRule() {
 
 export function buildUsersDeleteRule() {
 	return `id = @request.auth.id`;
+}
+
+export function buildUsersRules({ allowRegistration = true } = {}) {
+	return {
+		listRule: buildUsersListRule(),
+		viewRule: buildUsersViewRule(),
+		createRule: buildUsersCreateRule({ allowRegistration }),
+		updateRule: buildUsersUpdateRule(),
+		deleteRule: buildUsersDeleteRule(),
+	};
 }
 
 /**
@@ -111,12 +123,40 @@ export function buildAdminUserFieldUpdates(payload = {}) {
 	return updates;
 }
 
-export function usersRulesMatchHardened({ createRule, updateRule } = {}) {
-	const expectedCreate = buildUsersCreateRule();
+function normalizedRule(rule) {
+	return String(rule || '').replace(/\s+/g, ' ').trim();
+}
+
+export function usersCreateRuleMatches(createRule, expectedCreateRule) {
+	if (expectedCreateRule === null) return createRule === null;
+	return normalizedRule(createRule) === normalizedRule(expectedCreateRule);
+}
+
+/**
+ * Synchronize only the users collection createRule with platform registration
+ * policy. All other users rules remain untouched.
+ */
+export async function syncUsersRegistrationCreateRule(pocketbaseClient, allowRegistration) {
+	if (!pocketbaseClient?.collections?.getOne || !pocketbaseClient?.collections?.update) {
+		throw new Error('PocketBase collections client is required');
+	}
+
+	const collection = await pocketbaseClient.collections.getOne('users');
+	const createRule = buildUsersCreateRule({ allowRegistration });
+	if (usersCreateRuleMatches(collection.createRule, createRule)) {
+		return { updated: false, allowRegistration, createRule };
+	}
+
+	await pocketbaseClient.collections.update(collection.id, { createRule });
+	return { updated: true, allowRegistration, createRule };
+}
+
+export function usersRulesMatchHardened({ createRule, updateRule, allowRegistration = true } = {}) {
+	const expectedCreate = buildUsersCreateRule({ allowRegistration });
 	const expectedUpdate = buildUsersUpdateRule();
 	return {
-		createOk: String(createRule || '').replace(/\s+/g, ' ').trim() === expectedCreate.replace(/\s+/g, ' ').trim(),
-		updateOk: String(updateRule || '').replace(/\s+/g, ' ').trim() === expectedUpdate.replace(/\s+/g, ' ').trim(),
+		createOk: usersCreateRuleMatches(createRule, expectedCreate),
+		updateOk: normalizedRule(updateRule) === normalizedRule(expectedUpdate),
 		expectedCreate,
 		expectedUpdate,
 	};
