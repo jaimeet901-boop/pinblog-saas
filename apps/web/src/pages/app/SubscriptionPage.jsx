@@ -12,6 +12,16 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import { isPlanFeatureEnabled } from '@/lib/planFeatures';
 import { PRODUCT_EVENTS, trackProductEvent } from '@/lib/productAnalytics';
+import {
+	SUBSCRIPTION_CANCEL_BODY,
+	SUBSCRIPTION_CANCEL_PATH,
+	accessContinuesUntilMessage,
+	canShowSubscriptionCancel,
+	describeCancelSuccess,
+	isCancelScheduled,
+	isSubscriptionCanceled,
+	mapSubscriptionCancelError,
+} from '@/lib/subscriptionCancel';
 import { Badge, Button, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -448,6 +458,43 @@ export default function SubscriptionPage() {
 		document.getElementById('bill-upgrade-plans')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 	};
 
+	const cancelScheduled = isCancelScheduled(subscription);
+	const showPaddleCancel = canShowSubscriptionCancel(subscription);
+	const accessUntilCopy = accessContinuesUntilMessage(subscription?.currentPeriodEnd);
+
+	const cancelWorkspacePlan = async () => {
+		const confirmed = window.confirm(
+			`Cancel this subscription at the end of the billing period? ${accessUntilCopy}`,
+		);
+		if (!confirmed) return;
+
+		setBusy('cancel');
+		try {
+			const response = await apiServerClient.fetch(SUBSCRIPTION_CANCEL_PATH, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(SUBSCRIPTION_CANCEL_BODY),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				const mapped = mapSubscriptionCancelError(response.status, payload);
+				toast({ variant: 'destructive', title: mapped.title, description: mapped.description });
+				return;
+			}
+			await loadUsage();
+			const success = describeCancelSuccess(payload, subscription?.currentPeriodEnd);
+			toast({ title: success.title, description: success.description });
+		} catch (err) {
+			toast({
+				variant: 'destructive',
+				title: 'Cancellation failed',
+				description: err?.message || 'Could not cancel this subscription. Please try again.',
+			});
+		} finally {
+			setBusy(null);
+		}
+	};
+
 	return (
 		<div className="bill-atelier">
 			<section className="bill-hero">
@@ -458,12 +505,32 @@ export default function SubscriptionPage() {
 						<p className="mt-2 max-w-2xl text-sm text-muted-foreground">
 							Manage credits, review usage, and upgrade your workspace when you&apos;re ready to scale.
 						</p>
+						{cancelScheduled ? (
+							<p className="mt-2 max-w-2xl text-sm font-medium text-foreground">
+								Cancellation scheduled. {accessUntilCopy}
+							</p>
+						) : null}
+						{!cancelScheduled && isSubscriptionCanceled(subscription) ? (
+							<p className="mt-2 max-w-2xl text-sm font-medium text-foreground">
+								This subscription is cancelled.
+							</p>
+						) : null}
 					</div>
 					<div className="flex flex-wrap gap-2">
 						<Button onClick={scrollToPlans}><Crown size={15} /> Upgrade Plan</Button>
 						<Button variant="outline" onClick={() => notifyBillingPlaceholder('Manage Billing')}>
 							<Settings size={15} /> Manage Billing
 						</Button>
+						{showPaddleCancel ? (
+							<Button
+								variant="outline"
+								onClick={cancelWorkspacePlan}
+								disabled={Boolean(busy)}
+							>
+								{busy === 'cancel' ? <Spinner className="h-4 w-4" /> : null}
+								Cancel subscription
+							</Button>
+						) : null}
 					</div>
 				</div>
 				<div className="bill-hero__grid">
