@@ -19,6 +19,7 @@ import {
 } from '../services/facebook/api.js';
 import {
 	FACEBOOK_OAUTH_CALLBACK_FAILED_MESSAGE,
+	buildFacebookAccountsSummary,
 	facebookOAuthCallbackBrowserError,
 	facebookOAuthCallbackFailureLog,
 	facebookOAuthProviderDeniedBrowserError,
@@ -196,7 +197,7 @@ router.get('/accounts', asyncHandler(async (req, res) => {
 
 	const items = await Promise.all(accounts.map(async (account) => {
 		const pages = await pocketbaseClient.collection('facebook_pages').getList(1, 1, {
-			filter: pocketbaseClient.filter('account = {:account}', { account: account.id }),
+			filter: andWorkspaceScope(req, pocketbaseClient.filter('account = {:account}', { account: account.id })),
 			requestKey: null,
 		}).catch(() => ({ totalItems: 0 }));
 		return {
@@ -206,11 +207,7 @@ router.get('/accounts', asyncHandler(async (req, res) => {
 	}));
 
 	res.json({
-		summary: {
-			totalAccounts: items.length,
-			totalPages: items.reduce((sum, item) => sum + (item.pageCount || 0), 0),
-			connectedAccounts: items.filter((item) => item.status === 'connected').length,
-		},
+		summary: buildFacebookAccountsSummary(items),
 		items,
 	});
 }));

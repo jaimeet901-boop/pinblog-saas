@@ -366,6 +366,32 @@ export function buildFacebookPageSyncExistingFilterParams({ owner, workspaceId, 
 }
 
 /**
+ * In-memory model of GET /accounts pageCount: owner + workspace + account.
+ * Foreign-workspace rows for the same owner/account are excluded.
+ */
+export function countFacebookAccountPagesInWorkspace(pages, { owner, workspaceId, accountId } = {}) {
+	const ownerId = fieldId(owner);
+	const workspace = fieldId(workspaceId);
+	const account = fieldId(accountId);
+	if (!ownerId || !workspace || !account) return 0;
+	return (Array.isArray(pages) ? pages : []).filter((page) => (
+		fieldId(page.owner) === ownerId
+		&& fieldId(page.workspace) === workspace
+		&& fieldId(page.account) === account
+	)).length;
+}
+
+/** Preserves GET /facebook/accounts summary shape. */
+export function buildFacebookAccountsSummary(items = []) {
+	const list = Array.isArray(items) ? items : [];
+	return {
+		totalAccounts: list.length,
+		totalPages: list.reduce((sum, item) => sum + (Number(item.pageCount) || 0), 0),
+		connectedAccounts: list.filter((item) => item.status === 'connected').length,
+	};
+}
+
+/**
  * Select an existing page only when owner, workspace, account, and page_id all match.
  * Never returns a foreign-workspace row.
  */

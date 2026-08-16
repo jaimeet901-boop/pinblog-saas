@@ -329,3 +329,25 @@ describe('Facebook page sync workspace lookup (P2-6 static)', () => {
 		assert.match(pageSync, /selectFacebookExistingPageInWorkspace\(existingPages/);
 	});
 });
+
+describe('Facebook GET /accounts pageCount workspace isolation (FB-P0-1 static)', () => {
+	const accountsGet = (() => {
+		const marker = "router.get('/accounts'";
+		return route.slice(route.indexOf(marker), route.indexOf("router.patch('/accounts/:accountId'"));
+	})();
+
+	it('scopes facebook_pages pageCount by active workspace, not account only', () => {
+		assert.match(accountsGet, /andWorkspaceScope\(req,\s*pocketbaseClient\.filter\('account = \{\:account\}'/);
+		assert.doesNotMatch(accountsGet, /filter:\s*pocketbaseClient\.filter\('account = \{\:account\}'/);
+		assert.match(seam, /export function countFacebookAccountPagesInWorkspace/);
+		assert.match(seam, /export function buildFacebookAccountsSummary/);
+	});
+
+	it('preserves mapAccount and summary response shape', () => {
+		assert.match(accountsGet, /\.\.\.mapAccount\(account\)/);
+		assert.match(accountsGet, /pageCount:/);
+		assert.match(accountsGet, /buildFacebookAccountsSummary\(items\)/);
+		assert.match(accountsGet, /items,/);
+		assert.doesNotMatch(accountsGet, /syncFacebookPagesForOwner/);
+	});
+});

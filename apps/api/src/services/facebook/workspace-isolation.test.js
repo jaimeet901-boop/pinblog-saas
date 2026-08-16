@@ -31,6 +31,8 @@ import {
 	assertFacebookAccountWorkspaceBound,
 	buildFacebookQueuePageFilterParams,
 	buildFacebookPageSyncExistingFilterParams,
+	buildFacebookAccountsSummary,
+	countFacebookAccountPagesInWorkspace,
 	selectFacebookExistingPageInWorkspace,
 	FACEBOOK_ACCOUNT_WORKSPACE_REQUIRED_MESSAGE,
 	FACEBOOK_JOB_WORKSPACE_MISSING_MESSAGE,
@@ -992,5 +994,75 @@ describe('Facebook page sync workspace lookup (P2-6)', () => {
 			pageId: PAGE_ID,
 		});
 		assert.equal(onlyForeign, null);
+	});
+});
+
+describe('Facebook GET /accounts pageCount workspace isolation (FB-P0-1)', () => {
+	const WS_B = 'workspace_b';
+	const ACCOUNT = 'acc_ws_a';
+
+	function fixturePage(overrides = {}) {
+		return {
+			id: 'page_row_1',
+			owner: OWNER,
+			workspace: WS_A,
+			account: ACCOUNT,
+			page_id: '111',
+			...overrides,
+		};
+	}
+
+	it('same owner, WS-A account: pageCount counts only WS-A pages', () => {
+		const pages = [
+			fixturePage({ id: 'p1', page_id: '1' }),
+			fixturePage({ id: 'p2', page_id: '2' }),
+			fixturePage({ id: 'p_b1', page_id: 'b1', workspace: WS_B }),
+			fixturePage({ id: 'p_b2', page_id: 'b2', workspace: WS_B }),
+		];
+		assert.equal(
+			countFacebookAccountPagesInWorkspace(pages, {
+				owner: OWNER,
+				workspaceId: WS_A,
+				accountId: ACCOUNT,
+			}),
+			2,
+		);
+	});
+
+	it('matching workspace page counts remain correct', () => {
+		const pages = [
+			fixturePage({ id: 'p1', page_id: '1' }),
+			fixturePage({ id: 'p2', page_id: '2' }),
+			fixturePage({ id: 'p3', page_id: '3' }),
+		];
+		assert.equal(
+			countFacebookAccountPagesInWorkspace(pages, {
+				owner: OWNER,
+				workspaceId: WS_A,
+				accountId: ACCOUNT,
+			}),
+			3,
+		);
+	});
+
+	it('summary.totalPages is the sum of workspace-scoped pageCounts', () => {
+		const wsAPages = [
+			fixturePage({ id: 'p1' }),
+			fixturePage({ id: 'p2' }),
+			fixturePage({ id: 'p_b', workspace: WS_B }),
+		];
+		const items = [{
+			id: ACCOUNT,
+			status: 'connected',
+			pageCount: countFacebookAccountPagesInWorkspace(wsAPages, {
+				owner: OWNER,
+				workspaceId: WS_A,
+				accountId: ACCOUNT,
+			}),
+		}];
+		const summary = buildFacebookAccountsSummary(items);
+		assert.equal(summary.totalAccounts, 1);
+		assert.equal(summary.totalPages, 2);
+		assert.equal(summary.connectedAccounts, 1);
 	});
 });
