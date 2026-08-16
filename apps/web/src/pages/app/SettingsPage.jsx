@@ -16,6 +16,7 @@ import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { mailtoHref } from '@/lib/platformIdentity';
 import GoogleSetPasswordBanner from '@/components/GoogleSetPasswordBanner';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
+import { planCreditsIncludedPerMonth, workspaceWalletRemaining } from '@/lib/workspaceWalletRemaining';
 import './SettingsPage.css';
 
 const TABS = [
@@ -90,6 +91,7 @@ export default function SettingsPage() {
 	const [pinterestAccounts, setPinterestAccounts] = useState([]);
 	const [notifications, setNotifications] = useState([]);
 	const [creditsRemaining, setCreditsRemaining] = useState(0);
+	const [planCreditsIncluded, setPlanCreditsIncluded] = useState(0);
 	const [planSlug, setPlanSlug] = useState(user?.plan || 'free');
 	const [name, setName] = useState(user?.name || '');
 	const [prefs, setPrefs] = useState(() => ({ ...defaultPrefs }));
@@ -171,7 +173,8 @@ export default function SettingsPage() {
 			};
 			setPrefs(nextPrefs);
 			setBaseline({ name: user?.name || '', prefs: nextPrefs });
-			setCreditsRemaining(Number(creditsRes?.remaining ?? creditsRes?.balance) || 0);
+			setCreditsRemaining(workspaceWalletRemaining(creditsRes));
+			setPlanCreditsIncluded(planCreditsIncludedPerMonth(creditsRes));
 			setPlanSlug(settingsRes.workspace?.planSlug || user?.plan || 'free');
 		} catch (error) {
 			toast({ variant: 'destructive', title: 'Error', description: error?.message || 'Failed to load workspace settings' });
@@ -1081,7 +1084,8 @@ export default function SettingsPage() {
 						</div>
 						<div className="set-summary">
 							<div className="set-summary__row"><span>Current plan</span><strong>{user?.plan || 'free'}</strong></div>
-							<div className="set-summary__row"><span className="inline-flex items-center gap-1"><Coins size={12} /> Credits</span><strong>~{creditsRemaining}/mo</strong></div>
+							<div className="set-summary__row"><span className="inline-flex items-center gap-1"><Coins size={12} /> Credits remaining: {creditsRemaining}</span></div>
+							<div className="set-summary__row"><span>Included plan credits/month</span><strong>{planCreditsIncluded}</strong></div>
 							<div className="set-summary__row"><span className="inline-flex items-center gap-1"><HardDrive size={12} /> Storage</span><strong>—</strong></div>
 							<div className="set-summary__row"><span>Websites</span><strong>{websites.length}</strong></div>
 							<div className="set-summary__row"><span>Pinterest accounts</span><strong>{pinterestAccounts.length}</strong></div>

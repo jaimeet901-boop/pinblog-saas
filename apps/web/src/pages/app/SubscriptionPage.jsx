@@ -5,10 +5,6 @@ import {
 	FileText, Image as ImageIcon, Pin, Globe, HardDrive, AlertTriangle,
 	Settings, Coins, X, LifeBuoy,
 } from 'lucide-react';
-import {
-	ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-	XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-} from 'recharts';
 import apiServerClient from '@/lib/apiServerClient';
 import { isPlanFeatureEnabled } from '@/lib/planFeatures';
 import { PRODUCT_EVENTS, trackProductEvent } from '@/lib/productAnalytics';
@@ -43,6 +39,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { mailtoHref } from '@/lib/platformIdentity';
+import { planCreditsIncludedPerMonth, workspaceWalletRemaining } from '@/lib/workspaceWalletRemaining';
 import './SubscriptionPage.css';
 
 const PLACEHOLDER_PLANS = [
@@ -135,8 +132,6 @@ function BillingUnavailableModal({ open, onClose, supportMailto }) {
 	);
 }
 
-const CHART_COLORS = ['hsl(12 80% 55%)', 'hsl(38 90% 55%)', 'hsl(142 45% 40%)', 'hsl(210 55% 45%)'];
-
 const BILLING_INTERVALS = Object.freeze(['monthly', 'yearly']);
 
 const CURRENT_FEATURES = [
@@ -149,7 +144,7 @@ const CURRENT_FEATURES = [
 	{ label: 'Pinterest Accounts', key: 'pinterest' },
 	{ label: 'Websites', key: 'websites' },
 	{ label: 'Storage', key: 'storage' },
-	{ label: 'Monthly Credits', key: 'credits' },
+	{ label: 'Included plan credits/month', key: 'credits' },
 ];
 
 function planItemsFromDto(plan) {
@@ -389,10 +384,11 @@ export default function SubscriptionPage() {
 	const currentPlanId = subscription?.planSlug || planDto?.slug || user?.plan || 'free';
 	const currentPlan = plans.find((plan) => plan.id === currentPlanId)
 		|| (planDto ? mapPlanCard(planDto) : { id: currentPlanId, name: currentPlanId, price: 0, credits: credits.quota || 0, items: [] });
-	const quota = Number(credits.quota) || Number(currentPlan.credits) || 0;
-	const creditsUsed = Number(credits.used) || usage.monthArticles;
-	const creditsRemaining = Number(credits.remaining ?? credits.balance) || Math.max(0, quota - creditsUsed);
-	const usagePct = Math.min(100, Math.round((creditsUsed / Math.max(1, quota)) * 100));
+	const quota = planCreditsIncludedPerMonth({
+		quota: credits.quota,
+		credits: currentPlan.credits,
+	});
+	const creditsRemaining = workspaceWalletRemaining(credits);
 
 	const renewalDate = useMemo(() => {
 		if (subscription?.currentPeriodEnd) {
@@ -403,35 +399,6 @@ export default function SubscriptionPage() {
 		date.setMonth(date.getMonth() + 1);
 		return date;
 	}, [subscription, user]);
-
-	const creditsUsageChart = useMemo(() => {
-		const points = [];
-		for (let i = 6; i >= 0; i -= 1) {
-			const day = new Date();
-			day.setDate(day.getDate() - i);
-			points.push({
-				label: day.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-				used: i === 0 ? creditsUsed : Math.max(0, Math.round(creditsUsed * ((7 - i) / 7))),
-			});
-		}
-		return points;
-	}, [creditsUsed]);
-
-	const monthlyConsumption = useMemo(() => ([
-		{ label: 'Writer', value: usage.articles || Math.max(1, creditsUsed) },
-		{ label: 'Images', value: usage.images || 0 },
-		{ label: 'Pins', value: usage.pins || 0 },
-		{ label: 'Other', value: Math.max(0, Math.round((usage.pins || 0) * 0.15)) },
-	]), [usage, creditsUsed]);
-
-	const serviceBreakdown = useMemo(() => ([
-		{ name: 'AI Writer', value: Math.max(usage.monthArticles, usage.articles ? 1 : 0) },
-		{ name: 'AI Images', value: usage.images },
-		{ name: 'AI Pins', value: usage.pins },
-		{ name: 'Other AI', value: Math.max(0, Math.round((usage.pins + usage.images) * 0.1)) },
-	]), [usage]);
-
-	const chartsArePlaceholder = !usage.articles && !usage.pins && !usage.images && !creditsUsed;
 
 	const featureValues = useMemo(() => {
 		const features = planDto?.features || {};
@@ -446,16 +413,16 @@ export default function SubscriptionPage() {
 			pinterest: usage.pinterestAccounts ? `${usage.pinterestAccounts} linked` : (isPlanFeatureEnabled(features, 'calendar') ? 'Scheduler ready' : 'Connect in Hub'),
 			websites: `${usage.websites} connected`,
 			storage: limits.storageGb ? `${limits.storageGb} GB` : 'Workspace ready',
-			credits: `${quota}/mo`,
+			credits: String(quota),
 		};
 	}, [currentPlanId, usage, quota, planDto]);
 
 	const recommendations = useMemo(() => {
 		const tips = [];
-		if (usagePct >= 80) {
-			tips.push({ title: 'Credit usage alert', body: `You’ve used ${usagePct}% of this month’s article credits. Consider upgrading before you hit the limit.` });
+		if (creditsRemaining <= 0) {
+			tips.push({ title: 'Credit wallet', body: `Credits remaining: 0 on the ${currentPlan.name} plan.` });
 		} else {
-			tips.push({ title: 'Healthy credit balance', body: `${creditsRemaining} article credits remain on the ${currentPlan.name} plan.` });
+			tips.push({ title: 'Credit wallet', body: `Credits remaining: ${creditsRemaining} on the ${currentPlan.name} plan.` });
 		}
 		if (currentPlanId === 'free') {
 			tips.push({ title: 'Upgrade suggestion', body: 'Starter unlocks more monthly articles and websites for growing food blogs.' });
@@ -471,7 +438,7 @@ export default function SubscriptionPage() {
 			tips.push({ title: 'Connect Pinterest', body: 'Link an account in Pinterest Hub to unlock scheduling value on higher plans.' });
 		}
 		return tips;
-	}, [usagePct, creditsRemaining, currentPlan, currentPlanId, renewalDate, usage.pinterestAccounts]);
+	}, [creditsRemaining, currentPlan, currentPlanId, renewalDate, usage.pinterestAccounts]);
 
 	const allPlanCards = useMemo(() => {
 		const seen = new Set(plans.map((plan) => plan.id));
@@ -633,11 +600,7 @@ export default function SubscriptionPage() {
 					<div className="bill-hero__metric"><span>Renewal date</span><strong>{renewalDate.toLocaleDateString()}</strong></div>
 					<div className="bill-hero__metric"><span>Monthly price</span><strong>${currentPlan.price}/mo</strong></div>
 					<div className="bill-hero__metric"><span>Credits remaining</span><strong>{creditsRemaining}</strong></div>
-					<div className="bill-hero__metric">
-						<span>Usage this month</span>
-						<strong>{creditsUsed}/{quota}</strong>
-						<div className="bill-meter mt-2"><span style={{ width: `${usagePct}%` }} /></div>
-					</div>
+					<div className="bill-hero__metric"><span>Included plan credits/month</span><strong>{quota}</strong></div>
 				</div>
 				<p className="mt-3 text-xs text-muted-foreground inline-flex items-center gap-1.5">
 					<Crown size={12} className="text-primary" />
@@ -657,9 +620,8 @@ export default function SubscriptionPage() {
 
 			<div className="bill-stats">
 				{[
-					{ label: 'Credits Used', value: creditsUsed, hint: 'Articles this month' },
-					{ label: 'Credits Remaining', value: creditsRemaining, hint: null },
-					{ label: 'Monthly Limit', value: quota, hint: null },
+					{ label: 'Credits Remaining', value: creditsRemaining, hint: 'Workspace wallet' },
+					{ label: 'Included plan credits/month', value: quota, hint: null },
 					{ label: 'Articles Generated', value: usage.articles, hint: 'All time' },
 					{ label: 'Images Generated', value: usage.images, hint: 'From pin library' },
 					{ label: 'Pins Generated', value: usage.pins, hint: null },
@@ -685,63 +647,13 @@ export default function SubscriptionPage() {
 						<div className="bill-panel__head">
 							<div className="bill-panel__title">
 								<span className="bill-panel__icon"><Gauge size={14} /></span>
-								Usage Analytics
+								Credit wallet
 							</div>
-							{chartsArePlaceholder ? <Badge tone="amber">Sample charts</Badge> : <Badge tone="green">Live usage</Badge>}
 						</div>
-						{loadingUsage ? (
-							<div className="bill-charts">
-								{[0, 1, 2].map((i) => <div key={i} className="bill-skeleton" />)}
-							</div>
-						) : (
-							<div className="bill-charts">
-								<div className="bill-chart">
-									<h4>Credits Usage</h4>
-									{chartsArePlaceholder ? <p className="bill-chart__hint">Placeholder trend until articles are generated.</p> : null}
-									<div style={{ width: '100%', height: 210 }}>
-										<ResponsiveContainer>
-											<AreaChart data={creditsUsageChart}>
-												<CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-												<XAxis dataKey="label" tick={{ fontSize: 11 }} />
-												<YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-												<Tooltip />
-												<Area type="monotone" dataKey="used" stroke={CHART_COLORS[0]} fill={CHART_COLORS[0]} fillOpacity={0.2} />
-											</AreaChart>
-										</ResponsiveContainer>
-									</div>
-								</div>
-								<div className="bill-chart">
-									<h4>Monthly Consumption</h4>
-									<div style={{ width: '100%', height: 210 }}>
-										<ResponsiveContainer>
-											<BarChart data={monthlyConsumption}>
-												<CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-												<XAxis dataKey="label" tick={{ fontSize: 11 }} />
-												<YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-												<Tooltip />
-												<Bar dataKey="value" fill={CHART_COLORS[1]} radius={[6, 6, 0, 0]} />
-											</BarChart>
-										</ResponsiveContainer>
-									</div>
-								</div>
-								<div className="bill-chart" style={{ gridColumn: '1 / -1' }}>
-									<h4>Service Usage Breakdown</h4>
-									<div style={{ width: '100%', height: 230 }}>
-										<ResponsiveContainer>
-											<PieChart>
-												<Pie data={serviceBreakdown} dataKey="value" nameKey="name" innerRadius={48} outerRadius={78} paddingAngle={3}>
-													{serviceBreakdown.map((entry, index) => (
-														<Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-													))}
-												</Pie>
-												<Tooltip />
-												<Legend />
-											</PieChart>
-										</ResponsiveContainer>
-									</div>
-								</div>
-							</div>
-						)}
+						<p className="text-sm text-muted-foreground">
+							Credits remaining: {creditsRemaining}. Included plan credits/month: {quota}.
+							Usage charts are unavailable — this page does not show estimated spend curves.
+						</p>
 					</section>
 
 					<section className="bill-panel">
@@ -753,7 +665,7 @@ export default function SubscriptionPage() {
 							<Badge tone="blue">{currentPlan.name}</Badge>
 						</div>
 						<p className="text-sm text-muted-foreground">
-							${currentPlan.price}/mo · {quota} monthly article credits · includes the {platformName} atelier suite.
+							${currentPlan.price}/mo · {quota} included plan credits/month · includes the {platformName} atelier suite.
 						</p>
 						<div className="bill-features mt-4">
 							{CURRENT_FEATURES.map((feature) => (

@@ -8,6 +8,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useWorkspace } from '@/context/WorkspaceContext';
+import { workspaceWalletRemaining } from '@/lib/workspaceWalletRemaining';
 
 export default function WorkspaceSwitcher() {
 	const { workspaces, activeWorkspace, switchWorkspace, loading } = useWorkspace();
@@ -33,7 +34,7 @@ export default function WorkspaceSwitcher() {
 							{loading ? 'Loading…' : (active?.name || 'Workspace')}
 						</span>
 						<span className="block truncate text-[11px] text-muted-foreground">
-							{(active?.planName || active?.planSlug || 'free')} · {Number(active?.creditsRemaining || 0).toLocaleString()} credits
+							{(active?.planName || active?.planSlug || 'free')} · {workspaceWalletRemaining({ remaining: active?.creditsRemaining }).toLocaleString()} credits
 						</span>
 					</span>
 					<ChevronsUpDown size={14} className="shrink-0 text-muted-foreground" />
@@ -70,7 +71,7 @@ export default function WorkspaceSwitcher() {
 										</span>
 										<span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
 											<span className="inline-flex items-center gap-1"><Crown size={10} />{ws.planName || ws.planSlug || 'free'}</span>
-											<span className="inline-flex items-center gap-1"><Coins size={10} />{Number(ws.creditsRemaining || 0).toLocaleString()}</span>
+											<span className="inline-flex items-center gap-1"><Coins size={10} />{workspaceWalletRemaining({ remaining: ws.creditsRemaining }).toLocaleString()}</span>
 										</span>
 										<span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
 											Owner: {ws.owner?.name || ws.owner?.email || '—'}

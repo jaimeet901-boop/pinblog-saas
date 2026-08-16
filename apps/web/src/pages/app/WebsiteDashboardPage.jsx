@@ -27,6 +27,7 @@ import OperatePublishingPipeline from '@/components/websites/OperatePublishingPi
 import OperateAnalyticsSnapshot from '@/components/websites/OperateAnalyticsSnapshot';
 import OperateAdvancedPanel, { OperateActivityFeed, OperateScanProgress } from '@/components/websites/OperateAdvancedPanel';
 import { useAuth } from '@/context/AuthContext';
+import { planCreditsIncludedPerMonth, workspaceWalletRemaining } from '@/lib/workspaceWalletRemaining';
 
 function formatDateTime(value) {
 	if (!value) {
@@ -484,6 +485,14 @@ export default function WebsiteDashboardPage() {
 	const errorLogs = dashboard?.errorLogs || [];
 	const storageUsage = dashboard?.storageUsage || {};
 	const creditsUsage = dashboard?.creditsUsage || null;
+	const workspaceCreditsRemaining = workspaceWalletRemaining({
+		remaining: creditsUsage?.remaining ?? creditsUsage?.ai?.remaining ?? creditsUsage?.image?.remaining,
+		balance: creditsUsage?.balance,
+	});
+	const includedPlanCredits = planCreditsIncludedPerMonth({
+		quota: creditsUsage?.quota ?? creditsUsage?.ai?.limit ?? creditsUsage?.image?.limit,
+		limit: creditsUsage?.ai?.limit,
+	});
 	const lastAiOperations = dashboard?.lastAiOperations || [];
 	const score = dashboard?.score || null;
 	const problems = dashboard?.problems || [];
@@ -736,21 +745,21 @@ export default function WebsiteDashboardPage() {
 											))}
 										</ul>
 									</Card>
-								) : (
-									<Card>
-										<SectionTitle>Credits Usage</SectionTitle>
-										{creditsUsage ? (
-											<div className="mt-3 space-y-2">
-												<MetaLine label="Plan">{creditsUsage.plan || '—'}</MetaLine>
-												<MetaLine label="AI credits">{creditsUsage.ai ? `${creditsUsage.ai.used}/${creditsUsage.ai.limit} (remaining ${creditsUsage.ai.remaining})` : '—'}</MetaLine>
-												<MetaLine label="Image credits">{creditsUsage.image ? `${creditsUsage.image.used}/${creditsUsage.image.limit} (remaining ${creditsUsage.image.remaining})` : '—'}</MetaLine>
-											</div>
-										) : (
-											<EmptyLines text="Credits data unavailable." />
-										)}
-									</Card>
-								)}
+								) : null}
 							</div>
+
+							<Card>
+								<SectionTitle>Credits Usage</SectionTitle>
+								{creditsUsage ? (
+									<div className="mt-3 space-y-2">
+										<MetaLine label="Plan">{creditsUsage.plan || '—'}</MetaLine>
+										<MetaLine label="Workspace credits">{workspaceCreditsRemaining}</MetaLine>
+										<MetaLine label="Included plan credits/month">{includedPlanCredits}</MetaLine>
+									</div>
+								) : (
+									<EmptyLines text="Credits data unavailable." />
+								)}
+							</Card>
 
 							<div className="grid gap-4 lg:grid-cols-2">
 								<Card>
@@ -824,17 +833,6 @@ export default function WebsiteDashboardPage() {
 									</div>
 								</Card>
 							</div>
-
-							{problems.length > 0 && creditsUsage ? (
-								<Card>
-									<SectionTitle>Credits Usage</SectionTitle>
-									<div className="mt-3 space-y-2">
-										<MetaLine label="Plan">{creditsUsage.plan || '—'}</MetaLine>
-										<MetaLine label="AI credits">{creditsUsage.ai ? `${creditsUsage.ai.used}/${creditsUsage.ai.limit} (remaining ${creditsUsage.ai.remaining})` : '—'}</MetaLine>
-										<MetaLine label="Image credits">{creditsUsage.image ? `${creditsUsage.image.used}/${creditsUsage.image.limit} (remaining ${creditsUsage.image.remaining})` : '—'}</MetaLine>
-									</div>
-								</Card>
-							) : null}
 
 							<div className="flex flex-wrap gap-2">
 								{quickActions.filter((action) => action.action === 'sync' || action.action === 'refresh' || action.action === 'publish_ready').map((action) => (

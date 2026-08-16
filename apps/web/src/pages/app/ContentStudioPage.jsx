@@ -2333,9 +2333,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium shadow-sm"
 						title={`config v${configVersion} · ${cacheStatus}${configRefreshing ? ' · refreshing' : ''}`}
 					>
-						<span className="text-muted-foreground">AI </span>{credits.ai?.remaining ?? 0}
-						<span className="mx-1.5 text-border">·</span>
-						<span className="text-muted-foreground">Img </span>{credits.image?.remaining ?? 0}
+						<span className="text-muted-foreground">Workspace credits </span>{credits.remaining}
 					</div>
 				</div>
 			</div>
@@ -2386,7 +2384,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 							</p>
 						</div>
 						<span className="rounded-full bg-accent/20 px-2.5 py-1 text-[11px] font-semibold text-accent-foreground">
-							{(credits.ai?.remaining ?? 0)} credits
+							{credits.remaining} credits
 						</span>
 					</div>
 
@@ -2735,7 +2733,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						</p>
 						<p className="text-xs text-muted-foreground">
 							This will use ~{estimatedCredits} credits
-							{credits?.ai?.remaining != null ? ` · ${Math.max(0, Number((credits.ai.remaining - estimatedCredits).toFixed(2)))} left` : ''}.
+							{credits?.remaining != null ? ` · ${Math.max(0, Number((credits.remaining - estimatedCredits).toFixed(2)))} left` : ''}.
 						</p>
 						<Button className="w-full" onClick={handleGenerate} disabled={generating || loadingArticles}>
 							{generating ? <Spinner className="h-4 w-4" /> : (isFacebookStudio ? <Share2 size={16} /> : <Wand2 size={16} />)}

@@ -5,6 +5,7 @@
 
 import { normalizeTemplateConfig } from '@/lib/pinTemplates';
 import { normalizeStudioPromptChannel, resolveChannelPromptPack } from '@/lib/studio/promptPacks';
+import { planCreditsIncludedPerMonth, workspaceWalletRemaining } from '@/lib/workspaceWalletRemaining';
 
 const LANGUAGE_LABELS = {
 	en: 'English',
@@ -139,29 +140,16 @@ export function mapStudioPinStyles(config) {
 
 export function mapStudioCredits(config) {
 	const credits = config?.credits || {};
-	const remaining = Number(credits.remaining) || 0;
-	const ai = credits.ai && typeof credits.ai === 'object'
-		? {
-			used: Number(credits.ai.used) || 0,
-			limit: Number(credits.ai.limit) || 0,
-			remaining: Number(credits.ai.remaining ?? remaining) || 0,
-		}
-		: { used: Number(credits.used) || 0, limit: Number(credits.quota) || 0, remaining };
-	const image = credits.image && typeof credits.image === 'object'
-		? {
-			used: Number(credits.image.used) || 0,
-			limit: Number(credits.image.limit) || 0,
-			remaining: Number(credits.image.remaining ?? remaining) || 0,
-		}
-		: { used: 0, limit: 0, remaining };
+	const remaining = workspaceWalletRemaining({
+		remaining: credits.remaining ?? credits.ai?.remaining ?? credits.image?.remaining,
+		balance: credits.balance,
+	});
+	const quota = planCreditsIncludedPerMonth(credits);
 	return {
 		plan: credits.planSlug || credits.plan || 'free',
-		balance: Number(credits.balance) || remaining,
-		quota: Number(credits.quota) || 0,
-		used: Number(credits.used) || 0,
+		balance: remaining,
+		quota,
 		remaining,
-		ai,
-		image,
 	};
 }
 

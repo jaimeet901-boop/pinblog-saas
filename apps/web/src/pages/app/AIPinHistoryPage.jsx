@@ -379,11 +379,11 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 						<p className="hist-hero__eyebrow">{platformName} Generation History</p>
 						<h1 className="hist-hero__title">AI Generation History</h1>
 						<p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-							Every analysis, prompt, image, and edit is tracked here with credits used.
+							Every analysis, prompt, image, and edit is tracked here with credits on these rows.
 						</p>
 						<div className="hist-hero__meta">
 							<span className="hist-pill"><Sparkles size={12} /> {user?.name || platformName} workspace</span>
-							<span className="hist-pill"><Coins size={12} /> {stats.credits} credits used</span>
+							<span className="hist-pill"><Coins size={12} /> {stats.credits} credits on these rows</span>
 							<span className="hist-pill"><History size={12} /> {stats.total} generations</span>
 						</div>
 					</div>
@@ -408,7 +408,7 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 					{ label: `${L.productShortPlural} Generated`, value: stats.pins, hint: null },
 					{ label: 'Images Generated', value: stats.images, hint: null },
 					{ label: 'Prompt Optimizations', value: stats.optimizations, hint: stats.optimizations === '—' ? 'Placeholder' : null },
-					{ label: 'Credits Used', value: stats.credits, hint: 'This page' },
+					{ label: 'Credits on these rows', value: stats.credits, hint: 'This page · not wallet remaining' },
 					{ label: 'Success Rate', value: stats.successRate == null ? '—' : `${stats.successRate}%`, hint: null },
 					{ label: 'Avg. Generation Time', value: stats.avgDuration, hint: 'Not in history feed' },
 					{ label: 'Favorite Template', value: stats.favoriteTemplate, hint: stats.favoriteTemplate === '—' ? 'No metadata yet' : null },
@@ -691,7 +691,7 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 								<div className="mt-2">{renderStatus(selected)}</div>
 							</div>
 							<div className="hist-meta">
-								<div className="hist-meta__row"><span>Credits used</span><span>{creditsTotal(selected)}</span></div>
+								<div className="hist-meta__row"><span>Credits on these rows</span><span>{creditsTotal(selected)}</span></div>
 								<div className="hist-meta__row"><span>Generation time</span><span>{formatDate(selected.created)}</span></div>
 								<div className="hist-meta__row"><span>Quality</span><span>{metaGet(selected, ['quality', 'imageQuality'], '—')}</span></div>
 								<div className="hist-meta__row"><span>Template</span><span>{metaGet(selected, ['template', 'templateName', 'template_id'], '—')}</span></div>

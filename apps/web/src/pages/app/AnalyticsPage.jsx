@@ -13,6 +13,7 @@ import { Badge, Button, Select, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
+import { mergeAnalyticsCreditsDisplay, workspaceWalletRemaining } from '@/lib/workspaceWalletRemaining';
 import { markAnalyticsSeen } from '@/lib/websites/websiteLifecycle';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
@@ -121,6 +122,7 @@ export default function AnalyticsPage() {
 	usePersistWebsiteQuery(preferredWebsiteId);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
+	const [walletRemaining, setWalletRemaining] = useState(0);
 	const [summary, setSummary] = useState({
 		published: 0,
 		failed: 0,
@@ -151,17 +153,40 @@ export default function AnalyticsPage() {
 	const load = async () => {
 		setLoading(true);
 		setError('');
+		const walletPromise = apiServerClient.fetch('/workspace/v1/credits', { method: 'GET' })
+			.then(async (response) => {
+				const payload = await response.json().catch(() => ({}));
+				if (!response.ok) return null;
+				return workspaceWalletRemaining(payload);
+			})
+			.catch(() => null);
 		try {
 			const params = new URLSearchParams({ range: dateRange === 'month' ? '30d' : dateRange === 'all' ? '90d' : dateRange });
+			let overviewOk = true;
 			let response = await apiServerClient.fetch(`/workspace/v1/analytics/overview?${params.toString()}`, { method: 'GET' });
 			let payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
+				overviewOk = false;
 				response = await apiServerClient.fetch('/pinterest/analytics', { method: 'GET' });
 				payload = await response.json().catch(() => ({}));
 				if (!response.ok) {
 					throw new Error(payload?.message || `Failed to load analytics (${response.status})`);
 				}
 			}
+			const wallet = await walletPromise;
+			const summaryPayload = payload.summary || {};
+			const merged = mergeAnalyticsCreditsDisplay({
+				overviewOk,
+				summary: summaryPayload,
+				walletRemaining: wallet,
+				previousRemaining: walletRemaining,
+			});
+			const fallbackSummary = overviewOk
+				? summaryPayload
+				: Object.fromEntries(
+					Object.entries(summaryPayload).filter(([key]) => key !== 'creditsRemaining' && key !== 'creditsUsed'),
+				);
+			setWalletRemaining(merged.creditsRemaining);
 			setSummary({
 				published: 0,
 				failed: 0,
@@ -178,11 +203,17 @@ export default function AnalyticsPage() {
 				avgGenerationTime: '—',
 				avgPublishTime: '—',
 				failureRate: 0,
-				...(payload.summary || {}),
+				...fallbackSummary,
+				creditsUsed: merged.creditsUsedInRange,
+				creditsRemaining: merged.creditsRemaining,
 			});
 			setItems(Array.isArray(payload.items) ? payload.items : []);
 			setCharts(payload.charts || { dailyActivity: [], monthlyActivity: [] });
 		} catch (err) {
+			const wallet = await walletPromise;
+			if (wallet != null) {
+				setWalletRemaining(wallet);
+			}
 			setError(err.message);
 			toast({ variant: 'destructive', title: 'Error', description: err.message });
 		} finally {
@@ -481,8 +512,8 @@ export default function AnalyticsPage() {
 		{ label: 'Articles Generated', value: summary.articlesGenerated ?? 0, hint: null },
 		{ label: 'Images Generated', value: summary.imagesGenerated ?? 0, hint: null },
 		{ label: 'AI Requests', value: summary.aiRequests ?? 0, hint: null },
-		{ label: 'Credits Used', value: summary.creditsUsed ?? 0, hint: null },
-		{ label: 'Credits Remaining', value: summary.creditsRemaining ?? 0, hint: null },
+		{ label: 'Used in range', value: summary.creditsUsed ?? 0, hint: null },
+		{ label: 'Credits Remaining', value: walletRemaining, hint: 'Workspace wallet' },
 		{ label: 'Pinterest Pins', value: summary.pinterestPins ?? 0, hint: null },
 		{ label: 'Facebook Posts', value: summary.facebookPosts ?? 0, hint: null },
 		{ label: 'WordPress Posts', value: summary.wordpressPosts ?? 0, hint: null },

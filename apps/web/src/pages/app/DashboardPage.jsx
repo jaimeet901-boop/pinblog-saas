@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
+import { planCreditsIncludedPerMonth, workspaceWalletRemaining } from '@/lib/workspaceWalletRemaining';
 import { useActiveWebsite } from '@/context/ActiveWebsiteContext';
 import { Badge, Button } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
@@ -99,9 +100,11 @@ export default function DashboardPage() {
 	}));
 	const recentPins = recentImages;
 	const activityTimeline = dashboard?.recentActivity || [];
-	const quota = Number(credits.quota) || Number(plan.credits) || 0;
-	const creditsRemaining = Number(credits.remaining ?? credits.balance) || 0;
-	const usageCount = Number(credits.used) || Number(stats.monthArticles) || 0;
+	const quota = planCreditsIncludedPerMonth({
+		quota: credits.quota,
+		credits: plan.credits,
+	});
+	const creditsRemaining = workspaceWalletRemaining(credits);
 	const firstName = user?.name?.split(' ')[0] || 'Chef';
 	const now = new Date();
 	const greeting = greetingForHour(now.getHours());
@@ -154,7 +157,8 @@ export default function DashboardPage() {
 		{ label: 'Queue depth', value: queueDepth, to: '/app/analytics', hint: null },
 		{ label: 'Connected Websites', value: stats.websites, to: '/app/websites', hint: null },
 		{ label: 'Pinterest Accounts', value: connectedPinterest || '—', to: '/app/pinterest', hint: connectedPinterest ? null : 'Connect in Hub' },
-		{ label: 'Credits Remaining', value: usageDash.creditsRemaining ?? creditsRemaining, to: '/app/subscription', hint: `${usageDash.creditsUsed ?? usageCount}/${quota || '—'} used` },
+		{ label: 'Credits Remaining', value: creditsRemaining, to: '/app/subscription', hint: null },
+		{ label: 'Included plan credits/month', value: quota, to: '/app/subscription', hint: null },
 		{ label: 'Storage Used', value: `${usageDash.storageUsedGb ?? stats.storageUsedGb ?? '—'} GB`, to: '/app/settings', hint: usageDash.storageLimitGb ? `of ${usageDash.storageLimitGb} GB` : null },
 		{ label: 'Team seats', value: dashboard?.members?.active ?? stats.members ?? '—', to: '/app/settings', hint: dashboard?.members?.seats ? `${dashboard.members.active}/${dashboard.members.seats}` : null },
 		{ label: 'Success Rate', value: successRate == null ? '—' : `${successRate}%`, to: '/app/analytics', hint: successRate == null ? 'Needs publish history' : null },
@@ -402,15 +406,14 @@ export default function DashboardPage() {
 						<div className="dash-panel__head">
 							<div className="dash-panel__title">
 								<span className="dash-panel__icon"><Gauge size={14} /></span>
-								Monthly usage
+								Credits
 							</div>
 						</div>
 						<div className="flex items-baseline justify-between">
-							<p className="text-sm text-muted-foreground">{usageDash.creditsUsed ?? usageCount} / {quota || '—'} credits</p>
-							<span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{usageDash.creditsRemaining ?? creditsRemaining} left</span>
-						</div>
-						<div className="dash-meter mt-2">
-							<span style={{ width: `${Math.min(100, quota ? ((usageDash.creditsUsed ?? usageCount) / quota) * 100 : 0)}%` }} />
+							<p className="text-sm text-muted-foreground">Credits remaining: {creditsRemaining}</p>
+							<span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+								Included plan credits/month: {quota}
+							</span>
 						</div>
 						<div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
 							<span>AI requests: {Number(usageDash.aiRequests || 0).toLocaleString()}</span>
@@ -426,7 +429,7 @@ export default function DashboardPage() {
 								{monthlyTrends.map((row) => (
 									<div key={row.period} className="flex items-center justify-between text-[11px] text-muted-foreground">
 										<span>{row.period}</span>
-										<span>{Number(row.creditsUsed || 0).toLocaleString()} credits · {Number(row.articles || 0)} arts</span>
+										<span>{Number(row.creditsUsed || 0).toLocaleString()} used in period · {Number(row.articles || 0)} arts</span>
 									</div>
 								))}
 							</div>
