@@ -549,6 +549,7 @@ export default function WebsiteDashboardPage() {
 	const wordpressHistoryHref = `/app/wordpress-history?websiteId=${encodeURIComponent(website.id)}`;
 	const analyticsHref = `/app/analytics?websiteId=${encodeURIComponent(website.id)}`;
 	const pinsHref = `/app/ai-pins?websiteId=${encodeURIComponent(website.id)}`;
+	const facebookStudioHref = buildFacebookStudioHref(website.id);
 	const writerHref = `/app/writer?websiteId=${encodeURIComponent(website.id)}`;
 
 	return (
@@ -651,6 +652,7 @@ export default function WebsiteDashboardPage() {
 						onScan={handleScan}
 						onArticles={() => navigate(`/app/websites/${website.id}/articles`)}
 						onGeneratePin={() => navigate(pinsHref)}
+						onGenerateFacebookPost={() => navigate(facebookStudioHref)}
 						onPublishingHistory={() => navigate(historyHref)}
 					/>
 
@@ -672,6 +674,7 @@ export default function WebsiteDashboardPage() {
 						<OperateContentProduction
 							onWriter={() => navigate(writerHref)}
 							onAiPins={() => navigate(pinsHref)}
+							onGenerateFacebookPost={() => navigate(facebookStudioHref)}
 							onTemplates={() => navigate('/app/ai-pins/templates')}
 							showTemplates={showTemplates}
 						/>

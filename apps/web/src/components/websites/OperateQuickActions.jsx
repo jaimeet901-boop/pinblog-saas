@@ -1,20 +1,22 @@
 import { Button, Card } from '@/components/kit';
-import { History, Newspaper, ScanSearch, Wand2 } from 'lucide-react';
+import { Facebook, History, Newspaper, ScanSearch, Wand2 } from 'lucide-react';
 
 /**
- * Exactly four Operate Quick Actions (Phase 2B).
+ * Operate Quick Actions — existing modules only.
  */
 export default function OperateQuickActions({
 	scanning = false,
 	onScan,
 	onArticles,
 	onGeneratePin,
+	onGenerateFacebookPost,
 	onPublishingHistory,
 }) {
 	const actions = [
 		{ id: 'scan', label: scanning ? 'Scanning...' : 'Scan Website', icon: ScanSearch, onClick: onScan, primary: true, disabled: scanning },
 		{ id: 'articles', label: 'Open Articles', icon: Newspaper, onClick: onArticles },
 		{ id: 'pins', label: 'Generate AI Pin', icon: Wand2, onClick: onGeneratePin },
+		{ id: 'facebook', label: 'Generate Facebook Post', icon: Facebook, onClick: onGenerateFacebookPost },
 		{ id: 'history', label: 'Publishing History', icon: History, onClick: onPublishingHistory },
 	];
 

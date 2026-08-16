@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
 	LayoutDashboard, Globe, PenLine, CalendarDays, BarChart3,
-	CreditCard, Settings, Shield, User, LogOut, Menu, X, Moon, Sun, Pin, ChevronDown, Bell, Wand2, History, Facebook,
+	CreditCard, Settings, Shield, User, LogOut, Menu, X, Moon, Sun, Pin, ChevronDown, Bell, Wand2, History, Facebook, FileText,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -28,7 +28,9 @@ const NAV = [
 	// Templates + Brand Kit stay routed (/app/ai-pins/templates, /app/ai-pins/brand-kit)
 	// but are admin-only via Admin Console — not shown in the workspace sidebar.
 	{ to: '/app/calendar', label: 'Calendar', icon: CalendarDays, needsWebsite: true },
-	{ to: '/app/pinterest-history', label: 'Publishing History', icon: History, needsWebsite: true },
+	{ to: '/app/pinterest-history', label: 'Publishing History', icon: History, needsWebsite: true, section: 'Publishing' },
+	{ to: '/app/facebook-history', label: 'Facebook History', icon: Facebook, needsWebsite: true, section: 'Publishing' },
+	{ to: '/app/wordpress-history', label: 'WordPress History', icon: FileText, needsWebsite: true, section: 'Publishing' },
 	{ to: '/app/ai-pins/history', label: 'Pin History', icon: History, needsWebsite: true },
 	{ to: '/app/analytics', label: 'Analytics', icon: BarChart3, needsWebsite: true },
 	{ to: '/app/subscription', label: 'Subscription', icon: CreditCard },
@@ -66,11 +68,18 @@ export default function AppLayout({ children }) {
 
 	const NavItems = () => (
 		<nav className="flex flex-col gap-1">
-			{NAV.map(({ to, label, icon: Icon, end, needsWebsite }, i) => {
+			{NAV.map(({ to, label, icon: Icon, end, needsWebsite, section }, i) => {
 				const href = withActiveWebsite(to, activeWebsiteId, needsWebsite);
+				const prevSection = NAV[i - 1]?.section;
+				const showSection = Boolean(section) && section !== prevSection;
 				return (
+					<Fragment key={to}>
+						{showSection ? (
+							<p className="mt-3 px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+								{section}
+							</p>
+						) : null}
 					<NavLink
-						key={to}
 						to={href}
 						end={end}
 						onClick={() => setOpen(false)}
@@ -96,6 +105,7 @@ export default function AppLayout({ children }) {
 							</>
 						)}
 					</NavLink>
+					</Fragment>
 				);
 			})}
 			{user?.role === 'admin' && (

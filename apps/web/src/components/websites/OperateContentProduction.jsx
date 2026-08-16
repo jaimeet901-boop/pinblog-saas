@@ -1,5 +1,5 @@
 import { Card } from '@/components/kit';
-import { LayoutTemplate, PenLine, Wand2 } from 'lucide-react';
+import { Facebook, LayoutTemplate, PenLine, Wand2 } from 'lucide-react';
 
 /**
  * Content Production deep links — existing modules only (Phase 2B).
@@ -7,12 +7,14 @@ import { LayoutTemplate, PenLine, Wand2 } from 'lucide-react';
 export default function OperateContentProduction({
 	onWriter,
 	onAiPins,
+	onGenerateFacebookPost,
 	onTemplates,
 	showTemplates = false,
 }) {
 	const links = [
 		{ id: 'writer', label: 'Generate Article', hint: 'AI Writer', icon: PenLine, onClick: onWriter },
 		{ id: 'pins', label: 'Generate AI Pin', hint: 'AI Pins atelier', icon: Wand2, onClick: onAiPins },
+		{ id: 'facebook', label: 'Generate Facebook Post', hint: 'AI Facebook Pages', icon: Facebook, onClick: onGenerateFacebookPost },
 	];
 	if (showTemplates) {
 		links.push({ id: 'templates', label: 'Open Templates', hint: 'Pin templates', icon: LayoutTemplate, onClick: onTemplates });

@@ -85,6 +85,16 @@ describe('facebook F7-5 publishing history routes', () => {
 
 		expect(layout).toMatch(/\/app\/facebook-history/);
 	});
+
+	it('exposes facebook-history in customer workspace Publishing navigation', () => {
+		const layout = readFileSync(
+			path.join(webRoot, 'src/components/AppLayout.jsx'),
+			'utf8',
+		);
+
+		expect(layout).toMatch(/to: '\/app\/facebook-history', label: 'Facebook History'/);
+		expect(layout).toMatch(/section: 'Publishing'/);
+	});
 });
 
 describe('wordpress publishing history routes', () => {
@@ -109,6 +119,16 @@ describe('wordpress publishing history routes', () => {
 		);
 
 		expect(layout).toMatch(/\/app\/wordpress-history/);
+	});
+
+	it('exposes wordpress-history in customer workspace Publishing navigation', () => {
+		const layout = readFileSync(
+			path.join(webRoot, 'src/components/AppLayout.jsx'),
+			'utf8',
+		);
+
+		expect(layout).toMatch(/to: '\/app\/wordpress-history', label: 'WordPress History'/);
+		expect(layout).toMatch(/section: 'Publishing'/);
 	});
 
 	it('does not keep the boards sync toast gated on the literal 1 flag', () => {

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
 	Globe, FileText, CalendarClock, Activity, Gauge,
 	PenLine, Sparkles, Pin, LayoutTemplate, Palette, ListOrdered,
-	Settings, Wand2, Clock, ArrowUpRight, CheckCircle2, AlertTriangle,
+	Settings, Wand2, Clock, ArrowUpRight, CheckCircle2, AlertTriangle, Facebook,
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
@@ -19,6 +19,7 @@ import './DashboardPage.css';
 const QUICK_ACTIONS = [
 	{ label: 'Write Article', to: '/app/writer', icon: PenLine },
 	{ label: 'Create Pins', to: '/app/ai-pins', icon: Wand2 },
+	{ label: 'Create Facebook Posts', to: '/app/ai-facebook-pages', icon: Facebook },
 	// Templates + Brand Kit remain available via Admin Console only.
 	{ label: 'Open Templates', to: '/app/ai-pins/templates', icon: LayoutTemplate, adminOnly: true },
 	{ label: 'Brand Kit', to: '/app/ai-pins/brand-kit', icon: Palette, adminOnly: true },
@@ -189,6 +190,7 @@ export default function DashboardPage() {
 							<Link to="/app/websites"><Button variant="outline"><Globe size={16} /> Website Hub</Button></Link>
 							<Link to={withWebsiteQuery('/app/writer', activeWebsiteId)}><Button className="shadow-md shadow-primary/20"><PenLine size={16} /> New article</Button></Link>
 							<Link to={withWebsiteQuery('/app/ai-pins', activeWebsiteId)}><Button variant="outline"><Wand2 size={16} /> Open AI Pins</Button></Link>
+							<Link to={withWebsiteQuery('/app/ai-facebook-pages', activeWebsiteId)}><Button variant="outline"><Facebook size={16} /> Open AI Facebook Pages</Button></Link>
 						</>
 					)}
 				</div>
@@ -384,7 +386,7 @@ export default function DashboardPage() {
 								: WORKSPACE_QUICK_ACTIONS
 							).map((action) => {
 								const Icon = action.icon;
-								const needsWebsite = ['/app/writer', '/app/ai-pins', '/app/pinterest-history', '/app/analytics', '/app/pinterest', '/app/calendar'].includes(action.to);
+								const needsWebsite = ['/app/writer', '/app/ai-pins', '/app/ai-facebook-pages', '/app/pinterest-history', '/app/analytics', '/app/pinterest', '/app/calendar'].includes(action.to);
 								const href = needsWebsite ? withWebsiteQuery(action.to, activeWebsiteId) : action.to;
 								return (
 									<Link key={action.to} to={href} className="dash-action">
