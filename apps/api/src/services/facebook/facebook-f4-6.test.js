@@ -10,7 +10,7 @@ import {
 import {
 	FACEBOOK_PUBLISH_CREDIT_FEATURE,
 	buildFacebookPublishCreditIdempotencyKey,
-	burnFacebookPublishCredits,
+	facebookPublishCreditIdempotencyKey,
 } from './facebook-publish-credits.js';
 import { processJob } from './facebook-publish-queue.js';
 import { getFacebookQueueStatus } from './facebook-publish-queue.js';
@@ -26,6 +26,7 @@ const baseJob = {
 	id: 'job_credit_1',
 	owner: 'user_1',
 	workspace: 'ws_1',
+	workspace_key: 'ws_1',
 	account: 'acc_1',
 	page_id: '123456789',
 	message: 'Hello Facebook',
@@ -35,8 +36,76 @@ const baseJob = {
 	attempt_count: 0,
 };
 
+function createMemoryCreditGate(initialWallets = {}) {
+	const wallets = { ...initialWallets };
+	const reservationsByKey = new Map();
+	const reservationsById = new Map();
+	const beginCalls = [];
+	const settleCalls = [];
+	let seq = 0;
+
+	function httpError(status, message, errorCode) {
+		const error = new Error(message);
+		error.status = status;
+		error.errorCode = errorCode;
+		return error;
+	}
+
+	return {
+		wallets,
+		beginCalls,
+		settleCalls,
+		beginFeatureReservation: async ({
+			workspaceKey,
+			feature,
+			units = 1,
+			idempotencyKey = '',
+		} = {}) => {
+			const key = String(workspaceKey || '').trim();
+			beginCalls.push({ workspaceKey: key, feature, units, idempotencyKey });
+			if (idempotencyKey && reservationsByKey.has(idempotencyKey)) {
+				return { ...reservationsByKey.get(idempotencyKey) };
+			}
+			const balance = Number(wallets[key] || 0);
+			if (balance < 1) {
+				const error = httpError(402, `Insufficient credits. Remaining: ${balance}`, 'INSUFFICIENT_CREDITS');
+				error.remaining = balance;
+				throw error;
+			}
+			wallets[key] = balance - 1;
+			const row = {
+				id: `res_${++seq}`,
+				workspaceKey: key,
+				status: 'reserved',
+				amount: 1,
+				feature,
+				units,
+				idempotencyKey,
+			};
+			if (idempotencyKey) reservationsByKey.set(idempotencyKey, row);
+			reservationsById.set(row.id, row);
+			return { ...row };
+		},
+		settleFeatureReservation: async (reservationId, { success } = {}) => {
+			settleCalls.push({ id: reservationId, success: Boolean(success) });
+			const row = reservationsById.get(reservationId);
+			if (!row || row.status !== 'reserved') {
+				return { settled: row?.status || 'noop', reservation: row ? { ...row } : null };
+			}
+			if (success) {
+				row.status = 'committed';
+				return { settled: 'committed', reservation: { ...row } };
+			}
+			row.status = 'released';
+			wallets[row.workspaceKey] = (Number(wallets[row.workspaceKey]) || 0) + (Number(row.amount) || 1);
+			return { settled: 'released', reservation: { ...row } };
+		},
+	};
+}
+
 function createMinimalDeps(overrides = {}) {
-	const burnCalls = [];
+	const gate = overrides.creditGate || createMemoryCreditGate({ ws_1: 10 });
+	const graphCalls = [];
 	const deps = {
 		pocketbaseClient: {
 			filter: (template, params = {}) => {
@@ -55,6 +124,11 @@ function createMinimalDeps(overrides = {}) {
 				if (name === 'facebook_publish_events') {
 					return {
 						create: async (payload) => ({ id: 'evt_1', ...payload }),
+					};
+				}
+				if (name === 'workspaces') {
+					return {
+						getOne: async () => ({ id: 'ws_1', workspace_key: 'ws_1' }),
 					};
 				}
 				throw new Error(`unexpected collection ${name}`);
@@ -85,17 +159,20 @@ function createMinimalDeps(overrides = {}) {
 		markFacebookAccountStatus: async () => null,
 		loadEventIdempotencyKeys: async () => [],
 		createPublishEvent: async () => null,
-		publishFacebookFeedPost: async () => ({
-			postId: '123456789_999',
-			postUrl: 'https://www.facebook.com/123456789_999',
-		}),
-		burnFacebookPublishCredits: async (job, options = {}) => {
-			burnCalls.push({ job, options });
-			return { transactionId: 'tx_1' };
+		publishFacebookFeedPost: async () => {
+			graphCalls.push(Date.now());
+			return {
+				postId: '123456789_999',
+				postUrl: 'https://www.facebook.com/123456789_999',
+			};
 		},
+		beginFeatureReservation: gate.beginFeatureReservation,
+		settleFeatureReservation: gate.settleFeatureReservation,
+		getWorkspace: async () => ({ workspace_key: 'ws_1' }),
 		...overrides,
 	};
-	return { deps, burnCalls };
+	delete deps.creditGate;
+	return { deps, gate, graphCalls };
 }
 
 describe('facebook F4-6 production integration', () => {
@@ -160,53 +237,43 @@ describe('facebook F4-6 production integration', () => {
 		assert.match(monitor, /facebook-publish-queue/);
 	});
 
-	it('buildFacebookPublishCreditIdempotencyKey is stable per job id', () => {
+	it('buildFacebookPublishCreditIdempotencyKey is unique per job attempt', () => {
 		assert.equal(
 			buildFacebookPublishCreditIdempotencyKey('job_abc'),
-			'facebook-publish:job_abc',
+			'facebook-publish:job_abc:attempt:0',
 		);
 		assert.equal(
-			buildFacebookPublishCreditIdempotencyKey('job_abc'),
-			buildFacebookPublishCreditIdempotencyKey('job_abc'),
+			facebookPublishCreditIdempotencyKey({ id: 'job_abc', attempt_count: 1 }),
+			'facebook-publish:job_abc:attempt:1',
+		);
+		assert.notEqual(
+			facebookPublishCreditIdempotencyKey({ id: 'job_abc', attempt_count: 0 }),
+			facebookPublishCreditIdempotencyKey({ id: 'job_abc', attempt_count: 1 }),
 		);
 	});
 
-	it('burnFacebookPublishCredits uses facebook_publish feature and idempotency key', async () => {
-		const calls = [];
-		await burnFacebookPublishCredits(
-			{ id: 'job_99', owner: 'user_9', workspace_key: 'ws_9' },
-			{
-				facebookPostId: '123_456',
-				deps: {
-					workspaceKeyForUser: () => 'ws_fallback',
-					consumeFeatureCredits: async (_pb, payload) => {
-						calls.push(payload);
-						return { transactionId: 'tx_99' };
-					},
-				},
-			},
-		);
-
-		assert.equal(calls.length, 1);
-		assert.equal(calls[0].feature, 'facebook_publish');
-		assert.equal(calls[0].units, 1);
-		assert.equal(calls[0].idempotencyKey, 'facebook-publish:job_99');
-		assert.equal(calls[0].workspaceKey, 'ws_9');
-		assert.equal(calls[0].metadata.facebookPostId, '123_456');
-	});
-
-	it('processJob burns credits only after successful publish', async () => {
-		const { deps, burnCalls } = createMinimalDeps();
+	it('processJob reserves before Graph and commits after successful publish', async () => {
+		const gate = createMemoryCreditGate({ ws_1: 1 });
+		const { deps, graphCalls } = createMinimalDeps({ creditGate: gate });
 		await processJob(baseJob, deps);
 
-		assert.equal(burnCalls.length, 1);
-		assert.equal(burnCalls[0].job.id, 'job_credit_1');
-		assert.equal(burnCalls[0].options.facebookPostId, '123456789_999');
+		assert.equal(gate.beginCalls.length, 1);
+		assert.equal(gate.beginCalls[0].feature, FACEBOOK_PUBLISH_CREDIT_FEATURE);
+		assert.equal(gate.beginCalls[0].workspaceKey, 'ws_1');
+		assert.equal(graphCalls.length, 1);
+		assert.equal(gate.settleCalls.length, 1);
+		assert.equal(gate.settleCalls[0].success, true);
+		assert.ok(
+			gate.beginCalls[0].idempotencyKey === 'facebook-publish:job_credit_1:attempt:0',
+		);
 	});
 
-	it('processJob does not burn credits on publish failure', async () => {
-		const { deps, burnCalls } = createMinimalDeps({
+	it('processJob releases the reservation on Graph failure and does not swallow it', async () => {
+		const gate = createMemoryCreditGate({ ws_1: 1 });
+		const { deps, graphCalls } = createMinimalDeps({
+			creditGate: gate,
 			publishFacebookFeedPost: async () => {
+				graphCalls.push(1);
 				const error = new Error('Graph API failed');
 				error.status = 400;
 				error.retryable = false;
@@ -218,11 +285,15 @@ describe('facebook F4-6 production integration', () => {
 			() => processJob(baseJob, deps),
 			/Graph API failed|failed/i,
 		);
-		assert.equal(burnCalls.length, 0);
+		assert.equal(graphCalls.length, 1);
+		assert.equal(gate.settleCalls.length, 1);
+		assert.equal(gate.settleCalls[0].success, false);
+		assert.equal(gate.wallets.ws_1, 1);
 	});
 
-	it('processJob does not burn credits on idempotent finalize path', async () => {
-		const { deps, burnCalls } = createMinimalDeps();
+	it('processJob does not reserve or call Graph on the idempotent finalize path', async () => {
+		const gate = createMemoryCreditGate({ ws_1: 10 });
+		const { deps, graphCalls } = createMinimalDeps({ creditGate: gate });
 		const idempotentJob = {
 			...baseJob,
 			facebook_post_id: '123456789_existing',
@@ -231,30 +302,19 @@ describe('facebook F4-6 production integration', () => {
 		};
 
 		await processJob(idempotentJob, deps);
-		assert.equal(burnCalls.length, 0);
+		assert.equal(graphCalls.length, 0);
+		assert.equal(gate.beginCalls.length, 0);
+		assert.equal(gate.settleCalls.length, 0);
 	});
 
-	it('burnFacebookPublishCredits idempotency prevents duplicate burn calls', async () => {
-		const calls = [];
-		const sharedDeps = {
-			workspaceKeyForUser: () => 'ws_1',
-			consumeFeatureCredits: async (_pb, payload) => {
-				calls.push(payload.idempotencyKey);
-				return { idempotent: calls.length > 1, transactionId: 'tx_1' };
-			},
-		};
-
-		await burnFacebookPublishCredits(
-			{ id: 'job_dup', owner: 'user_1' },
-			{ deps: sharedDeps },
+	it('processJob with 0 credits never calls Graph and does not swallow 402', async () => {
+		const gate = createMemoryCreditGate({ ws_1: 0 });
+		const { deps, graphCalls } = createMinimalDeps({ creditGate: gate });
+		await assert.rejects(
+			() => processJob(baseJob, deps),
+			(error) => error.status === 402 && error.errorCode === 'INSUFFICIENT_CREDITS',
 		);
-		await burnFacebookPublishCredits(
-			{ id: 'job_dup', owner: 'user_1' },
-			{ deps: sharedDeps },
-		);
-
-		assert.equal(calls.length, 2);
-		assert.equal(calls[0], 'facebook-publish:job_dup');
-		assert.equal(calls[1], 'facebook-publish:job_dup');
+		assert.equal(graphCalls.length, 0);
+		assert.equal(gate.settleCalls.length, 0);
 	});
 });

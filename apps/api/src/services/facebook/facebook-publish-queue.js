@@ -23,6 +23,7 @@ import {
 	assertFacebookQueueWorkspaceIsolation,
 	buildFacebookQueuePageFilterParams,
 } from './workspace-isolation.js';
+import { withFacebookPublishCredits } from './facebook-publish-credits.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.FACEBOOK_QUEUE_POLL_MS || '15000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.FACEBOOK_QUEUE_BATCH || '10', 10);
@@ -336,27 +337,36 @@ export async function processJob(job, deps = {}) {
 		throw httpError(422, 'Facebook Page access token is missing', { retryable: false });
 	}
 
-	let result;
-	try {
-		result = await publishFeed({
-			pageId: validation.normalized?.pageId || pageId,
-			accessToken,
-			message: job.message,
-			linkUrl: job.destination_url || job.destinationUrl,
-			imageUrl: job.image_url || job.imageUrl,
-			fetchImpl: deps.fetchImpl,
-		});
-	} catch (error) {
-		const normalized = normalizeFacebookGraphError(error);
-		if (normalized.tokenExpired && accountId) {
-			await markFacebookAccountStatus({
-				accountId,
-				status: 'expired',
-				statusError: normalized.message,
-			}).catch(() => null);
+	const reserveCredits = deps.withFacebookPublishCredits || withFacebookPublishCredits;
+	const result = await reserveCredits(job, async () => {
+		try {
+			return await publishFeed({
+				pageId: validation.normalized?.pageId || pageId,
+				accessToken,
+				message: job.message,
+				linkUrl: job.destination_url || job.destinationUrl,
+				imageUrl: job.image_url || job.imageUrl,
+				fetchImpl: deps.fetchImpl,
+			});
+		} catch (error) {
+			const normalized = normalizeFacebookGraphError(error);
+			if (normalized.tokenExpired && accountId) {
+				await markFacebookAccountStatus({
+					accountId,
+					status: 'expired',
+					statusError: normalized.message,
+				}).catch(() => null);
+			}
+			throw normalized;
 		}
-		throw normalized;
-	}
+	}, {
+		beginFeatureReservation: deps.beginFeatureReservation,
+		settleFeatureReservation: deps.settleFeatureReservation,
+		ttlMs: deps.creditTtlMs,
+		getWorkspace: deps.getWorkspace || (async (workspaceId) => (
+			pb.collection('workspaces').getOne(workspaceId).catch(() => null)
+		)),
+	});
 
 	const publishedAt = new Date().toISOString();
 	const postId = String(result.postId || '').trim();
@@ -383,10 +393,6 @@ export async function processJob(job, deps = {}) {
 		}),
 		deps: { ...deps, pocketbaseClient: pb },
 	});
-
-	const burnFacebookPublishCredits = deps.burnFacebookPublishCredits
-		|| (await import('./facebook-publish-credits.js')).burnFacebookPublishCredits;
-	await burnFacebookPublishCredits(job, { facebookPostId: postId, deps });
 }
 
 async function getDuePublishJobs(now, deps = {}) {
@@ -456,7 +462,11 @@ export async function processDueJobs(deps = {}) {
 				processedTotal += 1;
 				lastSuccessAt = new Date().toISOString();
 			} catch (error) {
-				const normalized = normalizeFacebookGraphError(error);
+				const creditGate = error?.status === 402
+					|| error?.errorCode === 'INSUFFICIENT_CREDITS'
+					|| error?.errorCode === 'WORKSPACE_KEY_REQUIRED'
+					|| String(error?.errorCode || '').startsWith('CREDIT_');
+				const normalized = creditGate ? error : normalizeFacebookGraphError(error);
 				failedTotal += 1;
 				const storedError = normalized.message || error?.message || 'Facebook publish failed';
 				lastErrorMessage = storedError;

@@ -137,7 +137,7 @@ function baseDeps(overrides = {}) {
 				postUrl: 'https://www.facebook.com/123456789_999',
 				raw: { id: '123456789_999' },
 			}),
-			burnFacebookPublishCredits: async () => null,
+			withFacebookPublishCredits: async (_job, execute) => execute(),
 			...overrides.deps,
 		},
 	};
