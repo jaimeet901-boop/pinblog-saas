@@ -96,7 +96,7 @@ export async function buildWorkspaceOverview(req, { range = '30d', from, to, byp
 			filter: pocketbaseClient.filter('workspace_key = {:key}', { key: workspaceKey }),
 			sort: '-period',
 			requestKey: null,
-		).then((r) => r.items?.[0] || null).catch(() => null),
+		}).then((r) => r.items?.[0] || null).catch(() => null),
 		safeList(pocketbaseClient.collection('websites').getList(1, 100, { filter: scopeFilter, requestKey: null }).then((r) => r.items)),
 		safeList(pocketbaseClient.collection('pinterest_accounts').getList(1, 100, { filter: scopeFilter, requestKey: null }).then((r) => r.items)),
 		safeList(pocketbaseClient.collection('pinterest_boards').getList(1, 200, { filter: scopeFilter, requestKey: null }).then((r) => r.items)),
