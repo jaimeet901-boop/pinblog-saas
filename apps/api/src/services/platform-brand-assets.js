@@ -1,8 +1,3 @@
-import pocketbaseClient from '../utils/pocketbaseClient.js';
-import { getPublicFileUrl } from '../utils/public-file-url.js';
-import logger from '../utils/logger.js';
-import { getPlatformSettings, upsertPlatformSettings } from './platform-settings.js';
-
 export const PLATFORM_BRAND_ASSET_KEYS = Object.freeze([
 	'platformLogo',
 	'sidebarLogo',
@@ -20,6 +15,106 @@ const ASSET_TARGETS = Object.freeze({
 });
 
 const IMAGE_MIME = ['image/png', 'image/jpeg', 'image/webp'];
+const INTEGRATED_AI_IMAGES = '_integratedAiImages';
+
+async function loadLogger() {
+	try {
+		const mod = await import('../utils/logger.js');
+		return mod.default;
+	} catch {
+		return { info() {}, error() {}, warn() {} };
+	}
+}
+
+async function defaultLoadSettings() {
+	const { getPlatformSettings } = await import('./platform-settings.js');
+	return getPlatformSettings();
+}
+
+async function defaultSaveSettings(settings, actor) {
+	const { upsertPlatformSettings } = await import('./platform-settings.js');
+	return upsertPlatformSettings(settings, actor);
+}
+
+async function defaultDeleteRecord(recordId) {
+	const { default: pocketbaseClient } = await import('../utils/pocketbaseClient.js');
+	return pocketbaseClient.collection(INTEGRATED_AI_IMAGES).delete(recordId);
+}
+
+/**
+ * Detect PNG / JPEG / WebP from magic bytes. No extra dependency.
+ * Returns '' when the buffer is not a supported image.
+ */
+export function detectImageMimeFromMagicBytes(buffer) {
+	const bytes = buffer instanceof Uint8Array
+		? buffer
+		: new Uint8Array(buffer || []);
+	if (
+		bytes.length >= 8
+		&& bytes[0] === 0x89
+		&& bytes[1] === 0x50
+		&& bytes[2] === 0x4E
+		&& bytes[3] === 0x47
+		&& bytes[4] === 0x0D
+		&& bytes[5] === 0x0A
+		&& bytes[6] === 0x1A
+		&& bytes[7] === 0x0A
+	) {
+		return 'image/png';
+	}
+	if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+		return 'image/jpeg';
+	}
+	if (
+		bytes.length >= 12
+		&& bytes[0] === 0x52
+		&& bytes[1] === 0x49
+		&& bytes[2] === 0x46
+		&& bytes[3] === 0x46
+		&& bytes[8] === 0x57
+		&& bytes[9] === 0x45
+		&& bytes[10] === 0x42
+		&& bytes[11] === 0x50
+	) {
+		return 'image/webp';
+	}
+	return '';
+}
+
+export function isMissingRecordError(error) {
+	const status = Number(error?.status ?? error?.statusCode ?? error?.response?.status ?? 0);
+	if (status === 404) return true;
+	const nested = Number(error?.data?.code ?? error?.response?.data?.code ?? 0);
+	if (nested === 404) return true;
+	const message = String(error?.message || '').toLowerCase();
+	return message.includes("wasn't found") || message.includes('the requested resource was not found');
+}
+
+/**
+ * Delete a brand file record. Missing records are success (idempotent).
+ */
+export async function deleteIntegratedAiImageIfPresent(recordId, deleter) {
+	const id = String(recordId || '').trim();
+	if (!id) {
+		return { deleted: false, reason: 'no_record_id' };
+	}
+	const deleteRecord = deleter || defaultDeleteRecord;
+	try {
+		await deleteRecord(id);
+		return { deleted: true, reason: 'deleted' };
+	} catch (error) {
+		const logger = await loadLogger();
+		if (isMissingRecordError(error)) {
+			logger.info('Brand asset file record already missing', { recordId: id });
+			return { deleted: false, reason: 'already_missing' };
+		}
+		logger.error('Failed to delete platform brand asset file', {
+			recordId: id,
+			error: error?.message,
+		});
+		throw httpError(500, 'Failed to delete brand asset file', 'STORAGE_ERROR');
+	}
+}
 
 export const PLATFORM_BRAND_ASSET_RULES = Object.freeze({
 	platformLogo: { maxSizeMB: 5, allowedMimeTypes: IMAGE_MIME, label: 'Platform Logo' },
@@ -94,7 +189,7 @@ function buildAssetMeta({
 	};
 }
 
-function applyAssetToSettings(settings, assetKey, meta) {
+export function applyAssetToSettings(settings, assetKey, meta) {
 	const target = ASSET_TARGETS[assetKey];
 	const next = structuredClone(settings || {});
 	next.branding = { ...(next.branding || {}) };
@@ -123,7 +218,10 @@ async function storeFileInPocketBase(file, assetKey) {
 	const blob = new Blob([file.buffer], { type: file.mimetype || 'application/octet-stream' });
 	formData.append('file', blob, fileName);
 
-	const record = await pocketbaseClient.collection('_integratedAiImages').create(formData).catch((error) => {
+	const { default: pocketbaseClient } = await import('../utils/pocketbaseClient.js');
+	const { getPublicFileUrl } = await import('../utils/public-file-url.js');
+	const record = await pocketbaseClient.collection(INTEGRATED_AI_IMAGES).create(formData).catch(async (error) => {
+		const logger = await loadLogger();
 		logger.error('Failed to store platform brand asset', {
 			assetKey,
 			error: error?.message,
@@ -148,6 +246,9 @@ export async function uploadPlatformBrandAsset({
 	width = null,
 	height = null,
 	actor = {},
+	storeFile = storeFileInPocketBase,
+	loadSettings = defaultLoadSettings,
+	saveSettings = defaultSaveSettings,
 }) {
 	const key = assertAssetKey(assetKey);
 	const rules = PLATFORM_BRAND_ASSET_RULES[key];
@@ -157,12 +258,16 @@ export async function uploadPlatformBrandAsset({
 	if (!rules.allowedMimeTypes.includes(file.mimetype)) {
 		throw httpError(422, `Invalid file type for ${rules.label}. Allowed: ${rules.allowedMimeTypes.join(', ')}`);
 	}
+	const detectedMime = detectImageMimeFromMagicBytes(file.buffer);
+	if (!detectedMime || detectedMime !== file.mimetype) {
+		throw httpError(422, `Invalid file type for ${rules.label}. Allowed: ${rules.allowedMimeTypes.join(', ')}`);
+	}
 	const maxBytes = rules.maxSizeMB * 1024 * 1024;
 	if (file.buffer.length > maxBytes) {
 		throw httpError(413, `${rules.label} is too large (max ${rules.maxSizeMB}MB).`);
 	}
 
-	const stored = await storeFileInPocketBase(file, key);
+	const stored = await storeFile(file, key);
 	const meta = buildAssetMeta({
 		url: stored.url,
 		fileName: file.originalname || stored.storedFileName,
@@ -173,9 +278,9 @@ export async function uploadPlatformBrandAsset({
 		mimeType: file.mimetype,
 	});
 
-	const { settings } = await getPlatformSettings();
+	const { settings } = await loadSettings();
 	const nextSettings = applyAssetToSettings(settings, key, meta);
-	const saved = await upsertPlatformSettings(nextSettings, actor);
+	const saved = await saveSettings(nextSettings, actor);
 
 	return {
 		assetKey: key,
@@ -186,17 +291,34 @@ export async function uploadPlatformBrandAsset({
 }
 
 /**
- * Clear a platform brand asset URL/meta from platform_settings.
+ * Delete the PocketBase file (if recordId exists) then clear URL/meta.
+ * Missing file records are treated as success.
  */
-export async function removePlatformBrandAsset({ assetKey, actor = {} }) {
+export async function removePlatformBrandAsset({
+	assetKey,
+	actor = {},
+	deleteFile = deleteIntegratedAiImageIfPresent,
+	loadSettings = defaultLoadSettings,
+	saveSettings = defaultSaveSettings,
+} = {}) {
 	const key = assertAssetKey(assetKey);
-	const { settings } = await getPlatformSettings();
+	const { settings } = await loadSettings();
+	const current = getBrandAssetMeta(settings, key);
+	await deleteFile(current.recordId);
 	const nextSettings = applyAssetToSettings(settings, key, null);
-	const saved = await upsertPlatformSettings(nextSettings, actor);
+	const saved = await saveSettings(nextSettings, actor);
 	return {
 		assetKey: key,
 		asset: emptyAssetMeta(),
 		settings: saved.settings,
 		meta: saved.meta,
 	};
+}
+
+/**
+ * Restore Default: same clean removal. Does not write a fake default URL.
+ * Runtime consumers keep their built-in fallbacks (Sparkles / empty URL).
+ */
+export async function restorePlatformBrandAsset(options = {}) {
+	return removePlatformBrandAsset(options);
 }

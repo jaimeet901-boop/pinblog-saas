@@ -5,6 +5,7 @@ import {
 	PLATFORM_BRAND_ASSET_KEYS,
 	PLATFORM_BRAND_ASSET_RULES,
 	removePlatformBrandAsset,
+	restorePlatformBrandAsset,
 	uploadPlatformBrandAsset,
 } from '../../services/platform-brand-assets.js';
 
@@ -49,6 +50,14 @@ router.get('/', asyncHandler(async (_req, res) => {
 			...PLATFORM_BRAND_ASSET_RULES[key],
 		})),
 	});
+}));
+
+router.post('/:assetKey/restore', asyncHandler(async (req, res) => {
+	const result = await restorePlatformBrandAsset({
+		assetKey: req.params.assetKey,
+		actor: actorFromReq(req),
+	});
+	res.json(result);
 }));
 
 router.post('/:assetKey', (req, res, next) => {

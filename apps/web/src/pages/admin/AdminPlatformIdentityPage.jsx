@@ -345,6 +345,24 @@ export default function AdminPlatformIdentityPage() {
 		}
 	};
 
+	const restoreBrandAsset = async (assetKey) => {
+		setAssetBusyKey(assetKey);
+		try {
+			const response = await apiServerClient.fetch(`/admin/v1/settings/brand-assets/${encodeURIComponent(assetKey)}/restore`, {
+				method: 'POST',
+			});
+			if (!response.ok) throw new Error(await readApiError(response));
+			const payload = await response.json();
+			applyLoaded(payload);
+			toast({ title: 'Default restored', description: `${assetKey} was cleared. Runtime uses the built-in fallback.` });
+		} catch (error) {
+			toast({ variant: 'destructive', title: 'Restore failed', description: error.message });
+			throw error;
+		} finally {
+			setAssetBusyKey('');
+		}
+	};
+
 	const patch = (section, key, value) => {
 		setIdentity((prev) => ({
 			...prev,
@@ -628,9 +646,10 @@ export default function AdminPlatformIdentityPage() {
 									maxSizeMB={asset.maxSizeMB}
 									busy={assetBusyKey === asset.key}
 									disabled={loading || saving || Boolean(assetBusyKey)}
-									restoreDefaultDisabled
+									restoreDefaultDisabled={loading || saving || Boolean(assetBusyKey)}
 									onUpload={(file, dimensions) => uploadBrandAsset(asset.key, file, dimensions)}
 									onRemove={() => removeBrandAsset(asset.key)}
+									onRestore={() => restoreBrandAsset(asset.key)}
 								/>
 							))}
 						</div>

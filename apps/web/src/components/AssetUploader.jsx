@@ -67,6 +67,7 @@ export default function AssetUploader({
 	restoreDefaultDisabled = true,
 	onUpload,
 	onRemove,
+	onRestore,
 	onCopyUrl,
 	className = '',
 }) {
@@ -132,6 +133,16 @@ export default function AssetUploader({
 			await onRemove?.();
 		} catch (err) {
 			setLocalError(err?.message || 'Remove failed.');
+		}
+	};
+
+	const handleRestore = async () => {
+		if (disabled || busy || restoreDefaultDisabled) return;
+		setLocalError('');
+		try {
+			await (onRestore || onRemove)?.();
+		} catch (err) {
+			setLocalError(err?.message || 'Restore default failed.');
 		}
 	};
 
@@ -233,8 +244,9 @@ export default function AssetUploader({
 				<button
 					type="button"
 					className="asset-uploader__btn"
-					disabled={restoreDefaultDisabled}
-					title="Restore Default arrives in a later phase"
+					onClick={handleRestore}
+					disabled={disabled || busy || restoreDefaultDisabled}
+					title="Clear this custom asset and return to the built-in fallback"
 				>
 					<RefreshCw size={14} />
 					Restore Default
