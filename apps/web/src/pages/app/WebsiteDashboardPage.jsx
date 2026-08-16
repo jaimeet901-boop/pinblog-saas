@@ -547,6 +547,7 @@ export default function WebsiteDashboardPage() {
 	const showTemplates = user?.role === 'admin';
 	const historyHref = `/app/pinterest-history?websiteId=${encodeURIComponent(website.id)}`;
 	const wordpressHistoryHref = `/app/wordpress-history?websiteId=${encodeURIComponent(website.id)}`;
+	const facebookHistoryHref = `/app/facebook-history?websiteId=${encodeURIComponent(website.id)}`;
 	const analyticsHref = `/app/analytics?websiteId=${encodeURIComponent(website.id)}`;
 	const pinsHref = `/app/ai-pins?websiteId=${encodeURIComponent(website.id)}`;
 	const facebookStudioHref = buildFacebookStudioHref(website.id);
@@ -766,12 +767,18 @@ export default function WebsiteDashboardPage() {
 											<Button variant="outline" size="sm" onClick={() => navigate(wordpressHistoryHref)}>
 												WordPress publishing history
 											</Button>
+											<Button variant="outline" size="sm" onClick={() => navigate(facebookHistoryHref)}>
+												Facebook publishing history
+											</Button>
 										</div>
 									) : (
 										<div className="mt-3 space-y-3">
 											<EmptyLines text="No linked WordPress site yet. Add credentials and use Test." />
 											<Button variant="outline" size="sm" onClick={() => navigate(wordpressHistoryHref)}>
 												WordPress publishing history
+											</Button>
+											<Button variant="outline" size="sm" onClick={() => navigate(facebookHistoryHref)}>
+												Facebook publishing history
 											</Button>
 										</div>
 									)}
