@@ -116,7 +116,7 @@ export async function watchPublishProgress({
 	return {
 		...summarizePublishResult(jobs),
 		timedOut: true,
-		message: 'Timed out waiting for Pinterest. Check Publishing History for final status.',
+		message: 'Timed out waiting for Pinterest. Check Pinterest Publishing for final status.',
 	};
 }
 

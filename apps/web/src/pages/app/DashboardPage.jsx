@@ -25,7 +25,7 @@ const QUICK_ACTIONS = [
 	{ label: 'Open Templates', to: '/app/ai-pins/templates', icon: LayoutTemplate, adminOnly: true },
 	{ label: 'Brand Kit', to: '/app/ai-pins/brand-kit', icon: Palette, adminOnly: true },
 	{ label: 'Pinterest Hub', to: '/app/pinterest', icon: Pin },
-	{ label: 'Publishing Center', to: '/app/pinterest-history', icon: ListOrdered },
+	{ label: 'Pinterest Publishing', to: '/app/pinterest-history', icon: ListOrdered },
 	{ label: 'Calendar', to: '/app/calendar', icon: CalendarClock },
 	{ label: 'Settings', to: '/app/settings', icon: Settings },
 ];

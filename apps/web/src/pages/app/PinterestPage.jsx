@@ -553,7 +553,7 @@ export default function PinterestPage() {
 				</div>
 				{!setupMode ? (
 					<Link to={websiteIdFromQuery ? `/app/pinterest-history?websiteId=${encodeURIComponent(websiteIdFromQuery)}` : '/app/pinterest-history'}>
-						<Button variant="outline" size="sm"><ListOrdered size={14} /> Publishing History</Button>
+						<Button variant="outline" size="sm"><ListOrdered size={14} /> Pinterest Publishing</Button>
 					</Link>
 				) : null}
 			</div>
@@ -640,7 +640,7 @@ export default function PinterestPage() {
 				<div className="pin-stat">
 					<p className="pin-stat__label">Scheduled Pins</p>
 					<p className="pin-stat__value">{dashboard.scheduledPins}</p>
-					<p className="pin-stat__hint">See Publishing History</p>
+					<p className="pin-stat__hint">See Pinterest Publishing</p>
 				</div>
 				<div className="pin-stat">
 					<p className="pin-stat__label">Queue Jobs</p>
@@ -969,7 +969,7 @@ export default function PinterestPage() {
 								<Button size="sm" variant="outline" disabled={!selectedJob || jobActionId.startsWith('publish')} onClick={() => runJobAction('publish')}>Publish Now</Button>
 								<Button size="sm" variant="outline" disabled={!selectedJob || selectedJob.status !== 'failed' || jobActionId.startsWith('retry')} onClick={() => runJobAction('retry')}>Retry</Button>
 								<Button size="sm" variant="ghost" disabled={!selectedJob || selectedJob.status !== 'scheduled' || jobActionId.startsWith('cancel')} onClick={() => runJobAction('cancel')}>Cancel</Button>
-								<Link to="/app/pinterest-history"><Button size="sm">Open Publishing History</Button></Link>
+								<Link to="/app/pinterest-history"><Button size="sm">Open Pinterest Publishing</Button></Link>
 							</div>
 						</div>
 					) : null}
@@ -1044,7 +1044,7 @@ export default function PinterestPage() {
 									</div>
 								))
 							)}
-							<div className="flex justify-center"><Link to="/app/pinterest-history"><Button size="sm">Open Publishing History</Button></Link></div>
+							<div className="flex justify-center"><Link to="/app/pinterest-history"><Button size="sm">Open Pinterest Publishing</Button></Link></div>
 						</div>
 					) : null}
 				</div>

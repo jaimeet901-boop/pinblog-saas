@@ -442,7 +442,7 @@ export default function CalendarPage() {
 				</div>
 				<div className="flex flex-wrap gap-2">
 					<Link to={pinsHref}><Button variant="outline" size="sm"><Pin size={14} /> AI Pins</Button></Link>
-					<Link to={historyHref}><Button variant="outline" size="sm"><CalendarClock size={14} /> Publishing Center</Button></Link>
+					<Link to={historyHref}><Button variant="outline" size="sm"><CalendarClock size={14} /> Pinterest Publishing</Button></Link>
 				</div>
 			</div>
 

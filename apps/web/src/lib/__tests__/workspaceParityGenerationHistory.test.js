@@ -45,26 +45,45 @@ describe('WS-06 Facebook generation history page', () => {
 });
 
 describe('WS-06 generation vs publishing navigation', () => {
-	it('J. Sidebar exposes Facebook Post History', () => {
+	it('J. Sidebar exposes Facebook Post Generation distinct from Facebook Publishing', () => {
 		const layout = readSrc('components/AppLayout.jsx');
 		assert.match(
 			layout,
-			/to: '\/app\/ai-facebook-pages\/history', label: 'Facebook Post History'/,
+			/to: '\/app\/ai-facebook-pages\/history', label: 'Facebook Post Generation'/,
 		);
-		assert.match(layout, /to: '\/app\/ai-pins\/history', label: 'Pin History'/);
+		assert.match(layout, /to: '\/app\/ai-pins\/history', label: 'Pin Generation'/);
+		assert.match(layout, /section: 'AI Generation'/);
 		assert.match(layout, /'\/app\/ai-facebook-pages\/history'/);
 	});
 
 	it('K. Facebook publishing history remains /app/facebook-history', () => {
 		const layout = readSrc('components/AppLayout.jsx');
 		const products = readSrc('lib/studio/products.js');
-		assert.match(layout, /to: '\/app\/facebook-history', label: 'Facebook History'/);
+		assert.match(layout, /to: '\/app\/pinterest-history', label: 'Pinterest Publishing'/);
+		assert.match(layout, /to: '\/app\/facebook-history', label: 'Facebook Publishing'/);
+		assert.match(layout, /to: '\/app\/wordpress-history', label: 'WordPress Publishing'/);
 		assert.match(layout, /section: 'Publishing'/);
 		assert.match(products, /publishingHistory: '\/app\/facebook-history'/);
+		assert.match(products, /historyNav: 'Facebook Post Generation'/);
+		assert.match(products, /publishingHistoryNav: 'Facebook Publishing'/);
+		assert.match(products, /historyNav: 'Pin Generation'/);
+		assert.match(products, /publishingHistoryNav: 'Pinterest Publishing'/);
 		assert.notEqual(
 			'/app/ai-facebook-pages/history',
 			'/app/facebook-history',
 		);
+	});
+
+	it('keeps page titles aligned with the same publishing vs generation labels', () => {
+		const generationPage = readSrc('pages/app/AIPinHistoryPage.jsx');
+		const publishingPage = readSrc('pages/app/PublishingHistoryPage.jsx');
+		const viewConfig = readSrc('services/publishing-history/viewConfig.js');
+		assert.match(generationPage, /\{L\.historyNav\}/);
+		assert.match(publishingPage, /\{view\.pageTitle\}/);
+		assert.match(viewConfig, /pageTitle: labels\.publishingHistoryNav \|\| 'WordPress Publishing'/);
+		assert.match(viewConfig, /pageTitle: labels\.publishingHistoryNav \|\| \(isFacebook \? 'Facebook Publishing' : 'Pinterest Publishing'\)/);
+		assert.doesNotMatch(generationPage, /AI Generation History/);
+		assert.doesNotMatch(publishingPage, />Publishing Center</);
 	});
 });
 

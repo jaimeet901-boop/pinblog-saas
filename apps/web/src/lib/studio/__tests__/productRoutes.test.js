@@ -37,6 +37,17 @@ describe('facebook F6-5 product routes', () => {
 		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.templates).not.toContain('/app/ai-pins/');
 		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.brandKit).not.toContain('/app/ai-pins/');
 	});
+
+	it('uses channel-specific publishing and generation nav labels', () => {
+		expect(AI_PINS_PRODUCT.labels.historyNav).toBe('Pin Generation');
+		expect(AI_PINS_PRODUCT.labels.publishingHistoryNav).toBe('Pinterest Publishing');
+		expect(AI_FACEBOOK_PAGES_PRODUCT.labels.historyNav).toBe('Facebook Post Generation');
+		expect(AI_FACEBOOK_PAGES_PRODUCT.labels.publishingHistoryNav).toBe('Facebook Publishing');
+		expect(WORDPRESS_PUBLISHING_PRODUCT.labels.publishingHistoryNav).toBe('WordPress Publishing');
+		expect(AI_FACEBOOK_PAGES_PRODUCT.routes.history).not.toBe(
+			AI_FACEBOOK_PAGES_PRODUCT.routes.publishingHistory,
+		);
+	});
 });
 
 describe('facebook F6-5 studio asset capabilities', () => {
@@ -92,7 +103,7 @@ describe('facebook F7-5 publishing history routes', () => {
 			'utf8',
 		);
 
-		expect(layout).toMatch(/to: '\/app\/facebook-history', label: 'Facebook History'/);
+		expect(layout).toMatch(/to: '\/app\/facebook-history', label: 'Facebook Publishing'/);
 		expect(layout).toMatch(/section: 'Publishing'/);
 	});
 });
@@ -127,7 +138,7 @@ describe('wordpress publishing history routes', () => {
 			'utf8',
 		);
 
-		expect(layout).toMatch(/to: '\/app\/wordpress-history', label: 'WordPress History'/);
+		expect(layout).toMatch(/to: '\/app\/wordpress-history', label: 'WordPress Publishing'/);
 		expect(layout).toMatch(/section: 'Publishing'/);
 	});
 

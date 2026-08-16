@@ -277,6 +277,7 @@ describe('getPublishingHistoryViewConfig', () => {
 		expect(view.channel).toBe('pinterest');
 		expect(view.jobBase).toBe('/pinterest/jobs');
 		expect(view.hubRoute).toBe('/app/pinterest');
+		expect(view.pageTitle).toBe('Pinterest Publishing');
 	});
 
 	it('builds facebook view config from AI Facebook Pages product', () => {
@@ -286,6 +287,7 @@ describe('getPublishingHistoryViewConfig', () => {
 		expect(view.hubRoute).toBe('/app/facebook');
 		expect(view.studioRoute).toBe('/app/ai-facebook-pages');
 		expect(view.supportsPublishNow).toBe(true);
+		expect(view.pageTitle).toBe('Facebook Publishing');
 	});
 
 	it('builds wordpress view config from WordPress publishing product', () => {
@@ -295,6 +297,7 @@ describe('getPublishingHistoryViewConfig', () => {
 		expect(view.hubRoute).toBe('/app/websites');
 		expect(view.studioRoute).toBe('/app/writer');
 		expect(view.supportsPublishNow).toBe(false);
+		expect(view.pageTitle).toBe('WordPress Publishing');
 	});
 });
 

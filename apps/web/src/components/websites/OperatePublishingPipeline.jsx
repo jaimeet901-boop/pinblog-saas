@@ -40,7 +40,7 @@ export default function OperatePublishingPipeline({
 				))}
 			</button>
 			<div className="mt-3">
-				<Button size="sm" variant="outline" onClick={onOpenHistory}>Open Publishing History</Button>
+				<Button size="sm" variant="outline" onClick={onOpenHistory}>Open Pinterest Publishing</Button>
 			</div>
 		</Card>
 	);

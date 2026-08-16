@@ -17,7 +17,7 @@ export default function OperateQuickActions({
 		{ id: 'articles', label: 'Open Articles', icon: Newspaper, onClick: onArticles },
 		{ id: 'pins', label: 'Generate AI Pin', icon: Wand2, onClick: onGeneratePin },
 		{ id: 'facebook', label: 'Generate Facebook Post', icon: Facebook, onClick: onGenerateFacebookPost },
-		{ id: 'history', label: 'Publishing History', icon: History, onClick: onPublishingHistory },
+		{ id: 'history', label: 'Pinterest Publishing', icon: History, onClick: onPublishingHistory },
 	];
 
 	return (

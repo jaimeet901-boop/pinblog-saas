@@ -16,7 +16,7 @@ export default function PublishProgressModal({
 		progressNetworkLabel: 'Pinterest response',
 		openOnNetwork: 'Open on Pinterest',
 		externalIdLabel: 'Pin ID',
-		publishingHistoryNav: 'Publishing History',
+		publishingHistoryNav: 'Pinterest Publishing',
 		destination: 'Board',
 	};
 

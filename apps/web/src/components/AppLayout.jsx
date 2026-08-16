@@ -28,11 +28,11 @@ const NAV = [
 	// Templates + Brand Kit stay routed (/app/ai-pins/templates, /app/ai-pins/brand-kit)
 	// but are admin-only via Admin Console — not shown in the workspace sidebar.
 	{ to: '/app/calendar', label: 'Calendar', icon: CalendarDays, needsWebsite: true },
-	{ to: '/app/pinterest-history', label: 'Publishing History', icon: History, needsWebsite: true, section: 'Publishing' },
-	{ to: '/app/facebook-history', label: 'Facebook History', icon: Facebook, needsWebsite: true, section: 'Publishing' },
-	{ to: '/app/wordpress-history', label: 'WordPress History', icon: FileText, needsWebsite: true, section: 'Publishing' },
-	{ to: '/app/ai-pins/history', label: 'Pin History', icon: History, needsWebsite: true },
-	{ to: '/app/ai-facebook-pages/history', label: 'Facebook Post History', icon: History, needsWebsite: true },
+	{ to: '/app/pinterest-history', label: 'Pinterest Publishing', icon: History, needsWebsite: true, section: 'Publishing' },
+	{ to: '/app/facebook-history', label: 'Facebook Publishing', icon: Facebook, needsWebsite: true, section: 'Publishing' },
+	{ to: '/app/wordpress-history', label: 'WordPress Publishing', icon: FileText, needsWebsite: true, section: 'Publishing' },
+	{ to: '/app/ai-pins/history', label: 'Pin Generation', icon: History, needsWebsite: true, section: 'AI Generation' },
+	{ to: '/app/ai-facebook-pages/history', label: 'Facebook Post Generation', icon: History, needsWebsite: true, section: 'AI Generation' },
 	{ to: '/app/analytics', label: 'Analytics', icon: BarChart3, needsWebsite: true },
 	{ to: '/app/subscription', label: 'Subscription', icon: CreditCard },
 	{ to: '/app/settings', label: 'Settings', icon: Settings },

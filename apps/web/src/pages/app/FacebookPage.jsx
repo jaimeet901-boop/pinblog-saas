@@ -420,7 +420,7 @@ export default function FacebookPage() {
 				<div className="flex flex-wrap items-center gap-2">
 					{capabilities.publishingHistory ? (
 						<Link to={websiteId ? `/app/facebook-history?websiteId=${encodeURIComponent(websiteId)}` : '/app/facebook-history'}>
-							<Button variant="outline" size="sm"><ListOrdered size={14} /> Publishing History</Button>
+							<Button variant="outline" size="sm"><ListOrdered size={14} /> Facebook Publishing</Button>
 						</Link>
 					) : null}
 					<Link to={websiteId ? `/app/ai-facebook-pages?websiteId=${encodeURIComponent(websiteId)}` : '/app/ai-facebook-pages'}>

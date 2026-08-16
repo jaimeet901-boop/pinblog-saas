@@ -955,9 +955,9 @@ export default function AnalyticsPage() {
 							))}
 						</div>
 						<div className="mt-3 grid gap-2">
-							<Link to={withWebsiteQuery('/app/pinterest-history', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><Pin size={14} /> Pinterest history</Button></Link>
-							<Link to={withWebsiteQuery('/app/facebook-history', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><Facebook size={14} /> Facebook history</Button></Link>
-							<Link to={withWebsiteQuery('/app/wordpress-history', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><FileText size={14} /> WordPress history</Button></Link>
+							<Link to={withWebsiteQuery('/app/pinterest-history', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><Pin size={14} /> Pinterest Publishing</Button></Link>
+							<Link to={withWebsiteQuery('/app/facebook-history', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><Facebook size={14} /> Facebook Publishing</Button></Link>
+							<Link to={withWebsiteQuery('/app/wordpress-history', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><FileText size={14} /> WordPress Publishing</Button></Link>
 							<Link to={withWebsiteQuery('/app/calendar', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><CalendarClock size={14} /> Content Calendar</Button></Link>
 							<Link to={withWebsiteQuery('/app/pinterest', historyWebsiteId)}><Button size="sm" variant="ghost" className="w-full"><AlertTriangle size={14} /> Pinterest Hub</Button></Link>
 						</div>

@@ -376,8 +376,8 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 			<section className="hist-hero">
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 					<div>
-						<p className="hist-hero__eyebrow">{platformName} Generation History</p>
-						<h1 className="hist-hero__title">AI Generation History</h1>
+						<p className="hist-hero__eyebrow">{platformName} Generation</p>
+						<h1 className="hist-hero__title">{L.historyNav}</h1>
 						<p className="mt-2 max-w-2xl text-sm text-muted-foreground">
 							Every analysis, prompt, image, and edit is tracked here with credits on these rows.
 						</p>

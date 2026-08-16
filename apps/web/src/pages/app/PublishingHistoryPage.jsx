@@ -492,7 +492,7 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 			<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
 					<p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{platformName} Studio</p>
-					<h1 className="font-display text-3xl font-semibold tracking-tight">Publishing Center</h1>
+					<h1 className="font-display text-3xl font-semibold tracking-tight">{view.pageTitle}</h1>
 					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
 						{view.subtitle}
 					</p>

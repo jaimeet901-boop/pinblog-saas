@@ -65,10 +65,13 @@ describe('WS-02 Website Operate Generate Facebook Post', () => {
 describe('WS-05 customer publishing history navigation', () => {
 	const layout = readSrc('components/AppLayout.jsx');
 
-	it('exposes Facebook History and WordPress History in the Publishing section', () => {
-		assert.match(layout, /to: '\/app\/facebook-history', label: 'Facebook History'/);
-		assert.match(layout, /to: '\/app\/wordpress-history', label: 'WordPress History'/);
-		assert.match(layout, /to: '\/app\/pinterest-history', label: 'Publishing History'/);
+	it('exposes channel Publishing and AI Generation labels on existing routes', () => {
+		assert.match(layout, /to: '\/app\/facebook-history', label: 'Facebook Publishing'/);
+		assert.match(layout, /to: '\/app\/wordpress-history', label: 'WordPress Publishing'/);
+		assert.match(layout, /to: '\/app\/pinterest-history', label: 'Pinterest Publishing'/);
+		assert.match(layout, /to: '\/app\/ai-pins\/history', label: 'Pin Generation'/);
+		assert.match(layout, /to: '\/app\/ai-facebook-pages\/history', label: 'Facebook Post Generation'/);
 		assert.match(layout, /section: 'Publishing'/);
+		assert.match(layout, /section: 'AI Generation'/);
 	});
 });

@@ -33,6 +33,7 @@ export function getPublishingHistoryViewConfig(product = AI_PINS_PRODUCT) {
 			openExternalLabel: 'Open WordPress Post',
 			hubButtonLabel: 'Websites',
 			accountMetaLabel: 'WordPress site',
+			pageTitle: labels.publishingHistoryNav || 'WordPress Publishing',
 			subtitle: 'Track published, scheduled, and failed WordPress posts — retry or cancel from this history.',
 			supportsPublishNow: false,
 			PreviewIcon: Globe,
@@ -61,6 +62,7 @@ export function getPublishingHistoryViewConfig(product = AI_PINS_PRODUCT) {
 		openExternalLabel: isFacebook ? 'Open Facebook Post' : 'Open Pinterest Pin',
 		hubButtonLabel: isFacebook ? 'Facebook Hub' : 'Pinterest Hub',
 		accountMetaLabel: isFacebook ? 'Facebook account' : 'Pinterest account',
+		pageTitle: labels.publishingHistoryNav || (isFacebook ? 'Facebook Publishing' : 'Pinterest Publishing'),
 		subtitle: isFacebook
 			? 'Track published, scheduled, and failed posts — retry or cancel without leaving the atelier.'
 			: 'Track published, scheduled, and failed pins — retry or cancel without leaving the atelier.',
