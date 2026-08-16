@@ -2,7 +2,8 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { getPublicFileUrl } from '../utils/public-file-url.js';
 import logger from '../utils/logger.js';
 import { generateImagesWithProvider } from './image-providers/index.js';
-import { consumeCredits, recordGenerationHistory } from './ai-pin-credits.js';
+import { recordGenerationHistory } from './ai-pin-credits.js';
+import { withAiImageCredits } from './ai-pin-image-credits.js';
 import { userSafeImageError } from './ai-user-safe-errors.js';
 import {
 	buildSchemaSafeFilter,
@@ -415,31 +416,31 @@ async function processJob(job) {
 		},
 	});
 
-	const generatedList = await generateImagesWithProvider({
-		provider,
-		apiKeys: { openai: openaiKey, fal: falKey, gemini: geminiKey },
-		prompt,
-		count: 1,
-		preferredModelId,
-		baseUrl: readyProvider.config?.baseUrl || readyProvider.endpoint || undefined,
-		timeoutMs: readyProvider.timeoutMs || undefined,
-		generationTarget,
+	const generatedList = await withAiImageCredits(job, async () => {
+		const images = await generateImagesWithProvider({
+			provider,
+			apiKeys: { openai: openaiKey, fal: falKey, gemini: geminiKey },
+			prompt,
+			count: 1,
+			preferredModelId,
+			baseUrl: readyProvider.config?.baseUrl || readyProvider.endpoint || undefined,
+			timeoutMs: readyProvider.timeoutMs || undefined,
+			generationTarget,
+		});
+		if (!images?.[0]) {
+			throw new Error('Image provider returned no output');
+		}
+		return images;
+	}, {
+		ttlMs: JOB_TIMEOUT_MS,
+		getWorkspace: async (workspaceId) => (
+			pocketbaseClient.collection('workspaces').getOne(workspaceId).catch(() => null)
+		),
 	});
 	const generated = generatedList[0];
 	if (!generated) {
 		throw new Error('Image provider returned no output');
 	}
-
-	await consumeCredits(pocketbaseClient, {
-		userId: job.owner,
-		workspaceKey: job.workspace_key || job.workspaceKey || '',
-		ai: 0,
-		image: 1,
-	}).catch((error) => {
-		if (error?.status === 402) {
-			throw error;
-		}
-	});
 
 	const imageUrl = await uploadGeneratedImage({ owner: job.owner, ...generated });
 
