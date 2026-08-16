@@ -33,6 +33,11 @@ import {
 	listCreditPackItems,
 	resolveCreditPackCheckoutUrl,
 } from '@/lib/creditPackPurchase';
+import {
+	BILLING_HISTORY_PATH,
+	formatBillingHistoryAmount,
+	formatBillingHistoryDate,
+} from '@/lib/billingHistory';
 import { Badge, Button, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -207,6 +212,8 @@ export default function SubscriptionPage() {
 	const [billingUnavailableOpen, setBillingUnavailableOpen] = useState(false);
 	const [credits, setCredits] = useState({ balance: 0, quota: 0, used: 0, remaining: 0 });
 	const [creditPacks, setCreditPacks] = useState({ items: [] });
+	const [billingHistory, setBillingHistory] = useState([]);
+	const [loadingBillingHistory, setLoadingBillingHistory] = useState(true);
 	const [usage, setUsage] = useState({
 		articles: 0,
 		images: 0,
@@ -334,6 +341,16 @@ export default function SubscriptionPage() {
 					setCreditPacks(packsPayload);
 				}
 			}
+			setLoadingBillingHistory(true);
+			const historyResponse = await apiServerClient.fetch(BILLING_HISTORY_PATH, { method: 'GET' });
+			const historyPayload = await historyResponse.json().catch(() => ({}));
+			if (historyResponse.ok) {
+				setBillingHistory(Array.isArray(historyPayload.items) ? historyPayload.items : []);
+			} else if (historyResponse.status !== 403) {
+				throw new Error(historyPayload.message || 'Failed to load billing history');
+			} else {
+				setBillingHistory([]);
+			}
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Error', description: err?.message || 'Failed to load subscription' });
 			setUsage({
@@ -344,8 +361,10 @@ export default function SubscriptionPage() {
 				pinterestAccounts: 0,
 				monthArticles: 0,
 			});
+			setBillingHistory([]);
 		} finally {
 			setLoadingUsage(false);
+			setLoadingBillingHistory(false);
 		}
 	};
 
@@ -454,7 +473,6 @@ export default function SubscriptionPage() {
 		return tips;
 	}, [usagePct, creditsRemaining, currentPlan, currentPlanId, renewalDate, usage.pinterestAccounts]);
 
-	const billingHistory = [];
 	const allPlanCards = useMemo(() => {
 		const seen = new Set(plans.map((plan) => plan.id));
 		const extras = PLACEHOLDER_PLANS.filter((plan) => !seen.has(plan.id));
@@ -897,11 +915,15 @@ export default function SubscriptionPage() {
 								Billing History
 							</div>
 						</div>
-						{billingHistory.length === 0 ? (
+						{loadingBillingHistory ? (
 							<div className="bill-empty">
-								<p className="font-semibold">No invoices yet</p>
+								<p className="font-semibold">Loading billing history…</p>
+							</div>
+						) : billingHistory.length === 0 ? (
+							<div className="bill-empty">
+								<p className="font-semibold">No billing activity yet</p>
 								<p className="mt-1 text-sm text-muted-foreground">
-									Billing history will appear here once Stripe invoices are connected.
+									Purchases, renewals, and cancellations for this workspace will appear here.
 								</p>
 							</div>
 						) : (
@@ -909,16 +931,24 @@ export default function SubscriptionPage() {
 								<table className="bill-table">
 									<thead>
 										<tr>
-											<th>Invoice</th>
 											<th>Date</th>
+											<th>Type</th>
 											<th>Amount</th>
-											<th>Status</th>
-											<th>Payment Method</th>
-											<th>Receipt</th>
-											<th>Download</th>
+											<th>Provider</th>
+											<th>Details</th>
 										</tr>
 									</thead>
-									<tbody />
+									<tbody>
+										{billingHistory.map((row) => (
+											<tr key={row.id}>
+												<td>{formatBillingHistoryDate(row.date)}</td>
+												<td>{row.label || row.type}</td>
+												<td>{formatBillingHistoryAmount(row)}</td>
+												<td>{row.provider || '—'}</td>
+												<td>{row.message || '—'}</td>
+											</tr>
+										))}
+									</tbody>
 								</table>
 							</div>
 						)}

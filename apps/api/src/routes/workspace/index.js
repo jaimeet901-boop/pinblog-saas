@@ -16,6 +16,7 @@ import {
 	purchaseWorkspaceCreditPack,
 	cancelWorkspaceSubscription,
 } from '../../services/workspace-billing.js';
+import { getWorkspaceBillingHistory } from '../../services/workspace-billing-history.js';
 import { getWorkspaceDashboard } from '../../services/workspace-dashboard.js';
 import {
 	listWorkspaceTemplates,
@@ -320,6 +321,10 @@ router.get('/credits/packs', async (req, res) => {
 
 router.post('/credits/packs/purchase', async (req, res) => {
 	res.status(201).json(await purchaseWorkspaceCreditPack(req, req.body || {}));
+});
+
+router.get('/billing/history', async (req, res) => {
+	res.json(await getWorkspaceBillingHistory(req, req.query));
 });
 
 router.get('/history', async (req, res) => {
