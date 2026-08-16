@@ -10,6 +10,7 @@ import {
 } from '@/lib/websites/websiteLifecycle';
 import { usePinterestConnected } from '@/hooks/usePinterestConnected';
 import SetupProgressCard from '@/components/websites/SetupProgressCard';
+import { buildFacebookStudioHref } from '@/lib/websites/facebookDashboardProgress';
 import { Card, PageHeader, Button, Input, Badge, Empty, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
 
@@ -606,6 +607,9 @@ export default function WebsitesPage() {
 										) : null}
 										{lifecycle.hasArticles ? (
 											<Button size="sm" variant="outline" onClick={() => { writeStoredActiveWebsiteId(s.id, { emit: true }); navigate(`/app/ai-pins?websiteId=${s.id}`); }}>AI Pins</Button>
+										) : null}
+										{lifecycle.hasArticles ? (
+											<Button size="sm" variant="outline" onClick={() => { writeStoredActiveWebsiteId(s.id, { emit: true }); navigate(buildFacebookStudioHref(s.id)); }}>Create Facebook Post</Button>
 										) : null}
 										{lifecycle.mode === 'operate' ? (
 											<>

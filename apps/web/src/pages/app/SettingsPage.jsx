@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-	Link2, Loader2, Save, Unlink, User, Building2, Globe, Pin,
+	Link2, Loader2, Save, Unlink, User, Building2, Globe, Pin, Facebook,
 	Bell, Shield, Palette, SlidersHorizontal, Settings2, RotateCcw,
 	ExternalLink, RefreshCw, Download, Upload, AlertTriangle, BookOpen,
 	LifeBuoy, Mail, Crown, Coins, HardDrive, Users, KeyRound,
@@ -15,6 +15,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { mailtoHref } from '@/lib/platformIdentity';
 import GoogleSetPasswordBanner from '@/components/GoogleSetPasswordBanner';
+import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import './SettingsPage.css';
 
 const TABS = [
@@ -25,6 +26,7 @@ const TABS = [
 	{ id: 'websites', label: 'Websites', icon: Globe },
 	{ id: 'wordpress', label: 'WordPress', icon: Globe },
 	{ id: 'pinterest', label: 'Pinterest', icon: Pin },
+	{ id: 'facebook', label: 'Facebook', icon: Facebook },
 	{ id: 'notifications', label: 'Notifications', icon: Bell },
 	{ id: 'security', label: 'Security', icon: Shield },
 	{ id: 'appearance', label: 'Appearance', icon: Palette },
@@ -115,6 +117,7 @@ export default function SettingsPage() {
 		}
 		return websites.find((site) => site.status === 'connected') || websites[0] || null;
 	}, [websites, prefs.defaultWebsiteId]);
+	const facebookHubHref = withWebsiteQuery('/app/facebook', prefs.defaultWebsiteId || primaryWebsite?.id);
 
 	const isDirty = useMemo(() => (
 		name !== baseline.name || JSON.stringify(prefs) !== JSON.stringify(baseline.prefs)
@@ -893,6 +896,27 @@ export default function SettingsPage() {
 							</div>
 						) : null}
 
+						{tab === 'facebook' ? (
+							<div className="set-section">
+								<div className="set-card">
+									<div className="mb-3 flex items-center justify-between gap-2">
+										<div>
+											<h3>Facebook connections</h3>
+											<p className="hint">Connect accounts and pages in Facebook Hub — settings does not duplicate that flow.</p>
+										</div>
+										<Link to={facebookHubHref}><Button size="sm" variant="outline">Open Facebook Hub</Button></Link>
+									</div>
+									<div className="set-empty">
+										<div className="set-empty__art" aria-hidden="true" />
+										<p className="font-semibold">Manage Facebook in Facebook Hub</p>
+										<p className="mt-1 text-sm text-muted-foreground">Open Facebook Hub to connect, reconnect, or disconnect pages. This page does not add a second connection system.</p>
+										<Link to={facebookHubHref} className="mt-4 inline-block"><Button size="sm">Open Facebook Hub</Button></Link>
+									</div>
+									<p className="mt-3 text-xs text-muted-foreground">Reconnect and Disconnect remain in Facebook Hub to preserve existing OAuth flows.</p>
+								</div>
+							</div>
+						) : null}
+
 						{tab === 'notifications' ? (
 							<div className="set-section">
 								<div className="set-card">
@@ -1068,6 +1092,7 @@ export default function SettingsPage() {
 								<Link to="/app/subscription"><Crown size={14} /> Billing & Credits</Link>
 								<Link to="/app/websites"><Globe size={14} /> Websites</Link>
 								<Link to="/app/pinterest"><Pin size={14} /> Pinterest Hub</Link>
+								<Link to={facebookHubHref}><Facebook size={14} /> Facebook Hub</Link>
 								<a href="https://docs.pocketbase.io" target="_blank" rel="noreferrer"><BookOpen size={14} /> Documentation</a>
 								<a href={mailtoHref(supportEmail)}><LifeBuoy size={14} /> Support</a>
 								<a href={mailtoHref(contactEmail)}><Mail size={14} /> Contact</a>
