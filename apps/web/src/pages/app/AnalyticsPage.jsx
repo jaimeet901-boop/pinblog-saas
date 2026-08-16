@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
 	BarChart3, RefreshCw, Download, CalendarClock, CheckCircle2, AlertTriangle,
-	Pin, Globe, Sparkles, ExternalLink, LayoutGrid,
+	Pin, Globe, Sparkles, ExternalLink, LayoutGrid, Facebook, FileText,
 } from 'lucide-react';
 import {
 	ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -30,24 +30,60 @@ function downloadBlob(filename, content, type) {
 	URL.revokeObjectURL(url);
 }
 
+function itemChannel(item) {
+	return String(item?.channel || 'pinterest').toLowerCase();
+}
+
+function itemTitle(item) {
+	return item?.title || item?.pin?.title || item?.post?.title || 'Untitled';
+}
+
+function itemImage(item) {
+	return item?.pin?.imageUrl || item?.post?.imageUrl || item?.imageUrl || '';
+}
+
+function itemDestination(item) {
+	return item?.destinationLabel || item?.boardName || item?.boardId || item?.pageName || '';
+}
+
+function itemExternalUrl(item) {
+	const channel = itemChannel(item);
+	if (channel === 'facebook') return item?.facebookPostUrl || item?.url || item?.destinationUrl || '';
+	if (channel === 'wordpress') return item?.wpPostUrl || item?.url || item?.destinationUrl || '';
+	return item?.pinterestPinUrl || item?.url || item?.destinationUrl || '';
+}
+
+function itemExternalLabel(item) {
+	const channel = itemChannel(item);
+	if (channel === 'facebook' || channel === 'wordpress') return 'Post';
+	return 'Pin';
+}
+
+function itemClicks(item) {
+	const value = item?.performance?.outboundClicks ?? item?.performance?.clicks;
+	return typeof value === 'number' ? value : null;
+}
+
 function toCsv(rows) {
-	const headers = ['id', 'title', 'status', 'board', 'websiteId', 'account', 'publishedAt', 'impressions', 'saves', 'clicks', 'closeups', 'url'];
+	const headers = ['id', 'channel', 'title', 'status', 'destination', 'websiteId', 'account', 'publishedAt', 'impressions', 'saves', 'clicks', 'closeups', 'url'];
 	const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 	const lines = [headers.join(',')];
 	for (const item of rows) {
+		const clicks = item.performance?.outboundClicks ?? item.performance?.clicks;
 		lines.push([
 			item.id,
-			item.pin?.title || '',
+			itemChannel(item),
+			itemTitle(item),
 			item.status,
-			item.boardName || item.boardId || '',
+			itemDestination(item),
 			item.websiteId || '',
 			item.accountLabel || item.accountUsername || '',
 			item.publishedAt || '',
 			item.performance?.impressions ?? '',
 			item.performance?.saves ?? '',
-			item.performance?.outboundClicks ?? '',
+			clicks ?? '',
 			item.performance?.closeups ?? '',
-			item.pinterestPinUrl || '',
+			itemExternalUrl(item),
 		].map(escape).join(','));
 	}
 	return `${lines.join('\n')}\n`;
@@ -95,6 +131,8 @@ export default function AnalyticsPage() {
 		creditsUsed: 0,
 		creditsRemaining: 0,
 		wordpressPosts: 0,
+		facebookPosts: 0,
+		pinterestPins: 0,
 		queueJobs: 0,
 		avgGenerationTime: '—',
 		avgPublishTime: '—',
@@ -105,6 +143,7 @@ export default function AnalyticsPage() {
 	const [websiteFilter, setWebsiteFilter] = useState(preferredWebsiteId);
 	const [accountFilter, setAccountFilter] = useState('');
 	const [boardFilter, setBoardFilter] = useState('');
+	const [channelFilter, setChannelFilter] = useState('');
 	const [statusFilter, setStatusFilter] = useState('');
 	const [dateRange, setDateRange] = useState('30d');
 	const [exportFormat, setExportFormat] = useState('csv');
@@ -133,6 +172,8 @@ export default function AnalyticsPage() {
 				creditsUsed: 0,
 				creditsRemaining: 0,
 				wordpressPosts: 0,
+				facebookPosts: 0,
+				pinterestPins: 0,
 				queueJobs: 0,
 				avgGenerationTime: '—',
 				avgPublishTime: '—',
@@ -179,12 +220,12 @@ export default function AnalyticsPage() {
 		return [...map.entries()];
 	}, [items]);
 
-	const boardOptions = useMemo(() => {
+	const destinationOptions = useMemo(() => {
 		const map = new Map();
 		for (const item of items) {
-			const key = item.boardId || item.boardName;
+			const key = item.boardId || item.boardName || item.destinationLabel;
 			if (!key) continue;
-			map.set(key, item.boardName || item.boardId);
+			map.set(key, itemDestination(item) || key);
 		}
 		return [...map.entries()];
 	}, [items]);
@@ -192,13 +233,14 @@ export default function AnalyticsPage() {
 	const filteredItems = useMemo(() => {
 		const rangeStart = startOfRange(dateRange);
 		return items.filter((item) => {
+			if (channelFilter && itemChannel(item) !== channelFilter) return false;
 			if (websiteFilter && item.websiteId !== websiteFilter) return false;
 			if (accountFilter) {
 				const key = item.accountId || item.accountLabel || item.accountUsername;
 				if (key !== accountFilter) return false;
 			}
 			if (boardFilter) {
-				const key = item.boardId || item.boardName;
+				const key = item.boardId || item.boardName || item.destinationLabel;
 				if (key !== boardFilter) return false;
 			}
 			if (statusFilter && item.status !== statusFilter) return false;
@@ -208,7 +250,7 @@ export default function AnalyticsPage() {
 			}
 			return true;
 		});
-	}, [items, websiteFilter, accountFilter, boardFilter, statusFilter, dateRange]);
+	}, [items, channelFilter, websiteFilter, accountFilter, boardFilter, statusFilter, dateRange]);
 
 	const successRate = useMemo(() => {
 		if (typeof summary.successRate === 'number') return Math.round(summary.successRate);
@@ -240,7 +282,7 @@ export default function AnalyticsPage() {
 	}, [filteredItems]);
 
 	const estimatedClicks = useMemo(() => {
-		const values = filteredItems.map((item) => item.performance?.outboundClicks).filter((value) => typeof value === 'number');
+		const values = filteredItems.map((item) => itemClicks(item)).filter((value) => typeof value === 'number');
 		if (!values.length) return null;
 		return values.reduce((sum, value) => sum + value, 0);
 	}, [filteredItems]);
@@ -271,7 +313,7 @@ export default function AnalyticsPage() {
 		{ name: 'Scheduled', value: summary.scheduled || 0 },
 	]), [summary]);
 
-	const pinsByWebsite = useMemo(() => {
+	const itemsByWebsite = useMemo(() => {
 		const map = new Map();
 		for (const item of filteredItems) {
 			const key = item.websiteId || 'Unassigned';
@@ -281,10 +323,10 @@ export default function AnalyticsPage() {
 		return rows.length ? rows : null;
 	}, [filteredItems]);
 
-	const pinsByBoard = useMemo(() => {
+	const itemsByDestination = useMemo(() => {
 		const map = new Map();
 		for (const item of filteredItems) {
-			const key = item.boardName || item.boardId || 'Unknown board';
+			const key = itemDestination(item) || 'Unknown destination';
 			map.set(key, (map.get(key) || 0) + 1);
 		}
 		const rows = [...map.entries()]
@@ -331,12 +373,12 @@ export default function AnalyticsPage() {
 		});
 	}, [items]);
 
-	const boardPerformance = useMemo(() => {
+	const destinationPerformance = useMemo(() => {
 		const map = new Map();
 		for (const item of items) {
-			const key = item.boardId || item.boardName || 'Unknown';
+			const key = item.boardId || item.boardName || item.destinationLabel || 'Unknown';
 			const row = map.get(key) || {
-				board: item.boardName || item.boardId || 'Unknown',
+				destination: itemDestination(item) || 'Unknown',
 				published: 0,
 				failed: 0,
 				impressions: 0,
@@ -370,27 +412,27 @@ export default function AnalyticsPage() {
 	const insights = useMemo(() => {
 		const tips = [];
 		if ((summary.published || 0) === 0) {
-			tips.push({ title: 'Start publishing', body: 'No published pins yet. Publish from AI Pins to unlock live analytics.' });
+			tips.push({ title: 'Start publishing', body: 'No published jobs yet. Publish to Pinterest, Facebook, or WordPress to unlock live analytics.' });
 		} else {
-			tips.push({ title: 'Publishing volume', body: `${summary.published} published pins in your analytics feed.` });
+			tips.push({ title: 'Publishing volume', body: `${summary.published} published jobs in your analytics feed.` });
 		}
 		if ((summary.failed || 0) > 0) {
-			tips.push({ title: 'Retry failed jobs', body: `${summary.failed} failed pins need attention in Publishing Center.` });
+			tips.push({ title: 'Retry failed jobs', body: `${summary.failed} failed jobs need attention in publishing history.` });
 		}
 		if ((summary.scheduled || 0) > 0) {
-			tips.push({ title: 'Upcoming schedule', body: `${summary.scheduled} pins are scheduled — review them on the Content Calendar.` });
+			tips.push({ title: 'Upcoming schedule', body: `${summary.scheduled} jobs are scheduled — review them on the Content Calendar.` });
 		}
 		if (successRate != null) {
 			tips.push({ title: 'Success rate', body: `Current publish success rate is ${successRate}%.` });
 		}
-		if (pinsByBoard?.[0]) {
-			tips.push({ title: 'Top board', body: `${pinsByBoard[0].name} leads with ${pinsByBoard[0].value} pins in the current view.` });
+		if (itemsByDestination?.[0]) {
+			tips.push({ title: 'Top destination', body: `${itemsByDestination[0].name} leads with ${itemsByDestination[0].value} jobs in the current view.` });
 		}
 		if (estimatedImpressions == null) {
-			tips.push({ title: 'Impressions pending', body: 'Estimated impressions appear once Pinterest performance fields sync.' });
+			tips.push({ title: 'Impressions pending', body: 'Estimated impressions appear once Pinterest or Facebook performance fields sync.' });
 		}
 		return tips.slice(0, 6);
-	}, [summary, successRate, pinsByBoard, estimatedImpressions]);
+	}, [summary, successRate, itemsByDestination, estimatedImpressions]);
 
 	const exportCurrent = async () => {
 		if (!filteredItems.length && !summary.published) {
@@ -428,23 +470,26 @@ export default function AnalyticsPage() {
 		failed: 0,
 	}));
 	const trendIsPlaceholder = !publishingTrend && !(charts.dailyActivity || []).length;
-	const websiteChartData = pinsByWebsite?.length ? pinsByWebsite : [];
-	const boardChartData = pinsByBoard?.length ? pinsByBoard : [];
+	const websiteChartData = itemsByWebsite?.length ? itemsByWebsite : [];
+	const boardChartData = itemsByDestination?.length ? itemsByDestination : [];
 	const monthlyData = monthlyTrend?.length
 		? monthlyTrend
 		: (charts.monthlyActivity || []).map((row) => ({ label: row.label, published: row.value }));
 
+	const historyWebsiteId = preferredWebsiteId || websiteFilter;
 	const statCards = [
 		{ label: 'Articles Generated', value: summary.articlesGenerated ?? 0, hint: null },
 		{ label: 'Images Generated', value: summary.imagesGenerated ?? 0, hint: null },
 		{ label: 'AI Requests', value: summary.aiRequests ?? 0, hint: null },
 		{ label: 'Credits Used', value: summary.creditsUsed ?? 0, hint: null },
 		{ label: 'Credits Remaining', value: summary.creditsRemaining ?? 0, hint: null },
+		{ label: 'Pinterest Pins', value: summary.pinterestPins ?? 0, hint: null },
+		{ label: 'Facebook Posts', value: summary.facebookPosts ?? 0, hint: null },
 		{ label: 'WordPress Posts', value: summary.wordpressPosts ?? 0, hint: null },
 		{ label: 'Draft Pins', value: summary.draftPins ?? 0, hint: null },
-		{ label: 'Published Pins', value: summary.published, hint: null },
-		{ label: 'Scheduled Pins', value: summary.scheduled, hint: null },
-		{ label: 'Failed Pins', value: summary.failed, hint: null },
+		{ label: 'Published', value: summary.published, hint: null },
+		{ label: 'Scheduled', value: summary.scheduled, hint: null },
+		{ label: 'Failed', value: summary.failed, hint: null },
 		{ label: 'Queue Jobs', value: summary.queueJobs ?? 0, hint: null },
 		{ label: 'Avg. Generation Time', value: summary.avgGenerationTime || '—', hint: null },
 		{ label: 'Avg. Publish Time', value: summary.avgPublishTime || avgPublishTime, hint: null },
@@ -460,7 +505,7 @@ export default function AnalyticsPage() {
 				<p className="an-hero__eyebrow">{platformName} Analytics Center</p>
 				<h1 className="an-hero__title">Publishing performance</h1>
 				<p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-					Track outcomes across pins, boards, and websites — with charts, tables, and exportable reports.
+					Track outcomes across Pinterest, Facebook, and WordPress — with charts, tables, and exportable reports.
 				</p>
 				<div className="an-hero__meta">
 					<span className="an-pill"><Sparkles size={12} /> {user?.name || platformName} workspace</span>
@@ -494,15 +539,21 @@ export default function AnalyticsPage() {
 						<option value="">All accounts</option>
 						{accountOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
 					</Select>
-					<Select label="Board" value={boardFilter} onChange={(e) => setBoardFilter(e.target.value)}>
-						<option value="">All boards</option>
-						{boardOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+					<Select label="Channel" value={channelFilter} onChange={(e) => setChannelFilter(e.target.value)}>
+						<option value="">All channels</option>
+						<option value="pinterest">Pinterest</option>
+						<option value="facebook">Facebook</option>
+						<option value="wordpress">WordPress</option>
 					</Select>
 					<Select label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
 						<option value="">All statuses</option>
 						<option value="published">Published</option>
 						<option value="failed">Failed</option>
 						<option value="scheduled">Scheduled</option>
+					</Select>
+					<Select label="Destination" value={boardFilter} onChange={(e) => setBoardFilter(e.target.value)}>
+						<option value="">All destinations</option>
+						{destinationOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
 					</Select>
 					<Select label="Date range" value={dateRange} onChange={(e) => setDateRange(e.target.value)}>
 						<option value="7d">Last 7 days</option>
@@ -584,8 +635,8 @@ export default function AnalyticsPage() {
 								</div>
 
 								<div className="an-chart">
-									<h4>Pins by Website</h4>
-									{!pinsByWebsite ? <p className="an-chart__hint">Placeholder sample distribution.</p> : null}
+									<h4>Jobs by Website</h4>
+									{!itemsByWebsite ? <p className="an-chart__hint">No website breakdown yet.</p> : null}
 									<div style={{ width: '100%', height: 220 }}>
 										<ResponsiveContainer>
 											<BarChart data={websiteChartData}>
@@ -600,8 +651,8 @@ export default function AnalyticsPage() {
 								</div>
 
 								<div className="an-chart">
-									<h4>Pins by Board</h4>
-									{!pinsByBoard ? <p className="an-chart__hint">Placeholder sample distribution.</p> : null}
+									<h4>Jobs by Destination</h4>
+									{!itemsByDestination ? <p className="an-chart__hint">No destination breakdown yet.</p> : null}
 									<div style={{ width: '100%', height: 220 }}>
 										<ResponsiveContainer>
 											<BarChart data={boardChartData} layout="vertical" margin={{ left: 24 }}>
@@ -617,7 +668,7 @@ export default function AnalyticsPage() {
 
 								<div className="an-chart">
 									<h4>Publishing Activity</h4>
-									{!websiteChartData.length && !boardChartData.length ? <p className="an-chart__hint">No website/board breakdown yet.</p> : null}
+									{!websiteChartData.length && !boardChartData.length ? <p className="an-chart__hint">No website or destination breakdown yet.</p> : null}
 									<div style={{ width: '100%', height: 220 }}>
 										<ResponsiveContainer>
 											<BarChart data={trendData}>
@@ -635,7 +686,7 @@ export default function AnalyticsPage() {
 
 								<div className="an-chart">
 									<h4>Monthly Publishing Trend</h4>
-									{!monthlyTrend ? <p className="an-chart__hint">Placeholder monthly sample.</p> : null}
+									{!monthlyTrend ? <p className="an-chart__hint">No monthly activity yet.</p> : null}
 									<div style={{ width: '100%', height: 220 }}>
 										<ResponsiveContainer>
 											<AreaChart data={monthlyData}>
@@ -655,8 +706,8 @@ export default function AnalyticsPage() {
 					<section className="an-panel">
 						<div className="an-panel__head">
 							<div className="an-panel__title">
-								<span className="an-panel__icon"><Pin size={14} /></span>
-								Recent Published Pins
+								<span className="an-panel__icon"><BarChart3 size={14} /></span>
+								Recent publishing jobs
 							</div>
 							<span className="text-[11px] text-muted-foreground">{filteredItems.length} shown</span>
 						</div>
@@ -664,15 +715,15 @@ export default function AnalyticsPage() {
 							<div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="an-skeleton" style={{ height: '3rem' }} />)}</div>
 						) : filteredItems.length === 0 ? (
 							<div className="an-empty">
-								<p className="font-semibold">No published pins yet</p>
+								<p className="font-semibold">No publishing activity yet</p>
 								<p className="mt-1 text-sm text-muted-foreground">
-									Analytics appear after you publish AI Pins for a website. Create pins, publish to Pinterest, then return here.
+									Analytics appear after you publish to Pinterest, Facebook, or WordPress.
 								</p>
 								<Link
 									to={preferredWebsiteId ? `/app/ai-pins?websiteId=${encodeURIComponent(preferredWebsiteId)}` : '/app/ai-pins'}
 									className="mt-4 inline-block"
 								>
-									<Button size="sm">Create AI Pins</Button>
+									<Button size="sm">Open AI Pins</Button>
 								</Link>
 							</div>
 						) : (
@@ -682,8 +733,9 @@ export default function AnalyticsPage() {
 										<tr>
 											<th>Preview</th>
 											<th>Title</th>
+											<th>Channel</th>
 											<th>Website</th>
-											<th>Board</th>
+											<th>Destination</th>
 											<th>Publish Date</th>
 											<th>Status</th>
 											<th>Actions</th>
@@ -691,39 +743,41 @@ export default function AnalyticsPage() {
 									</thead>
 									<tbody>
 										{filteredItems.map((item) => {
+											const channel = itemChannel(item);
 											const articleUrl = item.pin?.destinationUrl || item.destinationUrl || '';
+											const externalUrl = itemExternalUrl(item);
+											const ChannelIcon = channel === 'facebook' ? Facebook : channel === 'wordpress' ? FileText : Pin;
 											return (
-												<tr key={item.id}>
+												<tr key={`${channel}-${item.id}`}>
 													<td>
-														{item.pin?.imageUrl ? (
-															<img className="an-thumb" src={item.pin.imageUrl} alt="" loading="lazy" decoding="async" />
+														{itemImage(item) ? (
+															<img className="an-thumb" src={itemImage(item)} alt="" loading="lazy" decoding="async" />
 														) : (
-															<span className="an-thumb-fallback"><Pin size={12} /></span>
+															<span className="an-thumb-fallback"><ChannelIcon size={12} /></span>
 														)}
 													</td>
-													<td><p className="max-w-[12rem] truncate font-medium">{item.pin?.title || 'Untitled pin'}</p></td>
+													<td><p className="max-w-[12rem] truncate font-medium">{itemTitle(item)}</p></td>
+													<td className="text-muted-foreground capitalize">{channel}</td>
 													<td className="text-muted-foreground">{item.websiteId || '—'}</td>
-													<td className="text-muted-foreground">{item.boardName || item.boardId || '—'}</td>
+													<td className="text-muted-foreground">{itemDestination(item) || '—'}</td>
 													<td className="whitespace-nowrap text-muted-foreground">
 														{item.publishedAt ? new Date(item.publishedAt).toLocaleString() : '—'}
 													</td>
 													<td><Badge tone={item.status === 'published' ? 'green' : item.status === 'failed' ? 'red' : 'amber'}>{item.status}</Badge></td>
 													<td>
 														<div className="flex flex-wrap gap-1">
-															{item.pinterestPinUrl ? (
-																<a href={item.pinterestPinUrl} target="_blank" rel="noreferrer">
-																	<Button size="sm" variant="ghost"><ExternalLink size={13} /> Pin</Button>
+															{externalUrl ? (
+																<a href={externalUrl} target="_blank" rel="noreferrer">
+																	<Button size="sm" variant="ghost"><ExternalLink size={13} /> {itemExternalLabel(item)}</Button>
 																</a>
 															) : (
-																<Button size="sm" variant="ghost" disabled><ExternalLink size={13} /> Pin</Button>
+																<Button size="sm" variant="ghost" disabled><ExternalLink size={13} /> {itemExternalLabel(item)}</Button>
 															)}
-															{articleUrl ? (
+															{articleUrl && articleUrl !== externalUrl ? (
 																<a href={articleUrl} target="_blank" rel="noreferrer">
 																	<Button size="sm" variant="ghost"><ExternalLink size={13} /> Article</Button>
 																</a>
-															) : (
-																<Button size="sm" variant="ghost" disabled><ExternalLink size={13} /> Article</Button>
-															)}
+															) : null}
 														</div>
 													</td>
 												</tr>
@@ -778,17 +832,17 @@ export default function AnalyticsPage() {
 						<div className="an-panel__head">
 							<div className="an-panel__title">
 								<span className="an-panel__icon"><LayoutGrid size={14} /></span>
-								Board Performance
+								Destination Performance
 							</div>
 						</div>
-						{boardPerformance.length === 0 ? (
-							<div className="an-empty"><p className="font-semibold">No board performance yet</p><p className="mt-1 text-sm text-muted-foreground">Boards appear after pins are published.</p></div>
+						{destinationPerformance.length === 0 ? (
+							<div className="an-empty"><p className="font-semibold">No destination performance yet</p><p className="mt-1 text-sm text-muted-foreground">Boards, pages, and sites appear after jobs are published.</p></div>
 						) : (
 							<div className="an-table-wrap">
 								<table className="an-table" style={{ minWidth: '36rem' }}>
 									<thead>
 										<tr>
-											<th>Board</th>
+											<th>Destination</th>
 											<th>Published</th>
 											<th>Failed</th>
 											<th>Success Rate</th>
@@ -797,9 +851,9 @@ export default function AnalyticsPage() {
 										</tr>
 									</thead>
 									<tbody>
-										{boardPerformance.map((row) => (
-											<tr key={row.board}>
-												<td className="font-medium">{row.board}</td>
+										{destinationPerformance.map((row) => (
+											<tr key={row.destination}>
+												<td className="font-medium">{row.destination}</td>
 												<td>{row.published}</td>
 												<td>{row.failed}</td>
 												<td>{row.successRate}</td>
@@ -821,27 +875,29 @@ export default function AnalyticsPage() {
 							</div>
 						</div>
 						{filteredItems.length === 0 ? (
-							<div className="an-empty"><p className="font-semibold">No performance fields yet</p><p className="mt-1 text-sm text-muted-foreground">Impressions, saves, clicks, and closeups show when synced.</p></div>
+							<div className="an-empty"><p className="font-semibold">No performance fields yet</p><p className="mt-1 text-sm text-muted-foreground">Impressions and clicks show when Pinterest or Facebook performance fields sync. WordPress rows stay blank.</p></div>
 						) : (
 							<div className="an-table-wrap">
 								<table className="an-table" style={{ minWidth: '40rem' }}>
 									<thead>
 										<tr>
-											<th>Pin</th>
+											<th>Title</th>
+											<th>Channel</th>
 											<th>Impressions</th>
+											<th>Clicks</th>
 											<th>Saves</th>
-											<th>Outbound Clicks</th>
-											<th>Closeups</th>
+											<th>Reactions</th>
 										</tr>
 									</thead>
 									<tbody>
 										{filteredItems.map((item) => (
-											<tr key={`perf-${item.id}`}>
-												<td className="max-w-[14rem] truncate font-medium">{item.pin?.title || 'Untitled pin'}</td>
+											<tr key={`perf-${itemChannel(item)}-${item.id}`}>
+												<td className="max-w-[14rem] truncate font-medium">{itemTitle(item)}</td>
+												<td className="text-muted-foreground capitalize">{itemChannel(item)}</td>
 												<td className="text-muted-foreground">{item.performance?.impressions ?? '—'}</td>
+												<td className="text-muted-foreground">{itemClicks(item) ?? '—'}</td>
 												<td className="text-muted-foreground">{item.performance?.saves ?? '—'}</td>
-												<td className="text-muted-foreground">{item.performance?.outboundClicks ?? '—'}</td>
-												<td className="text-muted-foreground">{item.performance?.closeups ?? '—'}</td>
+												<td className="text-muted-foreground">{item.performance?.reactions ?? item.performance?.closeups ?? '—'}</td>
 											</tr>
 										))}
 									</tbody>
@@ -868,9 +924,11 @@ export default function AnalyticsPage() {
 							))}
 						</div>
 						<div className="mt-3 grid gap-2">
-							<Link to={withWebsiteQuery('/app/pinterest-history', preferredWebsiteId || websiteFilter)}><Button size="sm" variant="outline" className="w-full"><AlertTriangle size={14} /> Publishing Center</Button></Link>
-							<Link to={withWebsiteQuery('/app/calendar', preferredWebsiteId || websiteFilter)}><Button size="sm" variant="outline" className="w-full"><CalendarClock size={14} /> Content Calendar</Button></Link>
-							<Link to={withWebsiteQuery('/app/pinterest', preferredWebsiteId || websiteFilter)}><Button size="sm" variant="ghost" className="w-full"><Pin size={14} /> Pinterest Hub</Button></Link>
+							<Link to={withWebsiteQuery('/app/pinterest-history', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><Pin size={14} /> Pinterest history</Button></Link>
+							<Link to={withWebsiteQuery('/app/facebook-history', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><Facebook size={14} /> Facebook history</Button></Link>
+							<Link to={withWebsiteQuery('/app/wordpress-history', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><FileText size={14} /> WordPress history</Button></Link>
+							<Link to={withWebsiteQuery('/app/calendar', historyWebsiteId)}><Button size="sm" variant="outline" className="w-full"><CalendarClock size={14} /> Content Calendar</Button></Link>
+							<Link to={withWebsiteQuery('/app/pinterest', historyWebsiteId)}><Button size="sm" variant="ghost" className="w-full"><AlertTriangle size={14} /> Pinterest Hub</Button></Link>
 						</div>
 					</section>
 
