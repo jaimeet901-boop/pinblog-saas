@@ -5,6 +5,8 @@ import { getSubscriptionPlan } from './workspace-context.js';
 import { getWorkspaceCredits, getWorkspaceUsage } from './workspace-billing.js';
 import { listWorkspaceResources } from './workspace-ownership.js';
 import { computeWorkspaceHealthDetailed } from './workspace-health.js';
+import { FACEBOOK_JOB_COLLECTION } from './facebook/channel-pack.js';
+import { summarizeDashboardPublishJobs } from './workspace-dashboard-publish.js';
 
 function statusTone(status) {
 	if (status === 'published' || status === 'connected' || status === 'completed') return 'green';
@@ -126,6 +128,14 @@ export async function getWorkspaceDashboard(req) {
 		wordpressJobs = [];
 	}
 
+	let facebookJobs = [];
+	try {
+		const result = await listWorkspaceResources(FACEBOOK_JOB_COLLECTION, req, { perPage: 100, sort: '-updated' });
+		facebookJobs = result.items || [];
+	} catch {
+		facebookJobs = [];
+	}
+
 	let queueDepth = 0;
 	try {
 		const depth = await listWorkspaceResources('queue_jobs', req, {
@@ -137,19 +147,16 @@ export async function getWorkspaceDashboard(req) {
 		queueDepth = 0;
 	}
 
-	const publishedPins = publishJobs.filter((job) => job.status === 'published').length;
-	const publishedWp = wordpressJobs.filter((job) => job.status === 'published' && job.wp_status !== 'future').length;
-	const scheduledWp = wordpressJobs.filter((job) => (
-		job.status === 'scheduled'
-		|| (job.status === 'published' && (job.wp_status === 'future' || Boolean(job.scheduled_at)))
-	)).length;
-	const failedWp = wordpressJobs.filter((job) => job.status === 'failed').length;
-	const failedPinJobs = publishJobs.filter((job) => job.status === 'failed').length;
-	const failedJobs = failedPinJobs + failedWp;
-	const scheduledPinJobs = publishJobs.filter((job) => job.status === 'scheduled' || job.status === 'publishing').length;
-	const pinterestWaiting = publishJobs.filter((job) => job.status === 'waiting_provider').length;
-	const scheduledJobs = scheduledPinJobs + scheduledWp + pinterestWaiting;
-	const publishedPosts = publishedPins + publishedWp;
+	const {
+		publishedPins,
+		publishedWp,
+		publishedFacebook,
+		facebookPublications,
+		failedJobs,
+		scheduledJobs,
+		publishedPosts,
+		pinterestWaiting,
+	} = summarizeDashboardPublishJobs({ publishJobs, wordpressJobs, facebookJobs });
 	const connectedPinterest = pinterestAccounts.filter((account) => account.status === 'connected' || account.connected).length
 		|| pinterestAccounts.length;
 
@@ -283,6 +290,7 @@ export async function getWorkspaceDashboard(req) {
 			generatedPins: pins.totalItems || 0,
 			wordpressPublications: publishedWp,
 			pinterestPublications: publishedPins,
+			facebookPublications,
 			monthlyTrends,
 		},
 		members: {
@@ -298,6 +306,7 @@ export async function getWorkspaceDashboard(req) {
 			images: recentImages.length,
 			publishedPins,
 			publishedWordpress: publishedWp,
+			publishedFacebook,
 			publishedPosts,
 			scheduledJobs,
 			failedJobs,
