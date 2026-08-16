@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { randomUUID } from 'node:crypto';
 import { ContentBlockType, stream, uploadImagesToPocketBase } from '../api/integrated-ai.js';
 import { SystemPrompt } from '../constants/prompts.js';
 import { uploadFiles } from '../middleware/file-upload.js';
@@ -9,9 +8,10 @@ import { attachWorkspace, requireWorkspaceMutation, requireWorkspaceRead } from 
 import { assertTextProviderConfigured } from '../services/ai-providers.js';
 import { userSafeTextError } from '../services/ai-user-safe-errors.js';
 import {
-	beginFeatureReservation,
-	settleFeatureReservation,
-} from '../services/credits-engine.js';
+	PIN_COPY_CREDIT_FEATURE,
+	reserveIntegratedAiStreamCredits,
+	resolveIntegratedAiStreamCreditIntent,
+} from '../services/integrated-ai-stream-credits.js';
 import { assertFeatureAccess } from '../services/plan-access-guard.js';
 import {
 	buildLengthEnforcementPrompt,
@@ -22,9 +22,6 @@ import logger from '../utils/logger.js';
 const router = Router();
 
 const WRITER_FEATURE_KEY = 'aiWriter';
-/** Credit catalog keys — cost resolved only inside the Credit Engine. */
-const WRITER_CREDIT_FEATURE = 'ai_writer';
-const PIN_COPY_CREDIT_FEATURE = 'ai_pin_copy';
 
 function httpError(status, message) {
 	const error = new Error(message);
@@ -306,60 +303,35 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 		? `${SystemPrompt}\n\n${lengthEnforcement}`
 		: SystemPrompt;
 
-	/** @type {'ai_writer'|'ai_pin_copy'|null} */
-	let creditFeature = null;
-	if (singleShot && !writerContinuation) {
-		creditFeature = WRITER_CREDIT_FEATURE;
-	} else if (creditFeatureRaw === PIN_COPY_CREDIT_FEATURE) {
-		creditFeature = PIN_COPY_CREDIT_FEATURE;
-	}
+	const intent = resolveIntegratedAiStreamCreditIntent({
+		singleShot,
+		writerContinuation,
+		creditFeature: creditFeatureRaw,
+	});
+	const creditFeature = intent.creditFeature;
 
-	if (writerContinuation) {
-		await assertFeatureAccess(req, WRITER_FEATURE_KEY, {
-			message: 'AI Writer requires a plan upgrade. Open Subscription to unlock article generation.',
-		});
-	}
+	await assertFeatureAccess(req, WRITER_FEATURE_KEY, {
+		message: creditFeature === PIN_COPY_CREDIT_FEATURE
+			? 'AI Pin Copy requires a plan upgrade. Open Subscription to unlock AI text generation.'
+			: 'AI Writer requires a plan upgrade. Open Subscription to unlock article generation.',
+	});
 
 	/** @type {{ id: string|null } | null} */
 	let creditReservation = null;
+	let settleCredits = async () => {};
 
-	// Writer (singleShot) and Pin Copy: plan gate + Credit Engine reservation/settlement.
-	// Continuations reuse the same Writer session and skip a second credit charge.
-	if (creditFeature) {
-		await assertFeatureAccess(req, WRITER_FEATURE_KEY, {
-			message: creditFeature === PIN_COPY_CREDIT_FEATURE
-				? 'AI Pin Copy requires a plan upgrade. Open Subscription to unlock AI text generation.'
-				: 'AI Writer requires a plan upgrade. Open Subscription to unlock article generation.',
-		});
-
-		const workspaceKey = String(req.workspaceKey || '').trim();
-		if (!workspaceKey) {
-			throw httpError(422, 'Workspace context is required for AI generation credits');
-		}
-
-		const rawIdempotency = typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey.trim() : '';
-		const defaultPrefix = creditFeature === PIN_COPY_CREDIT_FEATURE ? 'ai-pin-copy' : 'ai-writer';
-		const idempotencyKey = (rawIdempotency || `${defaultPrefix}:${req.pocketbaseUserId}:${randomUUID()}`).slice(0, 120);
-
-		creditReservation = await beginFeatureReservation({
-			workspaceKey,
-			feature: creditFeature,
-			units: 1,
-			reason: creditFeature === PIN_COPY_CREDIT_FEATURE
-				? 'AI Pin copy generation'
-				: 'AI Writer article generation',
+	if (intent.mode === 'billable') {
+		const gate = await reserveIntegratedAiStreamCredits({
+			intent,
+			workspaceKey: req.workspaceKey,
 			actorUserId: req.pocketbaseUserId,
-			referenceId: String(req.body?.referenceId || '').slice(0, 120),
-			idempotencyKey,
-			ttlMs: 20 * 60 * 1000,
-			metadata: {
-				source: 'integrated-ai/stream',
-				singleShot: Boolean(singleShot),
-				creditFeature,
-				planFeatureKey: WRITER_FEATURE_KEY,
-			},
+			singleShot,
+			writerContinuation,
+			idempotencyKey: typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey : '',
+			referenceId: req.body?.referenceId,
+			metadata: { planFeatureKey: WRITER_FEATURE_KEY },
 			wallet: {
-				workspaceName: req.workspace?.name || workspaceKey,
+				workspaceName: req.workspace?.name || String(req.workspaceKey || '').trim(),
 				ownerEmail: req.workspaceUser?.email || req.pocketbaseUser?.email || '',
 				planSlug: req.workspaceSubscription?.expand?.plan?.slug
 					|| req.workspace?.plan_slug
@@ -367,6 +339,8 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 					|| 'free',
 			},
 		});
+		creditReservation = gate.reservation;
+		settleCredits = gate.settle;
 	}
 
 	if (process.env.NODE_ENV !== 'production') {
@@ -387,13 +361,8 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 		});
 	}
 
-	const settleCredits = async ({ success }) => {
-		if (!creditReservation?.id) return;
-		await settleFeatureReservation(creditReservation.id, {
-			success: Boolean(success),
-			actor: req.pocketbaseUserId || 'system',
-			metadata: { source: 'integrated-ai/stream', feature: creditFeature },
-		});
+	const settleCreditsOnClose = async ({ success }) => {
+		await settleCredits({ success }).catch(() => null);
 	};
 
 	const generationOptions = lengthParams
@@ -412,15 +381,10 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 			userMessage,
 			singleShot: singleShot || writerContinuation,
 			generationOptions,
-			onGenerationSettled: creditReservation ? settleCredits : null,
+			onGenerationSettled: creditReservation?.id ? settleCreditsOnClose : null,
 		});
 	} catch (error) {
-		if (creditReservation?.id) {
-			await settleFeatureReservation(creditReservation.id, {
-				success: false,
-				actor: req.pocketbaseUserId || 'system',
-			}).catch(() => null);
-		}
+		await settleCredits({ success: false }).catch(() => null);
 		throw error;
 	}
 
