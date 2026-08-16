@@ -154,7 +154,6 @@ export async function settleFeatureReservation(reservationId, {
 	success,
 	actor = 'system',
 	metadata = {},
-	bumpLegacyAiCounterForUserId = '',
 } = {}) {
 	const id = String(reservationId || '').trim();
 	if (!id) {
@@ -163,15 +162,6 @@ export async function settleFeatureReservation(reservationId, {
 
 	if (success) {
 		const reservation = await commitReservation(id, { actor, metadata });
-		const userId = String(bumpLegacyAiCounterForUserId || '').trim();
-		if (userId) {
-			const user = await pocketbaseClient.collection('users').getOne(userId).catch(() => null);
-			if (user) {
-				await pocketbaseClient.collection('users').update(userId, {
-					ai_credits_used: Number(user.ai_credits_used || 0) + 1,
-				}).catch(() => null);
-			}
-		}
 		return { settled: 'committed', reservation };
 	}
 
@@ -195,7 +185,6 @@ export async function withFeatureCredits(options, execute) {
 			success: true,
 			actor,
 			metadata: options.commitMetadata || {},
-			bumpLegacyAiCounterForUserId: options.bumpLegacyAiCounterForUserId || '',
 		});
 		return result;
 	} catch (error) {

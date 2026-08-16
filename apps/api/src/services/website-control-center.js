@@ -1178,12 +1178,12 @@ async function loadAiDefaults(ownerId) {
 	};
 }
 
-export async function getWebsitesControlCenter(ownerId, websites = []) {
+export async function getWebsitesControlCenter(ownerId, websites = [], { workspaceKey } = {}) {
 	const [wpPayload, articlesSchema, workspaceIndicators, credits, publishTarget, aiBundle] = await Promise.all([
 		listWordpressSites(ownerId).catch(() => ({ items: [] })),
 		resolveArticlesSchema(),
 		loadWorkspaceStatusIndicators(ownerId),
-		getUserCreditUsage(pocketbaseClient, ownerId).catch(() => null),
+		getUserCreditUsage(pocketbaseClient, ownerId, workspaceKey).catch(() => null),
 		resolveDefaultPinterestTarget(ownerId).catch(() => ({ accountId: '', boardId: '' })),
 		loadAiDefaults(ownerId).catch(() => ({ aiDefaults: null, userSettingsFlags: null })),
 	]);
@@ -1408,13 +1408,13 @@ async function buildActivityTimeline({
 	return events.slice(0, 40).map(annotateTimelineEvent);
 }
 
-export async function getWebsiteDashboard(ownerId, website) {
+export async function getWebsiteDashboard(ownerId, website, { workspaceKey } = {}) {
 	const websiteId = website.id;
 	const [wpPayload, articlesSchema, workspaceIndicators, credits, publishTarget] = await Promise.all([
 		listWordpressSites(ownerId).catch(() => ({ items: [] })),
 		resolveArticlesSchema(),
 		loadWorkspaceStatusIndicators(ownerId),
-		getUserCreditUsage(pocketbaseClient, ownerId).catch(() => null),
+		getUserCreditUsage(pocketbaseClient, ownerId, workspaceKey).catch(() => null),
 		resolveDefaultPinterestTarget(ownerId).catch(() => ({ accountId: '', boardId: '' })),
 	]);
 

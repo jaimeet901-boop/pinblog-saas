@@ -138,7 +138,7 @@ export async function buildWorkspaceConfig(req) {
 		listBrandKits(ownerId, workspaceId),
 		getSubscriptionPlan(req.workspaceSubscription).catch(() => null),
 		ownerId
-			? getUserCreditUsage(pocketbaseClient, ownerId).catch(() => null)
+			? getUserCreditUsage(pocketbaseClient, ownerId, req.workspaceKey).catch(() => null)
 			: Promise.resolve(null),
 	]);
 
@@ -264,8 +264,8 @@ export async function buildWorkspaceConfig(req) {
 				remaining: Number(credits.remaining) || 0,
 			},
 			image: pinCredits?.image || {
-				used: 0,
-				limit: 0,
+				used: Number(credits.used) || 0,
+				limit: Number(credits.quota) || 0,
 				remaining: Number(credits.remaining) || 0,
 			},
 		}, {

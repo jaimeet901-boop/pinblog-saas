@@ -357,7 +357,7 @@ router.get('/credits', async (req, res) => {
 	res.json(await getUserCreditUsage(
 		pocketbaseClient,
 		workspaceOwnerId(req),
-		req.workspaceKey || '',
+		req.workspaceKey,
 	));
 });
 
@@ -440,7 +440,7 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		force: true,
 	});
 
-	const credits = await getUserCreditUsage(pocketbaseClient, ownerId, req.workspaceKey || '');
+	const credits = await getUserCreditUsage(pocketbaseClient, ownerId, req.workspaceKey);
 	res.json({ analysis: mapUserHistoryAnalysis(analysis), credits });
 });
 
@@ -557,7 +557,7 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		force: true,
 	});
 
-	const credits = await getUserCreditUsage(pocketbaseClient, ownerId, req.workspaceKey || '');
+	const credits = await getUserCreditUsage(pocketbaseClient, ownerId, req.workspaceKey);
 	res.json({
 		...stripUserUnsafeAiMetadata(promptResult || {}),
 		analysis: mapUserHistoryAnalysis(resolvedAnalysis),

@@ -393,7 +393,6 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 			success: Boolean(success),
 			actor: req.pocketbaseUserId || 'system',
 			metadata: { source: 'integrated-ai/stream', feature: creditFeature },
-			bumpLegacyAiCounterForUserId: success ? req.pocketbaseUserId : '',
 		});
 	};
 

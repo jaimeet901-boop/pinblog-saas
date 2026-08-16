@@ -654,7 +654,9 @@ router.get('/control-center', async (req, res) => {
 
 	try {
 		const websites = await listOwnedWebsites({ req });
-		const payload = await getWebsitesControlCenter(req.pocketbaseUserId, websites);
+		const payload = await getWebsitesControlCenter(req.pocketbaseUserId, websites, {
+			workspaceKey: req.workspaceKey,
+		});
 		res.json(payload);
 	} catch (error) {
 		logger.error('Websites control center failed', {
@@ -723,7 +725,9 @@ router.get('/:websiteId/dashboard', async (req, res) => {
 		});
 	}
 
-	const dashboard = await getWebsiteDashboard(req.pocketbaseUserId, mapped);
+	const dashboard = await getWebsiteDashboard(req.pocketbaseUserId, mapped, {
+		workspaceKey: req.workspaceKey,
+	});
 	res.json({
 		website: { ...mapped, stats },
 		dashboard,
