@@ -37,6 +37,7 @@ const AIFacebookPagesHistoryPage = lazy(() => import('@/pages/app/AIFacebookPage
 const AIFacebookPagesTemplatesPage = lazy(() => import('@/pages/app/AIFacebookPagesTemplatesPage'));
 const AIFacebookPagesBrandKitPage = lazy(() => import('@/pages/app/AIFacebookPagesBrandKitPage'));
 const AIFacebookPagesPublishingHistoryPage = lazy(() => import('@/pages/app/AIFacebookPagesPublishingHistoryPage'));
+const WordPressPublishingHistoryPage = lazy(() => import('@/pages/app/WordPressPublishingHistoryPage'));
 const FacebookPage = lazy(() => import('@/pages/app/FacebookPage'));
 const TemplatesPage = lazy(() => import('@/pages/app/TemplatesPage'));
 const TemplatesClassicPage = lazy(() => import('@/pages/app/TemplatesClassicPage'));
@@ -149,6 +150,7 @@ function App() {
 						<Route path="/app/ai-facebook-pages/templates/:id/edit" element={<Shell><LazyPage><TemplateEditorPage /></LazyPage></Shell>} />
 						<Route path="/app/ai-facebook-pages/brand-kit" element={<Shell><LazyPage><AIFacebookPagesBrandKitPage /></LazyPage></Shell>} />
 						<Route path="/app/facebook-history" element={<Shell><LazyPage><AIFacebookPagesPublishingHistoryPage /></LazyPage></Shell>} />
+						<Route path="/app/wordpress-history" element={<Shell><LazyPage><WordPressPublishingHistoryPage /></LazyPage></Shell>} />
 						<Route path="/app/facebook" element={<Shell><LazyPage><FacebookPage /></LazyPage></Shell>} />
 						<Route path="/app/ai-pins/templates" element={<Shell><LazyPage><TemplatesPage /></LazyPage></Shell>} />
 						<Route path="/app/ai-pins/templates/classic" element={<Shell><LazyPage><TemplatesClassicPage /></LazyPage></Shell>} />

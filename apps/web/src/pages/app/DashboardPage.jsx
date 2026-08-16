@@ -145,7 +145,7 @@ export default function DashboardPage() {
 		{ label: 'Articles Created', value: usageDash.generatedArticles ?? stats.articles, to: '/app/writer', hint: null },
 		{ label: 'Pins Generated', value: usageDash.generatedPins ?? stats.pins, to: '/app/ai-pins', hint: null },
 		{ label: 'Pinterest published', value: usageDash.pinterestPublications ?? stats.publishedPins ?? 0, to: '/app/pinterest-history', hint: null },
-		{ label: 'WordPress published', value: usageDash.wordpressPublications ?? stats.publishedWordpress ?? 0, to: '/app/history', hint: null },
+		{ label: 'WordPress published', value: usageDash.wordpressPublications ?? stats.publishedWordpress ?? 0, to: '/app/wordpress-history', hint: null },
 		{ label: 'Published posts', value: publishedPins, to: '/app/pinterest-history', hint: null },
 		{ label: 'Scheduled Jobs', value: scheduledJobs, to: '/app/calendar', hint: null },
 		{ label: 'Failed Jobs', value: failedJobs, to: '/app/pinterest-history', hint: null },

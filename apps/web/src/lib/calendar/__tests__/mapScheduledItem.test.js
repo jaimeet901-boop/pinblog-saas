@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildCalendarEventsUrl,
+	countCalendarChannelStats,
 	mapFacadeCalendarResponse,
 	mapScheduledItemToCalendarEvent,
 } from '../mapScheduledItem.js';
@@ -114,5 +115,34 @@ describe('mapScheduledItem (C2/C4 CalendarPage)', () => {
 		expect(row.boardName).toBe('Brand Page');
 		expect(row.studioItemId).toBe('pin_fb_1');
 		expect(row.facebookPostUrl).toBe('https://facebook.com/posts/1');
+	});
+});
+
+describe('countCalendarChannelStats', () => {
+	it('counts wordpress and facebook separately from pinterest', () => {
+		const now = new Date('2026-08-16T12:00:00.000Z');
+		const stats = countCalendarChannelStats([
+			{ channel: 'pinterest', status: 'scheduled', scheduledAt: '2026-08-16T09:00:00.000Z' },
+			{ channel: 'pinterest', status: 'published', scheduledAt: '2026-08-15T09:00:00.000Z' },
+			{ channel: 'facebook', status: 'scheduled', scheduledAt: '2026-08-16T10:00:00.000Z' },
+			{ channel: 'wordpress', status: 'published', scheduledAt: '2026-08-10T10:00:00.000Z' },
+			{ channel: 'wordpress', status: 'failed', scheduledAt: '2026-08-12T10:00:00.000Z' },
+		], now);
+
+		expect(stats.pinterest).toBe(2);
+		expect(stats.facebook).toBe(1);
+		expect(stats.wordpress).toBe(2);
+		expect(stats.failed).toBe(1);
+		expect(stats.pending).toBe(2);
+		expect(stats.scheduledToday).toBe(2);
+	});
+
+	it('treats untagged jobs as pinterest so legacy feeds stay numeric', () => {
+		const stats = countCalendarChannelStats([
+			{ status: 'scheduled', scheduledAt: '2026-08-16T09:00:00.000Z' },
+		], new Date('2026-08-16T12:00:00.000Z'));
+		expect(stats.pinterest).toBe(1);
+		expect(stats.wordpress).toBe(0);
+		expect(stats.facebook).toBe(0);
 	});
 });

@@ -213,11 +213,12 @@ export default function PinterestPage() {
 					? 'Account linked successfully. Returning to publishing…'
 					: 'Your Pinterest account is now linked successfully.',
 			});
-			if (oauthParams.get('boards_sync_warning') === '1') {
+			const boardsSyncWarning = String(oauthParams.get('boards_sync_warning') || '').trim();
+			if (boardsSyncWarning) {
 				toast({
 					variant: 'destructive',
 					title: 'Boards sync incomplete',
-					description: 'Account connected, but boards could not be synced. Use Sync Boards.',
+					description: boardsSyncWarning,
 				});
 			}
 			load();

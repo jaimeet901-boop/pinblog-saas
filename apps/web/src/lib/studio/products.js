@@ -194,3 +194,37 @@ export const AI_FACEBOOK_PAGES_PRODUCT = {
 		templatePackKey: 'facebook',
 	},
 };
+
+/**
+ * WordPress publishing history product — not a Content Studio clone.
+ * Writer + Websites remain the create/connect surfaces.
+ */
+export const WORDPRESS_PUBLISHING_PRODUCT = {
+	id: 'wordpress-publishing',
+	featureFlag: 'wordpress',
+	destinationId: 'wordpress',
+	routes: {
+		studio: '/app/writer',
+		history: '/app/wordpress-history',
+		connect: '/app/websites',
+		publishingHistory: '/app/wordpress-history',
+	},
+	labels: {
+		platformName: 'Chef IA',
+		atelierTitle: 'WordPress Publishing',
+		itemSingular: 'WordPress Post',
+		itemPlural: 'WordPress Posts',
+		itemLower: 'post',
+		itemLowerPlural: 'posts',
+		productShort: 'WordPress Post',
+		productShortPlural: 'WordPress Posts',
+		account: 'WordPress site',
+		accountTitle: 'WordPress Site',
+		destination: 'Site',
+		destinationLower: 'site',
+		destinationPlural: 'sites',
+		network: 'WordPress',
+		connectCta: 'Connect WordPress',
+		publishingHistoryNav: 'WordPress History',
+	},
+};

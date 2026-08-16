@@ -291,6 +291,7 @@ function ActiveWebsiteSwitcher({ websites, activeWebsiteId, loading, onChange, p
 						'/app/analytics',
 						'/app/pinterest-history',
 						'/app/facebook-history',
+						'/app/wordpress-history',
 						'/app/ai-pins/history',
 						'/app/ai-facebook-pages/history',
 						'/app/ai-facebook-pages/templates',

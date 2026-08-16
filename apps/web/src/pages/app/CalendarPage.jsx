@@ -7,6 +7,7 @@ import {
 import apiServerClient from '@/lib/apiServerClient';
 import {
 	buildCalendarEventsUrl,
+	countCalendarChannelStats,
 	mapFacadeCalendarResponse,
 } from '@/lib/calendar/mapScheduledItem';
 import { buildCalendarMutationUrl } from '@/lib/calendar/mutations';
@@ -246,32 +247,7 @@ export default function CalendarPage() {
 
 	const jobsForDay = (date) => filteredJobs.filter((job) => job.scheduledAt && sameDay(new Date(job.scheduledAt), date));
 
-	const stats = useMemo(() => {
-		const today = startOfDay();
-		const weekEnd = addDays(today, 7);
-		let scheduledToday = 0;
-		let scheduledWeek = 0;
-		let pinterest = jobs.length;
-		let pending = 0;
-		let failed = 0;
-
-		for (const job of jobs) {
-			const stamp = job.scheduledAt ? new Date(job.scheduledAt) : null;
-			if (stamp && sameDay(stamp, today) && job.status === 'scheduled') scheduledToday += 1;
-			if (stamp && stamp >= today && stamp < weekEnd && job.status === 'scheduled') scheduledWeek += 1;
-			if (job.status === 'scheduled' || job.status === 'queued' || job.status === 'publishing') pending += 1;
-			if (job.status === 'failed') failed += 1;
-		}
-
-		return {
-			scheduledToday,
-			scheduledWeek,
-			pinterest,
-			wordpress: '—',
-			pending,
-			failed,
-		};
-	}, [jobs]);
+	const stats = useMemo(() => countCalendarChannelStats(jobs), [jobs]);
 
 	const agenda = useMemo(() => {
 		const today = startOfDay();
@@ -545,9 +521,12 @@ export default function CalendarPage() {
 					<p className="cal-stat__value">{stats.pinterest}</p>
 				</div>
 				<div className="cal-stat">
+					<p className="cal-stat__label">Facebook Posts</p>
+					<p className="cal-stat__value">{stats.facebook}</p>
+				</div>
+				<div className="cal-stat">
 					<p className="cal-stat__label">WordPress Posts</p>
 					<p className="cal-stat__value">{stats.wordpress}</p>
-					<p className="cal-stat__hint">Not on this calendar feed</p>
 				</div>
 				<div className="cal-stat">
 					<p className="cal-stat__label">Pending Jobs</p>

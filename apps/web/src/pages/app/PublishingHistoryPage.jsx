@@ -59,7 +59,9 @@ function historyContent(item) {
 }
 
 function toCsv(rows, view) {
-	const destinationHeader = view.channel === 'facebook' ? 'page' : 'board';
+	const destinationHeader = view.channel === 'facebook'
+		? 'page'
+		: (view.channel === 'wordpress' ? 'site' : 'board');
 	const headers = [
 		'id', 'title', 'status', 'account', destinationHeader, 'websiteId',
 		'scheduledAt', 'publishedAt', 'externalPostUrl', 'lastError',
@@ -159,7 +161,7 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 
 	useEffect(() => {
 		load();
-	}, [statusFilter]);
+	}, [statusFilter, view.channel]);
 
 	const retryFailed = async (jobId) => {
 		setRetryingId(jobId);
@@ -425,7 +427,8 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 	const renderRowActions = (item, compact = false) => {
 		const canRetry = item.status === 'failed';
 		const canCancel = item.status === 'scheduled';
-		const canPublishNow = item.status === 'scheduled' || item.status === 'failed';
+		const canPublishNow = view.supportsPublishNow !== false
+			&& (item.status === 'scheduled' || item.status === 'failed');
 		const canCopy = Boolean(externalPostUrl(item));
 		const canOpenPost = Boolean(externalPostUrl(item));
 		const canOpenArticle = Boolean(historyContent(item)?.destinationUrl || item.destinationUrl);

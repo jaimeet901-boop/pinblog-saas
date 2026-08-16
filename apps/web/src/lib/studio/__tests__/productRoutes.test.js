@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
 	AI_FACEBOOK_PAGES_PRODUCT,
 	AI_PINS_PRODUCT,
+	WORDPRESS_PUBLISHING_PRODUCT,
 } from '@/lib/studio/products';
 import { FACEBOOK_CHANNEL_CAPABILITIES } from '@/lib/facebook/channelCapabilities.js';
 
@@ -83,6 +84,37 @@ describe('facebook F7-5 publishing history routes', () => {
 		);
 
 		expect(layout).toMatch(/\/app\/facebook-history/);
+	});
+});
+
+describe('wordpress publishing history routes', () => {
+	it('registers wordpress publishing history wrapper route', () => {
+		const app = readFileSync(path.join(webRoot, 'src/App.jsx'), 'utf8');
+		const wrapper = readFileSync(
+			path.join(webRoot, 'src/pages/app/WordPressPublishingHistoryPage.jsx'),
+			'utf8',
+		);
+
+		expect(WORDPRESS_PUBLISHING_PRODUCT.routes.publishingHistory).toBe('/app/wordpress-history');
+		expect(app).toMatch(/\/app\/wordpress-history/);
+		expect(app).toMatch(/WordPressPublishingHistoryPage/);
+		expect(wrapper).toMatch(/PublishingHistoryPage/);
+		expect(wrapper).toMatch(/WORDPRESS_PUBLISHING_PRODUCT/);
+	});
+
+	it('preserves website query on wordpress publishing history route', () => {
+		const layout = readFileSync(
+			path.join(webRoot, 'src/components/AppLayout.jsx'),
+			'utf8',
+		);
+
+		expect(layout).toMatch(/\/app\/wordpress-history/);
+	});
+
+	it('does not keep the boards sync toast gated on the literal 1 flag', () => {
+		const hub = readFileSync(path.join(webRoot, 'src/pages/app/PinterestPage.jsx'), 'utf8');
+		expect(hub).not.toMatch(/boards_sync_warning'\) === '1'/);
+		expect(hub).toMatch(/oauthParams\.get\('boards_sync_warning'\)/);
 	});
 });
 

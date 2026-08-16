@@ -1,4 +1,4 @@
-import { Pin, Share2 } from 'lucide-react';
+import { Globe, Pin, Share2 } from 'lucide-react';
 import { AI_PINS_PRODUCT } from '@/lib/studio/products';
 
 /**
@@ -9,8 +9,36 @@ import { AI_PINS_PRODUCT } from '@/lib/studio/products';
 export function getPublishingHistoryViewConfig(product = AI_PINS_PRODUCT) {
 	const channel = String(product?.destinationId || 'pinterest').trim() || 'pinterest';
 	const isFacebook = channel === 'facebook';
+	const isWordpress = channel === 'wordpress';
 	const labels = product?.labels || AI_PINS_PRODUCT.labels;
 	const routes = product?.routes || AI_PINS_PRODUCT.routes;
+
+	if (isWordpress) {
+		return {
+			channel: 'wordpress',
+			jobBase: '/wordpress/jobs',
+			hubRoute: routes.connect || '/app/websites',
+			studioRoute: routes.studio || '/app/writer',
+			destinationFilterLabel: labels.destination || 'Site',
+			destinationPlural: labels.destinationPlural || 'sites',
+			itemSingular: labels.itemSingular || 'WordPress Post',
+			itemLowerPlural: labels.itemLowerPlural || 'posts',
+			network: labels.network || 'WordPress',
+			productShortPlural: labels.productShortPlural || 'WordPress Posts',
+			externalLinkLabel: 'Post',
+			scheduledStatLabel: 'Scheduled Posts',
+			untitledFallback: 'Untitled post',
+			emptyDescription: 'This history shows posts you publish or schedule to WordPress. Write an article, publish it, then return here to track results.',
+			emptyCtaLabel: 'Open AI Writer',
+			openExternalLabel: 'Open WordPress Post',
+			hubButtonLabel: 'Websites',
+			accountMetaLabel: 'WordPress site',
+			subtitle: 'Track published, scheduled, and failed WordPress posts — retry or cancel from this history.',
+			supportsPublishNow: false,
+			PreviewIcon: Globe,
+			HubIcon: Globe,
+		};
+	}
 
 	return {
 		channel,
@@ -36,6 +64,7 @@ export function getPublishingHistoryViewConfig(product = AI_PINS_PRODUCT) {
 		subtitle: isFacebook
 			? 'Track published, scheduled, and failed posts — retry or cancel without leaving the atelier.'
 			: 'Track published, scheduled, and failed pins — retry or cancel without leaving the atelier.',
+		supportsPublishNow: true,
 		PreviewIcon: isFacebook ? Share2 : Pin,
 		HubIcon: isFacebook ? Share2 : Pin,
 	};
@@ -50,6 +79,7 @@ export function externalPostUrl(item) {
 	return String(
 		item?.externalPostUrl
 		|| item?.facebookPostUrl
+		|| item?.wpPostUrl
 		|| item?.pinterestPinUrl
 		|| '',
 	).trim();

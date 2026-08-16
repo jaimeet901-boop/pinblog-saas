@@ -118,6 +118,73 @@ export function toFacebookPublishingHistoryUiRow(item) {
 }
 
 /**
+ * Convert one normalized WordPress PublishingHistoryItem into the shared UI row model.
+ *
+ * @param {object} item - PublishingHistoryItem
+ * @returns {object|null}
+ */
+export function toWordpressPublishingHistoryUiRow(item) {
+	if (!item || typeof item !== 'object') return null;
+
+	const destination = item.destination && typeof item.destination === 'object'
+		? item.destination
+		: {};
+	const payload = item.channelPayload && typeof item.channelPayload === 'object'
+		? item.channelPayload
+		: {};
+
+	const jobId = asText(item.jobId) || asText(String(item.id || '').split(':').pop());
+	if (!jobId) return null;
+
+	const title = asText(item.title);
+	const description = asText(item.description);
+	const imageUrl = asText(item.imageUrl);
+	const siteId = asText(destination.targetId) || asText(payload.siteId);
+	const siteName = asText(destination.targetLabel) || asText(item.subtitle);
+	const externalPostUrl = asText(destination.externalUrl) || asText(payload.wpPostUrl);
+	const articleId = asText(item.contentId);
+
+	const post = {
+		id: articleId,
+		title: title || 'Untitled post',
+		description,
+		imageUrl,
+		status: asText(item.status) || asText(item.nativeStatus),
+	};
+
+	return {
+		id: jobId,
+		aiPinId: articleId,
+		studioItemId: articleId,
+		accountId: siteId,
+		accountLabel: siteName,
+		accountUsername: '',
+		websiteId: asText(item.websiteId),
+		articleId,
+		boardId: siteId,
+		boardName: siteName,
+		siteId,
+		siteName,
+		scheduledAt: item.scheduledAt || '',
+		timezone: asText(item.timezone),
+		status: asText(item.status) || asText(item.nativeStatus),
+		attemptCount: Number(item.attemptCount) || 0,
+		maxAttempts: Number(item.maxAttempts) || 3,
+		nextRetryAt: item.nextRetryAt || '',
+		lastError: asText(item.lastError),
+		wpPostId: destination.externalId || (payload.wpPostId != null ? String(payload.wpPostId) : ''),
+		wpPostUrl: externalPostUrl,
+		externalPostUrl,
+		publishedAt: item.publishedAt || '',
+		performance: defaultPerformance(),
+		createdAt: item.createdAt || '',
+		updatedAt: item.updatedAt || '',
+		pin: post,
+		post,
+	};
+}
+
+/**
  * Convert one normalized PublishingHistoryItem into the UI row model
  * expected by PublishingHistoryPage (identical to historical mapJob shape).
  *
@@ -129,6 +196,9 @@ export function toPublishingHistoryUiRow(item, options = {}) {
 	const channel = asText(options.channel) || asText(item?.channel) || 'pinterest';
 	if (channel === 'facebook') {
 		return toFacebookPublishingHistoryUiRow(item);
+	}
+	if (channel === 'wordpress') {
+		return toWordpressPublishingHistoryUiRow(item);
 	}
 	if (!item || typeof item !== 'object') return null;
 

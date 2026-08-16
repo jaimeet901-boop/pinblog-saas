@@ -546,6 +546,7 @@ export default function WebsiteDashboardPage() {
 	const failedCount = Number(controlStats.failedJobs ?? pinterestPerformance.failed ?? pinterest.failed ?? queue.failedJobs ?? 0);
 	const showTemplates = user?.role === 'admin';
 	const historyHref = `/app/pinterest-history?websiteId=${encodeURIComponent(website.id)}`;
+	const wordpressHistoryHref = `/app/wordpress-history?websiteId=${encodeURIComponent(website.id)}`;
 	const analyticsHref = `/app/analytics?websiteId=${encodeURIComponent(website.id)}`;
 	const pinsHref = `/app/ai-pins?websiteId=${encodeURIComponent(website.id)}`;
 	const writerHref = `/app/writer?websiteId=${encodeURIComponent(website.id)}`;
@@ -759,9 +760,17 @@ export default function WebsiteDashboardPage() {
 											<MetaLine label="Auth">{wordpress.site.authType || '—'}</MetaLine>
 											<MetaLine label="Last tested">{formatDateTime(wordpress.site.lastTestedAt)}</MetaLine>
 											<MetaLine label="Last synced">{formatDateTime(wordpress.site.lastSyncedAt)}</MetaLine>
+											<Button variant="outline" size="sm" onClick={() => navigate(wordpressHistoryHref)}>
+												WordPress publishing history
+											</Button>
 										</div>
 									) : (
-										<EmptyLines text="No linked WordPress site yet. Add credentials and use Test." />
+										<div className="mt-3 space-y-3">
+											<EmptyLines text="No linked WordPress site yet. Add credentials and use Test." />
+											<Button variant="outline" size="sm" onClick={() => navigate(wordpressHistoryHref)}>
+												WordPress publishing history
+											</Button>
+										</div>
 									)}
 								</Card>
 

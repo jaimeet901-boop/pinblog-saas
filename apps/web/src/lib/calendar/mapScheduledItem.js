@@ -14,10 +14,11 @@ export function mapScheduledItemToCalendarEvent(item = {}) {
 	const links = item.deepLinks && typeof item.deepLinks === 'object' ? item.deepLinks : {};
 	const channel = String(item.channel || '').trim();
 	const isFacebook = channel === 'facebook';
+	const isWordpress = channel === 'wordpress';
 	const facadeId = String(item.id || '').trim();
 	const refId = String(item.refId || links.historyJobId || '').trim()
 		|| (facadeId.includes(':') ? facadeId.slice(facadeId.indexOf(':') + 1) : facadeId);
-	const defaultTitle = isFacebook ? 'Scheduled Post' : 'Scheduled Pin';
+	const defaultTitle = (isFacebook || isWordpress) ? 'Scheduled Post' : 'Scheduled Pin';
 	const title = String(item.title || defaultTitle).trim() || defaultTitle;
 	const previewUrl = String(item.previewUrl || '').trim();
 	const website = item.website && typeof item.website === 'object' ? item.website : null;
@@ -82,6 +83,66 @@ export function mapFacadeCalendarResponse(payload) {
 		? payload.items
 		: (Array.isArray(payload) ? payload : []);
 	return items.map(mapScheduledItemToCalendarEvent);
+}
+
+function sameDay(dateA, dateB) {
+	return dateA.getFullYear() === dateB.getFullYear()
+		&& dateA.getMonth() === dateB.getMonth()
+		&& dateA.getDate() === dateB.getDate();
+}
+
+function startOfDay(date = new Date()) {
+	const d = new Date(date);
+	d.setHours(0, 0, 0, 0);
+	return d;
+}
+
+function addDays(date, amount) {
+	const d = new Date(date);
+	d.setDate(d.getDate() + amount);
+	return d;
+}
+
+/**
+ * Channel counts for Calendar summary tiles.
+ * Untagged/legacy rows count as Pinterest so existing pin-only feeds stay unchanged.
+ *
+ * @param {object[]} jobs
+ * @param {Date} [now]
+ */
+export function countCalendarChannelStats(jobs = [], now = new Date()) {
+	const today = startOfDay(now);
+	const weekEnd = addDays(today, 7);
+	let scheduledToday = 0;
+	let scheduledWeek = 0;
+	let pinterest = 0;
+	let facebook = 0;
+	let wordpress = 0;
+	let pending = 0;
+	let failed = 0;
+
+	for (const job of jobs) {
+		const channel = String(job?.channel || '').trim().toLowerCase();
+		if (channel === 'wordpress') wordpress += 1;
+		else if (channel === 'facebook') facebook += 1;
+		else pinterest += 1;
+
+		const stamp = job?.scheduledAt ? new Date(job.scheduledAt) : null;
+		if (stamp && sameDay(stamp, today) && job.status === 'scheduled') scheduledToday += 1;
+		if (stamp && stamp >= today && stamp < weekEnd && job.status === 'scheduled') scheduledWeek += 1;
+		if (job.status === 'scheduled' || job.status === 'queued' || job.status === 'publishing') pending += 1;
+		if (job.status === 'failed') failed += 1;
+	}
+
+	return {
+		scheduledToday,
+		scheduledWeek,
+		pinterest,
+		facebook,
+		wordpress,
+		pending,
+		failed,
+	};
 }
 
 /**

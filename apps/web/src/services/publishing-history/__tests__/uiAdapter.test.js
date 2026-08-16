@@ -6,12 +6,13 @@ import {
 	buildPublishingHistoryFetchQuery,
 	toFacebookPublishingHistoryUiRow,
 	toPublishingHistoryUiRow,
+	toWordpressPublishingHistoryUiRow,
 } from '../uiAdapter.js';
 import {
 	externalPostUrl,
 	getPublishingHistoryViewConfig,
 } from '../viewConfig.js';
-import { AI_FACEBOOK_PAGES_PRODUCT, AI_PINS_PRODUCT } from '@/lib/studio/products';
+import { AI_FACEBOOK_PAGES_PRODUCT, AI_PINS_PRODUCT, WORDPRESS_PUBLISHING_PRODUCT } from '@/lib/studio/products';
 
 function sampleNormalizedItem(overrides = {}) {
 	return {
@@ -284,6 +285,16 @@ describe('getPublishingHistoryViewConfig', () => {
 		expect(view.jobBase).toBe('/facebook/jobs');
 		expect(view.hubRoute).toBe('/app/facebook');
 		expect(view.studioRoute).toBe('/app/ai-facebook-pages');
+		expect(view.supportsPublishNow).toBe(true);
+	});
+
+	it('builds wordpress view config from WordPress publishing product', () => {
+		const view = getPublishingHistoryViewConfig(WORDPRESS_PUBLISHING_PRODUCT);
+		expect(view.channel).toBe('wordpress');
+		expect(view.jobBase).toBe('/wordpress/jobs');
+		expect(view.hubRoute).toBe('/app/websites');
+		expect(view.studioRoute).toBe('/app/writer');
+		expect(view.supportsPublishNow).toBe(false);
 	});
 });
 
@@ -291,6 +302,7 @@ describe('externalPostUrl', () => {
 	it('prefers externalPostUrl then channel-specific fallbacks', () => {
 		expect(externalPostUrl({ externalPostUrl: 'https://example.com/a' })).toBe('https://example.com/a');
 		expect(externalPostUrl({ facebookPostUrl: 'https://facebook.com/post/1' })).toBe('https://facebook.com/post/1');
+		expect(externalPostUrl({ wpPostUrl: 'https://blog.example/wp/post-1' })).toBe('https://blog.example/wp/post-1');
 		expect(externalPostUrl({ pinterestPinUrl: 'https://pinterest.com/pin/1' })).toBe('https://pinterest.com/pin/1');
 	});
 });
@@ -298,5 +310,90 @@ describe('externalPostUrl', () => {
 describe('PUBLISHING_HISTORY_DEFAULT_STATUSES alias', () => {
 	it('keeps pinterest alias aligned with shared default statuses', () => {
 		expect(PINTEREST_HISTORY_DEFAULT_STATUSES).toEqual(PUBLISHING_HISTORY_DEFAULT_STATUSES);
+	});
+});
+
+function sampleWordpressNormalizedItem(overrides = {}) {
+	return {
+		id: 'wordpress:job_wp_1',
+		channel: 'wordpress',
+		jobId: 'job_wp_1',
+		status: 'published',
+		nativeStatus: 'published',
+		title: 'Tomato soup',
+		subtitle: 'Kitchen Blog',
+		description: 'A warming recipe',
+		imageUrl: 'https://cdn.example/soup.jpg',
+		contentId: 'art_wp_1',
+		websiteId: 'ws_1',
+		destination: {
+			kind: 'website',
+			accountId: '',
+			accountLabel: '',
+			targetId: 'site_9',
+			targetLabel: 'Kitchen Blog',
+			externalId: '441',
+			externalUrl: 'https://kitchen.example/tomato-soup',
+		},
+		publishedAt: '2026-07-01T12:00:00.000Z',
+		createdAt: '2026-06-30T10:00:00.000Z',
+		updatedAt: '2026-07-01T12:05:00.000Z',
+		attemptCount: 1,
+		maxAttempts: 3,
+		channelPayload: {
+			siteId: 'site_9',
+			wpStatus: 'publish',
+			wpPostId: 441,
+			wpPostUrl: 'https://kitchen.example/tomato-soup',
+			slug: 'tomato-soup',
+		},
+		...overrides,
+	};
+}
+
+describe('toWordpressPublishingHistoryUiRow', () => {
+	it('maps normalized wordpress item into shared UI row shape', () => {
+		const row = toWordpressPublishingHistoryUiRow(sampleWordpressNormalizedItem());
+		expect(row.id).toBe('job_wp_1');
+		expect(row.siteId).toBe('site_9');
+		expect(row.siteName).toBe('Kitchen Blog');
+		expect(row.boardId).toBe('site_9');
+		expect(row.boardName).toBe('Kitchen Blog');
+		expect(row.wpPostId).toBe('441');
+		expect(row.wpPostUrl).toBe('https://kitchen.example/tomato-soup');
+		expect(row.externalPostUrl).toBe('https://kitchen.example/tomato-soup');
+		expect(row.articleId).toBe('art_wp_1');
+		expect(row.post.title).toBe('Tomato soup');
+		expect(row.post).toEqual(row.pin);
+		expect(row.destination).toBeUndefined();
+		expect(row.channelPayload).toBeUndefined();
+	});
+
+	it('routes wordpress channel through toPublishingHistoryUiRow', () => {
+		const row = toPublishingHistoryUiRow(sampleWordpressNormalizedItem(), { channel: 'wordpress' });
+		expect(row.wpPostUrl).toBe('https://kitchen.example/tomato-soup');
+	});
+});
+
+describe('adaptPublishingHistoryResponse wordpress', () => {
+	it('adapts wordpress channel items with default status filter', () => {
+		const adapted = adaptPublishingHistoryResponse({
+			items: [
+				sampleWordpressNormalizedItem(),
+				sampleWordpressNormalizedItem({ jobId: 'job_retry', id: 'wordpress:job_retry', status: 'retrying' }),
+			],
+			meta: { page: 1, perPage: 100, totalItems: 2, totalPages: 1 },
+		}, { channel: 'wordpress', applyDefaultStatusFilter: true });
+
+		expect(adapted.items).toHaveLength(1);
+		expect(adapted.items[0].id).toBe('job_wp_1');
+	});
+});
+
+describe('buildPublishingHistoryFetchQuery wordpress', () => {
+	it('targets unified history with wordpress channel', () => {
+		const q = buildPublishingHistoryFetchQuery({ channel: 'wordpress', statusFilter: 'failed' });
+		expect(q.get('channel')).toBe('wordpress');
+		expect(q.get('status')).toBe('failed');
 	});
 });

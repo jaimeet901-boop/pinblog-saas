@@ -9,6 +9,7 @@ export {
 	buildPublishingHistoryFetchQuery,
 	toFacebookPublishingHistoryUiRow,
 	toPublishingHistoryUiRow,
+	toWordpressPublishingHistoryUiRow,
 } from './uiAdapter.js';
 export {
 	externalPostUrl,
