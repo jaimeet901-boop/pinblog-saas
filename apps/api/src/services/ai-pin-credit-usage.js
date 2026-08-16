@@ -14,10 +14,6 @@ function httpError(status, message, errorCode) {
 	return error;
 }
 
-function consumeWorkspaceKey(workspaceKey, userId) {
-	return String(workspaceKey || '').trim() || String(userId || '').trim();
-}
-
 export function requireExplicitWorkspaceKey(workspaceKey) {
 	const key = String(workspaceKey || '').trim();
 	if (!key) {
@@ -74,7 +70,7 @@ export async function consumeBillableAiFeature(pocketbaseClient, {
 	if (typeof consume !== 'function') {
 		throw httpError(500, 'consumeFeatureCredits is required', 'INTERNAL_ERROR');
 	}
-	const key = consumeWorkspaceKey(workspaceKey, userId);
+	const key = requireExplicitWorkspaceKey(workspaceKey);
 	return consume(pocketbaseClient, {
 		userId,
 		workspaceKey: key,
@@ -95,12 +91,12 @@ export async function consumeCredits(pocketbaseClient, {
 } = {}, deps = {}) {
 	const aiCount = Number(ai) || 0;
 	const imageCount = Number(image) || 0;
-	const key = consumeWorkspaceKey(workspaceKey, userId);
 	const consume = deps.consumeFeatureCredits;
 	const usageFn = deps.getUserCreditUsage;
 	if (typeof consume !== 'function' || typeof usageFn !== 'function') {
 		throw httpError(500, 'consume helpers are required', 'INTERNAL_ERROR');
 	}
+	const key = requireExplicitWorkspaceKey(workspaceKey);
 
 	if (aiCount > 0) {
 		await consume(pocketbaseClient, {

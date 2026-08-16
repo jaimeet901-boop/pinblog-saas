@@ -5,7 +5,6 @@
  * Customer-facing remaining / used / limit come ONLY from the credits-engine wallet
  * for the explicit workspace key. Do not use PLAN_CREDITS or users.*_credits_used.
  */
-import { workspaceKeyForUser } from './workspace-context.js';
 import {
 	consumeWorkspaceCredits,
 	resolveFeatureCost,
@@ -38,9 +37,9 @@ export async function consumeFeatureCredits(pocketbaseClientArg, {
 	idempotencyKey = '',
 	metadata = {},
 } = {}) {
+	const workspaceKey = requireExplicitWorkspaceKey(workspaceKeyInput);
 	const pb = pocketbaseClientArg || (await import('../utils/pocketbaseClient.js')).default;
 	const user = await pb.collection('users').getOne(userId).catch(() => null);
-	const workspaceKey = String(workspaceKeyInput || '').trim() || workspaceKeyForUser(userId);
 	await ensureWorkspaceWallet(workspaceKey, {
 		workspaceName: user?.name || user?.email || workspaceKey,
 		ownerEmail: user?.email || '',

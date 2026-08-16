@@ -249,6 +249,7 @@ describe('CR-P0-1 wiring', () => {
 		assert.match(creditsSource, /readWorkspaceCreditUsage\(workspaceKeyOverride/);
 		assert.match(usageSource, /requireExplicitWorkspaceKey\(workspaceKeyOverride\)/);
 		assert.doesNotMatch(creditsSource, /workspaceKeyOverride \|\| workspaceKeyForUser/);
+		assert.doesNotMatch(creditsSource, /workspaceKeyForUser/);
 		assert.doesNotMatch(usageSource, /workspaceKeyForUser/);
 		assert.doesNotMatch(creditsSource, /user\?\.ai_credits_used/);
 		assert.doesNotMatch(creditsSource, /user\?\.image_credits_used/);
@@ -280,5 +281,187 @@ describe('CR-P0-1 wiring', () => {
 		assert.match(websitesSource, /workspaceKey: req\.workspaceKey/);
 		assert.match(aiPinsSource, /getUserCreditUsage\(\s*pocketbaseClient,\s*workspaceOwnerId\(req\),\s*req\.workspaceKey,/);
 		assert.doesNotMatch(aiPinsSource, /req\.workspaceKey \|\| ''/);
+	});
+});
+
+describe('CR-P1-5 — consume adapters fail closed', () => {
+	it('missing/blank workspace key does not debit a wallet', async () => {
+		const consumeCalls = [];
+		const consumeFeatureCredits = async (_pb, payload) => {
+			consumeCalls.push(payload);
+			return { burned: 1, workspaceKey: payload.workspaceKey };
+		};
+		const usageFn = async () => creditUsageFromWallet(walletFixture());
+
+		for (const workspaceKey of [undefined, '', '   ']) {
+			await assert.rejects(
+				() => consumeBillableAiFeature(null, {
+					userId: 'u1',
+					workspaceKey,
+					feature: 'ai_analyze',
+					source: 'openai',
+				}, { consumeFeatureCredits }),
+				(error) => error.status === 422 && error.errorCode === 'VALIDATION_ERROR',
+			);
+			await assert.rejects(
+				() => consumeCredits(null, {
+					userId: 'u1',
+					workspaceKey,
+					ai: 1,
+					image: 0,
+				}, { consumeFeatureCredits, getUserCreditUsage: usageFn }),
+				(error) => error.status === 422 && error.errorCode === 'VALIDATION_ERROR',
+			);
+		}
+
+		assert.equal(consumeCalls.length, 0);
+	});
+
+	it('explicit workspace still consumes that workspace only', async () => {
+		const consumeCalls = [];
+		const result = await consumeBillableAiFeature(null, {
+			userId: 'u1',
+			workspaceKey: '  ws-a  ',
+			feature: 'ai_analyze',
+			source: 'openai',
+			units: 1,
+		}, {
+			consumeFeatureCredits: async (_pb, payload) => {
+				consumeCalls.push(payload);
+				return { burned: 1, workspaceKey: payload.workspaceKey };
+			},
+		});
+		assert.equal(result.workspaceKey, 'ws-a');
+		assert.equal(consumeCalls.length, 1);
+		assert.equal(consumeCalls[0].workspaceKey, 'ws-a');
+		assert.equal(consumeCalls[0].feature, 'ai_analyze');
+		assert.equal(consumeCalls[0].userId, 'u1');
+	});
+
+	it('userId present with blank workspace cannot debit a userId wallet', async () => {
+		const consumeCalls = [];
+		const consumeFeatureCredits = async (_pb, payload) => {
+			consumeCalls.push(payload);
+			return { burned: 1, workspaceKey: payload.workspaceKey };
+		};
+		await assert.rejects(
+			() => consumeBillableAiFeature(null, {
+				userId: 'user_owner',
+				workspaceKey: '',
+				feature: 'ai_image',
+				source: 'openai',
+			}, { consumeFeatureCredits }),
+			(error) => error.status === 422,
+		);
+		await assert.rejects(
+			() => consumeCredits(null, {
+				userId: 'user_owner',
+				image: 1,
+			}, {
+				consumeFeatureCredits,
+				getUserCreditUsage: async () => creditUsageFromWallet(walletFixture()),
+			}),
+			(error) => error.status === 422,
+		);
+		assert.equal(consumeCalls.length, 0);
+		assert.ok(consumeCalls.every((call) => call.workspaceKey !== 'user_owner'));
+	});
+
+	it('both legacy consume adapters fail closed', async () => {
+		const consumeCalls = [];
+		const consumeFeatureCredits = async (_pb, payload) => {
+			consumeCalls.push(payload);
+			return { burned: 1 };
+		};
+		const usageFn = async () => creditUsageFromWallet(walletFixture());
+		await assert.rejects(
+			() => consumeBillableAiFeature(null, {
+				userId: 'u1',
+				feature: 'ai_writer',
+				source: 'openai',
+			}, { consumeFeatureCredits }),
+			(error) => error.status === 422 && /workspaceKey is required/i.test(error.message),
+		);
+		await assert.rejects(
+			() => consumeCredits(null, { userId: 'u1', ai: 2 }, {
+				consumeFeatureCredits,
+				getUserCreditUsage: usageFn,
+			}),
+			(error) => error.status === 422 && /workspaceKey is required/i.test(error.message),
+		);
+		assert.equal(consumeCalls.length, 0);
+	});
+
+	it('workspace A cannot spend workspace B', async () => {
+		const consumeCalls = [];
+		await consumeBillableAiFeature(null, {
+			userId: 'owner-a',
+			workspaceKey: 'ws-a',
+			feature: 'ai_analyze',
+			source: 'openai',
+		}, {
+			consumeFeatureCredits: async (_pb, payload) => {
+				consumeCalls.push(payload);
+				return { burned: 1, workspaceKey: payload.workspaceKey };
+			},
+		});
+		await consumeCredits(null, {
+			userId: 'owner-a',
+			workspaceKey: 'ws-b',
+			image: 1,
+		}, {
+			consumeFeatureCredits: async (_pb, payload) => {
+				consumeCalls.push(payload);
+				return { burned: 1, workspaceKey: payload.workspaceKey };
+			},
+			getUserCreditUsage: async (_pb, _userId, workspaceKey) => creditUsageFromWallet(walletFixture({
+				workspaceKey,
+			})),
+		});
+		assert.equal(consumeCalls[0].workspaceKey, 'ws-a');
+		assert.equal(consumeCalls[1].workspaceKey, 'ws-b');
+		assert.ok(consumeCalls.every((call) => call.workspaceKey !== 'owner-a'));
+	});
+
+	it('heuristic/template sources remain no-ops even without a workspace key', async () => {
+		const consumeCalls = [];
+		const consumeFeatureCredits = async (_pb, payload) => {
+			consumeCalls.push(payload);
+			return { burned: 1 };
+		};
+		assert.equal(await consumeBillableAiFeature(null, {
+			userId: 'u1',
+			feature: 'ai_analyze',
+			source: 'heuristic',
+		}, { consumeFeatureCredits }), null);
+		assert.equal(await consumeBillableAiFeature(null, {
+			userId: 'u1',
+			workspaceKey: '',
+			feature: 'ai_analyze',
+			source: 'template',
+		}, { consumeFeatureCredits }), null);
+		assert.equal(consumeCalls.length, 0);
+	});
+
+	it('consume paths contain no workspaceKeyForUser or user-id wallet fallback', () => {
+		assert.doesNotMatch(creditsSource, /workspaceKeyForUser/);
+		assert.doesNotMatch(usageSource, /workspaceKeyForUser/);
+		assert.doesNotMatch(usageSource, /consumeWorkspaceKey/);
+		assert.doesNotMatch(usageSource, /workspaceKey \|\| userId/);
+		assert.doesNotMatch(creditsSource, /workspaceKeyInput \|\| ''\)\.trim\(\) \|\| workspaceKeyForUser/);
+		assert.doesNotMatch(creditsSource, /workspaceKeyForUser\(userId\)/);
+		assert.match(creditsSource, /requireExplicitWorkspaceKey\(workspaceKeyInput\)/);
+		assert.match(usageSource, /requireExplicitWorkspaceKey\(workspaceKey\)/);
+		const consumeFeatureFn = creditsSource.slice(
+			creditsSource.indexOf('export async function consumeFeatureCredits'),
+			creditsSource.indexOf('export async function consumeBillableAiFeature'),
+		);
+		assert.ok(
+			consumeFeatureFn.indexOf('requireExplicitWorkspaceKey(workspaceKeyInput)')
+				< consumeFeatureFn.indexOf('ensureWorkspaceWallet'),
+			'explicit key must be required before wallet debit',
+		);
+		assert.doesNotMatch(consumeFeatureFn, /workspaceKeyForUser/);
+		assert.match(consumeFeatureFn, /actor: userId/);
 	});
 });
