@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pocketbaseAuth } from '../../middleware/pocketbase-auth.js';
-import { requireAdmin } from '../../middleware/require-admin.js';
+import { requireAdmin, httpError } from '../../middleware/require-admin.js';
 import { attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation } from '../../middleware/product-access.js';
 import {
 	listWordpressSites,
@@ -19,7 +19,11 @@ import {
 	listPublishHistory,
 	getWordpressPublishAnalytics,
 	mapPublishJob,
+	wordpressPublishWaitJobIsVisible,
 } from '../../services/wordpress-publish.js';
+import {
+	WORDPRESS_PUBLISH_IDEMPOTENCY_WORKSPACE_REQUIRED_MESSAGE,
+} from '../../services/wordpress-publish-enqueue-idempotency.js';
 import { listWordpressApiLogs } from '../../services/wordpress-api-log.js';
 import pocketbaseClient from '../../utils/pocketbaseClient.js';
 import { getWordpressQueueStats } from '../../services/wordpress-publish-queue.js';
@@ -46,12 +50,23 @@ function sleep(ms) {
 
 /**
  * Wait briefly for queue worker so Writer UX still gets a sync-like response.
+ * Never returns a job from another workspace.
  */
-async function waitForJobResult(ownerId, jobId, { timeoutMs = 25000, intervalMs = 1000 } = {}) {
+async function waitForJobResult(req, jobId, { timeoutMs = 25000, intervalMs = 1000 } = {}) {
+	const ownerId = wordpressJobOwner(req);
+	const workspaceId = String(req.workspace?.id || '').trim();
+	if (!workspaceId) {
+		throw httpError(
+			422,
+			WORDPRESS_PUBLISH_IDEMPOTENCY_WORKSPACE_REQUIRED_MESSAGE,
+			'WORDPRESS_PUBLISH_IDEMPOTENCY_WORKSPACE_REQUIRED',
+		);
+	}
+
 	const started = Date.now();
 	while (Date.now() - started < timeoutMs) {
 		const job = await pocketbaseClient.collection('publish_jobs').getOne(jobId).catch(() => null);
-		if (!job || job.owner !== ownerId) break;
+		if (!wordpressPublishWaitJobIsVisible(job, { ownerId, workspaceId })) break;
 		if (job.status === 'published') {
 			return {
 				ok: true,
@@ -71,7 +86,7 @@ async function waitForJobResult(ownerId, jobId, { timeoutMs = 25000, intervalMs 
 		await sleep(intervalMs);
 	}
 
-	const job = await getPublishJob(ownerId, jobId);
+	const job = await getPublishJob(ownerId, jobId, req);
 	return {
 		ok: true,
 		queued: true,
@@ -243,7 +258,7 @@ router.post('/publish', async (req, res) => {
 		status: req.body?.status || 'publish',
 	});
 	try {
-		const result = await waitForJobResult(wordpressJobOwner(req), job.id);
+		const result = await waitForJobResult(req, job.id);
 		res.status(result.queued ? 202 : 200).json(result);
 	} catch (error) {
 		respondWordpressApiError(res, error, {
