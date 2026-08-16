@@ -368,6 +368,24 @@ export async function processNativeJob(job) {
 			await updateQueueJob(job.id, { progress: 90, outputs: result });
 			return completeNativeJob(job, result);
 		}
+		case 'export':
+		case 'template_rendering': {
+			const payload = job.payload && typeof job.payload === 'object' ? job.payload : {};
+			const meta = job.meta && typeof job.meta === 'object' ? job.meta : {};
+			const isTemplatePixelExport = payload.kind === 'template_pixel_export'
+				|| meta.module === 'template_export';
+			if (!isTemplatePixelExport) {
+				throw new Error(`NOT_IMPLEMENTED: ${job.type} worker is not configured`);
+			}
+			const { processClaimedTemplateExportJob } = await import('../template-export-credits.js');
+			const result = await processClaimedTemplateExportJob(job, {
+				getWorkspace: async (workspaceId) => (
+					pocketbaseClient.collection('workspaces').getOne(workspaceId).catch(() => null)
+				),
+			});
+			await updateQueueJob(job.id, { progress: 90, outputs: result });
+			return completeNativeJob(job, result);
+		}
 		default:
 			throw new Error(`Unsupported native job type: ${job.type}`);
 	}

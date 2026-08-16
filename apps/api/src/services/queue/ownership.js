@@ -66,6 +66,8 @@ export const NATIVE_ENGINE = Object.freeze({
 		'media_upload',
 		'analytics_refresh',
 		'health_check',
+		'export',
+		'template_rendering',
 	]),
 });
 

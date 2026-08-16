@@ -32,6 +32,8 @@ async function registerFleet() {
 			'media_upload',
 			'analytics_refresh',
 			'health_check',
+			'export',
+			'template_rendering',
 		],
 		concurrency: BATCH,
 		timeoutMs: 10 * 60 * 1000,
@@ -69,6 +71,8 @@ async function tick() {
 				'media_upload',
 				'analytics_refresh',
 				'health_check',
+				'export',
+				'template_rendering',
 			],
 			concurrency: BATCH,
 		});

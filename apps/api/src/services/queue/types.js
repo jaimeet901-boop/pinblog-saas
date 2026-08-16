@@ -31,6 +31,8 @@ export const NATIVE_JOB_TYPES = [
 	'media_upload',
 	'analytics_refresh',
 	'health_check',
+	'export',
+	'template_rendering',
 ];
 
 export const ACTIVE_STATUSES = ['pending', 'queued', 'waiting', 'waiting_provider', 'running', 'retrying', 'paused'];
