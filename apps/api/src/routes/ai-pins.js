@@ -8,7 +8,14 @@ import { listWebsiteArticles } from '../services/website-article-discovery.js';
 import { sanitizeCollectionPayload } from '../utils/pocketbase-safe-query.js';
 import { analyzeArticleForPin, generateImagePromptForPin, PIN_STYLES } from '../services/ai-pin-analysis.js';
 import { normalizeStudioPromptChannel, resolvePromptPackForRequest } from '../services/studio/prompt-packs.js';
-import { consumeBillableAiFeature, getUserCreditUsage, recordGenerationHistory } from '../services/ai-pin-credits.js';
+import { getUserCreditUsage, recordGenerationHistory } from '../services/ai-pin-credits.js';
+import { isBillableAiResultSource } from '../services/ai-billing-policy.js';
+import {
+	ANALYZE_CREDIT_FEATURE,
+	PROMPT_CREDIT_FEATURE,
+	withAnalyzeAndPromptCredits,
+	withPinTextFeatureCredits,
+} from '../services/ai-pin-text-credits.js';
 import { userSafeTextError } from '../services/ai-user-safe-errors.js';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { uploadFiles } from '../middleware/file-upload.js';
@@ -378,22 +385,43 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 
 	const article = mapArticle(articleRecord);
 	const promptPack = await resolvePromptPackForRequest({ channel });
-	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
-		ownerId,
-		source: 'ai_pins.analyze',
-		message: 'AI analysis started',
-		force: true,
-	});
 	let analysis;
 	try {
-		analysis = await analyzeArticleForPin({
-			owner: ownerId,
-			article,
-			style,
-			channel,
-			promptPack,
+		analysis = await withPinTextFeatureCredits({
+			workspaceKey: req.workspaceKey,
+			feature: ANALYZE_CREDIT_FEATURE,
+			actorUserId: req.pocketbaseUserId,
+			referenceId: articleId,
+			idempotencyKey: typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey : '',
+			reason: 'AI pin analysis',
+			metadata: { route: 'ai-pins/analyze', style, channel },
+			wallet: {
+				workspaceName: req.workspace?.name || String(req.workspaceKey ?? '').trim(),
+				ownerEmail: req.workspaceUser?.email || req.pocketbaseUser?.email || '',
+				planSlug: req.workspaceSubscription?.expand?.plan?.slug
+					|| req.workspace?.plan_slug
+					|| req.workspaceUser?.plan
+					|| 'free',
+			},
+		}, async () => {
+			await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
+				ownerId,
+				source: 'ai_pins.analyze',
+				message: 'AI analysis started',
+				force: true,
+			});
+			return analyzeArticleForPin({
+				owner: ownerId,
+				article,
+				style,
+				channel,
+				promptPack,
+			});
 		});
 	} catch (error) {
+		if (error?.status === 402 || error?.status === 422 || error?.status === 409) {
+			throw error;
+		}
 		logger.error('AI pin analysis failed', { message: error?.message });
 		await safeTransitionArticleLifecycle(articleId, 'FAILED', {
 			ownerId,
@@ -406,15 +434,7 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		throw httpError(503, userSafeTextError());
 	}
 
-	const charged = await consumeBillableAiFeature(pocketbaseClient, {
-		userId: req.pocketbaseUserId,
-		workspaceKey: req.workspaceKey,
-		feature: 'ai_analyze',
-		source: analysis?.source,
-		reason: 'AI pin analysis',
-		referenceId: articleId,
-		metadata: { route: 'ai-pins/analyze', style, channel },
-	});
+	const charged = isBillableAiResultSource(analysis?.source);
 
 	await recordGenerationHistory(pocketbaseClient, stampCreateOwnership(req, {
 		owner: ownerId,
@@ -462,32 +482,68 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 
 	const article = mapArticle(articleRecord);
 	const promptPack = await resolvePromptPackForRequest({ channel });
-	await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
-		ownerId,
-		source: 'ai_pins.prompts',
-		message: 'AI prompt generation started',
-		force: true,
-	});
 	const analysisProvided = Boolean(analysis);
 	let resolvedAnalysis;
 	let promptResult;
 	try {
-		resolvedAnalysis = analysis || await analyzeArticleForPin({
-			owner: ownerId,
-			article,
-			style,
-			channel,
-			promptPack,
+		let lifecycleStarted = false;
+		const startPromptLifecycle = async () => {
+			if (lifecycleStarted) return;
+			lifecycleStarted = true;
+			await safeTransitionArticleLifecycle(articleId, 'AI_GENERATING', {
+				ownerId,
+				source: 'ai_pins.prompts',
+				message: 'AI prompt generation started',
+				force: true,
+			});
+		};
+		const creditWallet = {
+			workspaceName: req.workspace?.name || String(req.workspaceKey ?? '').trim(),
+			ownerEmail: req.workspaceUser?.email || req.pocketbaseUser?.email || '',
+			planSlug: req.workspaceSubscription?.expand?.plan?.slug
+				|| req.workspace?.plan_slug
+				|| req.workspaceUser?.plan
+				|| 'free',
+		};
+		const rawIdempotency = typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey.trim() : '';
+		const out = await withAnalyzeAndPromptCredits({
+			analysisProvided,
+			workspaceKey: req.workspaceKey,
+			actorUserId: req.pocketbaseUserId,
+			referenceId: articleId,
+			analyzeIdempotencyKey: rawIdempotency ? `${rawIdempotency}:analyze` : '',
+			promptIdempotencyKey: rawIdempotency ? `${rawIdempotency}:prompt` : '',
+			analyzeMetadata: { route: 'ai-pins/prompts', style, channel },
+			promptMetadata: { route: 'ai-pins/prompts', style, channel },
+			wallet: creditWallet,
+			runAnalyze: async () => {
+				await startPromptLifecycle();
+				return analyzeArticleForPin({
+					owner: ownerId,
+					article,
+					style,
+					channel,
+					promptPack,
+				});
+			},
+			runPrompt: async (resolved) => {
+				await startPromptLifecycle();
+				return generateImagePromptForPin({
+					owner: ownerId,
+					article,
+					analysis: resolved || analysis,
+					style,
+					channel,
+					promptPack,
+				});
+			},
 		});
-		promptResult = await generateImagePromptForPin({
-			owner: ownerId,
-			article,
-			analysis: resolvedAnalysis,
-			style,
-			channel,
-			promptPack,
-		});
+		resolvedAnalysis = analysisProvided ? analysis : out.resolvedAnalysis;
+		promptResult = out.promptResult;
 	} catch (error) {
+		if (error?.status === 402 || error?.status === 422 || error?.status === 409) {
+			throw error;
+		}
 		logger.error('AI pin prompt generation failed', { message: error?.message });
 		await safeTransitionArticleLifecycle(articleId, 'FAILED', {
 			ownerId,
@@ -500,29 +556,8 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		throw httpError(503, userSafeTextError());
 	}
 
-	let analyzeCharged = null;
-	if (!analysisProvided) {
-		analyzeCharged = await consumeBillableAiFeature(pocketbaseClient, {
-			userId: req.pocketbaseUserId,
-			workspaceKey: req.workspaceKey,
-			feature: 'ai_analyze',
-			source: resolvedAnalysis?.source,
-			reason: 'AI pin analysis (during prompt)',
-			referenceId: articleId,
-			metadata: { route: 'ai-pins/prompts', style, channel },
-		});
-	}
-
-	const promptCharged = await consumeBillableAiFeature(pocketbaseClient, {
-		userId: req.pocketbaseUserId,
-		workspaceKey: req.workspaceKey,
-		feature: 'ai_prompt',
-		source: promptResult?.source,
-		reason: 'AI image prompt generation',
-		referenceId: articleId,
-		metadata: { route: 'ai-pins/prompts', style: promptResult?.style || style, channel },
-	});
-
+	const analyzeCharged = !analysisProvided && isBillableAiResultSource(resolvedAnalysis?.source);
+	const promptCharged = isBillableAiResultSource(promptResult?.source);
 	const aiCreditsUsed = (analyzeCharged ? 1 : 0) + (promptCharged ? 1 : 0);
 
 	await recordGenerationHistory(pocketbaseClient, stampCreateOwnership(req, {
