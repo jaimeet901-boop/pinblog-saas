@@ -155,22 +155,6 @@ export async function continueChefIaPublishWorkflow({
 
 	await enqueueAnalyticsRefresh(ownerId, { workspaceKey }).catch(() => null);
 
-	if (historyResult === 'published' || historyResult === 'scheduled') {
-		const { consumeFeatureCredits } = await import('./ai-pin-credits.js');
-		await consumeFeatureCredits(null, {
-			userId: ownerId,
-			workspaceKey: job.workspace_key || job.workspaceKey || '',
-			feature: 'wordpress_publish',
-			units: 1,
-			reason: `WordPress ${historyResult}`,
-			referenceId: job.id,
-			idempotencyKey: `wp-publish:${job.id}`,
-			metadata: { workflowId, historyResult },
-		}).catch((error) => {
-			logger.warn('WordPress publish credit burn skipped', { message: error?.message || String(error) });
-		});
-	}
-
 	if (!shouldEnqueuePinterest(job)) {
 		await logWorkflowStep({
 			ownerId,

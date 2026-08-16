@@ -19,6 +19,7 @@ import {
 	extractWordpressErrorCode,
 	withPublishJobFailurePayload,
 } from './wordpress-errors.js';
+import { withWordpressPublishCredits } from './wordpress-publish-credits.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.WORDPRESS_QUEUE_POLL_MS || '10000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.WORDPRESS_QUEUE_BATCH || '5', 10);
@@ -234,7 +235,7 @@ async function processJob(job) {
 
 	const updatePostId = resolveWordpressUpdatePostId(job);
 	const contentType = job.payload?.contentType === 'page' ? 'page' : 'post';
-	const result = await createOrUpdateWordpressPost({
+	const result = await withWordpressPublishCredits(job, async () => createOrUpdateWordpressPost({
 		url: site.url,
 		username,
 		appPassword,
@@ -255,6 +256,10 @@ async function processJob(job) {
 		recipeCard: job.recipe_card || null,
 		contentType,
 		logContext,
+	}), {
+		getWorkspace: async (workspaceId) => (
+			pocketbaseClient.collection('workspaces').getOne(workspaceId).catch(() => null)
+		),
 	});
 
 	await persistWordpressPostIdentity(job.id, result.id, result.link, 70);

@@ -46,10 +46,12 @@ describe('wordpress publish retry idempotency (P1-6)', () => {
 
 	it('persists wp_post_id immediately after WordPress create (source)', () => {
 		const source = readFileSync(path.join(root, 'apps/api/src/services/wordpress-publish-queue.js'), 'utf8');
-		const createIdx = source.indexOf('const result = await createOrUpdateWordpressPost({');
+		const wrapIdx = source.indexOf('withWordpressPublishCredits(job,');
+		const createIdx = source.indexOf('createOrUpdateWordpressPost({');
 		const persistIdx = source.indexOf('await persistWordpressPostIdentity(job.id, result.id, result.link');
 		const historyIdx = source.indexOf('await writePublishHistory({', createIdx);
-		assert.ok(createIdx >= 0);
+		assert.ok(wrapIdx >= 0);
+		assert.ok(createIdx > wrapIdx);
 		assert.ok(persistIdx > createIdx);
 		assert.ok(historyIdx > persistIdx);
 	});
