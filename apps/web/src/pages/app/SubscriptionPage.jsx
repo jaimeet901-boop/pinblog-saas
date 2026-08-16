@@ -22,6 +22,17 @@ import {
 	isSubscriptionCanceled,
 	mapSubscriptionCancelError,
 } from '@/lib/subscriptionCancel';
+import {
+	CREDIT_PACK_PURCHASE_PATH,
+	CREDIT_PACKS_PATH,
+	PAYPAL_CREDIT_PACK_UNAVAILABLE_MESSAGE,
+	buildCreditPackPurchaseBody,
+	canBuyCreditPack,
+	creditPackPurchaseHiddenReason,
+	describeCreditPackPurchaseFailure,
+	listCreditPackItems,
+	resolveCreditPackCheckoutUrl,
+} from '@/lib/creditPackPurchase';
 import { Badge, Button, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -195,6 +206,7 @@ export default function SubscriptionPage() {
 	const [billingInterval, setBillingInterval] = useState('monthly');
 	const [billingUnavailableOpen, setBillingUnavailableOpen] = useState(false);
 	const [credits, setCredits] = useState({ balance: 0, quota: 0, used: 0, remaining: 0 });
+	const [creditPacks, setCreditPacks] = useState({ items: [] });
 	const [usage, setUsage] = useState({
 		articles: 0,
 		images: 0,
@@ -294,6 +306,7 @@ export default function SubscriptionPage() {
 		setBilling(payload.billing || null);
 		setPlans((payload.plans || []).map(mapPlanCard));
 		setCredits(payload.credits || { balance: 0, quota: 0, used: 0, remaining: 0 });
+		setCreditPacks(payload.creditPacks || { items: [] });
 		const totals = payload.usage?.totals || {};
 		setUsage({
 			articles: totals.articles || 0,
@@ -314,6 +327,13 @@ export default function SubscriptionPage() {
 				throw new Error(payload.message || 'Failed to load subscription');
 			}
 			applySubscriptionPayload(payload);
+			const packsResponse = await apiServerClient.fetch(CREDIT_PACKS_PATH, { method: 'GET' });
+			if (packsResponse.ok) {
+				const packsPayload = await packsResponse.json().catch(() => null);
+				if (packsPayload && typeof packsPayload === 'object') {
+					setCreditPacks(packsPayload);
+				}
+			}
 		} catch (err) {
 			toast({ variant: 'destructive', title: 'Error', description: err?.message || 'Failed to load subscription' });
 			setUsage({
@@ -461,6 +481,62 @@ export default function SubscriptionPage() {
 	const cancelScheduled = isCancelScheduled(subscription);
 	const showPaddleCancel = canShowSubscriptionCancel(subscription);
 	const accessUntilCopy = accessContinuesUntilMessage(subscription?.currentPeriodEnd);
+	const packItems = listCreditPackItems(creditPacks);
+	const showPackBuy = canBuyCreditPack(billing);
+	const packBuyReason = creditPackPurchaseHiddenReason(billing);
+
+	const buyCreditPack = async (packId) => {
+		if (!canBuyCreditPack(billing)) return;
+		const origin = typeof window !== 'undefined' ? window.location.origin : '';
+		const body = buildCreditPackPurchaseBody(packId, origin);
+		if (!body.packId) return;
+
+		setBusy(`pack:${body.packId}`);
+		try {
+			const response = await apiServerClient.fetch(CREDIT_PACK_PURCHASE_PATH, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				toast({
+					variant: 'destructive',
+					title: 'Purchase unavailable',
+					description: payload.message || 'Could not start credit pack checkout.',
+				});
+				return;
+			}
+
+			const checkout = resolveCreditPackCheckoutUrl(payload);
+			if (checkout.ok) {
+				window.location.assign(checkout.checkoutUrl);
+				return;
+			}
+
+			if (payload.status === 'fulfilled') {
+				await loadUsage();
+				toast({
+					title: 'Credits added',
+					description: 'Your credit balance has been updated.',
+				});
+				return;
+			}
+
+			toast({
+				title: 'Checkout unavailable',
+				description: describeCreditPackPurchaseFailure(payload),
+			});
+		} catch (err) {
+			toast({
+				variant: 'destructive',
+				title: 'Error',
+				description: err?.message || 'Could not start credit pack checkout.',
+			});
+		} finally {
+			setBusy(null);
+		}
+	};
 
 	const cancelWorkspacePlan = async () => {
 		const confirmed = window.confirm(
@@ -740,6 +816,53 @@ export default function SubscriptionPage() {
 								);
 							})}
 						</div>
+					</section>
+
+					<section className="bill-panel" id="bill-credit-packs">
+						<div className="bill-panel__head">
+							<div className="bill-panel__title">
+								<span className="bill-panel__icon"><Coins size={14} /></span>
+								Credit packs
+							</div>
+						</div>
+						{packItems.length === 0 ? (
+							<div className="bill-empty">
+								<p className="font-semibold">No credit packs available</p>
+								<p className="mt-1 text-sm text-muted-foreground">
+									Credit packs will appear here when they are configured for this workspace.
+								</p>
+							</div>
+						) : (
+							<>
+								{packBuyReason === 'paypal_stub' ? (
+									<p className="mb-3 text-sm text-muted-foreground">
+										{PAYPAL_CREDIT_PACK_UNAVAILABLE_MESSAGE}
+									</p>
+								) : null}
+								{packBuyReason === 'checkout_disabled' ? (
+									<p className="mb-3 text-sm text-muted-foreground">
+										Checkout is disabled. Credit packs cannot be purchased until checkout is enabled.
+									</p>
+								) : null}
+								<div className="bill-plans">
+									{packItems.map((pack) => (
+										<div key={pack.id} className="bill-plan">
+											<h3 className="font-display text-xl font-semibold">{pack.name}</h3>
+											<p className="bill-plan__price">${pack.price}</p>
+											<p className="text-xs text-muted-foreground">{pack.credits} credits</p>
+											{showPackBuy ? (
+												<Button
+													disabled={Boolean(busy)}
+													onClick={() => buyCreditPack(pack.id)}
+												>
+													{busy === `pack:${pack.id}` ? 'Processing…' : 'Buy'}
+												</Button>
+											) : null}
+										</div>
+									))}
+								</div>
+							</>
+						)}
 					</section>
 
 					<section className="bill-panel">
