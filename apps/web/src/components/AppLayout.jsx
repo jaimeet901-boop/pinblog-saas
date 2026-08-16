@@ -32,6 +32,7 @@ const NAV = [
 	{ to: '/app/facebook-history', label: 'Facebook History', icon: Facebook, needsWebsite: true, section: 'Publishing' },
 	{ to: '/app/wordpress-history', label: 'WordPress History', icon: FileText, needsWebsite: true, section: 'Publishing' },
 	{ to: '/app/ai-pins/history', label: 'Pin History', icon: History, needsWebsite: true },
+	{ to: '/app/ai-facebook-pages/history', label: 'Facebook Post History', icon: History, needsWebsite: true },
 	{ to: '/app/analytics', label: 'Analytics', icon: BarChart3, needsWebsite: true },
 	{ to: '/app/subscription', label: 'Subscription', icon: CreditCard },
 	{ to: '/app/settings', label: 'Settings', icon: Settings },

@@ -31,6 +31,10 @@ import {
 	getWorkspaceOwnedRecord,
 	assertWorkspaceOwnedRecord,
 } from '../services/workspace-ownership.js';
+import {
+	parseGenerationHistoryChannel,
+	buildGenerationHistoryChannelFilter,
+} from '../services/ai-pin-generation-history-query.js';
 
 const router = Router();
 const MAX_REFERENCE_IMAGES = 6;
@@ -607,12 +611,15 @@ router.get('/history', async (req, res) => {
 
 	const page = normalizePositiveInt(req.query.page, 1);
 	const perPage = Math.min(normalizePositiveInt(req.query.perPage, 20), 100);
+	const channel = parseGenerationHistoryChannel(req.query.channel);
+	const extraFilter = buildGenerationHistoryChannelFilter(channel);
 
 	try {
 		const result = await listWorkspaceResources('ai_pin_generation_history', req, {
 			page,
 			perPage,
 			sort: '-created',
+			extraFilter,
 		});
 		res.json({
 			items: result.items.map((item) => ({
@@ -637,6 +644,9 @@ router.get('/history', async (req, res) => {
 			totalItems: result.totalItems,
 		});
 	} catch (error) {
+		if (error?.status === 422 || error?.errorCode === 'VALIDATION_ERROR') {
+			throw error;
+		}
 		logger.warn('AI pin history unavailable', { message: error?.message || null });
 		res.json({ items: [], page: 1, perPage, totalPages: 0, totalItems: 0 });
 	}
@@ -1188,7 +1198,10 @@ router.patch('/pins/:pinId/editor', async (req, res) => {
 		prompt: updated.image_prompt || '',
 		image_url: updated.image_url || '',
 		analysis: updated.analysis || null,
-		metadata: { editor_state: updated.editor_state || null },
+		metadata: {
+			editor_state: updated.editor_state || null,
+			channel: normalizeStudioPromptChannel(req.body?.channel),
+		},
 		ai_credits_used: 0,
 		image_credits_used: 0,
 	}));

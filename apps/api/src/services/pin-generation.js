@@ -17,6 +17,7 @@ import {
 } from '../constants/pin-generation.js';
 import { assertTemplateUseAccess } from './plan-access-guard.js';
 import { userSafeImageError } from './ai-user-safe-errors.js';
+import { resolveGenerationHistoryWriteChannel } from './ai-pin-generation-history-query.js';
 
 function deepClone(value) {
 	return JSON.parse(JSON.stringify(value ?? null));
@@ -258,6 +259,10 @@ export async function createGenerationRun(req, body = {}) {
 			imageMode,
 			exportProfileId,
 			outputFormat,
+			channel: resolveGenerationHistoryWriteChannel({
+				channel: body.channel,
+				exportProfileId,
+			}),
 		},
 	});
 
@@ -406,6 +411,10 @@ export async function completeGenerationRun(req, id, body = {}) {
 			runId: record.id,
 			stage: 'completed',
 			imageUrl: result.imageUrl,
+			channel: resolveGenerationHistoryWriteChannel({
+				channel: body.channel,
+				exportProfileId: body.exportProfileId || body.profileId || record.export_profile_id,
+			}),
 		},
 	});
 
@@ -470,6 +479,10 @@ export async function failGenerationRun(req, id, body = {}) {
 			module: 'pin_generation',
 			runId: record.id,
 			errorCode: code,
+			channel: resolveGenerationHistoryWriteChannel({
+				channel: body.channel,
+				exportProfileId: body.exportProfileId || body.profileId || record.export_profile_id,
+			}),
 		},
 	});
 

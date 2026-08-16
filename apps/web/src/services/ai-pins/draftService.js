@@ -457,6 +457,7 @@ export async function updateDraftPin({
 	boards = [],
 	analysis = null,
 	panel = {},
+	channel,
 }) {
 	const readyPin = await ensureHostedImageForPin(pin);
 	const selectedAccount = accounts.find((account) => account.id === readyPin.accountId);
@@ -491,6 +492,7 @@ export async function updateDraftPin({
 			pinterestBoardName: selectedBoard?.name || readyPin.boardName || '',
 			scheduledAt: readyPin.scheduledAt || '',
 			scheduledTimezone: readyPin.scheduledTimezone || '',
+			...(channel ? { channel } : {}),
 			...toTemplateEditorPatch(readyPin),
 		}),
 	});

@@ -21,6 +21,7 @@ import { buildBackgroundImagePrompt } from './ai-pin-background-prompt.js';
 import {
 	resolveImageGenerationTargetFromPayload,
 } from './image-generation-target.js';
+import { resolveGenerationHistoryWriteChannel } from './ai-pin-generation-history-query.js';
 
 function parsePositiveIntMs(raw, fallback) {
 	const parsed = Number.parseInt(String(raw ?? '').trim(), 10);
@@ -463,6 +464,10 @@ async function processJob(job) {
 			provider,
 			jobId: job.id,
 			model: generated.model || '',
+			channel: resolveGenerationHistoryWriteChannel({
+				channel: promptPayload.channel,
+				exportProfileId: promptPayload.exportProfileId,
+			}),
 		},
 		ai_credits_used: 0,
 		image_credits_used: 1,

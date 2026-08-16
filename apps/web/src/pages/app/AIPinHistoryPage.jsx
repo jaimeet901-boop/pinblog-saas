@@ -138,7 +138,11 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 	const load = async () => {
 		setLoading(true);
 		try {
-			const response = await apiServerClient.fetch(`/ai-pins/history?page=${page}&perPage=20`, { method: 'GET' });
+			const historyQuery = new URLSearchParams({ page: String(page), perPage: '20' });
+			if (product.destinationId === 'facebook') {
+				historyQuery.set('channel', 'facebook');
+			}
+			const response = await apiServerClient.fetch(`/ai-pins/history?${historyQuery}`, { method: 'GET' });
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(payload?.message || 'Failed to load history');

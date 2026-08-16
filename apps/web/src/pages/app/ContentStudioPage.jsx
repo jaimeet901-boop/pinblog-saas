@@ -2069,6 +2069,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				boards: candidateBoards,
 				analysis,
 				panel,
+				channel: studioChannel,
 			});
 			setSavedPins((prev) => prev.map((item) => (item.id === pin.id ? { ...item, ...next } : item)));
 			setEditingPinId('');
