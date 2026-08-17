@@ -61,6 +61,7 @@ import {
 	normalizeImageSourceStrategy,
 	pickArticleImageUrl,
 	planImageSource,
+	resolveGenerateImageMode,
 	IMAGE_SOURCE_STRATEGY,
 } from '@/lib/imageSourceStrategy';
 import {
@@ -1446,13 +1447,20 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				};
 			});
 
-			if (imageSourceStrategy === IMAGE_SOURCE_STRATEGY.ALWAYS_FEATURED) {
+			const featuredRequested = resolveGenerateImageMode({
+				qualityImageMode: quality?.imageMode,
+				panelImageMode: workingPanel.imageMode,
+				planImageMode: imageSourceStrategy === IMAGE_SOURCE_STRATEGY.ALWAYS_FEATURED
+					? 'use_featured'
+					: 'generate_ai',
+			}) === 'use_featured';
+			if (featuredRequested) {
 				const missing = targets.filter((article) => !pickArticleImageUrl(article));
 				if (missing.length > 0) {
 					toast({
 						variant: 'destructive',
 						title: 'Article image required',
-						description: `${missing.length} article(s) have no featured or content image. Always Featured Image requires an article image for AI fallback.`,
+						description: `${missing.length} article(s) have no featured or content image. Featured Image requires an article image.`,
 					});
 					return;
 				}
@@ -1507,10 +1515,16 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 					strategy: imageSourceStrategy,
 					articleImageUrl: sourceImageUrl,
 				});
+				const selectedImageMode = resolveGenerateImageMode({
+					qualityImageMode: quality?.imageMode,
+					panelImageMode: workingPanel.imageMode,
+					planImageMode: imagePlan.imageMode,
+				});
+				const useFeaturedImage = selectedImageMode === 'use_featured';
 				const fallbackImageOrigin = String(resolved?.source || '') === 'body' ? 'body' : 'featured';
 				const articlePanel = {
 					...workingPanel,
-					imageMode: 'generate_ai',
+					imageMode: selectedImageMode,
 				};
 
 				setBulkProgress({
@@ -1523,7 +1537,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				const generatedPins = Array.isArray(copyResult?.pins) ? copyResult.pins : [];
 				const copyMeta = copyResult?.meta || {
 					copySource: copyResult?.copySource || '',
-					imageSource: copyResult?.imageSource || (imagePlan.useAi ? 'ai' : 'featured'),
+					imageSource: copyResult?.imageSource || (useFeaturedImage ? 'featured' : (imagePlan.useAi ? 'ai' : 'featured')),
 					fallbackReason: copyResult?.fallbackReason ?? null,
 				};
 				if (copyMeta.copySource === PIN_COPY_SOURCE.LOCAL_TEXT_FALLBACK) {
@@ -1596,21 +1610,21 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						sourceUrl: articleUrl,
 						articleUrl,
 						destinationUrl: articleUrl,
-						imageOrigin: 'ai',
+						imageOrigin: useFeaturedImage ? fallbackImageOrigin : 'ai',
 						fallbackImageOrigin,
 						// Operational persistence value (draft/API). Analytics kind lives on generationMeta.imageSource.
-						imageSource: 'ai_generated',
+						imageSource: useFeaturedImage ? 'featured' : 'ai_generated',
 						copySource: copyMeta.copySource,
 						fallbackReason: copyMeta.fallbackReason,
 						generationMeta: {
 							copySource: copyMeta.copySource,
-							imageSource: copyMeta.imageSource,
+							imageSource: useFeaturedImage ? 'featured' : copyMeta.imageSource,
 							fallbackReason: copyMeta.fallbackReason,
 						},
-						imageGenerationStatus: 'processing',
+						imageGenerationStatus: useFeaturedImage ? 'composing' : 'processing',
 						imageGenerationError: '',
 						imageJobId: '',
-						imageMode: 'generate_ai',
+						imageMode: selectedImageMode,
 						imagePlan,
 						imageSourceStrategy,
 						style: workingPanel.style,
@@ -1634,10 +1648,6 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			setGeneratedPreviewPins(generatedRecords);
 			setSelectedPreviewTempId(generatedRecords[0]?.tempId || '');
 			setEditingPinId('');
-			setPanel((prev) => ({
-				...prev,
-				imageMode: 'generate_ai',
-			}));
 			if (gallerySelectionActive || selectedTemplateId) {
 				trackProductEvent(
 					PRODUCT_EVENTS.TEMPLATE_GENERATED,
@@ -1652,9 +1662,16 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			if (usedLocalTextFallback) {
 				toast({
 					title: 'Using local pin copy',
-					description: localTextFallbackReason
-						? 'AI generation is temporarily unavailable. Pin copy was generated from the article; images are generating in the background.'
-						: 'AI generation is temporarily unavailable. Pin copy was generated from the article; images are generating in the background.',
+					description: featuredRequested
+						? 'AI copy is temporarily unavailable. Pin copy was generated from the article; pins are composed from the article image.'
+						: (localTextFallbackReason
+							? 'AI generation is temporarily unavailable. Pin copy was generated from the article; images are generating in the background.'
+							: 'AI generation is temporarily unavailable. Pin copy was generated from the article; images are generating in the background.'),
+				});
+			} else if (featuredRequested) {
+				toast({
+					title: 'Preview ready',
+					description: 'Pin copy is ready. Pins are composed from the article image; no AI image credit is used.',
 				});
 			} else {
 				toast({

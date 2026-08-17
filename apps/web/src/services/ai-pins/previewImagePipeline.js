@@ -3,10 +3,12 @@
  * Image provider selection, job queue, polling, fallback, and compose live here.
  * Text copy is resolved separately (aiPinsPinCopy); this module never chooses copy.
  *
- * Article images are fallback-only (AI failure / timeout / quota / unavailable).
+ * Featured / Always Featured (imageMode use_featured) composes the article image
+ * and does not enqueue AI image jobs. Article images remain fallback-only for
+ * generate_ai jobs that fail, time out, or are unavailable.
  */
 
-import { listArticleImageCandidates } from '@/lib/imageSourceStrategy';
+import { listArticleImageCandidates, pinsNeedingAiImageJobs } from '@/lib/imageSourceStrategy';
 import { composeAndUploadFeaturedPins } from '@/services/ai-pins/featuredComposeService';
 import { withUpdatedImageSourceMeta } from '@/lib/aiPinsPinCopy';
 
@@ -140,6 +142,25 @@ export function mapComposeResultToPinPatch(pin, input, result) {
 		};
 	}
 
+	if (input._featuredDirect) {
+		return {
+			...pin,
+			imageUrl: result.imageUrl,
+			imageSource: 'featured_composed',
+			imageOrigin: pin.fallbackImageOrigin || 'featured',
+			generationMeta: withUpdatedImageSourceMeta(
+				pin.generationMeta || {
+					copySource: pin.copySource,
+					fallbackReason: pin.fallbackReason,
+				},
+				'featured_composed',
+			),
+			imageGenerationStatus: 'completed',
+			imageGenerationError: result.hosted === false ? (result.error || '') : '',
+			imageJobId: '',
+		};
+	}
+
 	const usedFallback = input._usedArticleFallback || input._aiStatus === 'fallback';
 	return {
 		...pin,
@@ -160,6 +181,23 @@ export function mapComposeResultToPinPatch(pin, input, result) {
 	};
 }
 
+export function buildDirectFeaturedComposeInputs(pins = []) {
+	return pins.map((pin) => {
+		const articleCandidates = listArticleImageCandidates(pin);
+		const background = articleCandidates[0] || String(pin?.featuredImage || pin?.sourceImageUrl || '').trim();
+		return {
+			...pin,
+			featuredImage: background,
+			contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
+			_featuredDirect: true,
+			_usedArticleFallback: false,
+			_aiStatus: 'skipped',
+			_aiError: '',
+			_hasArticleCandidates: articleCandidates.length > 0 || Boolean(background),
+		};
+	});
+}
+
 export async function queuePreviewImageJobs({
 	fetchFn,
 	pins,
@@ -170,6 +208,11 @@ export async function queuePreviewImageJobs({
 		return [];
 	}
 
+	const aiPins = pinsNeedingAiImageJobs(pins);
+	if (aiPins.length === 0) {
+		return [];
+	}
+
 	const normalizedChannel = String(channel || '').trim();
 	const normalizedExportProfileId = String(exportProfileId || '').trim();
 
@@ -177,7 +220,7 @@ export async function queuePreviewImageJobs({
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
-			items: pins.map((pin) => ({
+			items: aiPins.map((pin) => ({
 				clientToken: pin.tempId,
 				articleId: pin.articleId,
 				title: pin.title,
@@ -244,7 +287,7 @@ export async function pollPreviewImageJobs({
 }
 
 /**
- * Full image pipeline: queue → poll → fallback compose → template overlay.
+ * Full image pipeline: featured compose and/or queue → poll → fallback compose.
  * Returns pin patches for the UI layer to apply.
  */
 export async function runPreviewImagePipeline({
@@ -260,10 +303,58 @@ export async function runPreviewImagePipeline({
 		return { pinPatches: [], pollTimedOut: false, lastResort: null };
 	}
 
+	const aiPins = pinsNeedingAiImageJobs(pins);
+	const featuredPins = pins.filter((pin) => !aiPins.includes(pin));
 	const pinPatches = [];
+
+	const applyComposeGroup = async (composeInputs, sourcePins, missedError) => {
+		const withBackground = composeInputs.filter((pin) => pin.featuredImage || pin._hasArticleCandidates);
+		const withoutBackground = composeInputs.filter((pin) => !pin.featuredImage && !pin._hasArticleCandidates);
+		for (const missed of withoutBackground) {
+			pinPatches.push({
+				tempId: missed.tempId,
+				patch: {
+					imageUrl: '',
+					imageGenerationStatus: 'failed',
+					imageGenerationError: missed._aiError || missedError,
+				},
+			});
+		}
+		if (withBackground.length === 0) {
+			return;
+		}
+		const composed = await composeAndUploadFeaturedPins(withBackground, {
+			brandKit,
+			exportProfileId,
+		});
+		for (const input of withBackground) {
+			const result = composed.find((item) => item.tempId === input.tempId);
+			const basePin = sourcePins.find((item) => item.tempId === input.tempId) || {};
+			pinPatches.push({
+				tempId: input.tempId,
+				patch: mapComposeResultToPinPatch(basePin, input, result),
+			});
+		}
+	};
+
+	if (featuredPins.length > 0) {
+		await applyComposeGroup(
+			buildDirectFeaturedComposeInputs(featuredPins),
+			featuredPins,
+			'Article image is required for Featured Image mode.',
+		);
+		if (isCancelled()) {
+			return { pinPatches: [], pollTimedOut: false, lastResort: null };
+		}
+	}
+
+	if (aiPins.length === 0) {
+		return { pinPatches, pollTimedOut: false, lastResort: null };
+	}
+
 	const queuedJobs = await queuePreviewImageJobs({
 		fetchFn,
-		pins,
+		pins: aiPins,
 		channel,
 		exportProfileId,
 	});
@@ -271,7 +362,7 @@ export async function runPreviewImagePipeline({
 		return { pinPatches: [], pollTimedOut: false, lastResort: null };
 	}
 
-	for (const pin of pins) {
+	for (const pin of aiPins) {
 		const job = queuedJobs.find((item) => item.clientToken === pin.tempId);
 		if (job) {
 			pinPatches.push({ tempId: pin.tempId, patch: mapPollJobToPinPatch(pin, job) });
@@ -296,42 +387,16 @@ export async function runPreviewImagePipeline({
 		return { pinPatches: [], pollTimedOut, lastResort: null };
 	}
 
-	const composeInputs = buildComposeInputsFromJobs({
-		pins,
-		queuedJobs,
-		finishedJobs,
-		pollTimedOut,
-	});
-
-	const withBackground = composeInputs.filter((pin) => pin.featuredImage || pin._hasArticleCandidates);
-	const withoutBackground = composeInputs.filter((pin) => !pin.featuredImage && !pin._hasArticleCandidates);
-
-	for (const missed of withoutBackground) {
-		pinPatches.push({
-			tempId: missed.tempId,
-			patch: {
-				imageUrl: '',
-				imageGenerationStatus: 'failed',
-				imageGenerationError: missed._aiError
-					|| 'AI image generation failed and no article image was available for fallback.',
-			},
-		});
-	}
-
-	if (withBackground.length > 0) {
-		const composed = await composeAndUploadFeaturedPins(withBackground, {
-			brandKit,
-			exportProfileId,
-		});
-		for (const input of withBackground) {
-			const result = composed.find((item) => item.tempId === input.tempId);
-			const basePin = pins.find((item) => item.tempId === input.tempId) || {};
-			pinPatches.push({
-				tempId: input.tempId,
-				patch: mapComposeResultToPinPatch(basePin, input, result),
-			});
-		}
-	}
+	await applyComposeGroup(
+		buildComposeInputsFromJobs({
+			pins: aiPins,
+			queuedJobs,
+			finishedJobs,
+			pollTimedOut,
+		}),
+		aiPins,
+		'AI image generation failed and no article image was available for fallback.',
+	);
 
 	return {
 		pinPatches,

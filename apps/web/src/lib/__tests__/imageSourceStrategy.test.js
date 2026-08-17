@@ -4,7 +4,9 @@ import {
 	listArticleImageCandidates,
 	normalizeImageSourceStrategy,
 	pickArticleImageUrl,
+	pinsNeedingAiImageJobs,
 	planImageSource,
+	resolveGenerateImageMode,
 } from '../imageSourceStrategy.js';
 
 describe('imageSourceStrategy', () => {
@@ -31,13 +33,13 @@ describe('imageSourceStrategy', () => {
 		expect(plan.allowArticleFallback).toBe(false);
 	});
 
-	it('always_featured requires article image for fallback but still uses AI first', () => {
+	it('always_featured uses the article image and does not request AI', () => {
 		const plan = planImageSource({
 			strategy: 'always_featured',
 			articleImageUrl: 'https://cdn.example/hero.jpg',
 		});
-		expect(plan.useAi).toBe(true);
-		expect(plan.imageMode).toBe('generate_ai');
+		expect(plan.useAi).toBe(false);
+		expect(plan.imageMode).toBe('use_featured');
 		expect(plan.requireArticleImage).toBe(true);
 		expect(plan.allowArticleFallback).toBe(true);
 	});
@@ -94,5 +96,28 @@ describe('imageSourceStrategy', () => {
 			'https://cdn.example/body.jpg',
 			'https://cdn.example/extra.jpg',
 		]);
+	});
+
+	it('Featured chip and Always Featured resolve to use_featured', () => {
+		expect(resolveGenerateImageMode({
+			qualityImageMode: 'use_featured',
+			panelImageMode: 'generate_ai',
+			planImageMode: 'generate_ai',
+		})).toBe('use_featured');
+		expect(resolveGenerateImageMode({
+			qualityImageMode: 'generate_ai',
+			planImageMode: 'use_featured',
+		})).toBe('generate_ai');
+		expect(resolveGenerateImageMode({
+			planImageMode: 'use_featured',
+		})).toBe('use_featured');
+	});
+
+	it('pinsNeedingAiImageJobs excludes Featured pins and keeps AI pins', () => {
+		expect(pinsNeedingAiImageJobs([
+			{ tempId: 'f', imageMode: 'use_featured' },
+			{ tempId: 'a', imageMode: 'generate_ai' },
+			{ tempId: 'p', imagePlan: { imageMode: 'use_featured' } },
+		]).map((pin) => pin.tempId)).toEqual(['a']);
 	});
 });

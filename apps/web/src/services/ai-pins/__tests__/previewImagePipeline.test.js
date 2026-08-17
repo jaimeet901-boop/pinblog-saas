@@ -89,6 +89,29 @@ describe('previewImagePipeline', () => {
 		const body = JSON.parse(fetchFn.mock.calls[0][1].body);
 		expect(body.items[0].channel).toBe('facebook');
 		expect(body.items[0].exportProfileId).toBe('facebook_post');
+		expect(body.items[0].imageMode).toBe('generate_ai');
 		expect(body.items[0]).not.toHaveProperty('provider');
+	});
+
+	it('queuePreviewImageJobs does not POST jobs for Featured / use_featured pins', async () => {
+		const fetchFn = vi.fn(async () => ({
+			ok: true,
+			json: async () => ({ items: [{ id: 'should-not-exist' }] }),
+		}));
+
+		const queued = await queuePreviewImageJobs({
+			fetchFn,
+			pins: [{
+				tempId: 't-featured',
+				articleId: 'art-1',
+				title: 'Featured pin',
+				featuredImage: 'https://cdn.example/article.jpg',
+				imageMode: 'use_featured',
+				imagePlan: { imageMode: 'use_featured', useAi: false },
+			}],
+		});
+
+		expect(queued).toEqual([]);
+		expect(fetchFn).not.toHaveBeenCalled();
 	});
 });

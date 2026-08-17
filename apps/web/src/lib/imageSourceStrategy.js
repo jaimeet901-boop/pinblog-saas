@@ -90,6 +90,38 @@ export function listArticleImageCandidates(article = {}) {
 	return out;
 }
 
+export function isFeaturedImageMode(value) {
+	return String(value || '').trim().toLowerCase() === 'use_featured';
+}
+
+/**
+ * Studio image mode for a generate request.
+ * Featured chip / Always Featured wins over a generate_ai plan; an explicit
+ * AI chip still selects generate_ai.
+ */
+export function resolveGenerateImageMode({
+	qualityImageMode,
+	panelImageMode,
+	planImageMode,
+} = {}) {
+	for (const value of [qualityImageMode, panelImageMode, planImageMode]) {
+		const mode = String(value || '').trim().toLowerCase();
+		if (mode === 'use_featured') return 'use_featured';
+		if (mode === 'generate_ai') return 'generate_ai';
+	}
+	return 'generate_ai';
+}
+
+export function pinsNeedingAiImageJobs(pins = []) {
+	if (!Array.isArray(pins)) return [];
+	return pins.filter((pin) => (
+		resolveGenerateImageMode({
+			panelImageMode: pin?.imageMode,
+			planImageMode: pin?.imagePlan?.imageMode,
+		}) === 'generate_ai'
+	));
+}
+
 /**
  * @returns {{
  *   useAi: boolean,
@@ -106,10 +138,10 @@ export function planImageSource({ strategy, articleImageUrl = '' } = {}) {
 		case IMAGE_SOURCE_STRATEGY.ALWAYS_FEATURED:
 			return {
 				strategy: normalized,
-				useAi: true,
+				useAi: false,
 				requireArticleImage: true,
 				allowArticleFallback: hasArticle,
-				imageMode: 'generate_ai',
+				imageMode: 'use_featured',
 			};
 		case IMAGE_SOURCE_STRATEGY.ALWAYS_AI:
 			return {
