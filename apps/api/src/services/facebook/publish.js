@@ -10,6 +10,7 @@ import {
 	buildFacebookPublishCreatedEventPayload,
 } from './publish-events.js';
 import { validateFacebookDestinationPost } from './destinations.js';
+import { isPinPublishableOnChannel } from '../ai-pin-channel.js';
 
 export { FACEBOOK_PUBLISH_CREATED_EVENT_TYPE, buildFacebookPublishCreatedEventPayload };
 
@@ -289,7 +290,7 @@ export async function prepareFacebookPublishJob({
 	} = await resolvePublishDeps(deps || {});
 
 	const aiPin = await pocketbaseClient.collection('ai_pins').getOne(aiPinIdStr, { requestKey: null }).catch(() => null);
-	if (!aiPin || recordFieldId(aiPin.owner) !== ownerStr) {
+	if (!aiPin || recordFieldId(aiPin.owner) !== ownerStr || !isPinPublishableOnChannel(aiPin, 'facebook')) {
 		return publishValidationResult({
 			ok: false,
 			errors: ['AI pin not found'],

@@ -274,6 +274,45 @@ describe('facebook F4-2 publish service', () => {
 		assert.ok(result.errors.includes('AI pin not found'));
 	});
 
+	it('prepareFacebookPublishJob rejects pinterest-stamped pins as not found', async () => {
+		const result = await prepareFacebookPublishJob({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: '123456789',
+			aiPinId: 'pin_1',
+			deps: createTestDeps({ pin: { ...basePin, channel: 'pinterest' } }),
+		});
+		assert.equal(result.ok, false);
+		assert.ok(result.errors.includes('AI pin not found'));
+		assert.ok(!result.jobPayload);
+	});
+
+	it('prepareFacebookPublishJob still publishes empty-channel legacy pins', async () => {
+		const result = await prepareFacebookPublishJob({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: '123456789',
+			aiPinId: 'pin_1',
+			post: { message: 'Legacy pin' },
+			deps: createTestDeps({ pin: { ...basePin } }),
+		});
+		assert.equal(result.ok, true);
+		assert.ok(result.jobPayload);
+	});
+
+	it('prepareFacebookPublishJob accepts facebook-stamped pins', async () => {
+		const result = await prepareFacebookPublishJob({
+			owner: 'user_1',
+			accountId: 'acc_1',
+			pageId: '123456789',
+			aiPinId: 'pin_1',
+			post: { message: 'Facebook pin' },
+			deps: createTestDeps({ pin: { ...basePin, channel: 'facebook' } }),
+		});
+		assert.equal(result.ok, true);
+		assert.ok(result.jobPayload);
+	});
+
 	it('prepareFacebookPublishJob rejects active existing job for pin', async () => {
 		const result = await prepareFacebookPublishJob({
 			owner: 'user_1',

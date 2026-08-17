@@ -74,6 +74,7 @@ import {
 	stampPinterestJobCreatePayload,
 	stampPinterestOAuthAccountWorkspace,
 } from '../services/pinterest-workspace-isolation.js';
+import { isPinPublishableOnChannel } from '../services/ai-pin-channel.js';
 
 function workspaceOwner(req) {
 	return getWorkspaceActor(req).workspaceOwnerId || req.pocketbaseUserId;
@@ -219,6 +220,9 @@ async function getOwnedAIPins({ owner, pinIds, req = null }) {
 			: pin.owner === owner;
 		if (!allowed) {
 			throw httpError(403, 'You do not have access to one or more selected pins');
+		}
+		if (!isPinPublishableOnChannel(pin, 'pinterest')) {
+			throw httpError(404, 'One or more selected pins were not found');
 		}
 	}
 

@@ -29,6 +29,8 @@ import {
 	serializeImageGenerationTarget,
 } from '../services/image-generation-target.js';
 import { userSafeImageError } from '../services/ai-user-safe-errors.js';
+import { parseGenerationHistoryChannel } from '../services/ai-pin-generation-history-query.js';
+import { assertImageJobPinChannel } from '../services/ai-pin-channel.js';
 
 const router = Router();
 
@@ -494,6 +496,10 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		const { rawItem, articleId, pinId, clientToken, imageMode } = item;
 		const article = articleCache.get(articleId);
 		const pin = pinId ? pinCache.get(pinId) : null;
+		const requestedChannel = parseGenerationHistoryChannel(rawItem?.channel);
+		if (pin) {
+			assertImageJobPinChannel(pin, requestedChannel);
+		}
 
 		const existingActiveJob = pin ? activeJobCache.get(pin.id) : null;
 		if (existingActiveJob) {
@@ -599,6 +605,20 @@ router.post('/jobs/:jobId/regenerate', integratedAiRateLimit, async (req, res) =
 	const sourceJob = await pocketbaseClient.collection('ai_pin_image_jobs').getOne(req.params.jobId).catch(() => null);
 	if (!sourceJob || !recordBelongsToWorkspace(sourceJob, req)) {
 		throw httpError(404, 'Job not found');
+	}
+
+	const sourcePinId = typeof sourceJob.ai_pin === 'string'
+		? sourceJob.ai_pin.trim()
+		: String(sourceJob.ai_pin?.id || '').trim();
+	if (sourcePinId) {
+		const pin = await pocketbaseClient.collection('ai_pins').getOne(sourcePinId).catch(() => null);
+		if (pin) {
+			assertWorkspaceOwnedRecord(pin, req, { notFoundMessage: 'Pin not found' });
+			assertImageJobPinChannel(
+				pin,
+				parseGenerationHistoryChannel(req.body?.channel ?? req.query?.channel),
+			);
+		}
 	}
 
 	const readyProvider = await resolveAdminImageProviderForUserRequest();

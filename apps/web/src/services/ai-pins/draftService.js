@@ -124,6 +124,13 @@ function normalizeImageUrl(value) {
 	return truncateText(url, 4000);
 }
 
+export function withStudioChannelQuery(path, channel) {
+	const ch = String(channel || '').trim();
+	if (!ch) return path;
+	const sep = String(path || '').includes('?') ? '&' : '?';
+	return `${path}${sep}channel=${encodeURIComponent(ch)}`;
+}
+
 export function mapSavedPin(pin) {
 	const templateSnapshot = mapTemplateSnapshotFromRecord(pin);
 	const sourceUrl = resolvePinDestinationUrl(pin);
@@ -247,7 +254,7 @@ function buildDraftPayload(pin, panel) {
  * Never writes empty image_url — uploads blob previews first when needed.
  * Creates via API so production can self-heal ai_pins.source_url schema.
  */
-export async function saveDrafts({ previewPins, panel }) {
+export async function saveDrafts({ previewPins, panel, channel, duplicateFromPinId } = {}) {
 	const pins = Array.isArray(previewPins) ? previewPins : [];
 	if (pins.length === 0) {
 		throw new Error('No pins to save');
@@ -284,7 +291,11 @@ export async function saveDrafts({ previewPins, panel }) {
 	const response = await apiServerClient.fetch('/ai-pins/drafts', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ items: payloads }),
+		body: JSON.stringify({
+			items: payloads,
+			...(channel ? { channel } : {}),
+			...(duplicateFromPinId ? { duplicateFromPinId } : {}),
+		}),
 	});
 	const body = await response.json().catch(() => ({}));
 	if (!response.ok) {
@@ -331,14 +342,17 @@ export async function saveDrafts({ previewPins, panel }) {
 /**
  * Ensure selected pins have source_url persisted (backfill from article when missing).
  */
-export async function ensurePinsSourceUrl(pinIds = []) {
+export async function ensurePinsSourceUrl(pinIds = [], { channel } = {}) {
 	const ids = (Array.isArray(pinIds) ? pinIds : []).map((id) => String(id || '').trim()).filter(Boolean);
 	if (ids.length === 0) return [];
 
 	const response = await apiServerClient.fetch('/ai-pins/pins/ensure-source-url', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ pinIds: ids }),
+		body: JSON.stringify({
+			pinIds: ids,
+			...(channel ? { channel } : {}),
+		}),
 	});
 	const body = await response.json().catch(() => ({}));
 	if (!response.ok) {
@@ -350,14 +364,17 @@ export async function ensurePinsSourceUrl(pinIds = []) {
 /**
  * Duplicate an existing pin as a new draft (one click).
  */
-export async function duplicatePin(pin, { titleSuffix = ' (Copy)' } = {}) {
+export async function duplicatePin(pin, { titleSuffix = ' (Copy)', channel } = {}) {
 	if (!pin?.id && !pin?.title) {
 		throw new Error('Nothing to duplicate');
 	}
 
 	const source = pin.id
 		? await (async () => {
-			const response = await apiServerClient.fetch(`/ai-pins/pins/${encodeURIComponent(pin.id)}`, { method: 'GET' });
+			const response = await apiServerClient.fetch(
+				withStudioChannelQuery(`/ai-pins/pins/${encodeURIComponent(pin.id)}`, channel),
+				{ method: 'GET' },
+			);
 			const body = await response.json().catch(() => ({}));
 			if (!response.ok) {
 				throw new Error(body?.message || `Failed to load pin (${response.status})`);
@@ -421,7 +438,11 @@ export async function duplicatePin(pin, { titleSuffix = ' (Copy)' } = {}) {
 		const response = await apiServerClient.fetch('/ai-pins/drafts', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ items: [payload] }),
+			body: JSON.stringify({
+				items: [payload],
+				...(channel ? { channel } : {}),
+				...(pin.id ? { duplicateFromPinId: pin.id } : {}),
+			}),
 		});
 		const body = await response.json().catch(() => ({}));
 		if (!response.ok) {
@@ -440,10 +461,13 @@ export async function duplicatePin(pin, { titleSuffix = ' (Copy)' } = {}) {
 /**
  * Duplicate one pin into N draft copies (for recurrence series).
  */
-export async function duplicatePinMany(pin, count) {
+export async function duplicatePinMany(pin, count, { channel } = {}) {
 	const copies = [];
 	for (let i = 0; i < count; i += 1) {
-		copies.push(await duplicatePin(pin, { titleSuffix: count > 1 ? ` (${i + 1})` : ' (Copy)' }));
+		copies.push(await duplicatePin(pin, {
+			titleSuffix: count > 1 ? ` (${i + 1})` : ' (Copy)',
+			channel,
+		}));
 	}
 	return copies;
 }
@@ -463,39 +487,41 @@ export async function updateDraftPin({
 	const selectedAccount = accounts.find((account) => account.id === readyPin.accountId);
 	const selectedBoard = boards.find((board) => board.boardId === readyPin.boardId);
 
-	const editorResponse = await apiServerClient.fetch(`/ai-pins/pins/${readyPin.id}/editor`, {
-		method: 'PATCH',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			title: readyPin.title,
-			description: readyPin.description,
-			overlayText: readyPin.overlayText,
-			imagePrompt: readyPin.imagePrompt,
-			imageUrl: readyPin.imageUrl,
-			sourceUrl: readyPin.sourceUrl || readyPin.articleUrl || readyPin.destinationUrl || '',
-			imageOrigin: readyPin.imageOrigin || '',
-			cta: readyPin.cta || analysis?.cta || '',
-			style: readyPin.style || panel.style,
-			analysis: readyPin.analysis || analysis,
-			editorState: {
-				crop: readyPin.editorCrop || null,
-				resize: readyPin.editorResize || { width: 1000, height: 1500 },
-				overlays: readyPin.editorOverlays || [],
-			},
-			suggestedKeywords: safeArray(readyPin.suggestedKeywords),
-			suggestedHashtags: safeArray(readyPin.suggestedHashtags),
-			pinterestAccountId: readyPin.accountId || '',
-			pinterestAccountLabel: readyPin.accountId
-				? (selectedAccount?.label || selectedAccount?.accountName || selectedAccount?.username || '')
-				: '',
-			pinterestBoardId: readyPin.boardId || '',
-			pinterestBoardName: selectedBoard?.name || readyPin.boardName || '',
-			scheduledAt: readyPin.scheduledAt || '',
-			scheduledTimezone: readyPin.scheduledTimezone || '',
-			...(channel ? { channel } : {}),
-			...toTemplateEditorPatch(readyPin),
-		}),
-	});
+	const editorResponse = await apiServerClient.fetch(
+		withStudioChannelQuery(`/ai-pins/pins/${readyPin.id}/editor`, channel),
+		{
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				title: readyPin.title,
+				description: readyPin.description,
+				overlayText: readyPin.overlayText,
+				imagePrompt: readyPin.imagePrompt,
+				imageUrl: readyPin.imageUrl,
+				sourceUrl: readyPin.sourceUrl || readyPin.articleUrl || readyPin.destinationUrl || '',
+				imageOrigin: readyPin.imageOrigin || '',
+				cta: readyPin.cta || analysis?.cta || '',
+				style: readyPin.style || panel.style,
+				analysis: readyPin.analysis || analysis,
+				editorState: {
+					crop: readyPin.editorCrop || null,
+					resize: readyPin.editorResize || { width: 1000, height: 1500 },
+					overlays: readyPin.editorOverlays || [],
+				},
+				suggestedKeywords: safeArray(readyPin.suggestedKeywords),
+				suggestedHashtags: safeArray(readyPin.suggestedHashtags),
+				pinterestAccountId: readyPin.accountId || '',
+				pinterestAccountLabel: readyPin.accountId
+					? (selectedAccount?.label || selectedAccount?.accountName || selectedAccount?.username || '')
+					: '',
+				pinterestBoardId: readyPin.boardId || '',
+				pinterestBoardName: selectedBoard?.name || readyPin.boardName || '',
+				scheduledAt: readyPin.scheduledAt || '',
+				scheduledTimezone: readyPin.scheduledTimezone || '',
+				...toTemplateEditorPatch(readyPin),
+			}),
+		},
+	);
 	const editorPayload = await editorResponse.json().catch(() => ({}));
 	if (!editorResponse.ok) {
 		throw new Error(editorPayload?.message || 'Failed to save pin editor changes');
@@ -561,8 +587,11 @@ export async function updateDraftPin({
 	};
 }
 
-export async function deleteDraftPin(pinId) {
-	const response = await apiServerClient.fetch(`/ai-pins/pins/${encodeURIComponent(pinId)}`, { method: 'DELETE' });
+export async function deleteDraftPin(pinId, { channel } = {}) {
+	const response = await apiServerClient.fetch(
+		withStudioChannelQuery(`/ai-pins/pins/${encodeURIComponent(pinId)}`, channel),
+		{ method: 'DELETE' },
+	);
 	if (!response.ok && response.status !== 204) {
 		const body = await response.json().catch(() => ({}));
 		throw new Error(body?.message || `Failed to delete pin (${response.status})`);

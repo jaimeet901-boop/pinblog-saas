@@ -22,6 +22,7 @@ export function stripClientWorkspaceFields(item) {
 		workspace: _workspace,
 		workspaceKey: _workspaceKey,
 		workspace_key: _workspace_key,
+		channel: _channel,
 		...rest
 	} = source;
 	return rest;

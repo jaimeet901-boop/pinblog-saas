@@ -28,8 +28,19 @@ function buildTextField(name, { max = 0 } = {}) {
 	};
 }
 
+function buildSelectField(name, values, { required = false } = {}) {
+	return {
+		name,
+		type: 'select',
+		required,
+		maxSelect: 1,
+		values,
+	};
+}
+
 /**
- * Ensure ai_pins has source_url + image_origin used for Pinterest destination links.
+ * Ensure ai_pins has source_url + image_origin used for Pinterest destination links,
+ * plus nullable studio channel (AI-CROSS-02 Phase 1). Does not backfill rows.
  * Production may lag behind migrations; self-heal via superuser collections API.
  */
 export async function ensureAiPinsPublishFields(pocketbaseClient) {
@@ -37,6 +48,7 @@ export async function ensureAiPinsPublishFields(pocketbaseClient) {
 	const requiredFields = [
 		buildTextField('source_url', { max: 2000 }),
 		buildTextField('image_origin', { max: 32 }),
+		buildSelectField('channel', ['pinterest', 'facebook'], { required: false }),
 	];
 
 	const missing = requiredFields.filter((field) => !hasField(collection, field.name));
@@ -57,11 +69,15 @@ export async function ensureAiPinsPublishFields(pocketbaseClient) {
 	if (!fields.has('source_url')) {
 		throw new Error('ai_pins.source_url is missing after schema ensure');
 	}
+	if (!fields.has('channel')) {
+		throw new Error('ai_pins.channel is missing after schema ensure');
+	}
 
 	logger.info('ai_pins publish fields ready', {
 		collectionId: refreshed.id,
 		hasSourceUrl: fields.has('source_url'),
 		hasImageOrigin: fields.has('image_origin'),
+		hasChannel: fields.has('channel'),
 	});
 
 	return {

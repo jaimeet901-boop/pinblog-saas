@@ -689,7 +689,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		setLoadingPins(true);
 		try {
 			const response = await apiServerClient.fetch(
-				`/ai-pins/pins?websiteId=${encodeURIComponent(websiteId)}`,
+				`/ai-pins/pins?websiteId=${encodeURIComponent(websiteId)}&channel=${encodeURIComponent(studioChannel)}`,
 				{ method: 'GET' },
 			);
 			const payload = await response.json().catch(() => ({}));
@@ -961,7 +961,11 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		});
 	};
 
-	const createPinRecords = async ({ previewPins }) => saveDrafts({ previewPins, panel });
+	const createPinRecords = async ({ previewPins }) => saveDrafts({
+		previewPins,
+		panel,
+		channel: studioChannel,
+	});
 
 	const buildPerPinTargets = (pins) => {
 		const perPinTargets = {};
@@ -1043,7 +1047,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 	const preparePinsForPublish = async (pins) => {
 		const list = Array.isArray(pins) ? pins : [];
 		if (list.length === 0) return [];
-		const repaired = await ensurePinsSourceUrl(list.map((pin) => pin.id));
+		const repaired = await ensurePinsSourceUrl(list.map((pin) => pin.id), { channel: studioChannel });
 		const byId = new Map(repaired.map((pin) => [pin.id, pin]));
 		const merged = list.map((pin) => {
 			const next = byId.get(pin.id);
@@ -1726,7 +1730,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			const response = await apiServerClient.fetch(`/ai-pin-images/jobs/${encodeURIComponent(pin.imageJobId || '')}/regenerate`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ clientToken: pin.tempId }),
+				body: JSON.stringify({ clientToken: pin.tempId, channel: studioChannel }),
 			});
 			const job = await response.json().catch(() => ({}));
 			if (!response.ok || !job?.id) {
@@ -1985,7 +1989,10 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 					for (let i = 1; i < occurrences.length; i += 1) {
 						const copies = [];
 						for (const pin of pins) {
-							copies.push(await duplicatePin(pin, { titleSuffix: ` (${i + 1}/${occurrences.length})` }));
+							copies.push(await duplicatePin(pin, {
+								titleSuffix: ` (${i + 1}/${occurrences.length})`,
+								channel: studioChannel,
+							}));
 						}
 						pinIdsByOccurrence.push(copies.map((pin) => pin.id));
 					}
@@ -2078,7 +2085,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 
 	const handleDuplicatePin = async (pin) => {
 		try {
-			const copy = await duplicatePin(pin);
+			const copy = await duplicatePin(pin, { channel: studioChannel });
 			setSavedPins((prev) => [copy, ...prev]);
 			setWorkspaceTab('library');
 			toast({ title: 'Duplicated', description: 'A draft copy was created.' });
@@ -2089,7 +2096,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 
 	const handleDeletePin = async (pinId) => {
 		try {
-			await deleteDraftPin(pinId);
+			await deleteDraftPin(pinId, { channel: studioChannel });
 			setSavedPins((prev) => prev.filter((pin) => pin.id !== pinId));
 			if (editingPinId === pinId) {
 				setEditingPinId('');
@@ -2136,7 +2143,9 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			if (!regenerated) {
 				throw new Error('Failed to regenerate pin copy');
 			}
-			const response = await apiServerClient.fetch(`/ai-pins/pins/${encodeURIComponent(pin.id)}`, {
+			const response = await apiServerClient.fetch(
+				`/ai-pins/pins/${encodeURIComponent(pin.id)}?channel=${encodeURIComponent(studioChannel)}`,
+				{
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({

@@ -202,6 +202,16 @@ describe('AI-PINS-03 draft ownership validation', () => {
 		assert.equal(stamped.workspace, 'ws-a');
 	});
 
+	it('client channel override is stripped', () => {
+		const stripped = stripClientWorkspaceFields({
+			websiteId: 'site-a',
+			articleId: 'art-a',
+			channel: 'facebook',
+			title: 'Forged channel',
+		});
+		assert.equal(Object.prototype.hasOwnProperty.call(stripped, 'channel'), false);
+	});
+
 	it('client workspaceKey override is ignored', () => {
 		const stripped = stripClientWorkspaceFields({
 			websiteId: 'site-a',
@@ -242,5 +252,29 @@ describe('AI-PINS-03 drafts route wiring', () => {
 		assert.match(handler, /stripClientWorkspaceFields\(item\)/);
 		assert.match(handler, /applySessionWorkspace\(/);
 		assert.doesNotMatch(handler, /stampCreateOwnership\(req, \{\s*\.\.\.item,/);
+	});
+
+	it('requires allowlisted request channel and server-stamps after stripping item.channel', () => {
+		const handler = draftsHandlerSource();
+		assert.match(handler, /parseRequiredStudioChannel\(req\.body\?\.channel\)/);
+		assert.match(handler, /channel: stampedChannel/);
+		assert.ok(
+			handler.indexOf('parseRequiredStudioChannel') < handler.indexOf("collection('ai_pins').create"),
+			'channel must be validated before create',
+		);
+		assert.ok(
+			handler.indexOf('stripClientWorkspaceFields(item)') < handler.indexOf('channel: stampedChannel'),
+			'server stamp must overwrite stripped client channel',
+		);
+	});
+
+	it('duplicate loads source pin and preserves DB channel before create', () => {
+		const handler = draftsHandlerSource();
+		assert.match(handler, /duplicateFromPinId/);
+		assert.match(handler, /stampDraftChannel\(/);
+		assert.ok(
+			handler.indexOf('duplicateFromPinId') < handler.indexOf("collection('ai_pins').create"),
+			'duplicate source load must run before create',
+		);
 	});
 });

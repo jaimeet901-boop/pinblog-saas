@@ -40,6 +40,12 @@ import {
 	parseGenerationHistoryChannel,
 	buildGenerationHistoryChannelFilter,
 } from '../services/ai-pin-generation-history-query.js';
+import {
+	assertPinStudioChannel,
+	parseRequiredStudioChannel,
+	requestStudioChannel,
+	stampDraftChannel,
+} from '../services/ai-pin-channel.js';
 
 const router = Router();
 const MAX_REFERENCE_IMAGES = 6;
@@ -133,8 +139,11 @@ function workspaceOwnerId(req) {
 	return getWorkspaceActor(req).workspaceOwnerId || req.pocketbaseUserId;
 }
 
-async function getOwnedAiPin({ pinId, req }) {
-	return getWorkspaceOwnedRecord('ai_pins', pinId, req, { notFoundMessage: 'Pin not found' });
+async function getOwnedAiPin({ pinId, req, channel } = {}) {
+	const pin = await getWorkspaceOwnedRecord('ai_pins', pinId, req, { notFoundMessage: 'Pin not found' });
+	const requested = channel !== undefined ? channel : requestStudioChannel(req);
+	assertPinStudioChannel(pin, requested);
+	return pin;
 }
 
 async function getOwnedWebsiteArticle({ articleId, req }) {
@@ -884,8 +893,8 @@ router.delete('/reference-images/:id', async (req, res) => {
 });
 
 /**
- * GET /ai-pins/pins?websiteId=
- * List AI pins for a website (API-gated; replaces direct PB SDK list).
+ * GET /ai-pins/pins?websiteId=&channel=
+ * List AI pins for a website + studio channel. Empty/legacy channel rows stay visible.
  */
 router.get('/pins', async (req, res) => {
 	if (!req.pocketbaseUserId) {
@@ -895,10 +904,14 @@ router.get('/pins', async (req, res) => {
 	if (!websiteId) {
 		throw httpError(422, 'websiteId is required');
 	}
+	const channel = parseRequiredStudioChannel(req.query.channel);
 	await getOwnedWebsite({ websiteId, req });
 
 	const pins = await listWorkspaceResourcesFull('ai_pins', req, {
-		extraFilter: pocketbaseClient.filter('websiteId = {:websiteId}', { websiteId }),
+		extraFilter: pocketbaseClient.filter(
+			'websiteId = {:websiteId} && (channel = {:channel} || channel = "" || channel = null)',
+			{ websiteId, channel },
+		),
 		sort: '-created',
 	}).catch(() => []);
 
@@ -1003,10 +1016,26 @@ router.post('/drafts', async (req, res) => {
 		throw httpError(422, 'items must be a non-empty array');
 	}
 
+	const requestChannel = parseRequiredStudioChannel(req.body?.channel);
+
 	await validateDraftItemsOwnership(items, {
 		req,
 		getOwnedWebsite,
 		getOwnedWebsiteArticle,
+	});
+
+	const duplicateFromPinId = String(req.body?.duplicateFromPinId || '').trim();
+	let duplicateSource = null;
+	if (duplicateFromPinId) {
+		duplicateSource = await getOwnedAiPin({
+			pinId: duplicateFromPinId,
+			req,
+			channel: requestChannel,
+		});
+	}
+	const stampedChannel = stampDraftChannel({
+		requestChannel,
+		sourceRecord: duplicateSource,
 	});
 
 	for (const item of items) {
@@ -1033,6 +1062,7 @@ router.post('/drafts', async (req, res) => {
 				source_url: sourceUrl.slice(0, 2000),
 				image_origin: String(item?.image_origin || item?.imageOrigin || '').trim().slice(0, 32),
 				status: 'draft',
+				channel: stampedChannel,
 			}), req),
 		});
 

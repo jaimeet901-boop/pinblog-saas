@@ -170,9 +170,9 @@ export const SCHEMA_COMPAT_REGISTRY = Object.freeze([
 		id: 'ai-pins-publish-fields',
 		ensureModule: 'ensure-ai-pins-publish-fields.js',
 		ensureExport: 'ensureAiPinsPublishFields',
-		migrationIds: ['1783986000_ai_pins_source_url'],
+		migrationIds: ['1783986000_ai_pins_source_url', '1786800000_ai_pins_channel'],
 		mode: 'lazy',
-		concern: 'ai_pins source_url / image_origin',
+		concern: 'ai_pins source_url / image_origin / channel',
 	}),
 ]);
 
