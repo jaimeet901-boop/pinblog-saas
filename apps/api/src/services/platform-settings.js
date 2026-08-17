@@ -18,6 +18,8 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		maintenanceMode: false,
 		allowRegistration: true,
 		defaultWorkspacePlan: 'free',
+		/** Public/authenticated catalog only. Does not deactivate existing Free users. */
+		publicFreePlanVisible: true,
 	},
 	/** Platform Identity — logo/media URLs. Display name SoT is general.platformName. */
 	branding: {

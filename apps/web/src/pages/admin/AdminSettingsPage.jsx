@@ -348,6 +348,15 @@ export default function AdminSettingsPage() {
 							onChange={(value) => patch('general', 'defaultWorkspacePlan', value)}
 							options={['free', 'starter', 'pro', 'business', 'enterprise']}
 						/>
+						<TextSelect
+							label="Free Plan Public Visibility"
+							value={settings.general?.publicFreePlanVisible !== false ? 'visible' : 'hidden'}
+							onChange={(value) => patch('general', 'publicFreePlanVisible', value !== 'hidden')}
+							options={[
+								{ value: 'visible', label: 'Visible' },
+								{ value: 'hidden', label: 'Hidden' },
+							]}
+						/>
 					</div>
 					<div className="mt-2 space-y-2">
 						<ToggleRow label="Maintenance Mode" checked={Boolean(settings.general?.maintenanceMode)} onChange={(value) => patch('general', 'maintenanceMode', value)} />

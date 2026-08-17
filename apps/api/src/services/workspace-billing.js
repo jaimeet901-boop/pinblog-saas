@@ -11,6 +11,10 @@ import {
 	resolveAuthoritativePlanBillingType,
 } from './billing/billing-model.js';
 import { getCreditCosts } from './credits-engine.js';
+import {
+	assertFreePlanSelectable,
+	filterPublicPlanCatalog,
+} from './public-free-plan-visibility.js';
 
 function currentPeriod() {
 	const now = new Date();
@@ -154,11 +158,14 @@ export async function getWorkspaceSubscription(req) {
 	const credits = await getWorkspaceCredits(req);
 	const plans = await listPlans();
 	const { resolveBillingConfig, listBillingProviders, listCreditPacks } = await import('./billing/index.js');
-	const [billingConfig, providers, packs] = await Promise.all([
+	const { getPlatformSettings } = await import('./platform-settings.js');
+	const [billingConfig, providers, packs, platform] = await Promise.all([
 		resolveBillingConfig(),
 		listBillingProviders(),
 		listCreditPacks({ planId: plan?.id, planSlug: plan?.slug }),
+		getPlatformSettings().catch(() => null),
 	]);
+	const visibilitySettings = platform?.settings || {};
 
 	return {
 		subscription: {
@@ -183,7 +190,7 @@ export async function getWorkspaceSubscription(req) {
 			planName: plan?.name || 'Free',
 		},
 		plan,
-		plans: (plans.items || []).filter((item) => item.active),
+		plans: filterPublicPlanCatalog((plans.items || []).filter((item) => item.active), visibilitySettings),
 		usage,
 		credits,
 		creditPacks: packs,
@@ -201,7 +208,7 @@ export async function getWorkspaceSubscription(req) {
 	};
 }
 
-async function resolvePlanFromPayload(payload = {}) {
+async function resolvePlanFromPayload(payload = {}, req = null) {
 	await ensurePlansSeeded();
 	const slug = String(payload.planSlug || payload.plan || payload.slug || '').trim().toLowerCase();
 	const planId = payload.planId || '';
@@ -218,6 +225,19 @@ async function resolvePlanFromPayload(payload = {}) {
 	if (!plan || plan.active === false || plan.status === 'hidden' || plan.status === 'deprecated') {
 		throw httpError(404, 'Plan not found or unavailable', 'PLAN_NOT_FOUND');
 	}
+
+	const currentSlug = String(
+		req?.workspace?.plan_slug
+		|| req?.workspaceSubscription?.expand?.plan?.slug
+		|| '',
+	).trim().toLowerCase();
+	const { getPlatformSettings } = await import('./platform-settings.js');
+	const platform = await getPlatformSettings().catch(() => null);
+	assertFreePlanSelectable({
+		plan,
+		currentSlug,
+		settings: platform?.settings || {},
+	});
 	return plan;
 }
 
@@ -350,7 +370,7 @@ async function applyWorkspacePlanChange(req, plan, {
 export async function startWorkspaceSubscriptionCheckout(req, payload = {}) {
 	assertCapability(req, 'workspace.billing.manage');
 
-	const plan = await resolvePlanFromPayload(payload);
+	const plan = await resolvePlanFromPayload(payload, req);
 	const currentSlug = req.workspace.plan_slug
 		|| req.workspaceSubscription?.expand?.plan?.slug
 		|| '';
@@ -482,7 +502,7 @@ export async function startWorkspaceSubscriptionCheckout(req, payload = {}) {
 export async function changeWorkspacePlan(req, payload = {}) {
 	assertCapability(req, 'workspace.billing.manage');
 
-	const plan = await resolvePlanFromPayload(payload);
+	const plan = await resolvePlanFromPayload(payload, req);
 
 	if (planIsPaid(plan)) {
 		throw httpError(
