@@ -5,6 +5,9 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
 	buildAdminAssignMetadataFields,
 	resolveAdminOverrideActor,
@@ -13,6 +16,9 @@ import {
 	PADDLE_IDENTITY_FIELDS,
 } from './admin-plan-assign.js';
 import { assignWorkspacePlan } from './assign-workspace-plan.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const assignSource = readFileSync(join(__dirname, 'assign-workspace-plan.js'), 'utf8');
 
 describe('admin override validation helpers', () => {
 	it('accepts explicit reason field', () => {
@@ -97,7 +103,7 @@ describe('assignWorkspacePlan integration', () => {
 
 	function createMockClient() {
 		return {
-			filter: (template) => template,
+			filter: (template, params = {}) => ({ template, params }),
 			collection(name) {
 				return {
 					async getOne(id) {
@@ -108,16 +114,21 @@ describe('assignWorkspacePlan integration', () => {
 						}
 						throw new Error(`unexpected getOne ${name}`);
 					},
-					async getFirstListItem(_filter, _opts) {
+					async getFirstListItem(filterExpr, _opts) {
+						const key = String(filterExpr?.params?.key || '').trim();
 						if (name === 'workspace_subscriptions') {
 							for (const row of mockState.subscriptions.values()) {
-								return { ...row, expand: row.expand || {} };
+								if (!key || row.workspace_key === key) {
+									return { ...row, expand: row.expand || {} };
+								}
 							}
 							throw new Error('subscription_not_found');
 						}
 						if (name === 'workspaces') {
 							for (const row of mockState.workspaces.values()) {
-								return { ...row };
+								if (!key || row.workspace_key === key) {
+									return { ...row };
+								}
 							}
 							throw new Error('workspace_not_found');
 						}
@@ -162,9 +173,11 @@ describe('assignWorkspacePlan integration', () => {
 		});
 		mockState.workspaces.set('workspace-1', {
 			id: 'workspace-1',
+			name: 'Demo',
 			workspace_key: 'demo',
 			plan_slug: 'free',
 			owner: 'user-1',
+			billing_email: 'owner@example.com',
 		});
 		mockState.users.set('user-1', { id: 'user-1', plan: 'free' });
 		mockState.subscriptions.set('sub-1', {
@@ -274,6 +287,7 @@ describe('assignWorkspacePlan integration', () => {
 	it('syncs workspace mirror when owner is missing (Test 12)', async () => {
 		mockState.workspaces.set('workspace-1', {
 			id: 'workspace-1',
+			name: 'Demo',
 			workspace_key: 'demo',
 			plan_slug: 'free',
 			owner: '',
@@ -293,5 +307,178 @@ describe('assignWorkspacePlan integration', () => {
 
 		assert.equal(mockState.workspaces.get('workspace-1').plan_slug, 'pro');
 		assert.equal(mockState.subscriptions.get('sub-1').override_reason, 'Owner missing case');
+	});
+
+	it('requires reason before any subscription write', async () => {
+		await assert.rejects(
+			() => assignWorkspacePlan({
+				workspaceKey: 'demo',
+				planId: 'plan_pro',
+			}, { actorUserId: 'admin_user_123' }, {
+				client,
+				logBillingAction: async (payload) => mockState.auditCalls.push(payload),
+			}),
+			(err) => err.status === 422 && err.errorCode === 'VALIDATION_ERROR',
+		);
+		assert.equal(mockState.updates.length, 0);
+		assert.equal(mockState.auditCalls.length, 0);
+	});
+
+	it('rejects a nonexistent workspace before any subscription write', async () => {
+		await assert.rejects(
+			() => assignWorkspacePlan({
+				workspaceKey: 'missing-workspace',
+				workspaceName: 'Sunday Kitchen',
+				planId: 'plan_pro',
+				reason: 'Support correction',
+			}, { actorUserId: 'admin_user_123' }, {
+				client,
+				logBillingAction: async (payload) => mockState.auditCalls.push(payload),
+			}),
+			(err) => err.status === 404 && err.errorCode === 'WORKSPACE_NOT_FOUND',
+		);
+		assert.equal(mockState.updates.length, 0);
+		assert.equal(mockState.auditCalls.length, 0);
+		assert.equal(mockState.subscriptions.get('sub-1').plan, 'plan_free');
+	});
+
+	it('does not treat workspaceName as the authoritative workspaceKey', async () => {
+		await assert.rejects(
+			() => assignWorkspacePlan({
+				workspaceName: 'Sunday Kitchen',
+				ownerEmail: 'owner@example.com',
+				planId: 'plan_pro',
+				reason: 'Support correction',
+			}, { actorUserId: 'admin_user_123' }, {
+				client,
+				logBillingAction: async (payload) => mockState.auditCalls.push(payload),
+			}),
+			(err) => err.status === 422 && err.errorCode === 'VALIDATION_ERROR',
+		);
+		assert.equal(mockState.updates.length, 0);
+		assert.equal(
+			[...mockState.subscriptions.values()].some((row) => row.workspace_key === 'sunday-kitchen'),
+			false,
+		);
+	});
+
+	it('does not create an orphan subscription when the workspace does not exist', async () => {
+		mockState.workspaces.clear();
+		await assert.rejects(
+			() => assignWorkspacePlan({
+				workspaceKey: 'orphan-key',
+				workspaceName: 'Orphan',
+				planId: 'plan_pro',
+				reason: 'Support correction',
+			}, { actorUserId: 'admin_user_123' }, {
+				client,
+				logBillingAction: async () => {},
+			}),
+			(err) => err.status === 404 && err.errorCode === 'WORKSPACE_NOT_FOUND',
+		);
+		assert.equal(
+			mockState.updates.some((row) => row.created && (row.storeKey === 'workspace_subscriptions' || row.storeKey === 'subscriptions')),
+			false,
+		);
+		assert.equal(
+			[...mockState.subscriptions.values()].some((row) => row.workspace_key === 'orphan-key'),
+			false,
+		);
+	});
+
+	it('writes subscription, billing event, audit, and entitlement sync with the canonical workspace_key', async () => {
+		const syncCalls = [];
+		const result = await assignWorkspacePlan({
+			workspaceKey: 'demo',
+			workspaceName: 'Ignored display name',
+			planId: 'plan_pro',
+			reason: 'Canonical key assignment',
+		}, {
+			actorUserId: 'admin_user_123',
+			actor: 'admin@example.com',
+		}, {
+			client,
+			syncEntitlementMirrors: async (payload) => {
+				syncCalls.push(payload);
+				return { synced: true };
+			},
+			logBillingAction: async (payload) => {
+				mockState.auditCalls.push(payload);
+			},
+		});
+
+		const subscription = mockState.subscriptions.get('sub-1');
+		assert.equal(result.workspaceKey, 'demo');
+		assert.equal(subscription.workspace_key, 'demo');
+		assert.equal(syncCalls[0].workspaceKey, 'demo');
+		assert.equal(mockState.auditCalls[0].workspaceKey, 'demo');
+		assert.equal(mockState.auditCalls[0].metadata.workspaceKey, 'demo');
+		assert.equal(mockState.auditCalls[0].eventType, 'upgrade');
+	});
+
+	it('ignores client actor spoofing on assign', async () => {
+		await assignWorkspacePlan({
+			workspaceKey: 'demo',
+			planId: 'plan_pro',
+			reason: 'Actor spoof check',
+			override_actor: 'attacker',
+			actor: 'attacker@evil.test',
+		}, {
+			actorUserId: 'admin_user_123',
+			actor: 'admin@example.com',
+		}, {
+			client,
+			logBillingAction: async (payload) => mockState.auditCalls.push(payload),
+		});
+
+		assert.equal(mockState.subscriptions.get('sub-1').override_actor, 'admin_user_123');
+		assert.equal(mockState.auditCalls[0].metadata.overrideActor, 'admin_user_123');
+	});
+
+	it('customer subscription lookup uses the same canonical workspace_key', async () => {
+		mockState.workspaces.set('workspace-2', {
+			id: 'workspace-2',
+			name: 'Other',
+			workspace_key: 'other-ws',
+			plan_slug: 'free',
+			owner: 'user-2',
+		});
+		mockState.subscriptions.set('sub-2', {
+			id: 'sub-2',
+			workspace_key: 'other-ws',
+			workspace_name: 'Other',
+			plan: 'plan_free',
+			expand: { plan: { slug: 'free', monthly_price: 0 } },
+		});
+
+		await assignWorkspacePlan({
+			workspaceKey: 'demo',
+			planId: 'plan_pro',
+			reason: 'Customer reflection',
+		}, {
+			actorUserId: 'admin_user_123',
+		}, {
+			client,
+			logBillingAction: async () => {},
+		});
+
+		const customerKey = 'demo';
+		const customerSubscription = [...mockState.subscriptions.values()]
+			.find((row) => row.workspace_key === customerKey);
+		const otherSubscription = mockState.subscriptions.get('sub-2');
+		assert.equal(customerSubscription.plan, 'plan_pro');
+		assert.equal(otherSubscription.plan, 'plan_free');
+		assert.equal(otherSubscription.workspace_key, 'other-ws');
+	});
+});
+
+describe('assignWorkspacePlan isolation source guards', () => {
+	it('does not slugify workspaceName into the authoritative key', () => {
+		assert.doesNotMatch(assignSource, /slugify\(/);
+		assert.doesNotMatch(
+			assignSource,
+			/workspaceKey \|\| payload\.workspace_key \|\| payload\.workspaceName/,
+		);
+		assert.match(assignSource, /WORKSPACE_NOT_FOUND/);
 	});
 });

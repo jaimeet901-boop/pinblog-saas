@@ -18,6 +18,10 @@ import {
 	safeFullList,
 	safeList,
 } from './helpers.js';
+import {
+	adminWorkspaceMatchesQuery,
+	canonicalAdminWorkspaceKey,
+} from './admin-workspace-identity.js';
 
 async function loadWorkspaceDetail(workspace, owner) {
 	const ownerId = workspace.owner || owner?.id || '';
@@ -139,7 +143,7 @@ async function loadWorkspaceDetail(workspace, owner) {
 		},
 		billingStatus: subscription?.billing_status || subscription?.status || 'active',
 		creditsSuspended: Boolean(subscription?.credits_suspended),
-		workspaceKey: subscription?.workspace_key || workspaceKey,
+		workspaceKey: canonicalAdminWorkspaceKey(workspace) || workspaceKey,
 		upgradeHistory: billingHistory,
 		plan,
 		planInfo: {
@@ -175,6 +179,7 @@ export async function mapAdminWorkspace(workspace, { detail = false, ownerMap = 
 	const base = {
 		id: workspace.id,
 		name: workspace.name || workspace.slug || 'Workspace',
+		slug: workspace.slug || '',
 		owner: owner?.name || owner?.email || workspace.owner || '—',
 		ownerEmail: owner?.email || workspace.billing_email || '—',
 		plan: workspace.plan_slug || owner?.plan || 'free',
@@ -186,6 +191,7 @@ export async function mapAdminWorkspace(workspace, { detail = false, ownerMap = 
 		websites: [],
 		pinterestConnected: false,
 		wordpressConnected: false,
+		workspaceKey: canonicalAdminWorkspaceKey(workspace),
 	};
 
 	if (!detail) {
@@ -209,7 +215,6 @@ export async function mapAdminWorkspace(workspace, { detail = false, ownerMap = 
 		base.purchasedCredits = Number(subscription?.purchased_credits) || 0;
 		base.billingStatus = subscription?.billing_status || subscription?.status || 'active';
 		base.plan = subscription?.expand?.plan?.slug || workspace.plan_slug || owner?.plan || 'free';
-		base.workspaceKey = subscription?.workspace_key || workspace.workspace_key || '';
 		base.websites = Array.from({ length: websiteCount }, (_, i) => ({ domain: `site-${i + 1}`, status: 'connected' }));
 		base.websiteCount = websiteCount;
 		base.pinterestConnected = pinCount > 0;
@@ -278,11 +283,7 @@ export async function listAdminWorkspaces(query = {}) {
 	}
 
 	if (query.q) {
-		const q = String(query.q).trim().toLowerCase();
-		items = items.filter((ws) => {
-			const hay = `${ws.name} ${ws.owner} ${ws.ownerEmail}`.toLowerCase();
-			return hay.includes(q);
-		});
+		items = items.filter((ws) => adminWorkspaceMatchesQuery(ws, query.q));
 	}
 
 	const totalItems = items.length;

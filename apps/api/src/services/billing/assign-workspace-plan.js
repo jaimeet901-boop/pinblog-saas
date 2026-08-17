@@ -12,13 +12,8 @@ function httpError(status, message, errorCode) {
 	return error;
 }
 
-function slugify(value) {
-	return String(value || '')
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '')
-		.slice(0, 64);
+function readCanonicalWorkspaceKey(payload = {}) {
+	return String(payload.workspaceKey || payload.workspace_key || '').trim();
 }
 
 async function resolvePocketbaseClient(override) {
@@ -33,11 +28,21 @@ async function resolveLogBillingAction(override) {
 	return logBillingAction;
 }
 
+async function resolveExistingWorkspace(pb, workspaceKey) {
+	try {
+		return await pb.collection('workspaces').getFirstListItem(
+			pb.filter('workspace_key = {:key}', { key: workspaceKey }),
+			{ requestKey: null },
+		);
+	} catch {
+		return null;
+	}
+}
+
 export async function assignWorkspacePlan(payload = {}, adminContext = {}, deps = {}) {
-	const workspaceKey = slugify(payload.workspaceKey || payload.workspace_key || payload.workspaceName || payload.workspace_name);
-	const workspaceName = String(payload.workspaceName || payload.workspace_name || workspaceKey).trim();
-	if (!workspaceKey || !workspaceName) {
-		throw httpError(422, 'workspaceKey and workspaceName are required', 'VALIDATION_ERROR');
+	const requestedKey = readCanonicalWorkspaceKey(payload);
+	if (!requestedKey) {
+		throw httpError(422, 'workspaceKey is required', 'VALIDATION_ERROR');
 	}
 
 	const overrideReason = validateAdminOverrideReason(payload);
@@ -45,6 +50,23 @@ export async function assignWorkspacePlan(payload = {}, adminContext = {}, deps 
 	const pb = await resolvePocketbaseClient(deps.client);
 	const auditFn = await resolveLogBillingAction(deps.logBillingAction);
 	const syncFn = deps.syncEntitlementMirrors || syncEntitlementMirrors;
+
+	const workspace = await resolveExistingWorkspace(pb, requestedKey);
+	if (!workspace) {
+		throw httpError(404, 'Workspace not found', 'WORKSPACE_NOT_FOUND');
+	}
+
+	const workspaceKey = String(workspace.workspace_key || '').trim();
+	if (!workspaceKey) {
+		throw httpError(404, 'Workspace not found', 'WORKSPACE_NOT_FOUND');
+	}
+
+	const workspaceName = String(
+		workspace.name
+		|| payload.workspaceName
+		|| payload.workspace_name
+		|| workspaceKey,
+	).trim();
 
 	const plan = await pb.collection('plans').getOne(payload.planId || payload.plan);
 	const now = new Date();
@@ -65,7 +87,7 @@ export async function assignWorkspacePlan(payload = {}, adminContext = {}, deps 
 	const body = {
 		workspace_key: workspaceKey,
 		workspace_name: workspaceName,
-		owner_email: payload.ownerEmail || existing?.owner_email || '',
+		owner_email: payload.ownerEmail || existing?.owner_email || workspace.billing_email || '',
 		plan: plan.id,
 		status: payload.status || 'active',
 		billing_status: payload.billingStatus || payload.status || 'active',

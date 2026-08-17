@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	Eye, Pencil, Copy, Power, PowerOff, Trash2, X, Check, RefreshCw, Loader2, Plus, UserPlus,
 } from 'lucide-react';
@@ -12,6 +12,12 @@ import {
 	serializePlanFeaturesForApi,
 } from '@/lib/planFeatures';
 import { useToast } from '@/hooks/use-toast';
+import {
+	ASSIGN_WORKSPACE_SEARCH_DEBOUNCE_MS,
+	assignWorkspaceSelectValue,
+	buildAssignWorkspaceListPath,
+	mergeSelectedAssignWorkspace,
+} from './assignWorkspacePicker';
 
 function yesNo(value) {
 	return value ? 'Yes' : 'No';
@@ -152,7 +158,19 @@ export default function AdminPlansPage() {
 	const [selectedId, setSelectedId] = useState('');
 	const [drawerMode, setDrawerMode] = useState('view');
 	const [form, setForm] = useState(() => buildEmptyForm());
-	const [assignForm, setAssignForm] = useState({ workspaceName: '', ownerEmail: '', planId: '' });
+	const [assignForm, setAssignForm] = useState({
+		workspaceKey: '',
+		workspaceName: '',
+		ownerEmail: '',
+		planId: '',
+		reason: '',
+	});
+	const [assignWorkspaces, setAssignWorkspaces] = useState([]);
+	const [assignWorkspacesLoading, setAssignWorkspacesLoading] = useState(false);
+	const [assignWorkspaceQuery, setAssignWorkspaceQuery] = useState('');
+	const [selectedAssignWorkspace, setSelectedAssignWorkspace] = useState(null);
+	const selectedAssignWorkspaceRef = useRef(null);
+	selectedAssignWorkspaceRef.current = selectedAssignWorkspace;
 
 	const featureKeys = featureCatalog.keys || [];
 	const selected = plans.find((plan) => plan.id === selectedId) || null;
@@ -238,8 +256,42 @@ export default function AdminPlansPage() {
 		setDrawerMode('create');
 	};
 
+	const loadAssignWorkspaces = useCallback(async (query = '', selected = null) => {
+		setAssignWorkspacesLoading(true);
+		try {
+			const response = await apiServerClient.fetch(buildAssignWorkspaceListPath(query));
+			if (!response.ok) throw new Error(await readApiError(response));
+			const payload = await response.json();
+			const items = Array.isArray(payload.items) ? payload.items : [];
+			setAssignWorkspaces(mergeSelectedAssignWorkspace(items, selected));
+		} catch (err) {
+			setAssignWorkspaces(mergeSelectedAssignWorkspace([], selected));
+			toast({ variant: 'destructive', title: 'Unable to load workspaces', description: err?.message });
+		} finally {
+			setAssignWorkspacesLoading(false);
+		}
+	}, [toast]);
+
+	useEffect(() => {
+		if (drawerMode !== 'assign') return undefined;
+		const delay = assignWorkspaceQuery ? ASSIGN_WORKSPACE_SEARCH_DEBOUNCE_MS : 0;
+		const timer = setTimeout(() => {
+			loadAssignWorkspaces(assignWorkspaceQuery, selectedAssignWorkspaceRef.current);
+		}, delay);
+		return () => clearTimeout(timer);
+	}, [drawerMode, assignWorkspaceQuery, loadAssignWorkspaces]);
+
 	const openAssign = (planId = '') => {
-		setAssignForm({ workspaceName: '', ownerEmail: '', planId: planId || selectedId || plans[0]?.id || '' });
+		setAssignForm({
+			workspaceKey: '',
+			workspaceName: '',
+			ownerEmail: '',
+			planId: planId || selectedId || plans[0]?.id || '',
+			reason: '',
+		});
+		setAssignWorkspaceQuery('');
+		setSelectedAssignWorkspace(null);
+		setAssignWorkspaces([]);
 		setDrawerMode('assign');
 	};
 
@@ -367,13 +419,33 @@ export default function AdminPlansPage() {
 	};
 
 	const saveAssign = async () => {
+		const workspaceKey = String(assignForm.workspaceKey || '').trim();
+		const reason = String(assignForm.reason || '').trim();
+		const selectedWorkspace = assignWorkspaces.find(
+			(ws) => assignWorkspaceSelectValue(ws) === workspaceKey,
+		);
+		if (!workspaceKey || !selectedWorkspace) {
+			toast({ variant: 'destructive', title: 'Assign failed', description: 'Select an existing workspace.' });
+			return;
+		}
+		if (!reason) {
+			toast({ variant: 'destructive', title: 'Assign failed', description: 'Reason is required.' });
+			return;
+		}
+		if (!assignForm.planId) {
+			toast({ variant: 'destructive', title: 'Assign failed', description: 'Select a plan.' });
+			return;
+		}
 		setSaving(true);
 		try {
 			const result = await runAction('/admin/v1/plans/assign', 'POST', {
-				workspaceName: assignForm.workspaceName.trim(),
-				workspaceKey: assignForm.workspaceName.trim(),
-				ownerEmail: assignForm.ownerEmail.trim(),
+				workspaceKey,
+				workspaceName: selectedWorkspace.name || assignForm.workspaceName.trim(),
+				ownerEmail: selectedWorkspace.ownerEmail && selectedWorkspace.ownerEmail !== '—'
+					? selectedWorkspace.ownerEmail
+					: assignForm.ownerEmail.trim(),
 				planId: assignForm.planId,
+				reason,
 			});
 			await loadPlans();
 			toast({
@@ -873,12 +945,47 @@ export default function AdminPlansPage() {
 								<h3>Assign Workspace to Plan</h3>
 								<div className="admin-config-grid">
 									<div className="admin-field">
-										<label>Workspace name</label>
-										<input value={assignForm.workspaceName} onChange={(e) => setAssignForm((prev) => ({ ...prev, workspaceName: e.target.value }))} placeholder="Sunday Kitchen" />
+										<label>Search workspace</label>
+										<input
+											value={assignWorkspaceQuery}
+											placeholder="Search by name, email, or workspace key"
+											onChange={(e) => setAssignWorkspaceQuery(e.target.value)}
+										/>
+									</div>
+									<div className="admin-field">
+										<label>Workspace</label>
+										<select
+											value={assignForm.workspaceKey}
+											onChange={(e) => {
+												const workspaceKey = assignWorkspaceSelectValue({ workspaceKey: e.target.value });
+												const ws = assignWorkspaces.find(
+													(item) => assignWorkspaceSelectValue(item) === workspaceKey,
+												);
+												setSelectedAssignWorkspace(ws || null);
+												setAssignForm((prev) => ({
+													...prev,
+													workspaceKey,
+													workspaceName: ws?.name || '',
+													ownerEmail: ws?.ownerEmail && ws.ownerEmail !== '—' ? ws.ownerEmail : '',
+												}));
+											}}
+										>
+											<option value="">
+												{assignWorkspacesLoading ? 'Searching workspaces…' : 'Select workspace'}
+											</option>
+											{assignWorkspaces.map((ws) => {
+												const workspaceKey = assignWorkspaceSelectValue(ws);
+												return (
+													<option key={ws.id || workspaceKey} value={workspaceKey}>
+														{ws.name} ({workspaceKey})
+													</option>
+												);
+											})}
+										</select>
 									</div>
 									<div className="admin-field">
 										<label>Owner email</label>
-										<input value={assignForm.ownerEmail} onChange={(e) => setAssignForm((prev) => ({ ...prev, ownerEmail: e.target.value }))} />
+										<input value={assignForm.ownerEmail} readOnly />
 									</div>
 									<div className="admin-field">
 										<label>Plan</label>
@@ -889,9 +996,24 @@ export default function AdminPlansPage() {
 											))}
 										</select>
 									</div>
+									<div className="admin-field" style={{ gridColumn: '1 / -1' }}>
+										<label>Reason</label>
+										<textarea
+											value={assignForm.reason}
+											required
+											rows={3}
+											placeholder="Required: why this admin override is being applied"
+											onChange={(e) => setAssignForm((prev) => ({ ...prev, reason: e.target.value }))}
+										/>
+									</div>
 								</div>
 								<div className="mt-4 flex flex-wrap gap-2">
-									<button type="button" className="admin-btn admin-btn--primary" onClick={saveAssign} disabled={saving}>
+									<button
+										type="button"
+										className="admin-btn admin-btn--primary"
+										onClick={saveAssign}
+										disabled={saving || !assignForm.workspaceKey || !assignForm.planId || !String(assignForm.reason || '').trim()}
+									>
 										{saving ? <Loader2 size={13} className="animate-spin" /> : null}
 										Assign
 									</button>

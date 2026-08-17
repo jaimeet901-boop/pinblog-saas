@@ -118,7 +118,7 @@ describe('Phase 4.5 assignWorkspacePlan regression', () => {
 
 	function createAssignClient() {
 		return {
-			filter: (template) => template,
+			filter: (template, params = {}) => ({ template, params }),
 			collection(name) {
 				return {
 					async getOne(id) {
@@ -129,16 +129,21 @@ describe('Phase 4.5 assignWorkspacePlan regression', () => {
 						}
 						throw new Error(`unexpected getOne ${name}`);
 					},
-					async getFirstListItem() {
+					async getFirstListItem(filterExpr) {
+						const key = String(filterExpr?.params?.key || '').trim();
 						if (name === 'workspace_subscriptions') {
 							for (const row of mockState.subscriptions.values()) {
-								return { ...row, expand: row.expand || {} };
+								if (!key || row.workspace_key === key) {
+									return { ...row, expand: row.expand || {} };
+								}
 							}
 							throw new Error('subscription_not_found');
 						}
 						if (name === 'workspaces') {
 							for (const row of mockState.workspaces.values()) {
-								return { ...row };
+								if (!key || row.workspace_key === key) {
+									return { ...row };
+								}
 							}
 							throw new Error('workspace_not_found');
 						}
@@ -173,6 +178,7 @@ describe('Phase 4.5 assignWorkspacePlan regression', () => {
 		});
 		mockState.workspaces.set('workspace-1', {
 			id: 'workspace-1',
+			name: 'Demo',
 			workspace_key: 'demo',
 			plan_slug: 'free',
 			owner: 'user-1',
