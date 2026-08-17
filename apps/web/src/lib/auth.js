@@ -160,6 +160,32 @@ export function getEnabledProviderNames(authMethods) {
 	return new Set((authMethods?.oauth2?.providers || []).map((provider) => provider.name));
 }
 
+export function isPocketBaseOAuth2Enabled(authMethods) {
+	return authMethods?.oauth2?.enabled === true;
+}
+
+export function pocketBaseOAuth2ProviderNames(authMethods) {
+	const providers = authMethods?.oauth2?.providers;
+	if (!Array.isArray(providers)) return [];
+	return providers
+		.map((provider) => String(provider?.name || '').trim().toLowerCase())
+		.filter(Boolean);
+}
+
+export function isAuthPageOAuthProviderLive(providerName, authMethods) {
+	if (!isPocketBaseOAuth2Enabled(authMethods)) return false;
+	const name = String(providerName || '').trim().toLowerCase();
+	if (!name) return false;
+	return pocketBaseOAuth2ProviderNames(authMethods).includes(name);
+}
+
+/** Login / Signup buttons that are both product-flagged and live in PocketBase. */
+export function getLiveAuthPageOAuthProviders(authMethods) {
+	return getAuthPageOAuthProviders().filter((provider) => (
+		isAuthPageOAuthProviderLive(provider.name, authMethods)
+	));
+}
+
 export function openOAuthWindow(url) {
 	const popup = window.open(url, 'pb-oauth', 'popup=yes,width=560,height=720');
 	if (!popup) {

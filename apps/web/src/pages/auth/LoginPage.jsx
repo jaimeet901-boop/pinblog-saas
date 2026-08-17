@@ -6,7 +6,7 @@ import { Button, Input, Spinner } from '@/components/kit';
 import { useAuth } from '@/context/AuthContext';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { useToast } from '@/hooks/use-toast';
-import { OAUTH_PROVIDERS, getAuthPageOAuthProviders, isValidEmail, normalizeEmail, normalizePocketBaseError } from '@/lib/auth';
+import { OAUTH_PROVIDERS, getLiveAuthPageOAuthProviders, isValidEmail, normalizeEmail, normalizePocketBaseError } from '@/lib/auth';
 import { R0_AUTH } from '@/lib/marketing/r0Copy';
 
 const REMEMBER_KEY = 'chef-ia-remember-email';
@@ -54,8 +54,7 @@ export default function LoginPage() {
 	const [oauthLoading, setOauthLoading] = useState('');
 	const [fieldErrors, setFieldErrors] = useState({ email: '', password: '', form: '' });
 
-	const enabledProviders = useMemo(() => new Set((authMethods?.oauth2?.providers || []).map((provider) => provider.name)), [authMethods]);
-	const authPageProviders = useMemo(() => getAuthPageOAuthProviders(), []);
+	const authPageProviders = useMemo(() => getLiveAuthPageOAuthProviders(authMethods), [authMethods]);
 
 	useEffect(() => {
 		try {
@@ -149,7 +148,6 @@ export default function LoginPage() {
 							<OAuthButton
 								key={provider.name}
 								provider={provider}
-								disabled={enabledProviders.size > 0 && !enabledProviders.has(provider.name)}
 								loading={oauthLoading === provider.name}
 								onClick={() => startOAuth(provider.name)}
 							/>

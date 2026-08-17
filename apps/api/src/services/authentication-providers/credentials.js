@@ -241,9 +241,9 @@ export async function listEnabledAuthenticationCredentials() {
 	return items;
 }
 
-async function applyProvidersSoft() {
+async function applyProvidersSoft({ replaceManaged = false } = {}) {
 	const { applyAuthenticationProvidersToPocketBase } = await import('./apply-to-pocketbase.js');
-	await applyAuthenticationProvidersToPocketBase().catch(() => null);
+	await applyAuthenticationProvidersToPocketBase({ replaceManaged }).catch(() => null);
 }
 
 export async function upsertAuthenticationProvider(providerId, payload = {}, actor = {}) {
@@ -351,7 +351,7 @@ export async function upsertAuthenticationProvider(providerId, payload = {}, act
 		});
 	}
 
-	await applyProvidersSoft();
+	await applyProvidersSoft({ replaceManaged: true });
 	return mapPublicConfig(entry, saved);
 }
 
@@ -395,7 +395,7 @@ export async function resetAuthenticationProvider(providerId, actor = {}) {
 		});
 	}
 
-	await applyProvidersSoft();
+	await applyProvidersSoft({ replaceManaged: true });
 	return getAuthenticationProviderPublic(entry.id);
 }
 
@@ -477,7 +477,7 @@ export async function ensureAuthenticationProvidersSeeded() {
 	if (!google) return listAuthenticationProvidersPublic();
 
 	// Do not auto-create a DB row from env — env remains fallback until Admin saves.
-	// Only apply whatever Admin (or prior seed) already stored.
+	// Startup apply skips wiping existing PocketBase providers when the vault is empty.
 	await applyProvidersSoft();
 	return listAuthenticationProvidersPublic();
 }

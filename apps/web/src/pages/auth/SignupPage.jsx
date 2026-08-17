@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import {
 	OAUTH_PROVIDERS,
-	getAuthPageOAuthProviders,
+	getLiveAuthPageOAuthProviders,
 	getPasswordIssues,
 	isValidEmail,
 	normalizePocketBaseError,
@@ -80,8 +80,7 @@ export default function SignupPage() {
 		if (email) setForm((prev) => ({ ...prev, email }));
 	}, [searchParams]);
 
-	const enabledProviders = useMemo(() => new Set((authMethods?.oauth2?.providers || []).map((provider) => provider.name)), [authMethods]);
-	const authPageProviders = useMemo(() => getAuthPageOAuthProviders(), []);
+	const authPageProviders = useMemo(() => getLiveAuthPageOAuthProviders(authMethods), [authMethods]);
 
 	const set = (k) => (e) => {
 		const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
@@ -199,7 +198,6 @@ export default function SignupPage() {
 							<OAuthButton
 								key={provider.name}
 								provider={provider}
-								disabled={enabledProviders.size > 0 && !enabledProviders.has(provider.name)}
 								loading={oauthLoading === provider.name}
 								onClick={() => startOAuth(provider.name)}
 							/>
