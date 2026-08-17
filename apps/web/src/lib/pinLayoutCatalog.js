@@ -200,6 +200,49 @@ export const PIN_LAYOUT_CATALOG = [
 		textPosition: 'center', frameStyle: 'bannerStrip', roundedLabel: false, accentStyle: 'rule',
 		safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.4,
 	}),
+	layout('recipe_card_bottom_panel', 'Recipe Card — Bottom Panel', ['recipe', 'recipes', 'card', 'clean'], {
+		fontPairId: 'baskerville-italic', typeScale: 'card', overlay: 'softGradient', cta: 'pillSoft',
+		textPosition: 'bottom', frameStyle: 'softCard', ctaPosition: 'inside-frame', brandPlacement: 'inside-card',
+		showBrandBar: false, showDescription: true, textColor: '#1C1917', roundedLabel: true,
+		accentShapes: false, accentStyle: 'none', safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.32,
+	}),
+	layout('recipe_hero_center_title', 'Recipe Hero — Center Title', ['recipe', 'recipes', 'hero', 'short'], {
+		fontPairId: 'didot-script', typeScale: 'hero', overlay: 'richVignette', cta: 'pillLight',
+		textPosition: 'center', scriptEnabled: true, roundedLabel: true, accentStyle: 'arcs',
+		safeMargin: PIN_SAFE_MARGIN.luxury, foodFocusY: 0.46,
+	}),
+	layout('recipe_dark_overlay', 'Dark Recipe Overlay', ['recipe', 'recipes', 'dark', 'editorial'], {
+		fontPairId: 'constantia-script', typeScale: 'editorial', overlay: 'richDark', cta: 'capsuleWarm',
+		textPosition: 'bottom', showDescription: true, underline: true, accentStyle: 'rule',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.29,
+	}),
+	layout('recipe_magazine', 'Magazine Recipe', ['recipe', 'recipes', 'magazine', 'editorial'], {
+		fontPairId: 'garamond-script', typeScale: 'editorial', overlay: 'deepGradient', cta: 'squareClean',
+		textPosition: 'bottom', textAlign: 'left', frameStyle: 'magazine', showCta: true, ctaPosition: 'below-title',
+		showDescription: true, roundedLabel: false, underline: true, accentStyle: 'rule',
+		safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.41, brandBarBg: 'rgba(12,10,9,0.72)',
+	}),
+	layout('recipe_minimal', 'Minimal Recipe', ['recipe', 'recipes', 'minimal', 'short'], {
+		fontPairId: 'futura-georgia', typeScale: 'minimal', overlay: 'softVignette', cta: 'squareClean',
+		textPosition: 'bottom', showSubtitle: false, roundedLabel: false, accentStyle: 'none',
+		ctaPosition: 'bottom', safeMargin: PIN_SAFE_MARGIN.luxury, foodFocusY: 0.44, brandBarBg: 'rgba(0,0,0,0.26)',
+	}),
+	layout('recipe_spotlight', 'Recipe Spotlight', ['recipe', 'recipes', 'glass', 'modern'], {
+		fontPairId: 'optima-script', typeScale: 'editorial', overlay: 'softVignette', cta: 'outlineLight',
+		textPosition: 'bottom', frameStyle: 'glassCard', ctaPosition: 'inside-frame', showDescription: true,
+		roundedLabel: true, accentStyle: 'dots', safeMargin: PIN_SAFE_MARGIN.generous, foodFocusY: 0.27,
+	}),
+	layout('recipe_elegant_white_card', 'Elegant White Card', ['recipe', 'recipes', 'card', 'elegant'], {
+		fontPairId: 'garamond-script', typeScale: 'card', overlay: 'softGradient', cta: 'pillGold',
+		textPosition: 'bottom', frameStyle: 'whiteCard', ctaPosition: 'inside-frame', brandPlacement: 'inside-card',
+		showBrandBar: false, scriptEnabled: true, textColor: '#1C1917', roundedLabel: true,
+		accentShapes: false, accentStyle: 'flourish', safeMargin: PIN_SAFE_MARGIN.standard, foodFocusY: 0.30,
+	}),
+	layout('recipe_bold_food_type', 'Bold Food Typography', ['recipe', 'recipes', 'bold', 'impact'], {
+		fontPairId: 'arial-black-brush', typeScale: 'impact', overlay: 'richGradient', cta: 'sharpBadge',
+		textPosition: 'center', roundedLabel: true, accentStyle: 'spark',
+		safeMargin: PIN_SAFE_MARGIN.tight, foodFocusY: 0.49,
+	}),
 ];
 
 /** Landscape link-post layouts for Facebook (F6-4). */

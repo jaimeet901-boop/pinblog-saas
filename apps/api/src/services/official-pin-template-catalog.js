@@ -1,5 +1,5 @@
 /**
- * AUTO-GENERATED from PIN_LAYOUT_CATALOG (24 Pinterest + 8 Facebook layouts).
+ * AUTO-GENERATED from PIN_LAYOUT_CATALOG (32 Pinterest + 8 Facebook layouts).
  * Do not hand-edit — run: npx vite-node scripts/generate-official-catalog.mjs
  */
 
@@ -2878,6 +2878,974 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 			}
 		},
 		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%237f1d1d%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23b91c1c%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%23fecaca%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2236%22%20y%3D%22260%22%20width%3D%22328%22%20height%3D%22110%22%20rx%3D%2214%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22300%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3ESnack%20impact%20block%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22335%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%23fecaca%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3Enone%20%C2%B7%20center%20%C2%B7%20below-title%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-recipe-card-bottom-panel",
+		"name": "Recipe Card — Bottom Panel",
+		"category": "recipes",
+		"tags": [
+			"recipe",
+			"recipes",
+			"card",
+			"clean",
+			"pinterest"
+		],
+		"layoutId": "recipe_card_bottom_panel",
+		"channel": "pinterest",
+		"configuration": {
+			"canvas": {
+				"width": 1000,
+				"height": 1500
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "bottom",
+				"textAlign": "center",
+				"safeMargin": 104,
+				"showDescription": true,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": false,
+				"frameStyle": "softCard",
+				"ctaPosition": "inside-frame",
+				"brandPlacement": "inside-card",
+				"variantId": "recipe_card_bottom_panel",
+				"variantLabel": "Recipe Card — Bottom Panel",
+				"foodFocusY": 0.32,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "gradient",
+				"intensity": 0.42,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Baskerville, \"Times New Roman\", serif",
+				"fontSize": 75,
+				"minFontSize": 38,
+				"fontWeight": 700,
+				"textColor": "#1C1917",
+				"lineHeight": 1.12,
+				"letterSpacing": -0.4,
+				"maxLines": 3,
+				"textShadow": false,
+				"scriptEnabled": false,
+				"scriptFontFamily": "Georgia, \"Times New Roman\", serif",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 75
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": true,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": false,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "none"
+			},
+			"brandBar": {
+				"enabled": false,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "rgba(255,255,255,0.94)",
+				"textColor": "#1C1917",
+				"borderRadius": 999,
+				"padding": 16,
+				"shadow": false,
+				"opacity": 1,
+				"variant": "pill"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%231c1917%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%237c2d12%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%23f59e0b%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2240%22%20y%3D%22430%22%20width%3D%22320%22%20height%3D%22140%22%20rx%3D%2218%22%20fill%3D%22rgba(255%2C255%2C255%2C0.88)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22490%22%20text-anchor%3D%22middle%22%20fill%3D%22%231c1917%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3ERecipe%20Card%20%E2%80%94%20Bottom%20Panel%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22540%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%23f59e0b%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3EsoftCard%20%C2%B7%20bottom%20%C2%B7%20inside-frame%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-recipe-hero-center-title",
+		"name": "Recipe Hero — Center Title",
+		"category": "recipes",
+		"tags": [
+			"recipe",
+			"recipes",
+			"hero",
+			"short",
+			"pinterest"
+		],
+		"layoutId": "recipe_hero_center_title",
+		"channel": "pinterest",
+		"configuration": {
+			"canvas": {
+				"width": 1000,
+				"height": 1500
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "center",
+				"textAlign": "center",
+				"safeMargin": 120,
+				"showDescription": false,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "none",
+				"ctaPosition": "below-title",
+				"brandPlacement": "bottom-bar",
+				"variantId": "recipe_hero_center_title",
+				"variantLabel": "Recipe Hero — Center Title",
+				"foodFocusY": 0.46,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "vignette",
+				"intensity": 0.62,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Didot, \"Bodoni MT\", serif",
+				"fontSize": 108,
+				"minFontSize": 52,
+				"fontWeight": 800,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.02,
+				"letterSpacing": -1.8,
+				"maxLines": 2,
+				"textShadow": true,
+				"scriptEnabled": true,
+				"scriptFontFamily": "\"Segoe Script\", cursive",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 108
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": true,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": true,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "arcs"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#FFFFFF",
+				"textColor": "#1C1917",
+				"borderRadius": 999,
+				"padding": 18,
+				"shadow": true,
+				"opacity": 1,
+				"variant": "pill"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%230c0a09%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23292524%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%23e7e5e4%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2236%22%20y%3D%22260%22%20width%3D%22328%22%20height%3D%22110%22%20rx%3D%2214%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22300%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3ERecipe%20Hero%20%E2%80%94%20Center%20Title%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22335%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%23e7e5e4%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3Enone%20%C2%B7%20center%20%C2%B7%20below-title%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-recipe-dark-overlay",
+		"name": "Dark Recipe Overlay",
+		"category": "recipes",
+		"tags": [
+			"recipe",
+			"recipes",
+			"dark",
+			"editorial",
+			"pinterest"
+		],
+		"layoutId": "recipe_dark_overlay",
+		"channel": "pinterest",
+		"configuration": {
+			"canvas": {
+				"width": 1000,
+				"height": 1500
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "bottom",
+				"textAlign": "center",
+				"safeMargin": 104,
+				"showDescription": true,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "none",
+				"ctaPosition": "below-title",
+				"brandPlacement": "bottom-bar",
+				"variantId": "recipe_dark_overlay",
+				"variantLabel": "Dark Recipe Overlay",
+				"foodFocusY": 0.29,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "dark",
+				"intensity": 0.42,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Constantia, Georgia, serif",
+				"fontSize": 87,
+				"minFontSize": 42,
+				"fontWeight": 700,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.1,
+				"letterSpacing": -0.6,
+				"maxLines": 3,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "\"Segoe Script\", cursive",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 87
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": true,
+				"underline": true,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": true,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "rule"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#C4A574",
+				"textColor": "#1C1917",
+				"borderRadius": 18,
+				"padding": 18,
+				"shadow": true,
+				"opacity": 1,
+				"variant": "capsule"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%230f172a%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%231e293b%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%2338bdf8%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2236%22%20y%3D%22450%22%20width%3D%22328%22%20height%3D%22110%22%20rx%3D%2214%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22490%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3EDark%20Recipe%20Overlay%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22525%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%2338bdf8%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3Enone%20%C2%B7%20bottom%20%C2%B7%20below-title%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-recipe-magazine",
+		"name": "Magazine Recipe",
+		"category": "recipes",
+		"tags": [
+			"recipe",
+			"recipes",
+			"magazine",
+			"editorial",
+			"pinterest"
+		],
+		"layoutId": "recipe_magazine",
+		"channel": "pinterest",
+		"configuration": {
+			"canvas": {
+				"width": 1000,
+				"height": 1500
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "bottom",
+				"textAlign": "left",
+				"safeMargin": 104,
+				"showDescription": true,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "magazine",
+				"ctaPosition": "below-title",
+				"brandPlacement": "bottom-bar",
+				"variantId": "recipe_magazine",
+				"variantLabel": "Magazine Recipe",
+				"foodFocusY": 0.41,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "gradient",
+				"intensity": 0.72,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Garamond, \"Times New Roman\", serif",
+				"fontSize": 88,
+				"minFontSize": 42,
+				"fontWeight": 700,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.1,
+				"letterSpacing": -0.6,
+				"maxLines": 3,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "\"Segoe Script\", \"Brush Script MT\", cursive",
+				"scriptColor": "#E8B86D",
+				"align": "left",
+				"titleSize": 88
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": false,
+				"underline": true,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": true,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "rule"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(12,10,9,0.72)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#FFFFFF",
+				"textColor": "#1C1917",
+				"borderRadius": 0,
+				"padding": 14,
+				"shadow": false,
+				"opacity": 1,
+				"variant": "square"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%2344403c%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23a8a29e%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%23fafaf9%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2228%22%20y%3D%2228%22%20width%3D%22344%22%20height%3D%22544%22%20fill%3D%22none%22%20stroke%3D%22%23fafaf9%22%20stroke-width%3D%2210%22%2F%3E%0A%3Ctext%20x%3D%2248%22%20y%3D%22490%22%20text-anchor%3D%22start%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3EMagazine%20Recipe%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22525%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%23fafaf9%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3Emagazine%20%C2%B7%20bottom%20%C2%B7%20below-title%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-recipe-minimal",
+		"name": "Minimal Recipe",
+		"category": "recipes",
+		"tags": [
+			"recipe",
+			"recipes",
+			"minimal",
+			"short",
+			"pinterest"
+		],
+		"layoutId": "recipe_minimal",
+		"channel": "pinterest",
+		"configuration": {
+			"canvas": {
+				"width": 1000,
+				"height": 1500
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "bottom",
+				"textAlign": "center",
+				"safeMargin": 120,
+				"showDescription": false,
+				"showSubtitle": false,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "none",
+				"ctaPosition": "bottom",
+				"brandPlacement": "bottom-bar",
+				"variantId": "recipe_minimal",
+				"variantLabel": "Minimal Recipe",
+				"foodFocusY": 0.44,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "vignette",
+				"intensity": 0.48,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Futura, \"Trebuchet MS\", sans-serif",
+				"fontSize": 66,
+				"minFontSize": 36,
+				"fontWeight": 600,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.16,
+				"letterSpacing": 1.8,
+				"maxLines": 3,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "Georgia, \"Times New Roman\", serif",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 66
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": false,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": true,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "none"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.26)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#FFFFFF",
+				"textColor": "#1C1917",
+				"borderRadius": 0,
+				"padding": 14,
+				"shadow": false,
+				"opacity": 1,
+				"variant": "square"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%23431407%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%239a3412%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%23fdba74%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2236%22%20y%3D%22450%22%20width%3D%22328%22%20height%3D%22110%22%20rx%3D%2214%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22490%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3EMinimal%20Recipe%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22540%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%23fdba74%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3Enone%20%C2%B7%20bottom%20%C2%B7%20bottom%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-recipe-spotlight",
+		"name": "Recipe Spotlight",
+		"category": "recipes",
+		"tags": [
+			"recipe",
+			"recipes",
+			"glass",
+			"modern",
+			"pinterest"
+		],
+		"layoutId": "recipe_spotlight",
+		"channel": "pinterest",
+		"configuration": {
+			"canvas": {
+				"width": 1000,
+				"height": 1500
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "bottom",
+				"textAlign": "center",
+				"safeMargin": 104,
+				"showDescription": true,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "glassCard",
+				"ctaPosition": "inside-frame",
+				"brandPlacement": "bottom-bar",
+				"variantId": "recipe_spotlight",
+				"variantLabel": "Recipe Spotlight",
+				"foodFocusY": 0.27,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "vignette",
+				"intensity": 0.48,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Optima, Candara, sans-serif",
+				"fontSize": 83,
+				"minFontSize": 42,
+				"fontWeight": 700,
+				"textColor": "#FFFFFF",
+				"lineHeight": 1.1,
+				"letterSpacing": -0.6,
+				"maxLines": 3,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "\"Segoe Script\", cursive",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 83
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": true,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": true,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "dots"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "rgba(255,255,255,0.12)",
+				"textColor": "#FFFFFF",
+				"borderRadius": 999,
+				"padding": 16,
+				"shadow": false,
+				"opacity": 1,
+				"variant": "outline"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%234c0519%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%239f1239%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%23fecdd3%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2240%22%20y%3D%22430%22%20width%3D%22320%22%20height%3D%22140%22%20rx%3D%2218%22%20fill%3D%22rgba(255%2C255%2C255%2C0.88)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22490%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3ERecipe%20Spotlight%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22540%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%23fecdd3%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3EglassCard%20%C2%B7%20bottom%20%C2%B7%20inside-frame%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-recipe-elegant-white-card",
+		"name": "Elegant White Card",
+		"category": "recipes",
+		"tags": [
+			"recipe",
+			"recipes",
+			"card",
+			"elegant",
+			"pinterest"
+		],
+		"layoutId": "recipe_elegant_white_card",
+		"channel": "pinterest",
+		"configuration": {
+			"canvas": {
+				"width": 1000,
+				"height": 1500
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "bottom",
+				"textAlign": "center",
+				"safeMargin": 88,
+				"showDescription": false,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": false,
+				"frameStyle": "whiteCard",
+				"ctaPosition": "inside-frame",
+				"brandPlacement": "inside-card",
+				"variantId": "recipe_elegant_white_card",
+				"variantLabel": "Elegant White Card",
+				"foodFocusY": 0.3,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "gradient",
+				"intensity": 0.42,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "Garamond, \"Times New Roman\", serif",
+				"fontSize": 74,
+				"minFontSize": 38,
+				"fontWeight": 700,
+				"textColor": "#1C1917",
+				"lineHeight": 1.12,
+				"letterSpacing": -0.4,
+				"maxLines": 3,
+				"textShadow": false,
+				"scriptEnabled": true,
+				"scriptFontFamily": "\"Segoe Script\", \"Brush Script MT\", cursive",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 74
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": true,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": false,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "flourish"
+			},
+			"brandBar": {
+				"enabled": false,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#E8B86D",
+				"textColor": "#1C1917",
+				"borderRadius": 999,
+				"padding": 17,
+				"shadow": true,
+				"opacity": 1,
+				"variant": "pill"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%231c1917%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2357534e%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%23d6d3d1%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2240%22%20y%3D%22430%22%20width%3D%22320%22%20height%3D%22140%22%20rx%3D%2218%22%20fill%3D%22rgba(255%2C255%2C255%2C0.88)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22490%22%20text-anchor%3D%22middle%22%20fill%3D%22%231c1917%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3EElegant%20White%20Card%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22540%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%23d6d3d1%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3EwhiteCard%20%C2%B7%20bottom%20%C2%B7%20inside-frame%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-recipe-bold-food-type",
+		"name": "Bold Food Typography",
+		"category": "recipes",
+		"tags": [
+			"recipe",
+			"recipes",
+			"bold",
+			"impact",
+			"pinterest"
+		],
+		"layoutId": "recipe_bold_food_type",
+		"channel": "pinterest",
+		"configuration": {
+			"canvas": {
+				"width": 1000,
+				"height": 1500
+			},
+			"background": {
+				"color": "#111111",
+				"imageUrl": "",
+				"opacity": 1
+			},
+			"placeholders": {
+				"featuredImage": true,
+				"websiteLogo": true,
+				"backgroundPattern": false
+			},
+			"layout": {
+				"textPosition": "center",
+				"textAlign": "center",
+				"safeMargin": 72,
+				"showDescription": false,
+				"showSubtitle": true,
+				"showCta": true,
+				"showBrandBar": true,
+				"frameStyle": "none",
+				"ctaPosition": "below-title",
+				"brandPlacement": "bottom-bar",
+				"variantId": "recipe_bold_food_type",
+				"variantLabel": "Bold Food Typography",
+				"foodFocusY": 0.49,
+				"dynamicGapAfterTitle": 26,
+				"titleScaleBoost": 1,
+				"subtitleOpacity": 0.86
+			},
+			"textOverlay": {
+				"style": "gradient",
+				"intensity": 0.62,
+				"color": "#000000"
+			},
+			"positions": {
+				"title": {
+					"x": 50,
+					"y": 58
+				},
+				"description": {
+					"x": 50,
+					"y": 72
+				},
+				"overlayText": {
+					"x": 50,
+					"y": 78
+				},
+				"logo": {
+					"x": 50,
+					"y": 92
+				}
+			},
+			"typography": {
+				"fontFamily": "\"Arial Black\", Gadget, sans-serif",
+				"fontSize": 115,
+				"minFontSize": 54,
+				"fontWeight": 900,
+				"textColor": "#FFFFFF",
+				"lineHeight": 0.96,
+				"letterSpacing": -2.2,
+				"maxLines": 2,
+				"textShadow": true,
+				"scriptEnabled": false,
+				"scriptFontFamily": "\"Brush Script MT\", \"Segoe Script\", cursive",
+				"scriptColor": "#E8B86D",
+				"align": "center",
+				"titleSize": 115
+			},
+			"decorations": {
+				"brushHighlight": false,
+				"brushColor": "#E8B86D",
+				"brushOpacity": 0.82,
+				"roundedLabel": true,
+				"underline": false,
+				"underlineColor": "#FFFFFF",
+				"accentShapes": true,
+				"accentColor": "#FFFFFF",
+				"accentStyle": "spark"
+			},
+			"brandBar": {
+				"enabled": true,
+				"showLogo": true,
+				"showDomain": true,
+				"background": "rgba(0,0,0,0.42)",
+				"textColor": "#FFFFFF"
+			},
+			"buttonStyle": {
+				"background": "#B91C1C",
+				"textColor": "#FFFFFF",
+				"borderRadius": 8,
+				"padding": 16,
+				"shadow": true,
+				"opacity": 1,
+				"variant": "sharp"
+			},
+			"container": {
+				"borderRadius": 0,
+				"padding": 88,
+				"shadow": false,
+				"opacity": 1
+			}
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%23171717%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23404040%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%23f5f5f5%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2236%22%20y%3D%22260%22%20width%3D%22328%22%20height%3D%22110%22%20rx%3D%2214%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22300%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3EBold%20Food%20Typography%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22335%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%23f5f5f5%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3Enone%20%C2%B7%20center%20%C2%B7%20below-title%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
 	},
 	{
 		"templateUuid": "chefia-official-facebook-centered-hero",

@@ -39,7 +39,73 @@ const CATEGORY_BY_LAYOUT = {
 	breakfast_sunburst: 'breakfast',
 	drink_cool_center: 'drinks',
 	snack_impact_block: 'snacks',
+	recipe_card_bottom_panel: 'recipes',
+	recipe_hero_center_title: 'recipes',
+	recipe_dark_overlay: 'recipes',
+	recipe_magazine: 'recipes',
+	recipe_minimal: 'recipes',
+	recipe_spotlight: 'recipes',
+	recipe_elegant_white_card: 'recipes',
+	recipe_bold_food_type: 'recipes',
 };
+
+/** First 24 official Pinterest layouts — never insert/reorder. */
+const FROZEN_OFFICIAL_PINTEREST_LAYOUT_IDS = Object.freeze([
+	'centered_hero',
+	'top_title_bottom_cta',
+	'dark_title_box',
+	'white_rounded_card',
+	'brush_stroke',
+	'ribbon_banner',
+	'magazine',
+	'minimal_modern',
+	'bold_typography',
+	'handwritten_accent',
+	'soft_card_float',
+	'glass_panel',
+	'banner_strip',
+	'polaroid_memory',
+	'inset_frame',
+	'left_rail_editorial',
+	'top_center_badge',
+	'bottom_stack_luxe',
+	'center_script_hero',
+	'healthy_clean_card',
+	'dinner_dark_panel',
+	'breakfast_sunburst',
+	'drink_cool_center',
+	'snack_impact_block',
+]);
+
+/** Phase A recipe pack — included by named ID, not by array slice. */
+const PHASE_A_RECIPE_PACK_IDS = Object.freeze([
+	'recipe_card_bottom_panel',
+	'recipe_hero_center_title',
+	'recipe_dark_overlay',
+	'recipe_magazine',
+	'recipe_minimal',
+	'recipe_spotlight',
+	'recipe_elegant_white_card',
+	'recipe_bold_food_type',
+]);
+
+function selectOfficialPinterestLayouts(catalog) {
+	const frozen = catalog.slice(0, 24);
+	const frozenIds = frozen.map((item) => item.id);
+	if (frozenIds.join('|') !== FROZEN_OFFICIAL_PINTEREST_LAYOUT_IDS.join('|')) {
+		throw new Error(
+			`Official first 24 Pinterest layouts were reordered or mutated. Expected ${FROZEN_OFFICIAL_PINTEREST_LAYOUT_IDS.join(', ')}; got ${frozenIds.join(', ')}`,
+		);
+	}
+	const pack = PHASE_A_RECIPE_PACK_IDS.map((id) => {
+		const layout = catalog.find((item) => item.id === id);
+		if (!layout) {
+			throw new Error(`Missing Phase A recipe pack layout: ${id}`);
+		}
+		return layout;
+	});
+	return [...frozen, ...pack];
+}
 
 const THUMB_PALETTE = [
 	['#1c1917', '#7c2d12', '#f59e0b'],
@@ -167,10 +233,7 @@ function buildCatalogEntry(layout, index, { channel, uuidPrefix, thumbBuilder, t
 	return entry;
 }
 
-const pinterestLayouts = PIN_LAYOUT_CATALOG.slice(0, 24);
-if (pinterestLayouts.length < 24) {
-	throw new Error(`Expected 24 Pinterest layouts, got ${pinterestLayouts.length}`);
-}
+const pinterestLayouts = selectOfficialPinterestLayouts(PIN_LAYOUT_CATALOG);
 
 const pinterestCatalog = pinterestLayouts.map((layout, index) => buildCatalogEntry(layout, index, {
 	channel: 'pinterest',
@@ -189,7 +252,7 @@ const facebookCatalog = FACEBOOK_PIN_LAYOUT_CATALOG.map((layout, index) => build
 const catalog = [...pinterestCatalog, ...facebookCatalog];
 
 const outJs = `/**
- * AUTO-GENERATED from PIN_LAYOUT_CATALOG (24 Pinterest + ${facebookCatalog.length} Facebook layouts).
+ * AUTO-GENERATED from PIN_LAYOUT_CATALOG (${pinterestCatalog.length} Pinterest + ${facebookCatalog.length} Facebook layouts).
  * Do not hand-edit — run: npx vite-node scripts/generate-official-catalog.mjs
  */
 
