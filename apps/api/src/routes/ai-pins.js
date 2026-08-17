@@ -32,6 +32,11 @@ import {
 	assertWorkspaceOwnedRecord,
 } from '../services/workspace-ownership.js';
 import {
+	applySessionWorkspace,
+	stripClientWorkspaceFields,
+	validateDraftItemsOwnership,
+} from '../services/ai-pin-draft-ownership.js';
+import {
 	parseGenerationHistoryChannel,
 	buildGenerationHistoryChannelFilter,
 } from '../services/ai-pin-generation-history-query.js';
@@ -998,6 +1003,19 @@ router.post('/drafts', async (req, res) => {
 		throw httpError(422, 'items must be a non-empty array');
 	}
 
+	await validateDraftItemsOwnership(items, {
+		req,
+		getOwnedWebsite,
+		getOwnedWebsiteArticle,
+	});
+
+	for (const item of items) {
+		const label = String(item?.title || item?.tempId || 'pin').slice(0, 80);
+		if (!normalizeDestinationUrl(item?.source_url || item?.sourceUrl || '')) {
+			throw httpError(422, `Cannot save "${label}": source_url (original article URL) is required`);
+		}
+	}
+
 	const created = [];
 	for (const item of items) {
 		const label = String(item?.title || item?.tempId || 'pin').slice(0, 80);
@@ -1010,12 +1028,12 @@ router.post('/drafts', async (req, res) => {
 			collection: 'ai_pins',
 			context: 'ai-pins:create-draft',
 			requiredKeys: ['owner', 'articleId', 'websiteId', 'title', 'image_url', 'source_url'],
-			payload: stampCreateOwnership(req, {
-				...item,
+			payload: applySessionWorkspace(stampCreateOwnership(req, {
+				...stripClientWorkspaceFields(item),
 				source_url: sourceUrl.slice(0, 2000),
 				image_origin: String(item?.image_origin || item?.imageOrigin || '').trim().slice(0, 32),
 				status: 'draft',
-			}),
+			}), req),
 		});
 
 		if (!payload.source_url) {
