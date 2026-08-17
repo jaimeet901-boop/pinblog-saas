@@ -38,6 +38,12 @@ import {
 	withUpdatedImageSourceMeta,
 } from '@/lib/aiPinsPinCopy';
 import {
+	canGenerateWithCredits,
+	estimatePinCredits,
+	INSUFFICIENT_CREDITS_TOAST,
+	isInsufficientCreditsError,
+} from '@/lib/aiPinsGenerateCredits';
+import {
 	assignIntelligentPinDesigns,
 	applyIntelligentTemplateConfig,
 } from '@/lib/pinTemplateIntelligence';
@@ -46,7 +52,6 @@ import {
 	buildImageQualityOptions,
 	buildPinCountOptions,
 	buildPinPromptFromConfig,
-	estimatePinCredits,
 	languageLabelFromConfig,
 	mapStudioBrandKits,
 	mapStudioCredits,
@@ -583,13 +588,15 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 
 	const estimatedCredits = useMemo(() => {
 		const quality = imageQualities.find((item) => item.id === imageQuality) || imageQualities[0];
-		const articleFactor = createMode === 'bulk' ? Math.max(1, selectedArticleIds.size) : 1;
+		const articleCount = createMode === 'bulk' ? Math.max(1, selectedArticleIds.size) : 1;
 		return estimatePinCredits({
-			quality,
-			count: panel.count,
-			articleFactor,
+			imageMode: quality?.imageMode,
+			pinCount: panel.count,
+			articleCount,
 		});
 	}, [imageQuality, imageQualities, panel.count, createMode, selectedArticleIds.size]);
+
+	const generateBlockedByCredits = !canGenerateWithCredits(credits?.remaining, estimatedCredits);
 
 	const activeWebsite = useMemo(
 		() => websites.find((site) => site.id === websiteId) || null,
@@ -1360,6 +1367,14 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			toast({ variant: 'destructive', title: 'Select website', description: 'Please select a website first.' });
 			return;
 		}
+		if (!canGenerateWithCredits(credits?.remaining, estimatedCredits)) {
+			toast({
+				variant: 'destructive',
+				title: INSUFFICIENT_CREDITS_TOAST.title,
+				description: INSUFFICIENT_CREDITS_TOAST.description,
+			});
+			return;
+		}
 
 		const quality = imageQualities.find((item) => item.id === imageQuality) || imageQualities[0];
 		const ratio = studioAssets.aspectRatios.find((item) => item.id === aspectRatio);
@@ -1684,11 +1699,19 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				selectedBrand,
 			);
 		} catch (error) {
-			toast({
-				variant: 'destructive',
-				title: 'Generation failed',
-				description: 'AI generation is unavailable right now. Please try again later.',
-			});
+			if (isInsufficientCreditsError(error)) {
+				toast({
+					variant: 'destructive',
+					title: INSUFFICIENT_CREDITS_TOAST.title,
+					description: INSUFFICIENT_CREDITS_TOAST.description,
+				});
+			} else {
+				toast({
+					variant: 'destructive',
+					title: 'Generation failed',
+					description: 'AI generation is unavailable right now. Please try again later.',
+				});
+			}
 		} finally {
 			setGenerating(false);
 			setBulkProgress({ active: false, current: 0, total: 0, message: '' });
@@ -2752,7 +2775,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 							This will use ~{estimatedCredits} credits
 							{credits?.remaining != null ? ` · ${Math.max(0, Number((credits.remaining - estimatedCredits).toFixed(2)))} left` : ''}.
 						</p>
-						<Button className="w-full" onClick={handleGenerate} disabled={generating || loadingArticles}>
+						<Button className="w-full" onClick={handleGenerate} disabled={generating || loadingArticles || generateBlockedByCredits}>
 							{generating ? <Spinner className="h-4 w-4" /> : (isFacebookStudio ? <Share2 size={16} /> : <Wand2 size={16} />)}
 							{generating ? 'Generating…' : generateLabel}
 						</Button>

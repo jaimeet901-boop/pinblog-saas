@@ -298,11 +298,11 @@ export function buildPinPromptFromConfig({ config, article, count, panel, channe
 	return buildLegacyPinterestPinPromptFromConfig({ config, article, count, panel });
 }
 
-export function estimatePinCredits({ quality, count, articleFactor = 1 }) {
-	const perPin = Number(quality?.creditHint);
-	const rate = Number.isFinite(perPin) ? perPin : 0;
-	return Number((rate * Math.max(1, count) * Math.max(1, articleFactor)).toFixed(2));
-}
+export {
+	canGenerateWithCredits,
+	estimatePinCredits,
+	isInsufficientCreditsError,
+} from './aiPinsGenerateCredits.js';
 
 /** Re-export publishing config resolver — AI Pins reads publish settings only via Workspace Config. */
 export { resolvePublishingConfig } from '@/services/ai-pins/publishingConfig.js';
