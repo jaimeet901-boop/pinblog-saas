@@ -50,6 +50,12 @@ import {
 	shouldApplyPublishedUrlToArticle,
 	shouldShowPublishedSuccessBanner,
 } from '@/lib/writer-published-url';
+import {
+	canStartWriterGeneration,
+	isWriterInsufficientCreditsError,
+	readWriterCreditCost,
+	readWriterCreditRemaining,
+} from '@/lib/writerGenerateCredits';
 import './WriterPage.css';
 const initForm = {
 	keyword: '',
@@ -119,7 +125,7 @@ function friendlyGenerationError(err) {
 			kind: 'plan',
 		};
 	}
-	if (code === 'INSUFFICIENT_CREDITS' || status === 402) {
+	if (code === 'INSUFFICIENT_CREDITS' || status === 402 || isWriterInsufficientCreditsError(err)) {
 		return {
 			title: 'Insufficient credits',
 			description: raw || 'Add credits or upgrade your plan to generate articles.',
@@ -441,6 +447,7 @@ export default function WriterPage() {
 	const [upgradeOpen, setUpgradeOpen] = useState(false);
 	const [upgradeAccess, setUpgradeAccess] = useState(null);
 	const [writerCreditCost, setWriterCreditCost] = useState(null);
+	const [writerCreditRemaining, setWriterCreditRemaining] = useState(null);
 	const [scheduleOpen, setScheduleOpen] = useState(false);
 
 	const streamRef = useRef(null);
@@ -491,9 +498,13 @@ export default function WriterPage() {
 				// If plan payload omits features, keep UI usable and rely on API enforcement.
 				const hasFeatureMap = features && typeof features === 'object' && Object.keys(features).length > 0;
 				setWriterPlanAllowed(hasFeatureMap ? allowed : true);
-				const fromSubscription = Number(payload?.credits?.featureCosts?.ai_writer);
-				if (Number.isFinite(fromSubscription) && fromSubscription >= 0) {
+				const fromSubscription = readWriterCreditCost(payload);
+				if (fromSubscription != null) {
 					setWriterCreditCost(fromSubscription);
+				}
+				const remainingFromSubscription = readWriterCreditRemaining(payload);
+				if (remainingFromSubscription != null) {
+					setWriterCreditRemaining(remainingFromSubscription);
 				}
 			} catch {
 				if (!cancelled) setWriterPlanAllowed(true);
@@ -502,12 +513,16 @@ export default function WriterPage() {
 				const creditsRes = await apiServerClient.fetch('/workspace/v1/credits', { method: 'GET' });
 				const creditsPayload = await creditsRes.json().catch(() => ({}));
 				if (!creditsRes.ok || cancelled) return;
-				const cost = Number(creditsPayload?.featureCosts?.ai_writer);
-				if (Number.isFinite(cost) && cost >= 0) {
+				const cost = readWriterCreditCost(creditsPayload);
+				if (cost != null) {
 					setWriterCreditCost(cost);
 				}
+				const remaining = readWriterCreditRemaining(creditsPayload);
+				if (remaining != null) {
+					setWriterCreditRemaining(remaining);
+				}
 			} catch {
-				/* keep prior cost */
+				/* keep prior cost / remaining */
 			}
 		})();
 		return () => {
@@ -682,6 +697,14 @@ Respond ONLY with the JSON object described in your instructions.`;
 		}
 		if (!form.keyword.trim()) {
 			toast({ variant: 'destructive', title: 'Main keyword required', description: 'Add a keyword to start writing.' });
+			return;
+		}
+		if (!canStartWriterGeneration({ remaining: writerCreditRemaining, cost: writerCreditCost })) {
+			toast({
+				variant: 'destructive',
+				title: 'Insufficient credits',
+				description: 'Add credits or upgrade your plan to generate articles.',
+			});
 			return;
 		}
 

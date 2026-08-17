@@ -9,9 +9,11 @@ import { assertTextProviderConfigured } from '../services/ai-providers.js';
 import { userSafeTextError } from '../services/ai-user-safe-errors.js';
 import {
 	PIN_COPY_CREDIT_FEATURE,
+	WRITER_CREDIT_FEATURE,
 	reserveIntegratedAiStreamCredits,
 	resolveIntegratedAiStreamCreditIntent,
 } from '../services/integrated-ai-stream-credits.js';
+import { createOnceCreditSettle } from '../services/writer-stream-credit-success.js';
 import { assertFeatureAccess } from '../services/plan-access-guard.js';
 import {
 	buildLengthEnforcementPrompt,
@@ -361,9 +363,9 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 		});
 	}
 
-	const settleCreditsOnClose = async ({ success }) => {
+	const settleCreditsOnce = createOnceCreditSettle(async ({ success } = {}) => {
 		await settleCredits({ success }).catch(() => null);
-	};
+	});
 
 	const generationOptions = lengthParams
 		? {
@@ -373,6 +375,10 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 		}
 		: null;
 
+	const requireWriterArticleJson = intent.mode === 'billable'
+		&& creditFeature === WRITER_CREDIT_FEATURE
+		&& Boolean(lengthParams);
+
 	let sseStream;
 	try {
 		sseStream = await stream({
@@ -381,10 +387,14 @@ router.post('/stream', integratedAiRateLimit, requireWorkspaceMutation('workspac
 			userMessage,
 			singleShot: singleShot || writerContinuation,
 			generationOptions,
-			onGenerationSettled: creditReservation?.id ? settleCreditsOnClose : null,
+			creditSettlement: {
+				creditFeature,
+				requireWriterArticleJson,
+			},
+			onGenerationSettled: creditReservation?.id ? settleCreditsOnce : null,
 		});
 	} catch (error) {
-		await settleCredits({ success: false }).catch(() => null);
+		await settleCreditsOnce({ success: false });
 		throw error;
 	}
 

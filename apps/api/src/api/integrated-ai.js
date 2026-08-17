@@ -5,6 +5,12 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { getPublicFileUrl } from '../utils/public-file-url.js';
 import { streamTextWithRegistry } from '../services/text-providers/index.js';
 import { userSafeTextError } from '../services/ai-user-safe-errors.js';
+import {
+	createOnceCreditSettle,
+	evaluateIntegratedAiStreamCreditSuccess,
+	isStreamAbortError,
+	joinSseContentEvents,
+} from '../services/writer-stream-credit-success.js';
 
 const MessageRole = Object.freeze({
 	User: 'user',
@@ -248,6 +254,7 @@ function estimateInputTokens(characterCount) {
  *   userMessage: ContentBlock[],
  *   singleShot?: boolean,
  *   generationOptions?: { maxTokens?: number, timeoutMs?: number, temperature?: number, requestType?: string },
+ *   creditSettlement?: { creditFeature?: string, requireWriterArticleJson?: boolean },
  *   onGenerationSettled?: (result: { success: boolean, contentEventCount: number }) => Promise<void>|void,
  * }} params
  * @returns {Promise<import('node:stream').Readable>}
@@ -258,6 +265,7 @@ export async function stream({
 	userMessage,
 	singleShot = false,
 	generationOptions = null,
+	creditSettlement = null,
 	onGenerationSettled = null,
 }) {
 	// Single-shot (Writer / one-off generate): system + current user turn only.
@@ -284,12 +292,21 @@ export async function stream({
 
 	const passThrough = new PassThrough();
 	const startedAt = Date.now();
+	const settleOnce = createOnceCreditSettle(onGenerationSettled);
 
 	(async () => {
 		/** @type {SSEEventHistory[]} */
 		const contentEvents = [];
 		let firstTokenAt = null;
 		let settledSuccess = false;
+		let aborted = false;
+		let providerFailed = false;
+
+		const markAborted = () => {
+			aborted = true;
+		};
+		passThrough.once('close', markAborted);
+		passThrough.once('error', markAborted);
 
 		try {
 			for await (const chunk of streamTextWithRegistry({
@@ -299,6 +316,7 @@ export async function stream({
 					? generationOptions
 					: {},
 			})) {
+				if (aborted) break;
 				if (firstTokenAt == null) {
 					firstTokenAt = Date.now();
 				}
@@ -310,9 +328,7 @@ export async function stream({
 				passThrough.write(`data: ${JSON.stringify(event)}\n\n`);
 			}
 
-			settledSuccess = contentEvents.length > 0;
-
-			if (!singleShot) {
+			if (!singleShot && !aborted) {
 				const squashedHistoryEvents = squashSSEEvents({ events: contentEvents });
 				await saveMessages({
 					userId,
@@ -331,23 +347,43 @@ export async function stream({
 				});
 			}
 		} catch (error) {
-			settledSuccess = false;
-			logger.error('Text provider stream failed', error);
-			const message = userSafeTextError();
-			passThrough.write(`data: ${JSON.stringify({
-				type: SSEEventType.Error,
-				data: { content: message },
-			})}\n\n`);
-		} finally {
-			if (typeof onGenerationSettled === 'function') {
+			if (aborted || isStreamAbortError(error)) {
+				aborted = true;
+			} else {
+				providerFailed = true;
+				logger.error('Text provider stream failed', error);
+				const message = userSafeTextError();
 				try {
-					await onGenerationSettled({
-						success: settledSuccess,
-						contentEventCount: contentEvents.length,
-					});
-				} catch (settleError) {
-					logger.error('[integrated-ai/stream] onGenerationSettled failed', settleError);
+					passThrough.write(`data: ${JSON.stringify({
+						type: SSEEventType.Error,
+						data: { content: message },
+					})}\n\n`);
+				} catch {
+					/* stream already closed */
 				}
+			}
+		} finally {
+			passThrough.off?.('close', markAborted);
+			passThrough.off?.('error', markAborted);
+
+			const accumulatedText = joinSseContentEvents(contentEvents);
+			settledSuccess = evaluateIntegratedAiStreamCreditSuccess({
+				providerFailed,
+				accumulatedText,
+				contentEventCount: contentEvents.length,
+				creditFeature: creditSettlement?.creditFeature,
+				requireWriterArticleJson: Boolean(creditSettlement?.requireWriterArticleJson),
+			});
+
+			try {
+				await settleOnce({
+					success: settledSuccess,
+					contentEventCount: contentEvents.length,
+					aborted,
+					providerFailed,
+				});
+			} catch (settleError) {
+				logger.error('[integrated-ai/stream] onGenerationSettled failed', settleError);
 			}
 
 			const finishedAt = Date.now();
@@ -365,10 +401,14 @@ export async function stream({
 				settledSuccess,
 			});
 
-			passThrough.end(`data: ${JSON.stringify({
-				type: SSEEventType.Completed,
-				data: { content: '[COMPLETED]' },
-			})}\n\n`);
+			try {
+				passThrough.end(`data: ${JSON.stringify({
+					type: SSEEventType.Completed,
+					data: { content: '[COMPLETED]' },
+				})}\n\n`);
+			} catch {
+				/* stream already destroyed (client abort) */
+			}
 		}
 	})();
 
