@@ -86,9 +86,9 @@ export async function purchaseCreditPack({
 	});
 	if (idem.duplicate) {
 		return {
+			...idem.result,
 			duplicate: true,
 			idempotent: true,
-			result: idem.result,
 		};
 	}
 

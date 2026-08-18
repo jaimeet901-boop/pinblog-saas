@@ -367,5 +367,27 @@ describe('Phase 3.4 createCreditPackCheckout', () => {
 		assert.equal(capturedBody.custom_data.workspaceKey, 'ws-demo');
 		assert.equal(capturedBody.custom_data.packId, 'pack-100');
 		assert.equal(capturedBody.custom_data.planSlug, undefined);
+		assert.equal(Object.hasOwn(capturedBody, 'checkout'), false);
+	});
+});
+
+describe('purchaseCreditPack checkout-start idempotent replay shape', () => {
+	it('spreads the stored checkout result to the top level without changing fulfillment replay', async () => {
+		const { readFileSync } = await import('node:fs');
+		const { fileURLToPath } = await import('node:url');
+		const path = await import('node:path');
+		const payg = readFileSync(
+			path.join(path.dirname(fileURLToPath(import.meta.url)), 'payg.js'),
+			'utf8',
+		);
+		const purchaseFn = payg.slice(
+			payg.indexOf('export async function purchaseCreditPack'),
+			payg.indexOf('export async function fulfillCreditPackPurchase'),
+		);
+		const fulfillFn = payg.slice(payg.indexOf('export async function fulfillCreditPackPurchase'));
+
+		assert.match(purchaseFn, /\.\.\.idem\.result,\s*duplicate:\s*true,\s*idempotent:\s*true,/);
+		assert.doesNotMatch(purchaseFn, /return \{\s*duplicate:\s*true,\s*idempotent:\s*true,\s*result:\s*idem\.result,/);
+		assert.match(fulfillFn, /if \(idem\.duplicate\) return \{ duplicate: true, result: idem\.result \}/);
 	});
 });
