@@ -35,7 +35,7 @@ export const WORKSPACE_CONFIG_DEFAULTS = {
 	templates: [],
 	pinStyles: [],
 	general: {
-		platformName: 'Chef IA',
+		platformName: 'Seodeva',
 		platformLogoUrl: '',
 		sidebarLogoUrl: '',
 		loginLogoUrl: '',

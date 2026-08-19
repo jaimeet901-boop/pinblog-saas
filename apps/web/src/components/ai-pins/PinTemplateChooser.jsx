@@ -38,7 +38,7 @@ const SELECT_FILTER_OVERRIDES = {
 };
 
 /**
- * Read-only Chef IA pin template library.
+ * Read-only Seodeva pin template library.
  * Cards render real Template Engine previews (demo recipe or selected article).
  */
 export default function PinTemplateChooser({

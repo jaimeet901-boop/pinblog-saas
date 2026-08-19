@@ -26,7 +26,7 @@ export const DEMO_RECIPES = Object.freeze([
 		subtitle: 'Weeknight dinner',
 		category: 'Dinner',
 		description: 'Bright lemon, herbs, and roasted chicken over warm grains.',
-		website: 'chefia.demo',
+		website: 'seodeva.demo',
 		cta: 'Save Recipe',
 	},
 	{
@@ -34,7 +34,7 @@ export const DEMO_RECIPES = Object.freeze([
 		subtitle: 'Easy dessert',
 		category: 'Desserts',
 		description: 'Silky vanilla pudding topped with macerated berries.',
-		website: 'chefia.demo',
+		website: 'seodeva.demo',
 		cta: 'Get the Recipe',
 	},
 	{
@@ -42,7 +42,7 @@ export const DEMO_RECIPES = Object.freeze([
 		subtitle: '30-minute meal',
 		category: 'Dinner',
 		description: 'Charred corn, chili-lime chicken, and fresh cilantro.',
-		website: 'chefia.demo',
+		website: 'seodeva.demo',
 		cta: 'Cook This',
 	},
 	{
@@ -50,7 +50,7 @@ export const DEMO_RECIPES = Object.freeze([
 		subtitle: 'Healthy dinner',
 		category: 'Healthy',
 		description: 'Glazed salmon with crispy edges and sticky honey garlic sauce.',
-		website: 'chefia.demo',
+		website: 'seodeva.demo',
 		cta: 'Save Recipe',
 	},
 	{
@@ -58,7 +58,7 @@ export const DEMO_RECIPES = Object.freeze([
 		subtitle: 'Weekend breakfast',
 		category: 'Breakfast',
 		description: 'Buttermilk pancakes loaded with juicy blueberries.',
-		website: 'chefia.demo',
+		website: 'seodeva.demo',
 		cta: 'Make Breakfast',
 	},
 	{
@@ -66,7 +66,7 @@ export const DEMO_RECIPES = Object.freeze([
 		subtitle: 'Café drinks',
 		category: 'Drinks',
 		description: 'Creamy iced matcha with a soft foam finish.',
-		website: 'chefia.demo',
+		website: 'seodeva.demo',
 		cta: 'Save Drink',
 	},
 ]);
@@ -114,9 +114,9 @@ export function buildFallbackFoodImageDataUrl(seed = 0) {
 function domainFromUrl(value) {
 	try {
 		const host = new URL(String(value || '')).hostname.replace(/^www\./, '');
-		return host || 'chefia.demo';
+		return host || 'seodeva.demo';
 	} catch {
-		return 'chefia.demo';
+		return 'seodeva.demo';
 	}
 }
 

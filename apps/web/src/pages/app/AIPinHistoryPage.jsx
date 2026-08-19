@@ -327,7 +327,7 @@ export default function AIPinHistoryPage({ product = AI_PINS_PRODUCT }) {
 		if (!url) return;
 		const anchor = document.createElement('a');
 		anchor.href = url;
-		anchor.download = 'chef-ia-generation';
+		anchor.download = 'seodeva-generation';
 		anchor.target = '_blank';
 		anchor.rel = 'noreferrer';
 		anchor.click();

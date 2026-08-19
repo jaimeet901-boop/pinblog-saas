@@ -3,10 +3,10 @@
  * Fail-safe: empty/missing values preserve today's public UI.
  */
 
-export const DEFAULT_PLATFORM_NAME = 'Chef IA';
-export const DEFAULT_SUPPORT_EMAIL = 'support@tbuy.store';
-export const DEFAULT_CONTACT_EMAIL = 'privacy@tbuy.store';
-export const DEFAULT_SITE_URL = 'https://tbuy.store';
+export const DEFAULT_PLATFORM_NAME = 'Seodeva';
+export const DEFAULT_SUPPORT_EMAIL = 'contact@seodeva.com';
+export const DEFAULT_CONTACT_EMAIL = 'contact@seodeva.com';
+export const DEFAULT_SITE_URL = 'https://seodeva.com';
 
 export const EMPTY_SEO_IDENTITY = {
 	browserTitle: '',
@@ -43,9 +43,18 @@ export const PLATFORM_IDENTITY_DEFAULTS = {
 	seo: { ...EMPTY_SEO_IDENTITY },
 };
 
+function isLegacyChefIaBrandName(value) {
+	const compact = String(value || '')
+		.trim()
+		.toLowerCase()
+		.replace(/[\s_-]+/g, '');
+	return compact === 'chefia';
+}
+
 export function resolvePlatformName(value) {
 	const name = String(value || '').trim();
-	return name || DEFAULT_PLATFORM_NAME;
+	if (!name || isLegacyChefIaBrandName(name)) return DEFAULT_PLATFORM_NAME;
+	return name;
 }
 
 export function resolveLogoUrl(value) {

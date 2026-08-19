@@ -1,4 +1,4 @@
-/* Chef IA — Pin template library chooser (original, atelier-aligned) */
+/* Seodeva — Pin template library chooser (original, atelier-aligned) */
 .pin-tpl-chooser {
 	--chooser-ink: hsl(var(--foreground));
 	--chooser-muted: hsl(var(--muted-foreground));

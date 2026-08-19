@@ -1393,7 +1393,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 			{!writerPlanAllowed ? (
 				<div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
 					<p className="font-medium">AI Writer is not included in your current plan.</p>
-					<p className="mt-1 text-muted-foreground">Upgrade to generate SEO articles with Chef IA.</p>
+					<p className="mt-1 text-muted-foreground">Upgrade to generate SEO articles with Seodeva.</p>
 					<div className="mt-2">
 						<Button size="sm" type="button" onClick={() => openWriterUpgrade()}>
 							View upgrade options

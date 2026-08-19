@@ -16,7 +16,7 @@ export const AI_PINS_PRODUCT = {
 		brandKit: '/app/ai-pins/brand-kit',
 	},
 	labels: {
-		platformName: 'Chef IA',
+		platformName: 'Seodeva',
 		atelierTitle: 'AI Pins Atelier',
 		itemSingular: 'Pin',
 		itemPlural: 'Pins',
@@ -43,7 +43,7 @@ export const AI_PINS_PRODUCT = {
 		generateStep: 'Step 3 — Generate Pins',
 		generateOne: 'Generate Pin',
 		generateMany: (n) => `Generate ${n} Pins`,
-		workflowSubtitle: (platformName) => `${platformName || 'Chef IA'} pin workflow`,
+		workflowSubtitle: (platformName) => `${platformName || 'Seodeva'} pin workflow`,
 		composerSectionTitle: 'Create',
 		canvasSectionLabel: 'Pin Canvas',
 		canvasReadyTitle: 'Your pin canvas is ready',
@@ -112,7 +112,7 @@ export const AI_FACEBOOK_PAGES_PRODUCT = {
 		brandKit: '/app/ai-facebook-pages/brand-kit',
 	},
 	labels: {
-		platformName: 'Chef IA',
+		platformName: 'Seodeva',
 		atelierTitle: 'AI Facebook Pages',
 		itemSingular: 'Facebook Post',
 		itemPlural: 'Facebook Posts',
@@ -210,7 +210,7 @@ export const WORDPRESS_PUBLISHING_PRODUCT = {
 		publishingHistory: '/app/wordpress-history',
 	},
 	labels: {
-		platformName: 'Chef IA',
+		platformName: 'Seodeva',
 		atelierTitle: 'WordPress Publishing',
 		itemSingular: 'WordPress Post',
 		itemPlural: 'WordPress Posts',

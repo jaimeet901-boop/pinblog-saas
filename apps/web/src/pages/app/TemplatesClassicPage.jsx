@@ -740,7 +740,7 @@ export default function TemplatesClassicPage() {
 										title: 'Weeknight Pasta Bowl',
 										description: 'Fast, comforting dinner ideas for busy evenings.',
 										category: 'Recipes',
-										website: 'chefia.studio',
+										website: 'seodeva.com',
 										author: platformName,
 										overlayText: 'Save Recipe',
 									}}

@@ -285,7 +285,7 @@ export default function ImagesPage() {
 		if (!url) return;
 		const anchor = document.createElement('a');
 		anchor.href = url;
-		anchor.download = 'chef-ia-image';
+		anchor.download = 'seodeva-image';
 		anchor.target = '_blank';
 		anchor.rel = 'noreferrer';
 		anchor.click();

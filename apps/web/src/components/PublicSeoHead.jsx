@@ -16,6 +16,7 @@ export default function PublicSeoHead({ overrides = {} }) {
 	return (
 		<Helmet>
 			<title>{seo.browserTitle}</title>
+			{seo.platformName ? <meta name="application-name" content={seo.platformName} /> : null}
 			{seo.metaDescription ? <meta name="description" content={seo.metaDescription} /> : null}
 			{seo.metaKeywords ? <meta name="keywords" content={seo.metaKeywords} /> : null}
 			{seo.canonicalUrl ? <link rel="canonical" href={seo.canonicalUrl} /> : null}

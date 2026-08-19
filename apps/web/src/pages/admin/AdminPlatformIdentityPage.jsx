@@ -600,7 +600,7 @@ export default function AdminPlatformIdentityPage() {
 								id: 'general-platform-name',
 								label: 'Platform Name',
 								description: 'Single source of truth for the product display name (shell, auth, browser title).',
-								placeholder: 'Chef IA',
+								placeholder: 'Seodeva',
 							})}
 							{textInput('general', 'supportEmail', {
 								id: 'general-support-email',
@@ -736,7 +736,7 @@ export default function AdminPlatformIdentityPage() {
 									id: 'seo-browser-title',
 									label: 'Browser Title',
 									description: 'Falls back to Meta Title → Platform Name when empty.',
-									placeholder: 'Chef IA',
+									placeholder: 'Seodeva',
 								})}
 							</div>
 						</div>
@@ -748,13 +748,13 @@ export default function AdminPlatformIdentityPage() {
 									id: 'seo-meta-title',
 									label: 'Meta Title',
 									description: 'Primary search title (recommended ≤ 70 characters). Falls back to Platform Name.',
-									placeholder: 'Chef IA — AI content & Pinterest studio',
+									placeholder: 'Seodeva — AI content & Pinterest studio',
 								})}
 								{textArea('seo', 'metaDescription', {
 									id: 'seo-meta-description',
 									label: 'Meta Description',
 									description: 'Search snippet description (recommended ≤ 160 characters).',
-									placeholder: 'Create SEO articles and social creatives with Chef IA.',
+									placeholder: 'Create SEO articles and social creatives with Seodeva.',
 								})}
 								{textInput('seo', 'metaKeywords', {
 									id: 'seo-keywords',
@@ -778,7 +778,7 @@ export default function AdminPlatformIdentityPage() {
 									id: 'seo-og-title',
 									label: 'OG Title',
 									description: 'Falls back to Meta Title → Platform Name.',
-									placeholder: 'Chef IA',
+									placeholder: 'Seodeva',
 								})}
 								{textArea('seo', 'ogDescription', {
 									id: 'seo-og-description',
@@ -814,7 +814,7 @@ export default function AdminPlatformIdentityPage() {
 									id: 'seo-twitter-title',
 									label: 'Twitter Title',
 									description: 'Falls back to OG Title → Meta Title.',
-									placeholder: 'Chef IA',
+									placeholder: 'Seodeva',
 								})}
 								{textArea('seo', 'twitterDescription', {
 									id: 'seo-twitter-description',

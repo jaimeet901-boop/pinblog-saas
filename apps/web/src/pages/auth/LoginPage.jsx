@@ -138,7 +138,7 @@ export default function LoginPage() {
 		<AuthShell
 			seoPage="login"
 			title="Welcome back"
-			subtitle={R0_AUTH.loginSubtitle.replace('Chef IA', platformName)}
+			subtitle={R0_AUTH.loginSubtitle.replace('Seodeva', platformName)}
 			footer={<>No account? <Link to="/signup" className="font-medium text-primary hover:underline">Create one</Link></>}
 		>
 			<div className="space-y-4">

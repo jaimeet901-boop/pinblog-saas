@@ -556,7 +556,7 @@ export default function BrandKitPage({ product = AI_PINS_PRODUCT }) {
 									</div>
 
 									<div>
-										<p className="text-[10px] uppercase tracking-[0.16em] opacity-80">{form.websiteUrl ? form.websiteUrl.replace(/^https?:\/\//, '') : 'chefia.studio'}</p>
+										<p className="text-[10px] uppercase tracking-[0.16em] opacity-80">{form.websiteUrl ? form.websiteUrl.replace(/^https?:\/\//, '') : 'seodeva.com'}</p>
 										<h4 className="mt-2 text-xl font-semibold leading-tight" style={{ fontFamily: form.fontHeading || 'Georgia' }}>
 											Signature flavor, plated beautifully
 										</h4>

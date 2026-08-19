@@ -232,7 +232,7 @@ export default function AdminSettingsPage() {
 			const url = URL.createObjectURL(blob);
 			const anchor = window.document.createElement('a');
 			anchor.href = url;
-			anchor.download = 'chef-ia-platform-settings.json';
+			anchor.download = 'seodeva-platform-settings.json';
 			anchor.click();
 			URL.revokeObjectURL(url);
 			toast({ title: 'Exported', description: 'Configuration downloaded.' });

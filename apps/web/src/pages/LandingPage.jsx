@@ -68,7 +68,7 @@ function ProductPreview() {
 				<span />
 				<span />
 				<span />
-				<em>Chef IA workspace</em>
+				<em>Seodeva workspace</em>
 				<div className="lp-preview__tabs">
 					<span className="is-active">Overview</span>
 					<span>Calendar</span>
@@ -199,7 +199,7 @@ export default function LandingPage() {
 					</nav>
 					<div className="lp-nav__actions">
 						<Link to="/login" className="lp-btn lp-btn--ghost">Log in</Link>
-						<Link to={primaryHref} className="lp-btn lp-btn--primary">
+						<Link to={primaryHref} className="lp-btn lp-btn--ghost">
 							{isAuthed ? 'Open workspace' : 'Get started'}
 						</Link>
 					</div>
@@ -215,16 +215,12 @@ export default function LandingPage() {
 						{...heroMotion}
 						className="lp-hero__copy"
 					>
-						<p className="lp-kicker">{platformName}</p>
 						<p className="lp-eyebrow">{R0_POSITION}</p>
 						<h1 className="lp-hero__title">{R0_HERO.headline}</h1>
 						<p className="lp-hero__desc">{R0_HERO.subheadline}</p>
 						<div className="lp-hero__ctas">
 							<Link to={primaryHref} className="lp-btn lp-btn--primary lp-btn--lg">
 								{R0_HERO.primaryCta} <ArrowRight size={16} strokeWidth={1.75} aria-hidden="true" />
-							</Link>
-							<Link to="/login" className="lp-btn lp-btn--secondary lp-btn--lg">
-								{R0_HERO.secondaryCta}
 							</Link>
 						</div>
 					</motion.div>

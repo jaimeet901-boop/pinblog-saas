@@ -17,7 +17,6 @@ import { buildPublicFooterLinks } from '@/lib/platformIdentity';
 import { buildPageSeoOverrides } from '@/lib/platformSeo';
 import {
 	R0_HERO,
-	R0_AUTH,
 	R0_PAGE_SEO,
 	R0_ONBOARDING,
 	R0_CHANNELS,
@@ -78,7 +77,6 @@ export default function AuthShell({ title, subtitle, children, footer, seoPage =
 				</header>
 
 				<div className="auth-hero__copy">
-					<p className="auth-hero__eyebrow">{R0_AUTH.eyebrow}</p>
 					<p className="auth-hero__position">{R0_POSITION}</p>
 					{/* Visual headline only — form owns the page <h1> for hierarchy */}
 					<p className="auth-hero__title">{R0_HERO.headline}</p>

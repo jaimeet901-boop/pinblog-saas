@@ -10,7 +10,7 @@ import { resolvePlatformSeo } from '@/lib/platformSeo';
 /**
  * Resolves Platform Identity for shell + public consumers.
  * Prefers workspace config when available; otherwise public /platform/identity.
- * Always fails safe to Chef IA defaults.
+ * Always fails safe to Seodeva defaults.
  */
 export function usePlatformIdentity() {
 	const { config, hasValidConfig } = useWorkspaceConfig();

@@ -60,7 +60,7 @@
 			title: 'Greek Lemon Herb Chicken Bowl',
 			metaDescription: 'Weeknight dinner with bright lemon and herbs',
 			category: 'Dinner',
-			url: 'https://chefia.demo/greek-lemon-herb-chicken-bowl',
+			url: 'https://seodeva.demo/greek-lemon-herb-chicken-bowl',
 			// Local canvas food plate — same source for all 10 templates (article mode).
 			featuredImage: buildFallbackFoodImageDataUrl(0),
 		};
@@ -217,7 +217,7 @@
 				overlayText: 'Dinner',
 				cta: 'Save Recipe',
 			},
-			website: 'chefia.demo',
+			website: 'seodeva.demo',
 			label: 'Fallback food plate',
 			parent: fallbackParent,
 		});
@@ -227,7 +227,7 @@
 				featuredImageUrl: 'https://invalid.example.invalid/missing.jpg',
 				templateConfig: catalog[1].configuration,
 				context: { title: ARTICLE.title, subtitle: 'x', overlayText: 'Dinner' },
-				websiteDomain: 'chefia.demo',
+				websiteDomain: 'seodeva.demo',
 			});
 			makeCard(fallbackParent, 'Invalid remote', 'unexpected success');
 		} catch {
@@ -235,7 +235,7 @@
 				configuration: catalog[1].configuration,
 				featuredImageUrl: buildFallbackFoodImageDataUrl(7),
 				context: { title: ARTICLE.title, subtitle: 'Recovered', overlayText: 'Dinner', cta: 'Save Recipe' },
-				website: 'chefia.demo',
+				website: 'seodeva.demo',
 				label: 'Recovered via fallback',
 				parent: fallbackParent,
 			});

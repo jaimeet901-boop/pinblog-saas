@@ -17,13 +17,13 @@ export const R0_WORKFLOW = Object.freeze([
 export const R0_HERO = Object.freeze({
 	headline: 'Create content once. Publish across your channels.',
 	subheadline:
-		'Chef IA is an AI content and multi-channel publishing platform. Write SEO articles, design branded creatives, connect your sites and social accounts, then schedule and measure from one workspace.',
+		'Seodeva is an AI content and multi-channel publishing platform. Write SEO articles, design branded creatives, connect your sites and social accounts, then schedule and measure from one workspace.',
 	primaryCta: 'Start free workspace',
 	secondaryCta: 'Sign in',
 });
 
 export const R0_INTRO =
-	'Chef IA brings creation, branding, channel connections, scheduling, and analytics into a single workspace. Start from your websites, generate articles with AI, publish through connected channels, and keep everything visible in one calendar — without rebuilding your workflow when you add the next channel.';
+	'Seodeva brings creation, branding, channel connections, scheduling, and analytics into a single workspace. Start from your websites, generate articles with AI, publish through connected channels, and keep everything visible in one calendar — without rebuilding your workflow when you add the next channel.';
 
 export const R0_FEATURE_GROUPS = Object.freeze([
 	{
@@ -157,16 +157,16 @@ export const R0_BENEFITS = Object.freeze([
 ]);
 
 export const R0_FOOTER = Object.freeze({
-	tagline: 'Chef IA — AI content and multi-channel publishing.',
+	tagline: 'Seodeva — AI content and multi-channel publishing.',
 	note: 'Create once. Publish across your channels.',
 });
 
 export const R0_SEO = Object.freeze({
-	metaTitle: 'Chef IA — AI Content & Multi-channel Publishing Platform',
+	metaTitle: 'Seodeva — AI Content & Multi-channel Publishing Platform',
 	metaDescription:
-		'Chef IA helps teams create SEO articles and branded visuals, connect websites and social channels, then schedule and publish from one workspace.',
+		'Seodeva helps teams create SEO articles and branded visuals, connect websites and social channels, then schedule and publish from one workspace.',
 	ogDescription:
-		'AI content creation and multi-channel publishing for modern websites — write, design, connect channels, schedule, and measure in Chef IA.',
+		'AI content creation and multi-channel publishing for modern websites — write, design, connect channels, schedule, and measure in Seodeva.',
 });
 
 /** Official social share image (served from /og-chef-ia.png). */
@@ -189,32 +189,32 @@ export const R0_PAGE_SEO = Object.freeze({
 	}),
 	login: Object.freeze({
 		path: '/login',
-		metaTitle: 'Sign in — Chef IA',
-		browserTitle: 'Sign in — Chef IA',
+		metaTitle: 'Sign in — Seodeva',
+		browserTitle: 'Sign in — Seodeva',
 		metaDescription:
-			'Sign in to your Chef IA workspace to create content, connect channels, and schedule publishing.',
-		ogTitle: 'Sign in — Chef IA',
+			'Sign in to your Seodeva workspace to create content, connect channels, and schedule publishing.',
+		ogTitle: 'Sign in — Seodeva',
 		ogDescription: R0_SEO.ogDescription,
-		twitterTitle: 'Sign in — Chef IA',
+		twitterTitle: 'Sign in — Seodeva',
 		twitterDescription: R0_SEO.ogDescription,
 	}),
 	signup: Object.freeze({
 		path: '/signup',
-		metaTitle: 'Create your workspace — Chef IA',
-		browserTitle: 'Create your workspace — Chef IA',
+		metaTitle: 'Create your workspace — Seodeva',
+		browserTitle: 'Create your workspace — Seodeva',
 		metaDescription:
-			'Start a free Chef IA workspace to write with AI, brand creatives, connect destinations, and publish across channels.',
-		ogTitle: 'Create your workspace — Chef IA',
+			'Start a free Seodeva workspace to write with AI, brand creatives, connect destinations, and publish across channels.',
+		ogTitle: 'Create your workspace — Seodeva',
 		ogDescription: R0_SEO.ogDescription,
-		twitterTitle: 'Create your workspace — Chef IA',
+		twitterTitle: 'Create your workspace — Seodeva',
 		twitterDescription: R0_SEO.ogDescription,
 	}),
 });
 
 export const R0_AUTH = Object.freeze({
-	loginSubtitle: 'Sign in to your Chef IA workspace.',
+	loginSubtitle: 'Sign in to your Seodeva workspace.',
 	signupSubtitle: 'Start creating content and publishing across your channels.',
-	eyebrow: 'Chef IA',
+	eyebrow: 'Seodeva',
 });
 
 /** Live destinations today + reserved slots for future channels (UI-only). */

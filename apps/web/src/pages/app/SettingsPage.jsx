@@ -427,7 +427,7 @@ export default function SettingsPage() {
 		const url = URL.createObjectURL(blob);
 		const anchor = document.createElement('a');
 		anchor.href = url;
-		anchor.download = 'chefia-workspace-settings.json';
+		anchor.download = 'seodeva-workspace-settings.json';
 		anchor.click();
 		URL.revokeObjectURL(url);
 		toast({ title: 'Exported', description: 'Workspace preferences downloaded.' });
