@@ -15,6 +15,7 @@ import {
 	Coins,
 } from 'lucide-react';
 import { Button } from '@/components/kit';
+import UpgradeModal from '@/components/billing/UpgradeModal';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
 import { consumeSetupReturnPath } from '@/lib/websites/websiteLifecycle';
 import { useToast } from '@/hooks/use-toast';
@@ -26,6 +27,10 @@ import {
 	retryFacebookJob,
 } from '@/services/ai-facebook';
 import apiServerClient from '@/lib/apiServerClient';
+import {
+	isFeatureLockedError,
+	resolveLockedFeatureIdentity,
+} from '@/lib/templateAccess';
 import './AIFacebookPages.css';
 
 async function readApiError(response) {
@@ -62,6 +67,30 @@ export default function FacebookPage() {
 	const [analyticsLoading, setAnalyticsLoading] = useState(false);
 	const [selectedJobId, setSelectedJobId] = useState('');
 	const [jobActionId, setJobActionId] = useState('');
+	const [upgradeModal, setUpgradeModal] = useState(null);
+
+	const openFeatureLockedUpgradeModal = (error) => {
+		const locked = {
+			...(error && typeof error === 'object' ? error : {}),
+			featureKey: 'facebook',
+		};
+		const identity = resolveLockedFeatureIdentity(locked, {
+			sourcePage: 'facebook',
+			requiredFeatureKeys: ['facebook'],
+		});
+		const requiredFeatureKeys = Array.isArray(locked.requiredFeatureKeys) && locked.requiredFeatureKeys.length
+			? locked.requiredFeatureKeys
+			: (Array.isArray(locked.requiredKeys) && locked.requiredKeys.length
+				? locked.requiredKeys
+				: identity.requiredFeatureKeys);
+		setUpgradeModal({
+			templateId: identity.featureKey || 'facebook',
+			templateName: identity.label,
+			access: locked.access || null,
+			requiredFeatureKeys: requiredFeatureKeys.length ? requiredFeatureKeys : ['facebook'],
+			sourcePage: identity.sourcePage || 'facebook',
+		});
+	};
 
 	const hubTabs = useMemo(() => {
 		const tabs = [
@@ -275,8 +304,15 @@ export default function FacebookPage() {
 					websiteId: websiteId || undefined,
 				}),
 			});
-			if (!response.ok) throw new Error(await readApiError(response));
-			const payload = await response.json();
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				if (isFeatureLockedError(payload)) {
+					openFeatureLockedUpgradeModal(payload);
+					setBusy('');
+					return;
+				}
+				throw new Error(payload?.message || `Request failed (${response.status})`);
+			}
 			if (!payload.authUrl) throw new Error('Missing authUrl');
 			window.location.assign(payload.authUrl);
 		} catch (error) {
@@ -686,6 +722,15 @@ export default function FacebookPage() {
 			) : null}
 			</div>
 			</div>
+			<UpgradeModal
+				open={Boolean(upgradeModal)}
+				onClose={() => setUpgradeModal(null)}
+				templateId={upgradeModal?.templateId || 'facebook'}
+				templateName={upgradeModal?.templateName || 'Facebook'}
+				access={upgradeModal?.access || null}
+				sourcePage={upgradeModal?.sourcePage || 'facebook'}
+				requiredFeatureKeys={upgradeModal?.requiredFeatureKeys || ['facebook']}
+			/>
 		</div>
 	);
 }

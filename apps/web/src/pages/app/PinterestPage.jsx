@@ -7,10 +7,15 @@ import {
 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient';
 import { Badge, Button, Input, Select, Spinner } from '@/components/kit';
+import UpgradeModal from '@/components/billing/UpgradeModal';
 import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { consumeSetupReturnPath, peekSetupReturnPath, setSetupReturnPath } from '@/lib/websites/websiteLifecycle';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
+import {
+	isFeatureLockedError,
+	resolveLockedFeatureIdentity,
+} from '@/lib/templateAccess';
 import './PinterestPage.css';
 
 const TABS = [
@@ -78,6 +83,30 @@ export default function PinterestPage() {
 	const [analytics, setAnalytics] = useState(null);
 	const [selectedJobId, setSelectedJobId] = useState('');
 	const [jobActionId, setJobActionId] = useState('');
+	const [upgradeModal, setUpgradeModal] = useState(null);
+
+	const openFeatureLockedUpgradeModal = (error) => {
+		const locked = {
+			...(error && typeof error === 'object' ? error : {}),
+			featureKey: 'pinterest',
+		};
+		const identity = resolveLockedFeatureIdentity(locked, {
+			sourcePage: 'pinterest',
+			requiredFeatureKeys: ['pinterest'],
+		});
+		const requiredFeatureKeys = Array.isArray(locked.requiredFeatureKeys) && locked.requiredFeatureKeys.length
+			? locked.requiredFeatureKeys
+			: (Array.isArray(locked.requiredKeys) && locked.requiredKeys.length
+				? locked.requiredKeys
+				: identity.requiredFeatureKeys);
+		setUpgradeModal({
+			templateId: identity.featureKey || 'pinterest',
+			templateName: identity.label,
+			access: locked.access || null,
+			requiredFeatureKeys: requiredFeatureKeys.length ? requiredFeatureKeys : ['pinterest'],
+			sourcePage: identity.sourcePage || 'pinterest',
+		});
+	};
 
 	const [tab, setTab] = useState('accounts');
 	const [searchQuery, setSearchQuery] = useState('');
@@ -260,6 +289,11 @@ export default function PinterestPage() {
 			});
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
+				if (isFeatureLockedError(payload)) {
+					openFeatureLockedUpgradeModal(payload);
+					setConnecting(false);
+					return;
+				}
 				throw new Error(parseErrorMessage(payload, `Failed to start Pinterest OAuth (${response.status})`));
 			}
 			if (!payload?.authUrl) {
@@ -282,6 +316,11 @@ export default function PinterestPage() {
 			});
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
+				if (isFeatureLockedError(payload)) {
+					openFeatureLockedUpgradeModal(payload);
+					setProcessingAccountId('');
+					return;
+				}
 				throw new Error(parseErrorMessage(payload, `Failed to reconnect account (${response.status})`));
 			}
 			if (!payload?.authUrl) {
@@ -1049,6 +1088,15 @@ export default function PinterestPage() {
 					) : null}
 				</div>
 			</div>
+			<UpgradeModal
+				open={Boolean(upgradeModal)}
+				onClose={() => setUpgradeModal(null)}
+				templateId={upgradeModal?.templateId || 'pinterest'}
+				templateName={upgradeModal?.templateName || 'Pinterest'}
+				access={upgradeModal?.access || null}
+				sourcePage={upgradeModal?.sourcePage || 'pinterest'}
+				requiredFeatureKeys={upgradeModal?.requiredFeatureKeys || ['pinterest']}
+			/>
 		</div>
 	);
 }
