@@ -1,111 +1,107 @@
-# Service-scoped production deploys (Phase 3)
+# Service-scoped production deploys (Phase 3) + rollback (Phase 4)
 
 Routine Web or API changes must **not** recreate PocketBase, the peer app service, Docker nginx, or host nginx.
 
-## Preferred commands
-
-From the repository root on the production host:
+## Preferred deploy commands
 
 ```bash
-# Web only
 CONFIRM_PRODUCTION=YES ./deploy/scripts/deploy-web.sh
-
-# API only
 CONFIRM_PRODUCTION=YES ./deploy/scripts/deploy-api.sh
+
+DRY_RUN=1 ALLOW_DIRTY_WORKTREE=1 CONFIRM_PRODUCTION=YES ./deploy/scripts/deploy-web.sh
 ```
 
-Dry-run (prints planned actions; does **not** build/recreate if `DRY_RUN=1` short-circuits mutate steps):
+## Preferred rollback commands
 
 ```bash
-DRY_RUN=1 CONFIRM_PRODUCTION=YES ./deploy/scripts/deploy-web.sh
-DRY_RUN=1 CONFIRM_PRODUCTION=YES ./deploy/scripts/deploy-api.sh
+# Uses PREVIOUS_IMAGE_ID, else state file, else seodeva-{web|api}:previous
+CONFIRM_PRODUCTION=YES ./deploy/scripts/rollback-web.sh
+CONFIRM_PRODUCTION=YES ./deploy/scripts/rollback-api.sh
+
+PREVIOUS_IMAGE_ID=sha256:… CONFIRM_PRODUCTION=YES ./deploy/scripts/rollback-web.sh
+DRY_RUN=1 CONFIRM_PRODUCTION=YES ./deploy/scripts/rollback-web.sh
 ```
 
-### What these scripts do
+Rollback works with a **dirty** Git worktree (no build / no git required).
 
-1. Require production confirmation (`CONFIRM_PRODUCTION=YES` or interactive `PRODUCTION`)
-2. Refuse a dirty Git worktree unless `ALLOW_DIRTY_WORKTREE=1`
-3. Record the exact `git rev-parse HEAD` SHA
-4. Snapshot container ID + image ID for **web, api, pocketbase, nginx**
-5. Build `seodeva-<service>:<GIT_SHA>` via `deploy/scripts/build-images-with-sha.sh` (Phase 2 OCI labels)
-6. Retag that image onto the Compose project image (`pinblog-saas-web` / `pinblog-saas-api`)
-7. Recreate **only** the target service:
+### Rollback source priority (immutable)
+
+1. Explicit `PREVIOUS_IMAGE_ID` (Docker image ID `sha256:…`)
+2. `deploy/state/last-web-deploy.json` or `last-api-deploy.json` → `previous_image_id`
+3. Retention tag `seodeva-web:previous` / `seodeva-api:previous`
+
+**Never** use `pinblog-saas-web:latest` or `pinblog-saas-api:latest` as the rollback source.
+
+### What deploy does
+
+1. Production confirmation (`CONFIRM_PRODUCTION=YES` or interactive `PRODUCTION`)
+2. Refuse dirty tree unless `ALLOW_DIRTY_WORKTREE=1`
+3. Snapshot peers + target; write **pending** state (previous image ID)
+4. Tag `seodeva-{service}:previous` → exact previous image ID (**before** moving Compose tags)
+5. Build `seodeva-{service}:<GIT_SHA>` (Phase 2)
+6. Retag onto Compose project image; `up -d --no-deps --force-recreate <service>`
+7. Health + HTTP + peer isolation
+8. On **success**: write `status=success` state (still retains `previous_image_id`)
+9. On **failure** (default): write `status=failed`, print rollback command, exit non-zero — **no auto-rollback**
+10. On **failure** with `AUTO_ROLLBACK=1`: rollback using only the recorded previous image ID (no build, no git, no `compose down`)
+
+### AUTO_ROLLBACK
+
+Opt-in only:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --no-deps --force-recreate web
-# or
-docker compose -f docker-compose.prod.yml up -d --no-deps --force-recreate api
+AUTO_ROLLBACK=1 CONFIRM_PRODUCTION=YES ./deploy/scripts/deploy-web.sh
 ```
 
-8. Wait for Compose healthchecks
-9. Assert peer services’ container ID + image ID are unchanged
-10. HTTP check via Docker nginx localhost bind (`APP_HTTP_PORT`, default `18080`)
-11. Print previous/new image IDs (preserved for Phase 4 rollback) + SHA digest/OCI revision
+If auto-rollback itself fails, scripts print that **manual intervention** is required.
 
-### What must remain unchanged
+### State files
 
-| Deploy | Must stay unchanged |
-|--------|---------------------|
-| Web | API, PocketBase, Docker nginx, **host nginx** |
-| API | Web, PocketBase, Docker nginx, **host nginx** |
+| File | Purpose |
+|------|---------|
+| `deploy/state/last-web-deploy.json` | Last web deploy/rollback metadata |
+| `deploy/state/last-api-deploy.json` | Last api deploy/rollback metadata |
 
-Isolation is enforced by comparing pre/post snapshots. Host nginx is never invoked.
+- Gitignored (see `.gitignore`); directory kept via `deploy/state/.gitkeep`
+- **No secrets**
+- Written atomically (`*.tmp.$$` → `mv`)
 
-## Dirty worktree protection
+### Health verification
 
-Default: **refuse** if `git status --porcelain` is non-empty.
+- Compose healthchecks (web `/`, api `/api/health` on 3001)
+- After healthy: `http://127.0.0.1:${APP_HTTP_PORT}/` (web) or `…/api/health` (api)
 
-Override (explicit only):
+### Isolation
 
-```bash
-ALLOW_DIRTY_WORKTREE=1 CONFIRM_PRODUCTION=YES ./deploy/scripts/deploy-web.sh
-```
+| Deploy / rollback | Must stay unchanged |
+|-------------------|---------------------|
+| Web | API, PocketBase, Docker nginx, host nginx |
+| API | Web, PocketBase, Docker nginx, host nginx |
 
-The override prints the dirty status and the Git SHA still used for tags/labels. Scripts never auto-commit or push.
+### Image retention
 
-## Health verification
+Do **not** `docker image prune` retained rollback images (`seodeva-*:previous`, recorded `sha256:…` IDs) without a replacement recovery plan.
 
-Uses existing Compose healthchecks:
-
-- **Web** container: `wget` `http://127.0.0.1/` (inside container)
-- **API** container: `GET http://127.0.0.1:3001/api/health` (inside container)
-
-After healthy:
-
-- Web deploy: `curl http://127.0.0.1:${APP_HTTP_PORT}/`
-- API deploy: `curl http://127.0.0.1:${APP_HTTP_PORT}/api/health`
-
-## Image SHA / digest inspection
-
-```bash
-docker inspect "<container>" \
-  --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
-
-docker image inspect "seodeva-web:<GIT_SHA>" --format '{{.Id}}'
-```
-
-See also `deploy/IMAGE-VERSIONING.md`.
-
-## NOT the routine method for isolated changes
+### NOT for routine isolated changes
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-This rebuilds/recreates the stack dependency path and can restart API/Web/nginx together. Keep it for **initial provisioning** or rare full-stack go-live (`deploy/scripts/oracle-go-live.sh`), not for day-to-day Web-only or API-only updates.
+### UNSAFE for routine service rollback
+
+`deploy/scripts/oracle-rollback.sh` runs `compose down` + `up -d --build` (rebuilds **current** tree / full stack). Keep for rare emergency full-stack procedures only — **not** for Web/API digest rollback.
 
 ## Environment variables
 
 | Variable | Meaning |
 |----------|---------|
 | `CONFIRM_PRODUCTION=YES` | Skip interactive prompt |
-| `ALLOW_DIRTY_WORKTREE=1` | Allow dirty tree (warns) |
-| `DRY_RUN=1` | Skip build/retag/up/health waits/HTTP |
+| `ALLOW_DIRTY_WORKTREE=1` | Allow dirty tree on **deploy** (warns) |
+| `AUTO_ROLLBACK=1` | Opt-in auto rollback after failed deploy |
+| `PREVIOUS_IMAGE_ID` | Explicit rollback image ID |
+| `DRY_RUN=1` | Print actions; no mutation |
 | `COMPOSE_FILE` | Default `docker-compose.prod.yml` |
 | `APP_HTTP_PORT` | Default `18080` |
 | `HEALTH_WAIT_SECONDS` | Default `180` |
-| `VITE_PADDLE_CLIENT_TOKEN` | Passed through to Web image build if set |
-
-## Phase 4 note
-
-Scripts print the **previous** image ID. Digest-based rollback (retag old ID → project tag + `--no-deps --force-recreate`) is deferred to Phase 4 — these scripts only preserve/report the reference.
+| `DEPLOY_STATE_DIR` | Default `deploy/state` |

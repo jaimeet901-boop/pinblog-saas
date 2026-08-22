@@ -114,11 +114,15 @@ docker image inspect "seodeva-web:<GIT_SHA>" \
 - Existing Compose production workflow (`pinblog-saas-*:latest`) is unchanged until operators deliberately build with these args/tags.
 - Older running containers will have **no** revision label until they are rebuilt from this Phase’s Dockerfiles (separate, approved deploy).
 
-## Service-scoped deploy (Phase 3)
+## Service-scoped deploy (Phase 3) + rollback (Phase 4)
 
-For production Web-only / API-only updates that keep peer services unchanged, use:
+For production Web-only / API-only updates and immutable-image rollback:
 
-- `deploy/scripts/deploy-web.sh`
-- `deploy/scripts/deploy-api.sh`
+- `deploy/scripts/deploy-web.sh` / `deploy-api.sh`
+- `deploy/scripts/rollback-web.sh` / `rollback-api.sh`
+- State: `deploy/state/last-*-deploy.json` (gitignored)
+- Retention tags: `seodeva-web:previous` / `seodeva-api:previous`
 
-See `deploy/SERVICE-DEPLOY.md`.
+Rollback identity is the **Docker image ID** (`sha256:…`), not `:latest`. See `deploy/SERVICE-DEPLOY.md`.
+
+**Do not prune** retained previous images if you need rollback without a registry.
