@@ -2,7 +2,7 @@
  * WS-01 / WS-02 / WS-05 entry points — existing routes only.
  * Run: node --test src/lib/__tests__/workspaceParityEntryPoints.test.js
  */
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'path';

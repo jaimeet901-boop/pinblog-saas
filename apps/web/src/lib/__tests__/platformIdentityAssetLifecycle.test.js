@@ -2,7 +2,7 @@
  * WS-08-A Restore Default wiring on Platform Identity.
  * Run: node --test src/lib/__tests__/platformIdentityAssetLifecycle.test.js
  */
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'path';

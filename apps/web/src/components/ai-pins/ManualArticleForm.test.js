@@ -3,7 +3,7 @@
  * Run: node --test src/components/ai-pins/ManualArticleForm.test.js
  */
 
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

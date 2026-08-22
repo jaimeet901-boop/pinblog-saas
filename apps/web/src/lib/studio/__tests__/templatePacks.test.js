@@ -78,9 +78,9 @@ describe('matchesTemplatePackEntry', () => {
 describe('filterOfficialCatalogForPack', () => {
 	const catalog = listOfficialPinTemplateCatalog();
 
-	it('preserves 24 pinterest official templates', () => {
+	it('preserves 32 pinterest official templates', () => {
 		const pinterest = filterOfficialCatalogForPack(catalog, AI_PINS_PRODUCT);
-		expect(pinterest).toHaveLength(24);
+		expect(pinterest).toHaveLength(32);
 		expect(pinterest.every((entry) => entry.channel === 'pinterest')).toBe(true);
 	});
 

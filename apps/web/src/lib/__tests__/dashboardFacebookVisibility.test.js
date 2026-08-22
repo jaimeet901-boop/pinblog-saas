@@ -2,7 +2,7 @@
  * Dashboard Facebook published card — DashboardPage wiring.
  * Run: node --test src/lib/__tests__/dashboardFacebookVisibility.test.js
  */
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

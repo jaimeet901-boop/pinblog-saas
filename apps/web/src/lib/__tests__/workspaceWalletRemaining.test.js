@@ -2,7 +2,7 @@
  * WS-07 authoritative workspace wallet remaining.
  * Run: node --test src/lib/__tests__/workspaceWalletRemaining.test.js
  */
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import {
 	mergeAnalyticsCreditsDisplay,

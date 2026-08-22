@@ -9,7 +9,7 @@ on:
 jobs:
   lint-and-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -18,8 +18,16 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Single source of truth: .nvmrc (Node 22) · Dockerfiles use node:22-*
+          node-version-file: .nvmrc
           cache: npm
+
+      - name: Assert Node major matches .nvmrc
+        run: |
+          expected="$(tr -d '[:space:]' < .nvmrc)"
+          actual="$(node -p "process.versions.node.split('.')[0]")"
+          echo "expected_major=${expected} actual_major=${actual}"
+          test "$actual" = "$expected"
 
       - name: Install dependencies
         run: npm ci
@@ -36,6 +44,9 @@ jobs:
 
       - name: Test API
         run: npm run test --prefix apps/api
+
+      - name: Test Web
+        run: npm run test --prefix apps/web
 
       - name: Build Web
         run: npm run build --prefix apps/web
@@ -78,3 +89,30 @@ jobs:
             -v "$PWD/deploy/nginx/reverse-proxy.conf:/etc/nginx/conf.d/default.conf:ro" \
             -v "$PWD/deploy/nginx/certs:/etc/nginx/certs:ro" \
             nginx:1.27-alpine nginx -t
+
+  docker-build-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # No registry login, no secrets, no compose up, no push.
+      - name: Docker build smoke (API)
+        run: |
+          docker build \
+            -f Dockerfile.api \
+            -t seodeva-api:ci-smoke \
+            .
+
+      - name: Docker build smoke (Web)
+        run: |
+          docker build \
+            -f Dockerfile.web \
+            --build-arg VITE_PADDLE_CLIENT_TOKEN= \
+            -t seodeva-web:ci-smoke \
+            .

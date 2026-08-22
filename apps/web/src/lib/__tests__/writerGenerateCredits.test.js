@@ -2,7 +2,7 @@
  * AI-WRITER-02 — Writer Generate wallet preflight.
  * Run: node --test src/lib/__tests__/writerGenerateCredits.test.js
  */
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

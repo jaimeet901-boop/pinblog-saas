@@ -2,7 +2,7 @@
  * WS-06 Facebook generation history page, nav, and publishing split.
  * Run: node --test src/lib/__tests__/workspaceParityGenerationHistory.test.js
  */
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'path';

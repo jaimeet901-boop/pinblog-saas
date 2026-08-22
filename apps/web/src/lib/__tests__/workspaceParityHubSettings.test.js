@@ -2,7 +2,7 @@
  * WS-03 / WS-04 Websites Hub + Settings Facebook entry points.
  * Run: node --test src/lib/__tests__/workspaceParityHubSettings.test.js
  */
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'path';

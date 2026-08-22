@@ -2,7 +2,7 @@
  * WS-10 Facebook setup progress uses Facebook history only.
  * Run: node --test src/lib/websites/facebookDashboardProgress.test.js
  */
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import {
 	buildFacebookStudioHref,

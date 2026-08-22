@@ -3,7 +3,7 @@
  * Run: npx vitest run src/pages/admin/assignWorkspacePicker.test.js
  */
 
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

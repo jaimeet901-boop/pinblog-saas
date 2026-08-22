@@ -2,7 +2,7 @@
  * WS-12 Dashboard / Website Dashboard Facebook history links.
  * Run: node --test src/lib/__tests__/workspaceParityHistoryLinks.test.js
  */
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'path';
