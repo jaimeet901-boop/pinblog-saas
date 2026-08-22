@@ -113,3 +113,12 @@ docker image inspect "seodeva-web:<GIT_SHA>" \
 - Images built **without** `GIT_SHA` / `BUILD_DATE` still build; labels default to `unknown`.
 - Existing Compose production workflow (`pinblog-saas-*:latest`) is unchanged until operators deliberately build with these args/tags.
 - Older running containers will have **no** revision label until they are rebuilt from this Phase’s Dockerfiles (separate, approved deploy).
+
+## Service-scoped deploy (Phase 3)
+
+For production Web-only / API-only updates that keep peer services unchanged, use:
+
+- `deploy/scripts/deploy-web.sh`
+- `deploy/scripts/deploy-api.sh`
+
+See `deploy/SERVICE-DEPLOY.md`.
