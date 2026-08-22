@@ -13,6 +13,9 @@ import SetupProgressCard from '@/components/websites/SetupProgressCard';
 import { buildFacebookStudioHref } from '@/lib/websites/facebookDashboardProgress';
 import { Card, PageHeader, Button, Input, Badge, Empty, Spinner } from '@/components/kit';
 import { useToast } from '@/hooks/use-toast';
+import UpgradeModal from '@/components/billing/UpgradeModal';
+import { isFeatureLockedError } from '@/lib/templateAccess';
+import { resolveLockedFeatureIdentity } from '@/lib/lockedFeatureIdentity';
 
 const blank = {
 	name: '',
@@ -136,13 +139,21 @@ function deriveFallbackMetadata(rawUrl) {
 	}
 }
 
-async function readErrorMessage(res, fallback) {
+async function readErrorPayload(res, fallback) {
 	try {
 		const parsed = await res.json();
-		return parsed?.message || parsed?.error || fallback;
+		if (parsed && typeof parsed === 'object') {
+			return parsed;
+		}
+		return { message: fallback };
 	} catch {
-		return fallback;
+		return { message: fallback };
 	}
+}
+
+async function readErrorMessage(res, fallback) {
+	const parsed = await readErrorPayload(res, fallback);
+	return parsed?.message || parsed?.error || fallback;
 }
 
 export default function WebsitesPage() {
@@ -161,6 +172,30 @@ export default function WebsitesPage() {
 	const [metadataLoading, setMetadataLoading] = useState(false);
 	const [urlError, setUrlError] = useState('');
 	const [lastMetadataUrl, setLastMetadataUrl] = useState('');
+	const [upgradeModal, setUpgradeModal] = useState(null);
+
+	const openFeatureLockedUpgradeModal = (error) => {
+		const locked = {
+			...(error && typeof error === 'object' ? error : {}),
+			featureKey: error?.featureKey || 'websites',
+		};
+		const identity = resolveLockedFeatureIdentity(locked, {
+			sourcePage: 'websites',
+			requiredFeatureKeys: ['websites'],
+		});
+		const requiredFeatureKeys = Array.isArray(locked.requiredFeatureKeys) && locked.requiredFeatureKeys.length
+			? locked.requiredFeatureKeys
+			: (Array.isArray(locked.requiredKeys) && locked.requiredKeys.length
+				? locked.requiredKeys
+				: identity.requiredFeatureKeys);
+		setUpgradeModal({
+			templateId: identity.featureKey || 'websites',
+			templateName: identity.label,
+			access: locked.access || null,
+			requiredFeatureKeys: requiredFeatureKeys.length ? requiredFeatureKeys : ['websites'],
+			sourcePage: identity.sourcePage || 'websites',
+		});
+	};
 
 	const load = async () => {
 		setLoading(true);
@@ -353,7 +388,13 @@ export default function WebsitesPage() {
 			}
 
 			if (!res.ok) {
-				throw new Error(await readErrorMessage(res, `Failed to save website (${res.status})`));
+				const errorPayload = await readErrorPayload(res, `Failed to save website (${res.status})`);
+				if (isFeatureLockedError(errorPayload)) {
+					openFeatureLockedUpgradeModal(errorPayload);
+					setModal(null);
+					return;
+				}
+				throw new Error(errorPayload?.message || errorPayload?.error || `Failed to save website (${res.status})`);
 			}
 
 			const savedSite = await res.json();
@@ -702,6 +743,15 @@ export default function WebsitesPage() {
 					</Card>
 				</div>
 			)}
+			<UpgradeModal
+				open={Boolean(upgradeModal)}
+				onClose={() => setUpgradeModal(null)}
+				templateId={upgradeModal?.templateId || 'websites'}
+				templateName={upgradeModal?.templateName || 'Websites'}
+				access={upgradeModal?.access || null}
+				sourcePage={upgradeModal?.sourcePage || 'websites'}
+				requiredFeatureKeys={upgradeModal?.requiredFeatureKeys || ['websites']}
+			/>
 		</div>
 	);
 }

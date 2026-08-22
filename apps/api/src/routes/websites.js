@@ -21,6 +21,11 @@ import {
 import { writeAuditLog } from '../services/audit/write.js';
 import articleLifecycleRouter from './article-lifecycle.js';
 import { assertSafePublicHttpUrl, safeFetch } from '../utils/ssrf-guard.js';
+import {
+	freePlanSecondWebsiteLockedError,
+	isFreePlanSlug,
+	shouldBlockFreePlanSecondWebsite,
+} from '../services/free-plan-website-limit.js';
 
 const router = Router();
 const WEBSITE_FETCH_TIMEOUT_MS = 10000;
@@ -621,6 +626,26 @@ async function listOwnedWebsites({ req, includeRemoved = false }) {
 	return owned.map(mapWebsite);
 }
 
+/**
+ * Free plan may keep at most one active website.
+ * Paid plans are not counted or blocked here.
+ */
+async function assertFreePlanMayActivateWebsite(req, { targetAlreadyActive = false } = {}) {
+	const { resolveActivePlan } = await import('../services/plan-access.js');
+	const plan = await resolveActivePlan(req?.workspaceSubscription);
+	const planSlug = String(plan?.slug || '').trim().toLowerCase();
+	if (!isFreePlanSlug(planSlug)) return;
+
+	const owned = await listOwnedWebsites({ req });
+	if (shouldBlockFreePlanSecondWebsite({
+		planSlug,
+		activeCount: owned.length,
+		targetAlreadyActive,
+	})) {
+		throw freePlanSecondWebsiteLockedError();
+	}
+}
+
 router.get('/', async (req, res) => {
 	if (!req.pocketbaseUserId) {
 		throw httpError(401, 'You must be signed in to view websites');
@@ -898,6 +923,9 @@ router.post('/', async (req, res) => {
 	if (!req.pocketbaseUserId) {
 		throw httpError(401, 'You must be signed in to add a website');
 	}
+
+	// Free + existing active site: lock before metadata, create, or reconnect-as-create.
+	await assertFreePlanMayActivateWebsite(req);
 
 	logger.info('Website create requested', {
 		websiteId: '',
@@ -1333,6 +1361,9 @@ router.post('/:websiteId/disconnect', async (req, res) => {
 });
 
 router.post('/:websiteId/reconnect', async (req, res) => {
+	const activeSites = await listOwnedWebsites({ req });
+	const targetAlreadyActive = activeSites.some((site) => site.id === req.params.websiteId);
+	await assertFreePlanMayActivateWebsite(req, { targetAlreadyActive });
 	const result = await reconnectWebsite({ req, websiteId: req.params.websiteId });
 	ensureWordpressSiteFromWebsite(result.website, req.pocketbaseUserId, {
 		authType: req.body?.authType || req.body?.auth_type || 'application_password',
@@ -1352,6 +1383,9 @@ router.post('/:websiteId/reconnect', async (req, res) => {
  * - cancels unfinished queue work (keeps history)
  */
 router.post('/:websiteId/reset', async (req, res) => {
+	const activeSites = await listOwnedWebsites({ req });
+	const targetAlreadyActive = activeSites.some((site) => site.id === req.params.websiteId);
+	await assertFreePlanMayActivateWebsite(req, { targetAlreadyActive });
 	const result = await resetWebsite({ req, websiteId: req.params.websiteId });
 	res.json({
 		ok: true,
