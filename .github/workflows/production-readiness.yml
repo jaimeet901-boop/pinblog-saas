@@ -102,17 +102,46 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # No registry login, no secrets, no compose up, no push.
+      # Tags: immutable SHA + ci-smoke alias. Does not touch compose project :latest names.
       - name: Docker build smoke (API)
         run: |
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           docker build \
             -f Dockerfile.api \
+            --build-arg GIT_SHA="${{ github.sha }}" \
+            --build-arg BUILD_DATE="${BUILD_DATE}" \
+            -t "seodeva-api:${{ github.sha }}" \
             -t seodeva-api:ci-smoke \
             .
 
+      - name: Verify API image OCI revision label
+        run: |
+          rev="$(docker inspect seodeva-api:ci-smoke --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          echo "label_revision=${rev}"
+          echo "expected=${{ github.sha }}"
+          test "${rev}" = "${{ github.sha }}"
+          created="$(docker inspect seodeva-api:ci-smoke --format '{{ index .Config.Labels "org.opencontainers.image.created" }}')"
+          test -n "${created}"
+          test "${created}" != "unknown"
+
       - name: Docker build smoke (Web)
         run: |
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           docker build \
             -f Dockerfile.web \
+            --build-arg GIT_SHA="${{ github.sha }}" \
+            --build-arg BUILD_DATE="${BUILD_DATE}" \
             --build-arg VITE_PADDLE_CLIENT_TOKEN= \
+            -t "seodeva-web:${{ github.sha }}" \
             -t seodeva-web:ci-smoke \
             .
+
+      - name: Verify Web image OCI revision label
+        run: |
+          rev="$(docker inspect seodeva-web:ci-smoke --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          echo "label_revision=${rev}"
+          echo "expected=${{ github.sha }}"
+          test "${rev}" = "${{ github.sha }}"
+          created="$(docker inspect seodeva-web:ci-smoke --format '{{ index .Config.Labels "org.opencontainers.image.created" }}')"
+          test -n "${created}"
+          test "${created}" != "unknown"

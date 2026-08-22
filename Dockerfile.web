@@ -12,6 +12,20 @@ ENV VITE_PADDLE_CLIENT_TOKEN=$VITE_PADDLE_CLIENT_TOKEN
 RUN npm run build
 
 FROM nginx:1.27-alpine
+
+# Build metadata must be declared in the final stage (multi-stage). No secrets.
+#   --build-arg GIT_SHA="$(git rev-parse HEAD)"
+#   --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="seodeva-web"
+LABEL org.opencontainers.image.description="Seodeva Web"
+LABEL org.opencontainers.image.source="https://github.com/jaimeet901-boop/pinblog-saas"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL com.seodeva.component="web"
+
 COPY deploy/nginx/web.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist/apps/web /usr/share/nginx/html
 EXPOSE 80
