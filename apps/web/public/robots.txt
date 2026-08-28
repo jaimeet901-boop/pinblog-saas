@@ -1,0 +1,13 @@
+# Seodeva crawl policy (indexing guidance only — not an access-control mechanism).
+User-agent: *
+Allow: /
+
+# Authenticated / private application surfaces
+Disallow: /app/
+Disallow: /admin/
+
+# Backend / platform API surfaces
+Disallow: /api/
+Disallow: /hcgi/
+
+Sitemap: https://seodeva.com/sitemap.xml

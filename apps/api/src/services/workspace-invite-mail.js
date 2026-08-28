@@ -1,9 +1,9 @@
 import logger from '../utils/logger.js';
 import { getPlatformSettings } from './platform-settings.js';
 
-const FALLBACK_APP_URL = 'https://tbuy.store';
-const FALLBACK_PLATFORM_NAME = 'Chef IA';
-const FALLBACK_SUPPORT_EMAIL = 'support@tbuy.store';
+const FALLBACK_APP_URL = 'https://seodeva.com';
+const FALLBACK_PLATFORM_NAME = 'Seodeva';
+const FALLBACK_SUPPORT_EMAIL = 'contact@seodeva.com';
 
 function firstNonEmpty(...values) {
 	for (const value of values) {

@@ -666,7 +666,7 @@ export default function AdminPlatformIdentityPage() {
 							{textInput('domains', 'primaryDomain', {
 								id: 'domains-primary',
 								label: 'Primary Domain',
-								description: 'Public hostname for the product (e.g. tbuy.store).',
+								description: 'Public hostname for the product (e.g. seodeva.com).',
 								placeholder: 'example.com',
 							})}
 							{textInput('domains', 'appUrl', {

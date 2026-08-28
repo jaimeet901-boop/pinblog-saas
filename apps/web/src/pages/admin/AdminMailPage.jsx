@@ -288,7 +288,7 @@ export default function AdminMailPage() {
 							</label>
 							<label className="text-sm sm:col-span-2">
 								<span className="admin-stat__label">Application URL</span>
-								<input className="admin-input mt-1 w-full" value={form.appURL} onChange={(e) => setForm((p) => ({ ...p, appURL: e.target.value }))} placeholder="https://tbuy.store" />
+								<input className="admin-input mt-1 w-full" value={form.appURL} onChange={(e) => setForm((p) => ({ ...p, appURL: e.target.value }))} placeholder="https://seodeva.com" />
 							</label>
 						</div>
 						<button type="submit" className="admin-btn admin-btn--primary" disabled={Boolean(busy)}>

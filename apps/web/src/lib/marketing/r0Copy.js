@@ -169,8 +169,8 @@ export const R0_SEO = Object.freeze({
 		'AI content creation and multi-channel publishing for modern websites — write, design, connect channels, schedule, and measure in Seodeva.',
 });
 
-/** Official social share image (served from /og-chef-ia.png). */
-export const R0_OG_IMAGE_PATH = '/og-chef-ia.png';
+/** Official social share image (served from /og-seodeva.png). */
+export const R0_OG_IMAGE_PATH = '/og-seodeva.png';
 
 /**
  * Page-specific SEO for public marketing/auth routes.

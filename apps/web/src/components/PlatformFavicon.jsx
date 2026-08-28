@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { resolveHttpUrl } from '@/lib/platformIdentity';
 
-export const DEFAULT_FAVICON_HREF = '/vite.svg';
+export const DEFAULT_FAVICON_HREF = '/favicon.svg';
 
 function faviconType(href) {
 	const lower = String(href || '').toLowerCase();
@@ -15,7 +15,7 @@ function faviconType(href) {
 
 /**
  * Applies Platform Identity favicon globally.
- * Fallback: /vite.svg (existing static asset) when branding.faviconUrl is empty.
+ * Fallback: /favicon.svg when branding.faviconUrl is empty.
  */
 export default function PlatformFavicon() {
 	const { faviconUrl } = usePlatformIdentity();

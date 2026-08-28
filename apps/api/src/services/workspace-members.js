@@ -223,7 +223,7 @@ async function afterInvite(req, membership, email, { pendingAccount = false } = 
 	});
 
 	const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
-	const platformName = String(settings?.general?.platformName || 'Chef IA').trim() || 'Chef IA';
+	const platformName = String(settings?.general?.platformName || 'Seodeva').trim() || 'Seodeva';
 
 	await notifyWorkspaceById({
 		workspaceId: req.workspace.id,

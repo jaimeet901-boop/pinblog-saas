@@ -10,8 +10,8 @@ const CONFIG_KEY = 'platform';
 
 export const DEFAULT_PLATFORM_SETTINGS = {
 	general: {
-		platformName: 'Chef IA',
-		supportEmail: 'support@chef-ia.example',
+		platformName: 'Seodeva',
+		supportEmail: 'contact@seodeva.com',
 		defaultLanguage: 'en',
 		timezone: 'UTC',
 		dateFormat: 'YYYY-MM-DD',
@@ -155,8 +155,8 @@ export const DEFAULT_PLATFORM_SETTINGS = {
 		smtpPort: '587',
 		smtpUsername: '',
 		smtpPasswordSet: false,
-		senderName: 'Chef IA',
-		senderEmail: 'noreply@chef-ia.example',
+		senderName: 'Seodeva',
+		senderEmail: 'contact@seodeva.com',
 		dailyLimit: '5000',
 		queueLimit: '250',
 	},
@@ -463,7 +463,7 @@ export async function getPublicPlatformIdentity() {
 	const contact = settings.contact || {};
 	const seo = settings.seo || {};
 
-	const platformName = String(settings.general?.platformName || 'Chef IA').trim() || 'Chef IA';
+	const platformName = String(settings.general?.platformName || 'Seodeva').trim() || 'Seodeva';
 	const supportEmail = String(settings.general?.supportEmail || '').trim();
 	const contactEmail = String(contact.contactEmail || '').trim();
 

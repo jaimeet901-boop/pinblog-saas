@@ -42,7 +42,7 @@ export function joinCanonicalUrl(origin, path = '/') {
 }
 
 /**
- * Resolve absolute asset URL for public files (e.g. /og-chef-ia.png).
+ * Resolve absolute asset URL for public files (e.g. /og-seodeva.png).
  */
 export function resolvePublicAssetUrl(origin, assetPath) {
 	const path = String(assetPath || '').trim();

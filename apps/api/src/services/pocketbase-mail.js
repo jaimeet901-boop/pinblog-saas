@@ -208,7 +208,7 @@ export async function syncPlatformSmtpToPocketBase() {
 		},
 		meta: {
 			...(current.meta || {}),
-			senderName: String(email.senderName || current.meta?.senderName || 'Chef IA').trim(),
+			senderName: String(email.senderName || current.meta?.senderName || 'Seodeva').trim(),
 			senderAddress: senderEmail,
 			appURL: String(
 				current.meta?.appURL

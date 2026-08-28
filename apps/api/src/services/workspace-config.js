@@ -282,7 +282,7 @@ export async function buildWorkspaceConfig(req) {
 		brandKits,
 		templates,
 		general: withProvenance({
-			platformName: settings.general?.platformName || 'Chef IA',
+			platformName: settings.general?.platformName || 'Seodeva',
 			platformLogoUrl: String(settings.branding?.platformLogoUrl || '').trim(),
 			sidebarLogoUrl: String(settings.branding?.sidebarLogoUrl || '').trim(),
 			loginLogoUrl: String(settings.branding?.loginLogoUrl || '').trim(),
