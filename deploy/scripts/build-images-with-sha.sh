@@ -68,6 +68,7 @@ build_web() {
 		--build-arg "GIT_SHA=${GIT_SHA}" \
 		--build-arg "BUILD_DATE=${BUILD_DATE}" \
 		--build-arg "VITE_PADDLE_CLIENT_TOKEN=${VITE_PADDLE_CLIENT_TOKEN:-}" \
+		--build-arg "VITE_PADDLE_ENVIRONMENT=${VITE_PADDLE_ENVIRONMENT:-production}" \
 		"${tags[@]}" \
 		.
 }

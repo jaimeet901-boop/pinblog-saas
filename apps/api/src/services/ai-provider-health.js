@@ -83,8 +83,8 @@ export async function probeProviderConnection({
 				}
 				if (code === 'openrouter') {
 					const { settings } = await getPlatformSettings().catch(() => ({ settings: null }));
-					const platformName = String(settings?.general?.platformName || 'Chef IA').trim() || 'Chef IA';
-					const appUrl = String(settings?.domains?.appUrl || '').trim() || 'https://tbuy.store';
+					const platformName = String(settings?.general?.platformName || 'Seodeva').trim() || 'Seodeva';
+					const appUrl = String(settings?.domains?.appUrl || '').trim() || 'https://seodeva.com';
 					headers['HTTP-Referer'] = appUrl;
 					headers['X-Title'] = `${platformName} Admin`;
 				}

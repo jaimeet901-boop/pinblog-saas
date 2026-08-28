@@ -3,7 +3,7 @@ import { getPublishedLegalPageBySlug, LEGAL_PAGE_SLUGS } from '../services/legal
 import { getPublicPlatformIdentity } from '../services/platform-settings.js';
 
 const router = Router();
-const FALLBACK_SITE_URL = 'https://tbuy.store';
+const FALLBACK_SITE_URL = 'https://seodeva.com';
 
 function asyncHandler(fn) {
 	return (req, res, next) => {
