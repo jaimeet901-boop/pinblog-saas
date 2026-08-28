@@ -1,18 +1,18 @@
 import { Link, useLocation } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/kit';
-import { useAuth } from '@/context/AuthContext';
+import { useWorkspace } from '@/context/WorkspaceContext';
+import { isActiveWorkspaceOnFreePlan } from '@/lib/activeWorkspacePlan';
 
 /**
- * Promotional upgrade banner for users on the Free plan only.
- * Uses existing auth plan state — no separate billing lookup.
+ * Promotional upgrade banner for workspaces on the Free plan only.
+ * Uses the active workspace plan — not PocketBase users.plan / authStore.
  */
 export default function FreePlanUpgradeBanner({ className = '' }) {
-	const { user } = useAuth();
+	const { activeWorkspace } = useWorkspace();
 	const { pathname } = useLocation();
-	const planSlug = String(user?.plan || 'free').toLowerCase();
 
-	if (planSlug !== 'free') return null;
+	if (!isActiveWorkspaceOnFreePlan(activeWorkspace)) return null;
 	if (pathname.startsWith('/app/subscription')) return null;
 
 	return (

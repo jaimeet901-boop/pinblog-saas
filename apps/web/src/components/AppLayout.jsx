@@ -11,6 +11,8 @@ import { useActiveWebsite } from '@/context/ActiveWebsiteContext';
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher';
 import FreePlanUpgradeBanner from '@/components/FreePlanUpgradeBanner';
 import PlatformBrandMark from '@/components/PlatformBrandMark';
+import { useWorkspace } from '@/context/WorkspaceContext';
+import { formatActiveWorkspacePlanLabel } from '@/lib/activeWorkspacePlan';
 import { usePlatformDocumentTitle, usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import {
 	DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
@@ -345,6 +347,9 @@ function Brand() {
 }
 
 function UserCard({ user, onLogout }) {
+	const { activeWorkspace } = useWorkspace();
+	const planLabel = formatActiveWorkspacePlanLabel(activeWorkspace);
+
 	return (
 		<div className="mt-4 rounded-xl border border-border/80 bg-secondary/40 p-3">
 			<div className="flex items-center gap-2">
@@ -353,7 +358,7 @@ function UserCard({ user, onLogout }) {
 				</span>
 				<div className="min-w-0">
 					<p className="truncate text-sm font-medium">{user?.name || 'Chef'}</p>
-					<p className="truncate text-xs capitalize text-muted-foreground">{user?.plan || 'free'} plan</p>
+					<p className="truncate text-xs capitalize text-muted-foreground">{planLabel}</p>
 				</div>
 			</div>
 			<div className="mt-3 flex gap-2">

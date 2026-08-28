@@ -1083,7 +1083,7 @@ export default function SettingsPage() {
 							<p className="text-[11px] text-muted-foreground">Plan, credits, and connections.</p>
 						</div>
 						<div className="set-summary">
-							<div className="set-summary__row"><span>Current plan</span><strong>{user?.plan || 'free'}</strong></div>
+							<div className="set-summary__row"><span>Current plan</span><strong>{planSlug || 'free'}</strong></div>
 							<div className="set-summary__row"><span className="inline-flex items-center gap-1"><Coins size={12} /> Credits remaining: {creditsRemaining}</span></div>
 							<div className="set-summary__row"><span>Included plan credits/month</span><strong>{planCreditsIncluded}</strong></div>
 							<div className="set-summary__row"><span className="inline-flex items-center gap-1"><HardDrive size={12} /> Storage</span><strong>—</strong></div>

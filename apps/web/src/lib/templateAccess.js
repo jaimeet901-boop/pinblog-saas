@@ -3,28 +3,12 @@
  * Do not infer lock from premium flags, tier labels, or requiredFeatureKeys.
  */
 
-import { isPlanFeatureEnabled } from '@/lib/planFeatures.js';
-
-/** Display labels for known Feature Catalog keys (UI only — not permission logic). */
-const FEATURE_LABELS = Object.freeze({
-	aiWriter: 'AI Writer',
-	aiImages: 'AI Images',
-	pinterest: 'Pinterest',
-	templates: 'Templates',
-	brandKit: 'Brand Kit',
-	analytics: 'Analytics',
-	priorityQueue: 'Priority Queue',
-	apiAccess: 'API Access',
-	'templates.standard': 'Standard templates',
-	'templates.premium': 'Premium templates',
-	'templates.elite': 'Elite templates',
-	'features.ai_layout': 'AI Layout',
-	'features.ab_variations': 'A/B Variations',
-	'features.remove_background': 'Remove Background',
-	'features.brand_kit': 'Brand Kit',
-	'features.premium_fonts': 'Premium Fonts',
-	'features.premium_stickers': 'Premium Stickers',
-});
+import { isPlanFeatureEnabled } from './planFeatures.js';
+export {
+	formatFeatureKeyLabel,
+	formatMissingFeatureLabels,
+	resolveLockedFeatureIdentity,
+} from './lockedFeatureIdentity.js';
 
 /**
  * @param {unknown} templateOrAccess
@@ -67,27 +51,6 @@ export function isTemplateAccessEnabled(template) {
 	const access = getTemplateAccess(template);
 	if (!access) return true;
 	return Boolean(access.enabled);
-}
-
-/**
- * @param {string} key
- * @returns {string}
- */
-export function formatFeatureKeyLabel(key) {
-	const raw = String(key || '').trim();
-	if (!raw) return '';
-	if (FEATURE_LABELS[raw]) return FEATURE_LABELS[raw];
-	const leaf = raw.includes('.') ? raw.slice(raw.lastIndexOf('.') + 1) : raw;
-	const spaced = leaf.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
-	return spaced.replace(/\b\w/g, (ch) => ch.toUpperCase());
-}
-
-/**
- * @param {string[]} missingKeys
- * @returns {string[]}
- */
-export function formatMissingFeatureLabels(missingKeys = []) {
-	return [...new Set((missingKeys || []).map(formatFeatureKeyLabel).filter(Boolean))];
 }
 
 /**

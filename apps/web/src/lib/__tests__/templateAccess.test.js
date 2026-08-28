@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+/**
+ * templateAccess unit tests.
+ * Run: npm test --prefix apps/web -- src/lib/__tests__/templateAccess.test.js
+ */
+import { describe, it } from 'vitest';
+import assert from 'node:assert/strict';
 import {
 	formatMissingFeatureLabels,
 	getTemplateAccess,
@@ -10,13 +15,13 @@ import {
 
 describe('templateAccess', () => {
 	it('locks only from access.locked / enabled — ignores premium metadata', () => {
-		expect(isTemplateAccessLocked({
+		assert.equal(isTemplateAccessLocked({
 			premium: true,
 			marketplace: { meta: { premium: true, access: { tier: 'premium' } } },
 			requiredFeatureKeys: ['templates.premium'],
-		})).toBe(false);
+		}), false);
 
-		expect(isTemplateAccessLocked({
+		assert.equal(isTemplateAccessLocked({
 			access: {
 				visible: true,
 				enabled: false,
@@ -24,21 +29,21 @@ describe('templateAccess', () => {
 				missingKeys: ['templates.premium'],
 				dependencyChain: ['templates.premium'],
 			},
-		})).toBe(true);
+		}), true);
 
-		expect(isTemplateAccessEnabled({
+		assert.equal(isTemplateAccessEnabled({
 			access: { visible: true, enabled: true, locked: false, missingKeys: [], dependencyChain: [] },
-		})).toBe(true);
+		}), true);
 	});
 
 	it('treats missing access as unlocked for backward compatibility', () => {
-		expect(isTemplateAccessLocked({})).toBe(false);
-		expect(isTemplateAccessEnabled({})).toBe(true);
-		expect(getTemplateAccess({})).toBeNull();
+		assert.equal(isTemplateAccessLocked({}), false);
+		assert.equal(isTemplateAccessEnabled({}), true);
+		assert.equal(getTemplateAccess({}), null);
 	});
 
 	it('formats missing feature labels', () => {
-		expect(formatMissingFeatureLabels(['templates.premium', 'aiImages'])).toEqual([
+		assert.deepEqual(formatMissingFeatureLabels(['templates.premium', 'aiImages']), [
 			'Premium templates',
 			'AI Images',
 		]);
@@ -51,7 +56,7 @@ describe('templateAccess', () => {
 			{ slug: 'pro', name: 'Pro', monthlyPrice: 49, features: { 'templates.premium': { enabled: true } } },
 			{ slug: 'agency', name: 'Agency', monthlyPrice: 99, features: { 'templates.premium': { enabled: true } } },
 		];
-		expect(suggestUpgradePlan(plans, ['templates.premium'], { currentPlanSlug: 'free' })).toEqual({
+		assert.deepEqual(suggestUpgradePlan(plans, ['templates.premium'], { currentPlanSlug: 'free' }), {
 			slug: 'pro',
 			name: 'Pro',
 			monthlyPrice: 49,
@@ -59,8 +64,8 @@ describe('templateAccess', () => {
 	});
 
 	it('detects FEATURE_LOCKED errors', () => {
-		expect(isFeatureLockedError({ errorCode: 'FEATURE_LOCKED' })).toBe(true);
-		expect(isFeatureLockedError({ access: { locked: true } })).toBe(true);
-		expect(isFeatureLockedError({ message: 'nope' })).toBe(false);
+		assert.equal(isFeatureLockedError({ errorCode: 'FEATURE_LOCKED' }), true);
+		assert.equal(isFeatureLockedError({ access: { locked: true } }), true);
+		assert.equal(isFeatureLockedError({ message: 'nope' }), false);
 	});
 });

@@ -5,7 +5,7 @@
 	"private": true,
 	"scripts": {
 		"dev": "vite --host :: --port 3000",
-		"build": "node tools/generate-llms.js && vite build --outDir ../../dist/apps/web",
+		"build": "vite build --outDir ../../dist/apps/web && node tools/generate-llms.js",
 		"start": "vite preview --outDir ../../dist/apps/web --host :: --port 3000",
 		"lint": "eslint . --quiet",
 		"lint:warn": "eslint .",
@@ -14,6 +14,7 @@
 	},
 	"dependencies": {
 		"@hookform/resolvers": "^5.2.2",
+		"@paddle/paddle-js": "^1.6.4",
 		"@radix-ui/react-accordion": "^1.2.12",
 		"@radix-ui/react-alert-dialog": "^1.1.15",
 		"@radix-ui/react-aspect-ratio": "^1.1.8",
