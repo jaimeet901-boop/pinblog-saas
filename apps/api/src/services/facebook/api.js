@@ -203,6 +203,8 @@ export async function createFacebookOAuthState({
 	const expiresAt = new Date(Date.now() + STATE_TTL_MS).toISOString();
 	const scopes = scopesForLoginDialog(credentials.scopes?.length ? credentials.scopes : DEFAULT_SCOPES);
 	const scopeParam = scopes.join(',');
+	// Facebook Login for Business — User access token config "Seodeva User Login"
+	const configId = '1316072121271909';
 
 	const body = buildFacebookOAuthStateCreatePayload({
 		owner,
@@ -223,7 +225,8 @@ export async function createFacebookOAuthState({
 	url.searchParams.set('redirect_uri', redirectUri);
 	url.searchParams.set('state', state);
 	url.searchParams.set('response_type', 'code');
-	url.searchParams.set('scope', scopeParam);
+	url.searchParams.set('config_id', configId);
+	// Permissions come from the Meta configuration; do not send classic scope.
 	const authUrl = url.toString();
 
 	logger.info('[facebook-oauth] authorization URL built', facebookOAuthStartLogFields({
