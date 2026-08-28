@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Ensure dist ships a concise public llms.txt for Seodeva.
  * Prefer copying from public/ (Vite also copies it); fall back to inline content
  * when public/llms.txt is missing so emptyOutDir=false builds never leave a blank file.
  */
-const LLMS_CONTENT = `# Seodeva
+export const LLMS_CONTENT = `# Seodeva
 
 > Seodeva is an AI content and multi-channel publishing platform.
 
@@ -30,6 +31,24 @@ Seodeva helps teams write SEO articles, design branded creatives, connect websit
 - contact@seodeva.com
 `;
 
+/**
+ * Resolve llms.txt body from optional public file or inline source-of-truth.
+ * @param {{ publicFilePath?: string, readPublicFile?: (path: string) => string, publicFileExists?: (path: string) => boolean }} [options]
+ */
+export function resolveLlmsBody({
+	publicFilePath = '',
+	readPublicFile = (filePath) => fs.readFileSync(filePath, 'utf8'),
+	publicFileExists = (filePath) => fs.existsSync(filePath),
+} = {}) {
+	if (publicFilePath && publicFileExists(publicFilePath)) {
+		const fromPublic = readPublicFile(publicFilePath);
+		if (String(fromPublic || '').trim()) {
+			return fromPublic;
+		}
+	}
+	return LLMS_CONTENT;
+}
+
 function run() {
 	const cwd = process.cwd();
 	const publicFile = path.resolve(cwd, 'public/llms.txt');
@@ -37,10 +56,7 @@ function run() {
 	const outFile = path.join(outDir, 'llms.txt');
 
 	try {
-		const fromPublic = fs.existsSync(publicFile)
-			? fs.readFileSync(publicFile, 'utf8')
-			: LLMS_CONTENT;
-		const body = String(fromPublic || '').trim() ? fromPublic : LLMS_CONTENT;
+		const body = resolveLlmsBody({ publicFilePath: publicFile });
 
 		fs.mkdirSync(outDir, { recursive: true });
 		fs.writeFileSync(outFile, body.endsWith('\n') ? body : `${body}\n`);
@@ -50,4 +66,9 @@ function run() {
 	}
 }
 
-run();
+const isMain = process.argv[1]
+	&& path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
+	run();
+}

@@ -44,6 +44,8 @@ jobs:
 
       - name: Test API
         run: npm run test --prefix apps/api
+        env:
+          NODE_ENV: test
 
       - name: Test Web
         run: npm run test --prefix apps/web

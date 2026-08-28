@@ -8,6 +8,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { R0_OG_IMAGE_PATH } from './r0Copy.js';
+import { LLMS_CONTENT, resolveLlmsBody } from '../../../tools/generate-llms.js';
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -18,10 +19,11 @@ describe('Phase 2 public brand assets', () => {
 		assert.equal(existsSync(path.join(webRoot, 'public/og-chef-ia.png')), false);
 	});
 
-	it('ships favicon.svg and llms.txt in public/', () => {
+	it('ships favicon.svg and Seodeva llms generator content', () => {
 		assert.ok(existsSync(path.join(webRoot, 'public/favicon.svg')));
-		assert.ok(existsSync(path.join(webRoot, 'public/llms.txt')));
-		const llms = readFileSync(path.join(webRoot, 'public/llms.txt'), 'utf8');
+
+		const llms = resolveLlmsBody();
+		assert.equal(llms, LLMS_CONTENT);
 		assert.match(llms, /Seodeva/);
 		assert.doesNotMatch(llms, /Chef IA|PinBlog|tbuy\.store/i);
 	});
