@@ -4,6 +4,7 @@ import {
 	buildWorkspaceOverview,
 	exportWorkspaceAnalytics,
 } from '../../services/analytics/index.js';
+import { assertFeatureAccess } from '../../services/plan-access-guard.js';
 
 const router = Router();
 
@@ -15,6 +16,9 @@ function asyncHandler(fn) {
 
 router.get('/', asyncHandler(async (req, res) => {
 	assertCapability(req, 'workspace.analytics.read');
+	await assertFeatureAccess(req, 'analytics', {
+		message: 'Analytics requires a plan upgrade. Open Subscription to unlock analytics.',
+	});
 	const overview = await buildWorkspaceOverview(req, {
 		range: req.query.range || '30d',
 		from: req.query.from || '',
@@ -26,6 +30,9 @@ router.get('/', asyncHandler(async (req, res) => {
 
 router.get('/overview', asyncHandler(async (req, res) => {
 	assertCapability(req, 'workspace.analytics.read');
+	await assertFeatureAccess(req, 'analytics', {
+		message: 'Analytics requires a plan upgrade. Open Subscription to unlock analytics.',
+	});
 	const overview = await buildWorkspaceOverview(req, {
 		range: req.query.range || '30d',
 		from: req.query.from || '',
@@ -37,6 +44,9 @@ router.get('/overview', asyncHandler(async (req, res) => {
 
 router.get('/export', asyncHandler(async (req, res) => {
 	assertCapability(req, 'workspace.analytics.read');
+	await assertFeatureAccess(req, 'analytics', {
+		message: 'Analytics requires a plan upgrade. Open Subscription to unlock analytics.',
+	});
 	const format = String(req.query.format || 'json').toLowerCase() === 'csv' ? 'csv' : 'json';
 	const file = await exportWorkspaceAnalytics(req, {
 		range: req.query.range || '30d',

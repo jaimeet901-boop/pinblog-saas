@@ -16,6 +16,7 @@ import {
 	withAnalyzeAndPromptCredits,
 	withPinTextFeatureCredits,
 } from '../services/ai-pin-text-credits.js';
+import { assertFeatureAccess } from '../services/plan-access-guard.js';
 import { userSafeTextError } from '../services/ai-user-safe-errors.js';
 import { integratedAiRateLimit } from '../middleware/integrated-ai-rate-limit.js';
 import { uploadFiles } from '../middleware/file-upload.js';
@@ -391,6 +392,10 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 		throw httpError(401, 'You must be signed in');
 	}
 
+	await assertFeatureAccess(req, 'aiWriter', {
+		message: 'AI Pin analysis requires a plan upgrade. Open Subscription to unlock AI text generation.',
+	});
+
 	const articleId = normalizeOptionalString(req.body?.articleId, 'articleId', 64);
 	const style = normalizeOptionalString(req.body?.style, 'style', 64) || '';
 	const channel = normalizeStudioPromptChannel(req.body?.channel);
@@ -437,7 +442,7 @@ router.post('/analyze', integratedAiRateLimit, async (req, res) => {
 			});
 		});
 	} catch (error) {
-		if (error?.status === 402 || error?.status === 422 || error?.status === 409) {
+		if (error?.status === 402 || error?.status === 403 || error?.status === 422 || error?.status === 409) {
 			throw error;
 		}
 		logger.error('AI pin analysis failed', { message: error?.message });
@@ -486,6 +491,10 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 	if (!req.pocketbaseUserId) {
 		throw httpError(401, 'You must be signed in');
 	}
+
+	await assertFeatureAccess(req, 'aiWriter', {
+		message: 'AI Pin prompts require a plan upgrade. Open Subscription to unlock AI text generation.',
+	});
 
 	const articleId = normalizeOptionalString(req.body?.articleId, 'articleId', 64);
 	const style = normalizeOptionalString(req.body?.style, 'style', 64) || '';
@@ -559,7 +568,7 @@ router.post('/prompts', integratedAiRateLimit, async (req, res) => {
 		resolvedAnalysis = analysisProvided ? analysis : out.resolvedAnalysis;
 		promptResult = out.promptResult;
 	} catch (error) {
-		if (error?.status === 402 || error?.status === 422 || error?.status === 409) {
+		if (error?.status === 402 || error?.status === 403 || error?.status === 422 || error?.status === 409) {
 			throw error;
 		}
 		logger.error('AI pin prompt generation failed', { message: error?.message });

@@ -31,6 +31,7 @@ import {
 import { userSafeImageError } from '../services/ai-user-safe-errors.js';
 import { parseGenerationHistoryChannel } from '../services/ai-pin-generation-history-query.js';
 import { assertImageJobPinChannel } from '../services/ai-pin-channel.js';
+import { assertFeatureAccess } from '../services/plan-access-guard.js';
 
 const router = Router();
 
@@ -462,6 +463,16 @@ router.post('/jobs', integratedAiRateLimit, async (req, res) => {
 		throw httpError(422, 'items must be a non-empty array');
 	}
 
+	const needsAiImages = items.some((rawItem) => {
+		const imageMode = String(rawItem?.imageMode || 'generate_ai').trim();
+		return imageMode === 'generate_ai';
+	});
+	if (needsAiImages) {
+		await assertFeatureAccess(req, 'aiImages', {
+			message: 'AI Images require a plan upgrade. Open Subscription to unlock image generation.',
+		});
+	}
+
 	const slice = items.slice(0, 100);
 	const parsedItems = slice.map((rawItem) => {
 		const articleId = normalizeString(rawItem?.articleId, 'articleId', { required: true, max: 80 });
@@ -600,6 +611,10 @@ router.get('/jobs', async (req, res) => {
 });
 
 router.post('/jobs/:jobId/regenerate', integratedAiRateLimit, async (req, res) => {
+	await assertFeatureAccess(req, 'aiImages', {
+		message: 'AI Images require a plan upgrade. Open Subscription to unlock image generation.',
+	});
+
 	const actor = getWorkspaceActor(req);
 	const owner = actor.workspaceOwnerId || req.pocketbaseUserId;
 	const sourceJob = await pocketbaseClient.collection('ai_pin_image_jobs').getOne(req.params.jobId).catch(() => null);

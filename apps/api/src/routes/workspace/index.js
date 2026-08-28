@@ -80,6 +80,7 @@ import analyticsRouter from './analytics.js';
 import logsRouter from './logs.js';
 import productEventsRouter from './product-events.js';
 import accountRouter from './account.js';
+import { assertFeatureAccess } from '../../services/plan-access-guard.js';
 
 const router = Router();
 
@@ -455,30 +456,51 @@ router.get('/calendar/events', asyncHandler(async (req, res) => {
 
 /** Unified Calendar Mutation Router (C5). Dispatches to owning channel adapters. */
 router.post('/calendar/events/:eventId/reschedule', asyncHandler(async (req, res) => {
+	await assertFeatureAccess(req, 'calendar', {
+		message: 'Calendar scheduling requires a plan upgrade. Open Subscription to unlock scheduling.',
+	});
 	res.json(await rescheduleCalendarScheduledItem(req, req.params.eventId, req.body || {}));
 }));
 
 router.post('/calendar/events/:eventId/cancel', asyncHandler(async (req, res) => {
+	await assertFeatureAccess(req, 'calendar', {
+		message: 'Calendar scheduling requires a plan upgrade. Open Subscription to unlock scheduling.',
+	});
 	res.json(await cancelCalendarScheduledItem(req, req.params.eventId, req.body || {}));
 }));
 
 router.post('/calendar/events/:eventId/retry', asyncHandler(async (req, res) => {
+	await assertFeatureAccess(req, 'calendar', {
+		message: 'Calendar scheduling requires a plan upgrade. Open Subscription to unlock scheduling.',
+	});
 	res.json(await retryCalendarScheduledItem(req, req.params.eventId, req.body || {}));
 }));
 
 router.post('/calendar', async (req, res) => {
+	await assertFeatureAccess(req, 'calendar', {
+		message: 'Calendar scheduling requires a plan upgrade. Open Subscription to unlock scheduling.',
+	});
 	res.status(201).json(await createCalendarEvent(req, req.body || {}));
 });
 
 router.patch('/calendar/:id', async (req, res) => {
+	await assertFeatureAccess(req, 'calendar', {
+		message: 'Calendar scheduling requires a plan upgrade. Open Subscription to unlock scheduling.',
+	});
 	res.json(await updateCalendarEvent(req, req.params.id, req.body || {}));
 });
 
 router.post('/calendar/:id/reschedule', async (req, res) => {
+	await assertFeatureAccess(req, 'calendar', {
+		message: 'Calendar scheduling requires a plan upgrade. Open Subscription to unlock scheduling.',
+	});
 	res.json(await rescheduleCalendarEvent(req, req.params.id, req.body || {}));
 });
 
 router.delete('/calendar/:id', async (req, res) => {
+	await assertFeatureAccess(req, 'calendar', {
+		message: 'Calendar scheduling requires a plan upgrade. Open Subscription to unlock scheduling.',
+	});
 	res.json(await deleteCalendarEvent(req, req.params.id));
 });
 

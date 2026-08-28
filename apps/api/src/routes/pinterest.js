@@ -75,6 +75,7 @@ import {
 	stampPinterestOAuthAccountWorkspace,
 } from '../services/pinterest-workspace-isolation.js';
 import { isPinPublishableOnChannel } from '../services/ai-pin-channel.js';
+import { assertFeatureAccess } from '../services/plan-access-guard.js';
 
 function workspaceOwner(req) {
 	return getWorkspaceActor(req).workspaceOwnerId || req.pocketbaseUserId;
@@ -865,6 +866,9 @@ router.get('/accounts', async (req, res) => {
 });
 
 router.post('/oauth/start', async (req, res) => {
+	await assertFeatureAccess(req, 'pinterest', {
+		message: 'Pinterest requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = workspaceOwner(req);
 	const accountId = normalizeString(req.body?.accountId, 'accountId', { max: 80 });
 	if (accountId) {
@@ -888,6 +892,9 @@ router.post('/oauth/start', async (req, res) => {
 });
 
 router.post('/accounts/:accountId/reconnect', async (req, res) => {
+	await assertFeatureAccess(req, 'pinterest', {
+		message: 'Pinterest requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = workspaceOwner(req);
 	const account = await getOwnedPinterestAccountById({ owner, accountId: req.params.accountId, req });
 	if (!account) {
@@ -1102,6 +1109,9 @@ router.post('/boards/sync', async (req, res) => {
 });
 
 router.post('/publish', async (req, res) => {
+	await assertFeatureAccess(req, 'pinterest', {
+		message: 'Pinterest requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = workspaceOwner(req);
 
 	const pinIds = normalizePinIds(req.body?.pinIds);
@@ -1131,6 +1141,9 @@ router.post('/publish', async (req, res) => {
 });
 
 router.post('/schedule', async (req, res) => {
+	await assertFeatureAccess(req, 'pinterest', {
+		message: 'Pinterest requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = workspaceOwner(req);
 
 	const pinIds = normalizePinIds(req.body?.pinIds);
@@ -1166,6 +1179,9 @@ router.post('/schedule', async (req, res) => {
 });
 
 router.patch('/jobs/:jobId', async (req, res) => {
+	await assertFeatureAccess(req, 'pinterest', {
+		message: 'Pinterest requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = workspaceOwner(req);
 	const job = assertStrictWorkspaceRecord(
 		await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null),
@@ -1300,6 +1316,9 @@ router.post('/jobs/:jobId/cancel', async (req, res) => {
 });
 
 router.post('/jobs/:jobId/retry', async (req, res) => {
+	await assertFeatureAccess(req, 'pinterest', {
+		message: 'Pinterest requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = workspaceOwner(req);
 
 	const job = assertStrictWorkspaceRecord(
@@ -1456,6 +1475,9 @@ router.get('/history', async (req, res) => {
 });
 
 router.post('/jobs/:jobId/publish-now', async (req, res) => {
+	await assertFeatureAccess(req, 'pinterest', {
+		message: 'Pinterest requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = workspaceOwner(req);
 	const job = assertStrictWorkspaceRecord(
 		await pocketbaseClient.collection('pinterest_publish_jobs').getOne(req.params.jobId).catch(() => null),

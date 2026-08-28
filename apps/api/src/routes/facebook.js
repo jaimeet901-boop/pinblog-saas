@@ -25,6 +25,7 @@ import {
 	facebookOAuthProviderDeniedBrowserError,
 	facebookOAuthProviderDeniedLog,
 } from '../services/facebook/workspace-isolation.js';
+import { assertFeatureAccess } from '../services/plan-access-guard.js';
 import {
 	assertFacebookAccountConnected,
 	getFacebookDestination,
@@ -142,6 +143,9 @@ router.use(requireWorkspaceRead);
 router.use(requireWorkspaceMutation(['workspace.facebook.manage', 'workspace.facebook.publish']));
 
 router.post('/oauth/start', asyncHandler(async (req, res) => {
+	await assertFeatureAccess(req, 'facebook', {
+		message: 'Facebook requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = getOwner(req);
 	const body = req.body || {};
 	const result = await createFacebookOAuthState({
@@ -163,6 +167,9 @@ router.post('/oauth/start', asyncHandler(async (req, res) => {
 }));
 
 router.post('/accounts/:accountId/reconnect', asyncHandler(async (req, res) => {
+	await assertFeatureAccess(req, 'facebook', {
+		message: 'Facebook requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = getOwner(req);
 	const account = await getOwnedFacebookAccountById({ owner, accountId: req.params.accountId, req });
 	if (!account) throw httpError(404, 'Facebook account not found');
@@ -327,6 +334,9 @@ router.post('/accounts/:accountId/pages/:pageId/default', asyncHandler(async (re
 }));
 
 router.post('/publish', asyncHandler(async (req, res) => {
+	await assertFeatureAccess(req, 'facebook', {
+		message: 'Facebook requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = getOwner(req);
 	const body = req.body || {};
 	const accountId = String(body.accountId || '').trim();
@@ -359,6 +369,9 @@ router.post('/publish', asyncHandler(async (req, res) => {
 }));
 
 router.post('/schedule', asyncHandler(async (req, res) => {
+	await assertFeatureAccess(req, 'facebook', {
+		message: 'Facebook requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const owner = getOwner(req);
 	const body = req.body || {};
 	const timezone = String(body.timezone || '').trim();
@@ -439,6 +452,9 @@ router.get('/jobs/:jobId', asyncHandler(async (req, res) => {
 }));
 
 router.patch('/jobs/:jobId', asyncHandler(async (req, res) => {
+	await assertFeatureAccess(req, 'facebook', {
+		message: 'Facebook requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const result = await rescheduleFacebookPublishJob({
 		req,
 		jobId: req.params.jobId,
@@ -456,6 +472,9 @@ router.post('/jobs/:jobId/cancel', asyncHandler(async (req, res) => {
 }));
 
 router.post('/jobs/:jobId/retry', asyncHandler(async (req, res) => {
+	await assertFeatureAccess(req, 'facebook', {
+		message: 'Facebook requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const result = await retryFacebookPublishJob({
 		req,
 		jobId: req.params.jobId,
@@ -464,6 +483,9 @@ router.post('/jobs/:jobId/retry', asyncHandler(async (req, res) => {
 }));
 
 router.post('/jobs/:jobId/publish-now', asyncHandler(async (req, res) => {
+	await assertFeatureAccess(req, 'facebook', {
+		message: 'Facebook requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const result = await publishNowFacebookPublishJob({
 		req,
 		jobId: req.params.jobId,

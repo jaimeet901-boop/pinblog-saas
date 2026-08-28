@@ -41,7 +41,7 @@ export const PLAN_SEED_CATALOG = [
 		support: 'Community',
 		refill_policy: 'Monthly reset · no rollover',
 		publishing_limits: '10 publishes / mo',
-		ai_features: 'AI Writer lite · basic pins',
+		ai_features: 'History included · AI Writer on paid plans',
 		image_limits: '10 images / mo',
 		ai_models: 'Starter models',
 		highlight: false,
@@ -59,7 +59,6 @@ export const PLAN_SEED_CATALOG = [
 		},
 		features: {
 			...DEFAULT_FEATURES,
-			aiWriter: true,
 			history: true,
 		},
 		seedSubscribers: [

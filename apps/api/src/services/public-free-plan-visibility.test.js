@@ -129,13 +129,22 @@ describe('F. already Free requests Free — PLAN_UNCHANGED path stays open', () 
 });
 
 describe('G. feature access — visibility flag does not affect evaluation', () => {
-	it('evaluateFeatureAccess still grants Free features while hidden', () => {
+	it('evaluateFeatureAccess still grants enabled features while Free is hidden', () => {
 		const result = evaluateFeatureAccess({
-			featureKey: 'aiWriter',
-			features: { aiWriter: { enabled: true }, history: { enabled: true } },
+			featureKey: 'history',
+			features: { history: { enabled: true }, aiWriter: { enabled: false } },
 		});
 		assert.equal(result.enabled, true);
 		assert.equal(result.locked, false);
+	});
+
+	it('evaluateFeatureAccess locks aiWriter when Free-style features disable it', () => {
+		const result = evaluateFeatureAccess({
+			featureKey: 'aiWriter',
+			features: { history: { enabled: true }, aiWriter: { enabled: false } },
+		});
+		assert.equal(result.enabled, false);
+		assert.equal(result.locked, true);
 	});
 
 	it('plan-access does not import the visibility helper', () => {
@@ -169,6 +178,8 @@ describe('J. Free plan record — active/status/pricing/credits unchanged', () =
 		assert.equal(free.status, 'active');
 		assert.equal(free.monthly_price, 0);
 		assert.equal(free.credits, 50);
+		assert.notEqual(free.features?.aiWriter, true);
+		assert.equal(free.features?.history, true);
 	});
 
 	it('visibility helper never writes plans.active or plans.status', () => {

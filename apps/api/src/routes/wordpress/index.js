@@ -37,6 +37,7 @@ import {
 	respondWordpressApiError,
 	WORDPRESS_ERROR_CODES,
 } from '../../services/wordpress-errors.js';
+import { assertFeatureAccess } from '../../services/plan-access-guard.js';
 
 const router = Router();
 
@@ -248,6 +249,9 @@ router.post('/sync/process-due', requireAdmin, async (req, res) => {
 });
 
 router.post('/publish', async (req, res) => {
+	await assertFeatureAccess(req, 'wordpress', {
+		message: 'WordPress publishing requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const job = await enqueueWordpressPublish({
 		ownerId: req.workspaceOwnerId || req.pocketbaseUserId,
 		workspaceId: req.workspace?.id || '',
@@ -268,6 +272,9 @@ router.post('/publish', async (req, res) => {
 });
 
 router.post('/schedule', async (req, res) => {
+	await assertFeatureAccess(req, 'wordpress', {
+		message: 'WordPress publishing requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const scheduledAt = req.body?.scheduledAt || req.body?.scheduled_at;
 	if (!scheduledAt) {
 		return respondWordpressApiError(res, createWordpressError(
@@ -297,6 +304,9 @@ router.get('/jobs/:id', async (req, res) => {
 });
 
 router.post('/jobs/:id/retry', async (req, res) => {
+	await assertFeatureAccess(req, 'wordpress', {
+		message: 'WordPress publishing requires a plan upgrade. Open Subscription to unlock publishing.',
+	});
 	const job = await retryPublishJob(wordpressJobOwner(req), req.params.id, req);
 	res.json({ ok: true, job });
 });
