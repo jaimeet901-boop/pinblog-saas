@@ -6,6 +6,7 @@ import { getBillingProvider, resolveBillingConfig } from './providers/index.js';
 import { claimIdempotencyKey, completeIdempotency, failIdempotency } from './idempotency.js';
 import { logBillingAction } from './audit.js';
 import { clearCreditThresholdFlags } from './notifications.js';
+import { featureLockedError } from '../plan-access-guard.js';
 
 /**
  * Resolve credit packs from plan.topup_packs and platform PAYG defaults.
@@ -71,6 +72,25 @@ export async function purchaseCreditPack({
 		workspaceName,
 		ownerEmail,
 	});
+	const planRecord = subscription.expand?.plan
+		|| (subscription.plan
+			? await pocketbaseClient.collection('plans').getOne(subscription.plan).catch(() => null)
+			: null);
+	if (planRecord && planRecord.topup_allowed === false) {
+		throw featureLockedError(
+			{
+				visible: true,
+				enabled: false,
+				locked: true,
+				missingKeys: [],
+				dependencyChain: [],
+			},
+			{
+				featureKey: 'creditPacks',
+				message: 'Credit packs require a paid plan. Open Subscription to upgrade.',
+			},
+		);
+	}
 	const packs = await listCreditPacks({ planId: subscription.plan });
 	const pack = packs.items.find((item) => item.id === packId || item.name === packId);
 	if (!pack) throw httpError(404, 'Credit pack not found', 'PACK_NOT_FOUND');

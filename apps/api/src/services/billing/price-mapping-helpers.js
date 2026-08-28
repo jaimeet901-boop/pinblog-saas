@@ -137,19 +137,6 @@ export function validatePriceMappings(mappingsInput, catalog, { activeProvider =
 				});
 			}
 		}
-		for (const provider of MAPPING_PROVIDERS) {
-			if (required.includes(provider)) continue;
-			if (!mapping.monthly?.[provider]) {
-				diagnostics.push({
-					code: 'missing_optional_mapping',
-					severity: 'warn',
-					message: `No ${provider} monthly mapping for plan "${plan.slug}".`,
-					provider,
-					planSlug: plan.slug,
-					interval: 'monthly',
-				});
-			}
-		}
 	}
 
 	for (const pack of catalog.packs || []) {
@@ -200,7 +187,9 @@ export function validatePriceMappings(mappingsInput, catalog, { activeProvider =
 	const result = hasError ? 'FAIL' : hasWarn ? 'WARNING' : 'PASS';
 	const summary = {
 		result,
-		missing: diagnostics.filter((d) => d.code.startsWith('missing_')).length,
+		missing: diagnostics.filter((d) => (
+			d.code === 'missing_monthly_mapping' || d.code === 'missing_pack_mapping'
+		)).length,
 		duplicates: diagnostics.filter((d) => d.code === 'duplicate_price_id').length,
 		conflicts: diagnostics.filter((d) => d.code.includes('conflict')).length,
 		inactive: diagnostics.filter((d) => d.code.startsWith('inactive_')).length,

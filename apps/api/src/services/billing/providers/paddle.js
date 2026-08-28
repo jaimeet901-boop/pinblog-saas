@@ -108,11 +108,6 @@ export class PaddleBillingProvider extends BillingProvider {
 		if (input.customerEmail) {
 			body.customer = { email: input.customerEmail };
 		}
-		if (input.successUrl) {
-			body.checkout = {
-				url: input.successUrl,
-			};
-		}
 
 		const base = this.config?.sandbox || process.env.PADDLE_SANDBOX === '1'
 			? 'https://sandbox-api.paddle.com'
@@ -192,11 +187,6 @@ export class PaddleBillingProvider extends BillingProvider {
 		};
 		if (input.customerEmail) {
 			body.customer = { email: input.customerEmail };
-		}
-		if (input.successUrl) {
-			body.checkout = {
-				url: input.successUrl,
-			};
 		}
 
 		const base = this.config?.sandbox || process.env.PADDLE_SANDBOX === '1'

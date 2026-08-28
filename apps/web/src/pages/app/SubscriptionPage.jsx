@@ -40,26 +40,14 @@ import { useToast } from '@/hooks/use-toast';
 import { usePlatformIdentity } from '@/hooks/usePlatformIdentity';
 import { mailtoHref } from '@/lib/platformIdentity';
 import { planCreditsIncludedPerMonth, workspaceWalletRemaining } from '@/lib/workspaceWalletRemaining';
+import { maybeOpenPaddleCheckoutFromUrl } from '@/lib/paddleCheckout';
+import {
+	mapPlanCard,
+	mergePlanCardsWithPlaceholders,
+	planPriceDisplay,
+	startSubscriptionCheckout,
+} from '@/lib/subscriptionPlanCards';
 import './SubscriptionPage.css';
-
-const PLACEHOLDER_PLANS = [
-	{
-		id: 'business',
-		name: 'Business',
-		price: 199,
-		credits: 'Custom',
-		items: ['Higher volume credits', 'Multi-brand workspaces', 'Advanced analytics', 'Priority onboarding'],
-		placeholder: true,
-	},
-	{
-		id: 'enterprise',
-		name: 'Enterprise',
-		price: null,
-		credits: 'Custom',
-		items: ['Custom SLAs', 'SSO & security controls', 'Dedicated success manager', 'Custom integrations'],
-		placeholder: true,
-	},
-];
 
 function BillingUnavailableModal({ open, onClose, supportMailto }) {
 	const backdropPointerDownRef = useRef(false);
@@ -146,51 +134,6 @@ const CURRENT_FEATURES = [
 	{ label: 'Included plan credits/month', key: 'credits' },
 ];
 
-function planItemsFromDto(plan) {
-	const limits = plan.limits || {};
-	return [
-		`${limits.articlesPerMonth >= 999999 ? 'Unlimited' : (limits.articlesPerMonth || plan.credits || 0)} articles / month`,
-		`${limits.wordpressSites >= 999999 ? 'Unlimited' : (limits.wordpressSites || 1)} website${(limits.wordpressSites || 1) === 1 ? '' : 's'}`,
-		`${limits.imagesPerMonth >= 999999 ? 'Unlimited' : (limits.imagesPerMonth || 0)} images`,
-		plan.support || 'Support included',
-	];
-}
-
-function mapPlanCard(plan) {
-	const monthlyPrice = Number(plan.monthlyPrice ?? plan.price) || 0;
-	const yearlyPrice = Number(plan.yearlyPrice) || 0;
-	return {
-		id: plan.slug || plan.id,
-		planId: plan.id,
-		name: plan.name,
-		monthlyPrice,
-		yearlyPrice,
-		price: monthlyPrice,
-		credits: plan.credits,
-		popular: Boolean(plan.highlight),
-		items: planItemsFromDto(plan),
-		placeholder: false,
-	};
-}
-
-function planPriceDisplay(plan, billingInterval) {
-	if (plan.placeholder) {
-		return { amountLabel: 'Custom', periodLabel: '' };
-	}
-	const monthlyPrice = plan.monthlyPrice ?? plan.price;
-	const yearlyPrice = plan.yearlyPrice;
-	if (monthlyPrice == null && yearlyPrice == null) {
-		return { amountLabel: 'Custom', periodLabel: '' };
-	}
-	const amount = billingInterval === 'yearly'
-		? (Number(yearlyPrice) || Number(monthlyPrice) || 0)
-		: (Number(monthlyPrice) || 0);
-	return {
-		amountLabel: `$${amount}`,
-		periodLabel: billingInterval === 'yearly' ? '/yr' : '/mo',
-	};
-}
-
 export default function SubscriptionPage() {
 	const { user, refresh } = useAuth();
 	const { toast } = useToast();
@@ -223,72 +166,65 @@ export default function SubscriptionPage() {
 		if (planSlug === (subscription?.planSlug || user?.plan)) return;
 		setBusy(planSlug);
 		try {
-			const origin = typeof window !== 'undefined' ? window.location.origin : '';
-			const response = await apiServerClient.fetch('/workspace/v1/subscription/checkout', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					planSlug,
-					billingInterval,
-					successUrl: origin ? `${origin}/app/subscription?checkout=success` : '',
-					cancelUrl: origin ? `${origin}/app/subscription?checkout=cancel` : '',
-				}),
+			const result = await startSubscriptionCheckout({
+				planSlug,
+				billingInterval,
+				fetchFn: (url, options) => apiServerClient.fetch(url, options),
 			});
-			const payload = await response.json().catch(() => ({}));
-			if (!response.ok) {
-				if (response.status === 422 && payload.errorCode === 'INVALID_BILLING_INTERVAL') {
+
+			if (result.status === 'error') {
+				if (result.httpStatus === 422 && result.errorCode === 'INVALID_BILLING_INTERVAL') {
 					toast({
 						variant: 'destructive',
 						title: 'Billing interval unavailable',
-						description: payload.message || 'Yearly billing is not available for the current payment provider.',
+						description: result.message || 'Yearly billing is not available for the current payment provider.',
 					});
 					return;
 				}
 				if (
-					response.status === 404
-					|| payload.errorCode === 'PLAN_NOT_FOUND'
-					|| payload.errorCode === 'CHECKOUT_REQUIRED'
+					result.httpStatus === 404
+					|| result.errorCode === 'PLAN_NOT_FOUND'
+					|| result.errorCode === 'CHECKOUT_REQUIRED'
 				) {
 					openBillingUnavailable();
 					return;
 				}
-				throw new Error(payload.message || 'Could not start billing');
+				throw new Error(result.message || 'Could not start billing');
 			}
 
-			if (payload.status === 'billing_unavailable') {
+			if (result.status === 'billing_unavailable') {
 				openBillingUnavailable();
 				return;
 			}
 
-			if (payload.status === 'activated') {
-				await applySubscriptionPayload(payload);
+			if (result.status === 'activated') {
+				await applySubscriptionPayload(result.payload);
 				await refresh();
 				toast({
 					title: 'Plan updated',
-					description: `You are now on the ${payload.plan?.name || planSlug} plan.`,
+					description: `You are now on the ${result.payload?.plan?.name || planSlug} plan.`,
 				});
 				return;
 			}
 
-			if (payload.status === 'checkout_pending') {
-				const checkoutUrl = payload.checkoutUrl || payload.checkout?.checkoutUrl;
-				if (checkoutUrl) {
-					window.location.assign(checkoutUrl);
+			if (result.status === 'checkout_pending') {
+				if (result.checkoutUrl) {
+					window.location.assign(result.checkoutUrl);
 					return;
 				}
 				toast({
 					title: 'Checkout unavailable',
-					description: payload.message
-						|| `${payload.provider || 'Payment'} checkout could not be started. Please try again later.`,
+					description: result.message
+						|| `${result.payload?.provider || 'Payment'} checkout could not be started. Please try again later.`,
 				});
 				return;
 			}
 
-			if (payload.status === 'checkout_unavailable') {
+			if (result.status === 'checkout_unavailable') {
 				toast({
 					title: 'Checkout unavailable',
-					description: payload.message
-						|| `${payload.provider || 'Payment'} checkout could not be started. Please try again later.`,
+					description: result.message
+						|| `${result.payload?.provider || 'Payment'} checkout could not be started. Please try again later.`,
 				});
 				return;
 			}
@@ -369,6 +305,7 @@ export default function SubscriptionPage() {
 			{ dedupeKey: 'subscription_page_open:subscription' },
 		);
 		loadUsage();
+		maybeOpenPaddleCheckoutFromUrl();
 	}, []);
 
 	const activeProvider = billing?.provider && billing.provider !== 'none' ? billing.provider : null;
@@ -438,11 +375,10 @@ export default function SubscriptionPage() {
 		return tips;
 	}, [creditsRemaining, currentPlan, currentPlanId, renewalDate, usage.pinterestAccounts]);
 
-	const allPlanCards = useMemo(() => {
-		const seen = new Set(plans.map((plan) => plan.id));
-		const extras = PLACEHOLDER_PLANS.filter((plan) => !seen.has(plan.id));
-		return [...plans, ...extras];
-	}, [plans]);
+	const allPlanCards = useMemo(
+		() => mergePlanCardsWithPlaceholders(plans),
+		[plans],
+	);
 
 	const notifyBillingPlaceholder = (action) => {
 		toast({

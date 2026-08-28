@@ -104,6 +104,49 @@ test('validatePriceMappings detects missing and duplicates', () => {
 	assert.ok(dup.diagnostics.some((d) => d.code === 'duplicate_price_id' || d.code === 'interval_conflict'));
 });
 
+test('validatePriceMappings does not warn for unused provider monthly gaps', () => {
+	const catalog = {
+		plans: [
+			{ slug: 'free', name: 'Free', monthlyPrice: 0, active: true, paid: false },
+			{ slug: 'starter', name: 'Starter', monthlyPrice: 19, active: true, paid: true },
+			{ slug: 'pro', name: 'Pro', monthlyPrice: 49, active: true, paid: true },
+		],
+		packs: [
+			{ id: 'pack-100', name: 'Starter Pack', active: true },
+		],
+	};
+	const mappings = {
+		plans: {
+			starter: {
+				status: 'active',
+				monthly: { paddle: 'pri_starter_mo' },
+				yearly: { paddle: 'pri_starter_yr' },
+			},
+			pro: {
+				status: 'active',
+				monthly: { paddle: 'pri_pro_mo' },
+				yearly: { paddle: 'pri_pro_yr' },
+			},
+		},
+		packs: {
+			'pack-100': { status: 'active', oneTime: { paddle: 'pri_pack_100' } },
+		},
+	};
+
+	const ok = validatePriceMappings(mappings, catalog, { activeProvider: 'paddle' });
+	assert.equal(ok.result, 'PASS');
+	assert.equal(ok.summary.missing, 0);
+	assert.equal(ok.diagnostics.some((d) => d.code === 'missing_optional_mapping'), false);
+	assert.equal(ok.diagnostics.some((d) => d.provider === 'stripe' || d.provider === 'lemonsqueezy' || d.provider === 'paypal'), false);
+
+	const requiredGap = validatePriceMappings({ plans: {}, packs: {} }, catalog, { activeProvider: 'paddle' });
+	assert.equal(requiredGap.result, 'FAIL');
+	assert.equal(requiredGap.summary.missing, 3);
+	assert.equal(requiredGap.diagnostics.filter((d) => d.code === 'missing_monthly_mapping').length, 2);
+	assert.equal(requiredGap.diagnostics.filter((d) => d.code === 'missing_pack_mapping').length, 1);
+	assert.equal(requiredGap.diagnostics.some((d) => d.code === 'missing_optional_mapping'), false);
+});
+
 test('normalizePriceMappings fills provider keys', () => {
 	const normalized = normalizePriceMappings({
 		plans: { pro: { monthly: { stripe: ' price_x ' } } },

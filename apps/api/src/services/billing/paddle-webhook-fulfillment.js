@@ -11,7 +11,13 @@ import {
 } from './paddle-transaction-verification.js';
 import { fulfillCreditPackPurchase, listCreditPacks } from './payg.js';
 import { getBillingProvider, resolveBillingConfig } from './providers/index.js';
-import { getPaddleSubscription, getPaddleTransaction, getPaddleAdjustment, PaddleApiError } from './providers/paddle-api-client.js';
+import {
+	cancelPaddleSubscriptionAtPeriodEnd,
+	getPaddleSubscription,
+	getPaddleTransaction,
+	getPaddleAdjustment,
+	PaddleApiError,
+} from './providers/paddle-api-client.js';
 import { deriveEffectivePaddleEnvironment } from './providers/paddle-environment.js';
 import {
 	buildPaddleWebhookParseResult,
@@ -199,6 +205,8 @@ async function handleVerifiedTransactionCompleted({
 		return { ok: true, result: { handled: true, activated: false, blocked: true, reason: fulfillmentKind.reason } };
 	}
 
+	const previousSubscriptionId = String(verified.previousSubscriptionId || '').trim();
+
 	let result;
 	if (fulfillmentKind.kind === 'renewal') {
 		result = await renewPaddleSubscription({
@@ -215,6 +223,15 @@ async function handleVerifiedTransactionCompleted({
 			eventId: parsed.idempotencyKey,
 			idempotencyKey: `sub-fulfill:paddle-txn:${verified.transactionId}`,
 			actor: 'webhook:paddle',
+			previousSubscriptionId: verified.subscriptionIdRotated ? previousSubscriptionId : '',
+			cancelPreviousSubscription: verified.subscriptionIdRotated
+				? async (subscriptionIdToCancel) => cancelPaddleSubscriptionAtPeriodEnd(subscriptionIdToCancel, {
+					environment,
+					config,
+					fetchImpl,
+					effectiveFrom: 'immediately',
+				})
+				: null,
 		});
 	}
 
@@ -229,7 +246,9 @@ async function handleVerifiedTransactionCompleted({
 	await logBillingAction({
 		action: fulfillmentKind.kind === 'renewal'
 			? 'Paddle renewal processed'
-			: 'Paddle activation processed',
+			: fulfillmentKind.kind === 'plan_change'
+				? 'Paddle plan change processed'
+				: 'Paddle activation processed',
 		eventType: fulfillmentKind.kind === 'renewal' ? 'renewed' : 'upgrade',
 		workspaceKey: verified.workspaceKey,
 		actor: 'webhook:paddle',
@@ -243,6 +262,8 @@ async function handleVerifiedTransactionCompleted({
 			price_id: verified.priceId,
 			environment,
 			decision: fulfillmentKind.kind,
+			subscription_id_rotated: Boolean(verified.subscriptionIdRotated),
+			previous_subscription_id: previousSubscriptionId || '',
 			result,
 		}),
 	});

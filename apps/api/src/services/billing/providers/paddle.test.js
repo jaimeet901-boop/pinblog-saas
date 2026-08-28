@@ -819,6 +819,9 @@ describe('PaddleBillingProvider.createSubscriptionCheckout price isolation', () 
 		assert.equal(result.checkoutUrl, 'https://checkout.paddle.test/session');
 		assert.equal(capturedBody.items[0].price_id, 'pri_pro_monthly');
 		assert.equal(capturedBody.custom_data.planSlug, 'pro');
+		assert.equal(capturedBody.custom_data.workspaceKey, 'ws-test');
+		assert.equal(capturedBody.custom_data.planId, 'plan-pro');
+		assert.equal(Object.hasOwn(capturedBody, 'checkout'), false);
 		assert.equal(result.billingInterval, 'monthly');
 		assert.equal(result.priceId, 'pri_pro_monthly');
 	});
@@ -852,6 +855,7 @@ describe('PaddleBillingProvider.createSubscriptionCheckout price isolation', () 
 		assert.equal(result.billingInterval, 'yearly');
 		assert.equal(result.priceId, 'pri_pro_yearly');
 		assert.equal(capturedBody.items[0].price_id, 'pri_pro_yearly');
+		assert.equal(Object.hasOwn(capturedBody, 'checkout'), false);
 	});
 
 	it('rejects invalid billingInterval without calling Paddle API', async () => {

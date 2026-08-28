@@ -20,6 +20,10 @@ import {
 import { syncEntitlementMirrors } from './entitlement-sync.js';
 import { validateBillingSource } from './billing-model.js';
 import { resolveLocalRenewalSkipReason } from './provider-managed-subscription.js';
+import { cancelPreviousPaddleSubscriptionAfterRotation } from './paddle-previous-subscription-cleanup.js';
+import { maybeSendSubscriptionWelcomeEmail } from '../email/subscription-welcome-mail.js';
+
+export { cancelPreviousPaddleSubscriptionAfterRotation } from './paddle-previous-subscription-cleanup.js';
 
 function daysBetween(from, to = new Date()) {
 	const a = new Date(from).getTime();
@@ -640,6 +644,8 @@ export async function activatePaddleSubscription({
 	eventId = '',
 	idempotencyKey = '',
 	actor = 'webhook:paddle',
+	previousSubscriptionId = '',
+	cancelPreviousSubscription = null,
 } = {}) {
 	const plan = await loadPlan(verified.planId || verified.planSlug);
 	if (!plan) throw httpError(404, 'Plan not found', 'PLAN_NOT_FOUND');
@@ -665,6 +671,12 @@ export async function activatePaddleSubscription({
 		const fromPlan = subscription.expand?.plan?.slug
 			|| (await loadPlan(subscription.plan))?.slug
 			|| '';
+
+		const capturedPreviousSubscriptionId = String(
+			previousSubscriptionId
+			|| verified.previousSubscriptionId
+			|| '',
+		).trim();
 
 		const now = new Date();
 		const end = new Date(now);
@@ -718,10 +730,18 @@ export async function activatePaddleSubscription({
 			},
 		}).catch(() => null);
 
+		const previousSubscriptionCleanup = await cancelPreviousPaddleSubscriptionAfterRotation({
+			previousSubscriptionId: capturedPreviousSubscriptionId,
+			newSubscriptionId: verified.subscriptionId || '',
+			workspaceKey,
+			actor,
+			cancelPreviousSubscription,
+		});
+
 		const result = {
 			fulfilled: true,
 			activated: true,
-			kind: 'activation',
+			kind: verified.subscriptionIdRotated ? 'plan_change' : 'activation',
 			workspaceKey,
 			fromPlan,
 			toPlan: plan.slug,
@@ -729,6 +749,8 @@ export async function activatePaddleSubscription({
 			transactionId: verified.transactionId || '',
 			subscriptionId: verified.subscriptionId || '',
 			creditsBalance,
+			subscriptionIdRotated: Boolean(verified.subscriptionIdRotated),
+			previousSubscriptionCleanup,
 		};
 
 		await logBillingAction({
@@ -752,6 +774,26 @@ export async function activatePaddleSubscription({
 		).catch(() => null);
 
 		await completeIdempotency(idem.record.id, result);
+
+		// Best-effort transactional email — never blocks or rolls back activation.
+		await maybeSendSubscriptionWelcomeEmail({
+			kind: result.kind,
+			activated: true,
+			duplicate: false,
+			subscription: {
+				...subscription,
+				owner_email: subscription.owner_email || '',
+				workspace_key: workspaceKey,
+				credits_balance: creditsBalance,
+				plan: plan.id,
+			},
+			plan,
+			verified,
+			workspaceKey,
+			transactionId: verified.transactionId || '',
+			activationDate: now,
+		}).catch(() => null);
+
 		return result;
 	} catch (error) {
 		await failIdempotency(idem.record.id, error?.message || String(error));

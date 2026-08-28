@@ -73,12 +73,29 @@ describe('cancelPaddleSubscriptionAtPeriodEnd (API client)', () => {
 		);
 	});
 
+	it('POST /subscriptions/{id}/cancel with immediately', async () => {
+		const { fetchImpl, captured } = captureCancelFetch(200, {
+			id: 'sub_paddle_1',
+			status: 'canceled',
+			scheduled_change: null,
+		});
+		const result = await cancelPaddleSubscriptionAtPeriodEnd('sub_paddle_1', {
+			environment: 'sandbox',
+			config: sandboxConfig,
+			fetchImpl,
+			effectiveFrom: 'immediately',
+		});
+		const req = captured();
+		assert.deepEqual(JSON.parse(req.options.body), { effective_from: 'immediately' });
+		assert.equal(result.status, 'canceled');
+	});
+
 	it('rejects unsupported effective_from values', async () => {
 		await assert.rejects(
 			() => cancelPaddleSubscriptionAtPeriodEnd('sub_1', {
 				environment: 'sandbox',
 				config: sandboxConfig,
-				effectiveFrom: 'immediately',
+				effectiveFrom: 'yesterday',
 			}),
 			(err) => err instanceof PaddleApiError && err.code === 'paddle_cancel_effective_from_unsupported',
 		);

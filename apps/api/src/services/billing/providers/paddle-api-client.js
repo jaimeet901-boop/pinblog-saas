@@ -133,9 +133,13 @@ export async function getPaddleAdjustment(adjustmentId, { environment, config, f
 	});
 }
 
+const PADDLE_CANCEL_EFFECTIVE_FROM = Object.freeze(['next_billing_period', 'immediately']);
+
 /**
- * Schedule Paddle subscription cancellation at end of current billing period.
- * POST /subscriptions/{id}/cancel with effective_from=next_billing_period
+ * Cancel a Paddle subscription.
+ * POST /subscriptions/{id}/cancel
+ * Default effective_from=next_billing_period (cancel-at-period-end).
+ * Pass effectiveFrom='immediately' for immediate termination (upgrade cleanup).
  */
 export async function cancelPaddleSubscriptionAtPeriodEnd(subscriptionId, {
 	environment,
@@ -148,7 +152,7 @@ export async function cancelPaddleSubscriptionAtPeriodEnd(subscriptionId, {
 		throw new PaddleApiError('paddle_subscription_id_missing', { code: 'paddle_subscription_id_missing' });
 	}
 	const effective = String(effectiveFrom || 'next_billing_period').trim();
-	if (effective !== 'next_billing_period') {
+	if (!PADDLE_CANCEL_EFFECTIVE_FROM.includes(effective)) {
 		throw new PaddleApiError('paddle_cancel_effective_from_unsupported', {
 			code: 'paddle_cancel_effective_from_unsupported',
 		});

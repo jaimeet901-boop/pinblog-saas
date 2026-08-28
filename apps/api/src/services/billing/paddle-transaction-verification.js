@@ -110,16 +110,35 @@ export function verifyPaddleTransactionForFulfillment({
 		|| '',
 	).trim();
 
-	if (subscriptionRecord?.paddle_subscription_id && subscriptionId
-		&& subscriptionRecord.paddle_subscription_id !== subscriptionId) {
-		return { ok: false, error: 'paddle_subscription_identity_mismatch' };
+	const customerId = String(transaction.customer_id || '').trim();
+	const storedSubscriptionId = String(subscriptionRecord?.paddle_subscription_id || '').trim();
+	const storedCustomerId = String(subscriptionRecord?.paddle_customer_id || '').trim();
+	const recordWorkspaceKey = String(subscriptionRecord?.workspace_key || '').trim();
+	let subscriptionIdRotated = false;
+	let previousSubscriptionId = '';
+
+	if (recordWorkspaceKey && recordWorkspaceKey !== workspaceKey) {
+		return { ok: false, error: 'paddle_workspace_subscription_mismatch' };
+	}
+
+	if (storedSubscriptionId && subscriptionId && storedSubscriptionId !== subscriptionId) {
+		// Same-workspace upgrade/plan-change may create a new Paddle subscription_id.
+		// Allow rotation only when the Paddle customer is present and identical.
+		if (!storedCustomerId || !customerId) {
+			return { ok: false, error: 'paddle_subscription_customer_missing' };
+		}
+		if (storedCustomerId !== customerId) {
+			return { ok: false, error: 'paddle_subscription_customer_mismatch' };
+		}
+		subscriptionIdRotated = true;
+		previousSubscriptionId = storedSubscriptionId;
 	}
 
 	return {
 		ok: true,
 		transactionId,
 		subscriptionId,
-		customerId: String(transaction.customer_id || '').trim(),
+		customerId,
 		priceId,
 		planSlug,
 		planId: planRecord.id,
@@ -127,6 +146,8 @@ export function verifyPaddleTransactionForFulfillment({
 		environment,
 		workspaceKey,
 		registryEntry,
+		subscriptionIdRotated,
+		previousSubscriptionId,
 	};
 }
 
@@ -269,6 +290,17 @@ export function classifyPaddleTransactionFulfillment({ subscriptionRecord, verif
 
 	if (hasActivePaid && verifiedSubId && existingSubId === verifiedSubId && !existingTxnId) {
 		return { kind: 'activation', reason: 'first_transaction_for_subscription' };
+	}
+
+	// Verified same-customer subscription rotation (Starter→Pro new sub id, etc.).
+	if (
+		hasActivePaid
+		&& verifiedSubId
+		&& existingSubId
+		&& existingSubId !== verifiedSubId
+		&& verified?.subscriptionIdRotated
+	) {
+		return { kind: 'plan_change', reason: 'subscription_id_rotated_same_customer' };
 	}
 
 	if (hasActivePaid) {
