@@ -2,7 +2,7 @@
  * FEATURE_LOCKED UX: Websites save opens UpgradeModal (no destructive toast).
  * Run: node --test src/lib/__tests__/websitesFreePlanFeatureLocked.contract.test.js
  */
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

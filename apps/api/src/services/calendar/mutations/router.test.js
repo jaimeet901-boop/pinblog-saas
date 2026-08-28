@@ -61,6 +61,7 @@ describe('calendar mutation router (C5)', () => {
 		const { deps, store } = stubPinterestDeps({
 			id: 'job1',
 			owner: 'user1',
+			workspace: 'ws1',
 			status: 'scheduled',
 			scheduled_at: '2026-07-10T10:00:00.000Z',
 			timezone: 'UTC',
@@ -68,7 +69,7 @@ describe('calendar mutation router (C5)', () => {
 			title: 'Pin',
 		});
 		const adapters = [createPinterestMutationAdapter(deps)];
-		const req = { pocketbaseUserId: 'user1' };
+		const req = { pocketbaseUserId: 'user1', workspace: { id: 'ws1' } };
 
 		const rescheduled = await rescheduleCalendarScheduledItem(
 			req,

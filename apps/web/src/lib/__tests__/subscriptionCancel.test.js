@@ -23,6 +23,10 @@ const pageSource = readFileSync(
 	path.resolve(here, '../../pages/app/SubscriptionPage.jsx'),
 	'utf8',
 );
+const checkoutSource = readFileSync(
+	path.resolve(here, '../subscriptionPlanCards.js'),
+	'utf8',
+);
 
 function paddleSub(overrides = {}) {
 	return {
@@ -98,9 +102,9 @@ describe('PR-08 subscription cancel helper', () => {
 describe('PR-08 SubscriptionPage wiring', () => {
 	it('keeps checkout cancelUrl on /app/subscription?checkout=cancel', () => {
 		assert.equal(CHECKOUT_CANCEL_PATH, '/app/subscription?checkout=cancel');
-		assert.match(pageSource, /\/app\/subscription\?checkout=cancel/);
+		assert.match(checkoutSource, /\/app\/subscription\?checkout=cancel/);
 		assert.match(
-			pageSource,
+			checkoutSource,
 			/cancelUrl:\s*origin\s*\?\s*`\$\{origin\}\/app\/subscription\?checkout=cancel`/,
 		);
 	});
