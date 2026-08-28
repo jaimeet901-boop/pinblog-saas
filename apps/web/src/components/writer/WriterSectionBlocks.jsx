@@ -662,6 +662,7 @@ export default function WriterSectionBlocks({
 			if (controller.signal.aborted || err?.name === 'AbortError') return;
 			if (isFeatureLockedError(err) || String(err?.errorCode || '').toUpperCase() === 'FEATURE_LOCKED') {
 				onPlanLocked?.(err.access || null);
+				return;
 			}
 			setErrors((prev) => ({
 				...prev,

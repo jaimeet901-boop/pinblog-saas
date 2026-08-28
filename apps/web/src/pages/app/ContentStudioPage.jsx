@@ -25,7 +25,9 @@ import PinTemplateChooser from '@/components/ai-pins/PinTemplateChooser';
 import UpgradeModal from '@/components/billing/UpgradeModal';
 import {
 	getTemplateAccess,
+	isFeatureLockedError,
 	isTemplateAccessLocked,
+	resolveLockedFeatureIdentity,
 } from '@/lib/templateAccess';
 import {
 	PRODUCT_EVENTS,
@@ -98,6 +100,7 @@ import {
 	ORIGINAL_TEMPLATE_UNAVAILABLE,
 } from '@/services/ai-pins';
 import {
+	createImageJobsApiError,
 	mapPollJobToPinPatch,
 	pollPreviewImageJobs,
 	resolvePinBackgroundFromJob,
@@ -799,7 +802,11 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			});
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
-				throw new Error(payload?.message || `Analysis failed (${response.status})`);
+				throw createImageJobsApiError(
+					payload,
+					response.status,
+					payload?.message || `Analysis failed (${response.status})`,
+				);
 			}
 			setAnalysis(payload.analysis || null);
 			setPanel((prev) => ({
@@ -811,6 +818,10 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			await refreshWorkspaceConfig();
 			toast({ title: 'Article analyzed', description: L.analyzeDone });
 		} catch (error) {
+			if (isFeatureLockedError(error)) {
+				openFeatureLockedUpgradeModal(error);
+				return;
+			}
 			toast({ variant: 'destructive', title: 'Analyze failed', description: error.message });
 		} finally {
 			setAnalyzing(false);
@@ -835,7 +846,11 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			});
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
-				throw new Error(payload?.message || `Prompt generation failed (${response.status})`);
+				throw createImageJobsApiError(
+					payload,
+					response.status,
+					payload?.message || `Prompt generation failed (${response.status})`,
+				);
 			}
 			if (payload.analysis) setAnalysis(payload.analysis);
 			setPanel((prev) => ({
@@ -846,6 +861,10 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			toast({ title: 'Prompt ready', description: 'Image prompt optimized for the selected style.' });
 			return payload.imagePrompt || '';
 		} catch (error) {
+			if (isFeatureLockedError(error)) {
+				openFeatureLockedUpgradeModal(error);
+				return '';
+			}
 			toast({ variant: 'destructive', title: 'Prompt failed', description: error.message });
 			return '';
 		}
@@ -1159,6 +1178,42 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 		});
 	};
 
+	const openFeatureLockedUpgradeModal = (error, options = {}) => {
+		const identity = resolveLockedFeatureIdentity(error, {
+			sourcePage: options.sourcePage || error?.sourcePage,
+			requiredFeatureKeys: options.requiredFeatureKeys,
+		});
+		const requiredFeatureKeys = Array.isArray(error?.requiredFeatureKeys) && error.requiredFeatureKeys.length
+			? error.requiredFeatureKeys
+			: (Array.isArray(error?.requiredKeys) && error.requiredKeys.length
+				? error.requiredKeys
+				: identity.requiredFeatureKeys);
+		setUpgradeModal({
+			templateId: identity.featureKey || '',
+			templateName: identity.label,
+			access: error?.access || null,
+			requiredFeatureKeys,
+			sourcePage: identity.sourcePage,
+		});
+	};
+
+	/** Image-only paths always open the AI Images upgrade modal. */
+	const openAiImagesUpgradeModal = (error) => {
+		openFeatureLockedUpgradeModal({
+			access: error?.access || {
+				visible: true,
+				enabled: false,
+				locked: true,
+				missingKeys: ['aiImages'],
+			},
+			featureKey: 'aiImages',
+			requiredKeys: error?.requiredKeys,
+			requiredFeatureKeys: Array.isArray(error?.requiredFeatureKeys) && error.requiredFeatureKeys.length
+				? error.requiredFeatureKeys
+				: ['aiImages'],
+		}, { sourcePage: 'ai_pins_images' });
+	};
+
 	const startPreviewImageGeneration = async (
 		pins,
 		brandKit = null,
@@ -1212,6 +1267,18 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			}
 		} catch (error) {
 			if (isCancelled()) {
+				return;
+			}
+			if (isFeatureLockedError(error)) {
+				openAiImagesUpgradeModal(error);
+				setGeneratedPreviewPins((prev) => prev.map((pin) => ({
+					...pin,
+					imageUrl: pin.imageUrl || '',
+					imageGenerationStatus: pin.imageUrl ? pin.imageGenerationStatus : 'failed',
+					imageGenerationError: pin.imageUrl
+						? pin.imageGenerationError
+						: (error?.message || 'AI Images require a plan upgrade.'),
+				})));
 				return;
 			}
 			console.error('[AI Pins] image workflow failed', error);
@@ -1703,6 +1770,10 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				selectedBrand,
 			);
 		} catch (error) {
+			if (isFeatureLockedError(error)) {
+				openFeatureLockedUpgradeModal(error);
+				return;
+			}
 			if (isInsufficientCreditsError(error)) {
 				toast({
 					variant: 'destructive',
@@ -1734,7 +1805,11 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			});
 			const job = await response.json().catch(() => ({}));
 			if (!response.ok || !job?.id) {
-				throw new Error(job?.message || 'Failed to regenerate image');
+				throw createImageJobsApiError(
+					job,
+					response.status,
+					job?.message || 'Failed to regenerate image',
+				);
 			}
 
 			setGeneratedPreviewPins((prev) => prev.map((item) => item.tempId === pin.tempId
@@ -1761,6 +1836,10 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				{ imageSource },
 			);
 		} catch (error) {
+			if (isFeatureLockedError(error)) {
+				openAiImagesUpgradeModal(error);
+				return;
+			}
 			const fallback = String(pin.sourceImageUrl || pin.featuredImage || '').trim();
 			if (fallback) {
 				try {
@@ -2176,6 +2255,10 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						: 'Pin draft regenerated with AI.'),
 			});
 		} catch (error) {
+			if (isFeatureLockedError(error)) {
+				openFeatureLockedUpgradeModal(error);
+				return;
+			}
 			toast({ variant: 'destructive', title: 'Error', description: error.message });
 		} finally {
 			setGenerating(false);

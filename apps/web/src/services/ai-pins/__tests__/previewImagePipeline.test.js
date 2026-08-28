@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { isFeatureLockedError } from '@/lib/templateAccess';
 import {
 	buildComposeInputsFromJobs,
+	createImageJobsApiError,
 	queuePreviewImageJobs,
 	resolvePinBackgroundFromJob,
 	resolvePreviewImageProvider,
@@ -113,5 +115,60 @@ describe('previewImagePipeline', () => {
 
 		expect(queued).toEqual([]);
 		expect(fetchFn).not.toHaveBeenCalled();
+	});
+
+	it('queuePreviewImageJobs preserves FEATURE_LOCKED payload on throw', async () => {
+		const access = {
+			visible: true,
+			enabled: false,
+			locked: true,
+			missingKeys: ['aiImages'],
+			dependencyChain: [],
+		};
+		const fetchFn = vi.fn(async () => ({
+			ok: false,
+			status: 403,
+			json: async () => ({
+				message: 'AI Images require a plan upgrade.',
+				errorCode: 'FEATURE_LOCKED',
+				access,
+				featureKey: 'aiImages',
+			}),
+		}));
+
+		let thrown;
+		try {
+			await queuePreviewImageJobs({
+				fetchFn,
+				pins: [{
+					tempId: 't-ai',
+					articleId: 'art-1',
+					title: 'AI pin',
+					imageMode: 'generate_ai',
+					imagePlan: { imageMode: 'generate_ai', useAi: true },
+				}],
+			});
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(Error);
+		expect(thrown.errorCode).toBe('FEATURE_LOCKED');
+		expect(thrown.access).toEqual(access);
+		expect(thrown.featureKey).toBe('aiImages');
+		expect(thrown.status).toBe(403);
+		expect(isFeatureLockedError(thrown)).toBe(true);
+	});
+
+	it('createImageJobsApiError keeps non-lock errors as generic failures', () => {
+		const error = createImageJobsApiError(
+			{ message: 'Queue busy' },
+			503,
+			'Failed to queue image jobs (503)',
+		);
+		expect(error.message).toBe('Queue busy');
+		expect(error.status).toBe(503);
+		expect(error.errorCode).toBeUndefined();
+		expect(isFeatureLockedError(error)).toBe(false);
 	});
 });

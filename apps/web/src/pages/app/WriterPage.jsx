@@ -118,7 +118,7 @@ function friendlyGenerationError(err) {
 	const status = Number(err?.status) || 0;
 	const raw = String(err?.message || '').trim();
 
-	if (code === 'FEATURE_LOCKED' || status === 403) {
+	if (code === 'FEATURE_LOCKED' || isFeatureLockedError(err)) {
 		return {
 			title: 'Upgrade required',
 			description: raw || 'AI Writer is not included in your current plan.',
@@ -826,8 +826,12 @@ Respond ONLY with the JSON object described in your instructions.`;
 					setSavedFingerprint(restore.snapshot.savedFingerprint ?? null);
 				}
 				generationSnapshotRef.current = null;
-				if (friendly.kind === 'plan' || isFeatureLockedError(err) || String(err?.errorCode || '').toUpperCase() === 'FEATURE_LOCKED') {
+				const planLocked = friendly.kind === 'plan'
+					|| isFeatureLockedError(err)
+					|| String(err?.errorCode || '').toUpperCase() === 'FEATURE_LOCKED';
+				if (planLocked) {
 					openWriterUpgrade(err.access || null);
+					return;
 				}
 				toast({
 					variant: 'destructive',

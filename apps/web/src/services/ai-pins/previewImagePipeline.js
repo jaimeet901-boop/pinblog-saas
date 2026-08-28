@@ -198,6 +198,40 @@ export function buildDirectFeaturedComposeInputs(pins = []) {
 	});
 }
 
+/**
+ * Build an Error from /ai-pin-images/jobs (or regenerate) API failure payloads.
+ * Preserves FEATURE_LOCKED fields so callers can open UpgradeModal without
+ * falling back to featured-image compose.
+ */
+export function createImageJobsApiError(payload = {}, status = 0, fallbackMessage = '') {
+	const message = String(
+		payload?.message
+		|| fallbackMessage
+		|| (status ? `Failed to queue image jobs (${status})` : 'Failed to queue image jobs'),
+	).trim();
+	const error = new Error(message);
+	const errorCode = String(payload?.errorCode || payload?.code || '').trim();
+	if (errorCode) {
+		error.errorCode = errorCode;
+	}
+	if (payload?.access && typeof payload.access === 'object') {
+		error.access = payload.access;
+	}
+	if (payload?.featureKey) {
+		error.featureKey = payload.featureKey;
+	}
+	if (Array.isArray(payload?.requiredKeys) && payload.requiredKeys.length) {
+		error.requiredKeys = [...payload.requiredKeys];
+	}
+	if (Array.isArray(payload?.requiredFeatureKeys) && payload.requiredFeatureKeys.length) {
+		error.requiredFeatureKeys = [...payload.requiredFeatureKeys];
+	}
+	if (status) {
+		error.status = status;
+	}
+	return error;
+}
+
 export async function queuePreviewImageJobs({
 	fetchFn,
 	pins,
@@ -239,7 +273,11 @@ export async function queuePreviewImageJobs({
 
 	const payload = await response.json().catch(() => ({}));
 	if (!response.ok) {
-		throw new Error(payload?.message || `Failed to queue image jobs (${response.status})`);
+		throw createImageJobsApiError(
+			payload,
+			response.status,
+			`Failed to queue image jobs (${response.status})`,
+		);
 	}
 
 	return Array.isArray(payload.items) ? payload.items : [];
