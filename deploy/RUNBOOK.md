@@ -59,6 +59,7 @@ pm2 restart horizons-api
 - Do not delete PocketBase volumes during rollback.
 - Keep encrypted token fields untouched.
 - Always backup PocketBase data directory before migration changes.
+- Production backup architecture, restore drills, and daily automation: [BACKUP.md](./BACKUP.md) (`seodeva-backup.timer` **enabled**; 02:00 UTC daily).
 
 ## Post-Incident
 1. Document root cause and timeline.

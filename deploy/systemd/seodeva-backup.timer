@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Seodeva logical backup at 02:00 UTC
+Documentation=file:///home/ec2-user/pinblog-saas/deploy/BACKUP.md
+Requires=seodeva-backup.service
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+Unit=seodeva-backup.service
+
+[Install]
+WantedBy=timers.target

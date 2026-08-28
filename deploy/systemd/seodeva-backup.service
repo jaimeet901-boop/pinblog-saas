@@ -1,0 +1,26 @@
+[Unit]
+Description=Seodeva production logical backup (PocketBase pb_data + env to S3)
+Documentation=file:///home/ec2-user/pinblog-saas/deploy/BACKUP.md
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/home/ec2-user/pinblog-saas
+ExecStart=/home/ec2-user/pinblog-saas/deploy/scripts/backup-seodeva.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+# Hardening — backup needs docker and AWS metadata/network
+NoNewPrivileges=true
+PrivateTmp=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=seodeva-backup
+
+[Install]
+WantedBy=multi-user.target
