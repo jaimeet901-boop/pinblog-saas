@@ -10,6 +10,33 @@ export const IMAGE_SOURCE_STRATEGY = {
 	ALWAYS_AI: 'always_ai',
 };
 
+/** Official v2 Recipe Ingredients Card — prefers article featured image when available. */
+export const RECIPE_INGREDIENTS_CARD_TEMPLATE_UUID = 'chefia-official-recipe-ingredients-card';
+
+/**
+ * Template-scoped image mode override.
+ * Only Recipe Ingredients Card forces use_featured when a valid article image exists.
+ * Does not change global strategy or other templates.
+ *
+ * @param {{ templateUuid?: string, articleImageUrl?: string, selectedImageMode?: string }} input
+ * @returns {'use_featured'|'generate_ai'|string}
+ */
+export function preferFeaturedImageForTemplate({
+	templateUuid = '',
+	articleImageUrl = '',
+	selectedImageMode = 'generate_ai',
+} = {}) {
+	const uuid = String(templateUuid || '').trim();
+	const mode = String(selectedImageMode || 'generate_ai').trim() || 'generate_ai';
+	if (uuid !== RECIPE_INGREDIENTS_CARD_TEMPLATE_UUID) {
+		return mode;
+	}
+	if (String(articleImageUrl || '').trim()) {
+		return 'use_featured';
+	}
+	return mode;
+}
+
 export const IMAGE_SOURCE_STRATEGY_OPTIONS = [
 	{
 		value: IMAGE_SOURCE_STRATEGY.AI_FIRST,

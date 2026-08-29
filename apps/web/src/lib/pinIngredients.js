@@ -313,8 +313,30 @@ export function validateCondensedIngredients(aiIngredients, sourceIngredients) {
 }
 
 /**
+ * Prefix each ingredient line with a bullet for Pinterest list readability.
+ * Does not invent items — only formats an already-resolved list.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function formatIngredientsWithBullets(value) {
+	const lines = ingredientsToArray(value);
+	if (lines.length === 0) return '';
+	return lines
+		.map((line) => {
+			const trimmed = String(line || '').trim();
+			if (!trimmed) return '';
+			if (/^[•*\-–—]\s+/.test(trimmed)) {
+				return `* ${trimmed.replace(/^[•*\-–—]\s+/, '')}`;
+			}
+			return `* ${trimmed}`;
+		})
+		.filter(Boolean)
+		.join('\n');
+}
+
+/**
  * Choose final pin ingredients: validated AI condensation, else normalized source, else empty.
- * Never invents when source is missing.
+ * Never invents when source is missing. Applies bullet prefixes for display.
  * @param {{ sourceIngredients?: unknown, aiIngredients?: unknown }} input
  * @returns {string} newline-separated list for {{ingredients}}
  */
@@ -323,10 +345,12 @@ export function resolvePinIngredients({ sourceIngredients = [], aiIngredients = 
 	if (source.length === 0) return '';
 
 	const validated = validateCondensedIngredients(aiIngredients, source);
+	let resolved = '';
 	if (validated.ok && validated.ingredients.length > 0) {
-		return formatIngredientsList(validated.ingredients, { maxItems: INGREDIENTS_PIN_TARGET_MAX });
+		resolved = formatIngredientsList(validated.ingredients, { maxItems: INGREDIENTS_PIN_TARGET_MAX });
+	} else {
+		const maxItems = source.length <= 6 ? source.length : INGREDIENTS_PIN_TARGET_MAX;
+		resolved = formatIngredientsList(source, { maxItems });
 	}
-
-	const maxItems = source.length <= 6 ? source.length : INGREDIENTS_PIN_TARGET_MAX;
-	return formatIngredientsList(source, { maxItems });
+	return formatIngredientsWithBullets(resolved);
 }

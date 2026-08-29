@@ -181,6 +181,7 @@ describe('resolveStudioPinCopy', () => {
 		expect(generateText).toHaveBeenCalledTimes(1);
 		expect(result.pins[0].ingredients).toContain('cottage cheese');
 		expect(result.pins[0].ingredients.toLowerCase()).not.toContain('truffle');
+		expect(result.pins[0].ingredients.split('\n').every((line) => line.startsWith('* '))).toBe(true);
 	});
 
 	it('keeps validated condensed ingredients from the single AI response', async () => {
@@ -211,9 +212,9 @@ describe('resolveStudioPinCopy', () => {
 		});
 		expect(generateText).toHaveBeenCalledTimes(1);
 		expect(result.pins[0].ingredients.split('\n')).toEqual([
-			'Cottage cheese',
-			'Marinara sauce',
-			'Mozzarella',
+			'* Cottage cheese',
+			'* Marinara sauce',
+			'* Mozzarella',
 		]);
 	});
 });

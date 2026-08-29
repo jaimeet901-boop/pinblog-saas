@@ -68,6 +68,7 @@ import {
 	normalizeImageSourceStrategy,
 	pickArticleImageUrl,
 	planImageSource,
+	preferFeaturedImageForTemplate,
 	resolveGenerateImageMode,
 	IMAGE_SOURCE_STRATEGY,
 } from '@/lib/imageSourceStrategy';
@@ -1606,10 +1607,17 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 					strategy: imageSourceStrategy,
 					articleImageUrl: sourceImageUrl,
 				});
-				const selectedImageMode = resolveGenerateImageMode({
-					qualityImageMode: quality?.imageMode,
-					panelImageMode: workingPanel.imageMode,
-					planImageMode: imagePlan.imageMode,
+				const selectedImageMode = preferFeaturedImageForTemplate({
+					templateUuid: resolvedTemplate.templateUuid
+						|| hydratedTemplate?.templateUuid
+						|| hydratedTemplate?.template_uuid
+						|| '',
+					articleImageUrl: sourceImageUrl,
+					selectedImageMode: resolveGenerateImageMode({
+						qualityImageMode: quality?.imageMode,
+						panelImageMode: workingPanel.imageMode,
+						planImageMode: imagePlan.imageMode,
+					}),
 				});
 				const useFeaturedImage = selectedImageMode === 'use_featured';
 				const fallbackImageOrigin = String(resolved?.source || '') === 'body' ? 'body' : 'featured';
@@ -1675,6 +1683,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						boardId: selectedBoardId,
 						boardName: activeBoard?.name || '',
 						templateId: resolvedTemplate.id || '',
+						templateUuid: resolvedTemplate.templateUuid || '',
 						templateName: useExplicitGalleryTemplate
 							? (resolvedTemplate.name || 'Selected template')
 							: (pin.layoutLabel || pin.recipeFamilyLabel || resolvedTemplate.name || 'Pin Layout'),
@@ -2234,7 +2243,14 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			};
 			const copyResult = await generatePinsForArticle(articleWithIngredients, 1, {
 				...panel,
-				imageMode: panel.imageMode === 'use_featured' ? 'use_featured' : panel.imageMode,
+				imageMode: preferFeaturedImageForTemplate({
+					templateUuid: pin.templateUuid
+						|| hydratedTemplate?.templateUuid
+						|| hydratedTemplate?.template_uuid
+						|| '',
+					articleImageUrl: pickArticleImageUrl(articleWithIngredients),
+					selectedImageMode: panel.imageMode === 'use_featured' ? 'use_featured' : panel.imageMode,
+				}),
 			});
 			const regenerated = Array.isArray(copyResult?.pins) ? copyResult.pins[0] : null;
 			if (!regenerated) {

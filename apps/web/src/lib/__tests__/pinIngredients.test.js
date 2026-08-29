@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
 	extractIngredientsFromSections,
 	formatIngredientsList,
+	formatIngredientsWithBullets,
 	resolveIngredientsForContext,
+	resolvePinIngredients,
 } from '../pinIngredients.js';
 
 describe('pinIngredients', () => {
@@ -56,5 +58,25 @@ describe('pinIngredients', () => {
 		})).toBe('Butter\nMilk');
 
 		expect(resolveIngredientsForContext({})).toBe('');
+	});
+
+	it('formats resolved pin ingredients as separate bulleted lines from source only', () => {
+		expect(formatIngredientsWithBullets('Salt\nPepper')).toBe('* Salt\n* Pepper');
+		expect(resolvePinIngredients({
+			sourceIngredients: ['Flour', 'Eggs', 'Milk'],
+			aiIngredients: ['Flour', 'Eggs', 'Milk'],
+		})).toBe('* Flour\n* Eggs\n* Milk');
+		expect(resolvePinIngredients({
+			sourceIngredients: ['Flour', 'Eggs'],
+			aiIngredients: ['Flour', 'Sugar'],
+		})).toBe('* Flour\n* Eggs');
+	});
+
+	it('returns empty ingredients area when source is empty (no crash, no invent)', () => {
+		expect(resolvePinIngredients({
+			sourceIngredients: [],
+			aiIngredients: ['Salt'],
+		})).toBe('');
+		expect(formatIngredientsWithBullets('')).toBe('');
 	});
 });

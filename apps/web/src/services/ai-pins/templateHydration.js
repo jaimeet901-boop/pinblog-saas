@@ -115,6 +115,7 @@ export function resolveGenerateTemplate({
 		return {
 			id: hydratedTemplate.id || '',
 			name: hydratedTemplate.name || 'Pin Layout',
+			templateUuid: hydratedTemplate.templateUuid || hydratedTemplate.template_uuid || '',
 			configuration: normalizeTemplateConfig(hydratedTemplate.configuration),
 			source: 'gallery',
 		};
@@ -123,6 +124,7 @@ export function resolveGenerateTemplate({
 	return {
 		id: studioTemplate?.id || '',
 		name: studioTemplate?.name || 'Pin Layout',
+		templateUuid: studioTemplate?.templateUuid || studioTemplate?.template_uuid || '',
 		configuration: normalizeTemplateConfig(
 			studioTemplate?.configuration || createDefaultTemplateConfig(),
 		),

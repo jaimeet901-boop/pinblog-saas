@@ -93,32 +93,42 @@ describe('resolvePinIngredients / validation', () => {
 		expect(validated.ok).toBe(true);
 		expect(validated.ingredients).toEqual(ai);
 		expect(resolvePinIngredients({ sourceIngredients: source, aiIngredients: ai }).split('\n'))
-			.toEqual(ai);
+			.toEqual(ai.map((line) => `* ${line}`));
 	});
 
 	it('rejects invented ingredients and falls back to normalized source', () => {
 		const ai = ['Cottage cheese', 'Ricotta', 'Marinara sauce'];
 		expect(validateCondensedIngredients(ai, source).ok).toBe(false);
 		const fallback = resolvePinIngredients({ sourceIngredients: source, aiIngredients: ai });
-		expect(fallback).toBe(formatIngredientsList(source, { maxItems: 10 }));
+		expect(fallback).toBe(
+			formatIngredientsList(source, { maxItems: 10 })
+				.split('\n')
+				.map((line) => `* ${line}`)
+				.join('\n'),
+		);
 		expect(fallback.toLowerCase()).not.toContain('ricotta');
 	});
 
 	it('falls back to source when AI ingredients are missing or malformed', () => {
+		const expected = formatIngredientsList(source, { maxItems: 10 })
+			.split('\n')
+			.map((line) => `* ${line}`)
+			.join('\n');
 		expect(resolvePinIngredients({ sourceIngredients: source, aiIngredients: null }))
-			.toBe(formatIngredientsList(source, { maxItems: 10 }));
+			.toBe(expected);
 		expect(resolvePinIngredients({ sourceIngredients: source, aiIngredients: 'not-a-list' }))
-			.toBe(formatIngredientsList(source, { maxItems: 10 }));
+			.toBe(expected);
 	});
 
 	it('preserves all ingredients when source has fewer than 6', () => {
 		const short = ['Eggs', 'Milk', 'Flour'];
+		const expected = short.map((line) => `* ${line}`);
 		expect(resolvePinIngredients({ sourceIngredients: short, aiIngredients: null }).split('\n'))
-			.toEqual(short);
+			.toEqual(expected);
 		expect(resolvePinIngredients({
 			sourceIngredients: short,
 			aiIngredients: ['Eggs', 'Milk', 'Flour'],
-		}).split('\n')).toEqual(short);
+		}).split('\n')).toEqual(expected);
 	});
 
 	it('caps long source fallback and validated AI lists', () => {
@@ -129,6 +139,7 @@ describe('resolvePinIngredients / validation', () => {
 		expect(validated.ingredients.length).toBeLessThanOrEqual(10);
 		const fallback = resolvePinIngredients({ sourceIngredients: long, aiIngredients: null });
 		expect(fallback.split('\n')).toHaveLength(10);
+		expect(fallback.split('\n').every((line) => line.startsWith('* '))).toBe(true);
 	});
 
 	it('returns empty ingredients when source is missing (never invents)', () => {

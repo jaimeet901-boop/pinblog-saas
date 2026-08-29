@@ -8,14 +8,17 @@ describe('Recipe Ingredients Card with condensed ingredients', () => {
 		resetVariableRegistryForTests();
 	});
 
-	it('renders {{ingredients}} on the official v2 card without changing the template', async () => {
+	it('renders {{ingredients}} as separate bulleted lines on the official v2 card', async () => {
 		const entry = listOfficialPinTemplateCatalog().find(
 			(item) => item.templateUuid === 'chefia-official-recipe-ingredients-card',
 		);
 		expect(entry).toBeTruthy();
-		const ingredients = 'Cottage cheese\nMarinara sauce\nMozzarella\nParmesan';
+		const ingredients = '* Cottage cheese\n* Marinara sauce\n* Mozzarella\n* Parmesan';
 		expect(entry.configuration.layers.find((l) => l.id === 'lyr_ric_ingredients').props.text)
 			.toBe('{{ingredients}}');
+		expect(entry.configuration.layers.find((l) => l.id === 'lyr_ric_heading').props.text)
+			.toBe("You'll Need...");
+		expect(entry.configuration.layers.some((l) => /secondary|circle/i.test(l.id || ''))).toBe(false);
 
 		const resolved = resolveVariablesInDocument(entry.configuration, {
 			title: 'Cottage Cheese Pizza Bowl',
@@ -25,6 +28,8 @@ describe('Recipe Ingredients Card with condensed ingredients', () => {
 		});
 		expect(resolved.layers.find((l) => l.id === 'lyr_ric_ingredients').props.text)
 			.toBe(ingredients);
+		expect(resolved.layers.find((l) => l.id === 'lyr_ric_ingredients').props.text.split('\n'))
+			.toHaveLength(4);
 
 		const result = await renderDocument(entry.configuration, {
 			format: 'png',

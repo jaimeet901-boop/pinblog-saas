@@ -200,26 +200,49 @@ export function createMockRenderSurface(width, height) {
 	};
 }
 
-function wrapText(surface, text, font, maxWidth, maxLines) {
-	const words = String(text || '').trim().split(/\s+/).filter(Boolean);
-	if (!words.length) return [];
+/**
+ * Wrap text for v2 layers. Explicit newlines are hard breaks; long lines still wrap.
+ * @param {{ measureText: (text: string, font?: string) => number }} surface
+ * @param {string} text
+ * @param {string} font
+ * @param {number} maxWidth
+ * @param {number} maxLines
+ * @returns {string[]}
+ */
+export function wrapText(surface, text, font, maxWidth, maxLines) {
+	const limit = Math.max(1, Number(maxLines) || 4);
+	const paragraphs = String(text ?? '').replace(/\r\n/g, '\n').split('\n');
 	const lines = [];
-	let current = words[0];
-	for (let i = 1; i < words.length; i += 1) {
-		const trial = `${current} ${words[i]}`;
-		if (surface.measureText(trial, font) <= maxWidth) {
-			current = trial;
-		} else {
+
+	for (const paragraph of paragraphs) {
+		if (lines.length >= limit) break;
+		const words = String(paragraph || '').trim().split(/\s+/).filter(Boolean);
+		if (!words.length) {
+			// Preserve intentional blank lines from consecutive newlines when space remains.
+			if (paragraph === '' && lines.length > 0 && lines.length < limit) {
+				lines.push('');
+			}
+			continue;
+		}
+		let current = words[0];
+		for (let i = 1; i < words.length; i += 1) {
+			const trial = `${current} ${words[i]}`;
+			if (surface.measureText(trial, font) <= maxWidth) {
+				current = trial;
+			} else {
+				lines.push(current);
+				current = words[i];
+				if (lines.length >= limit) {
+					return lines.slice(0, limit);
+				}
+			}
+		}
+		if (lines.length < limit) {
 			lines.push(current);
-			current = words[i];
-			if (lines.length >= maxLines) break;
 		}
 	}
-	if (lines.length < maxLines) lines.push(current);
-	if (lines.length > maxLines) {
-		return lines.slice(0, maxLines);
-	}
-	return lines;
+
+	return lines.slice(0, limit);
 }
 
 async function loadImage(src, loadImageFn) {

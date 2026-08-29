@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
 	IMAGE_SOURCE_STRATEGY,
+	RECIPE_INGREDIENTS_CARD_TEMPLATE_UUID,
 	listArticleImageCandidates,
 	normalizeImageSourceStrategy,
 	pickArticleImageUrl,
 	pinsNeedingAiImageJobs,
 	planImageSource,
+	preferFeaturedImageForTemplate,
 	resolveGenerateImageMode,
 } from '../imageSourceStrategy.js';
 
@@ -119,5 +121,41 @@ describe('imageSourceStrategy', () => {
 			{ tempId: 'a', imageMode: 'generate_ai' },
 			{ tempId: 'p', imagePlan: { imageMode: 'use_featured' } },
 		]).map((pin) => pin.tempId)).toEqual(['a']);
+	});
+
+	it('Recipe Ingredients Card with Featured Image selects use_featured', () => {
+		expect(preferFeaturedImageForTemplate({
+			templateUuid: RECIPE_INGREDIENTS_CARD_TEMPLATE_UUID,
+			articleImageUrl: 'https://cdn.example/featured.jpg',
+			selectedImageMode: 'generate_ai',
+		})).toBe('use_featured');
+	});
+
+	it('Recipe Ingredients Card Featured path does not enqueue Fal AI image jobs', () => {
+		const mode = preferFeaturedImageForTemplate({
+			templateUuid: RECIPE_INGREDIENTS_CARD_TEMPLATE_UUID,
+			articleImageUrl: 'https://cdn.example/featured.jpg',
+			selectedImageMode: 'generate_ai',
+		});
+		expect(pinsNeedingAiImageJobs([
+			{ tempId: 'ric', imageMode: mode },
+			{ tempId: 'other', imageMode: 'generate_ai' },
+		]).map((pin) => pin.tempId)).toEqual(['other']);
+	});
+
+	it('Recipe Ingredients Card without Featured Image keeps selected mode', () => {
+		expect(preferFeaturedImageForTemplate({
+			templateUuid: RECIPE_INGREDIENTS_CARD_TEMPLATE_UUID,
+			articleImageUrl: '',
+			selectedImageMode: 'generate_ai',
+		})).toBe('generate_ai');
+	});
+
+	it('other templates keep global/selected image mode even with Featured Image', () => {
+		expect(preferFeaturedImageForTemplate({
+			templateUuid: 'chefia-official-centered-hero',
+			articleImageUrl: 'https://cdn.example/featured.jpg',
+			selectedImageMode: 'generate_ai',
+		})).toBe('generate_ai');
 	});
 });

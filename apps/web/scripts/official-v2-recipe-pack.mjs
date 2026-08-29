@@ -7,13 +7,14 @@ function buildRecipeIngredientsCardThumbnail() {
 	const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">
 <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#1c1917"/><stop offset="0.45" stop-color="#44403c"/><stop offset="1" stop-color="#d7eaf7"/></linearGradient></defs>
 <rect width="400" height="600" fill="url(#g)"/>
-<rect x="0" y="0" width="400" height="320" fill="#78716c"/>
-<text x="200" y="280" text-anchor="middle" fill="#fff" font-family="Georgia,serif" font-size="20" font-weight="700">Recipe title</text>
-<rect x="28" y="340" width="344" height="230" rx="22" fill="#d7eaf7"/>
-<text x="52" y="380" text-anchor="start" fill="#1c1917" font-family="Georgia,serif" font-size="18" font-weight="700">You&#39;ll Need...</text>
-<text x="52" y="420" text-anchor="start" fill="#44403c" font-family="Segoe UI,sans-serif" font-size="13">• Ingredient one</text>
-<text x="52" y="444" text-anchor="start" fill="#44403c" font-family="Segoe UI,sans-serif" font-size="13">• Ingredient two</text>
-<text x="52" y="468" text-anchor="start" fill="#44403c" font-family="Segoe UI,sans-serif" font-size="13">• Ingredient three</text>
+<rect x="0" y="0" width="400" height="300" fill="#78716c"/>
+<text x="200" y="265" text-anchor="middle" fill="#fff" font-family="Georgia,serif" font-size="22" font-weight="700">Recipe title</text>
+<rect x="24" y="318" width="352" height="250" rx="22" fill="#d7eaf7"/>
+<text x="48" y="362" text-anchor="start" fill="#1c1917" font-family="Georgia,serif" font-size="20" font-weight="700">You&#39;ll Need...</text>
+<text x="48" y="402" text-anchor="start" fill="#44403c" font-family="Segoe UI,sans-serif" font-size="14">* Ingredient one</text>
+<text x="48" y="430" text-anchor="start" fill="#44403c" font-family="Segoe UI,sans-serif" font-size="14">* Ingredient two</text>
+<text x="48" y="458" text-anchor="start" fill="#44403c" font-family="Segoe UI,sans-serif" font-size="14">* Ingredient three</text>
+<text x="48" y="486" text-anchor="start" fill="#44403c" font-family="Segoe UI,sans-serif" font-size="14">* Ingredient four</text>
 <text x="200" y="580" text-anchor="middle" fill="rgba(28,25,23,0.55)" font-family="Segoe UI,sans-serif" font-size="11">v2 · ingredients · panel</text>
 </svg>`;
 	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
@@ -33,6 +34,7 @@ function layer(partial) {
 
 /**
  * Recipe Ingredients Card — official v2 Pinterest template (MVP, no secondary image).
+ * Balanced for ~6–10 bulleted ingredient lines with a strong "You'll Need..." header.
  */
 export function buildRecipeIngredientsCardEntry() {
 	return {
@@ -64,7 +66,7 @@ export function buildRecipeIngredientsCardEntry() {
 					width: 1000,
 					height: 1500,
 					zIndex: 0,
-					props: { color: '#F5F8FB', imageSrc: '' },
+					props: { color: '#EEF4F8', imageSrc: '' },
 				}),
 				layer({
 					id: 'lyr_ric_hero',
@@ -73,13 +75,13 @@ export function buildRecipeIngredientsCardEntry() {
 					x: 0,
 					y: 0,
 					width: 1000,
-					height: 820,
+					height: 780,
 					zIndex: 1,
 					props: {
 						src: '{{image}}',
 						fit: 'cover',
 						focusX: 0.5,
-						focusY: 0.35,
+						focusY: 0.38,
 					},
 				}),
 				layer({
@@ -87,12 +89,12 @@ export function buildRecipeIngredientsCardEntry() {
 					type: 'gradient',
 					name: 'Title shade',
 					x: 0,
-					y: 520,
+					y: 480,
 					width: 1000,
 					height: 300,
 					zIndex: 2,
 					props: {
-						colors: ['rgba(0,0,0,0)', 'rgba(28,25,23,0.72)'],
+						colors: ['rgba(0,0,0,0)', 'rgba(28,25,23,0.78)'],
 						angle: 90,
 					},
 				}),
@@ -100,19 +102,19 @@ export function buildRecipeIngredientsCardEntry() {
 					id: 'lyr_ric_title',
 					type: 'text',
 					name: 'Recipe title',
-					x: 56,
-					y: 620,
-					width: 888,
-					height: 160,
+					x: 48,
+					y: 560,
+					width: 904,
+					height: 180,
 					zIndex: 3,
 					props: {
 						text: '{{title}}',
 						fontFamily: 'Georgia, "Times New Roman", serif',
-						fontSize: 64,
+						fontSize: 68,
 						fontWeight: 700,
 						color: '#FFFFFF',
 						align: 'center',
-						lineHeight: 1.12,
+						lineHeight: 1.1,
 						maxLines: 3,
 						shadow: true,
 					},
@@ -121,11 +123,11 @@ export function buildRecipeIngredientsCardEntry() {
 					id: 'lyr_ric_panel',
 					type: 'shape',
 					name: 'Ingredients panel',
-					x: 40,
-					y: 860,
-					width: 920,
-					height: 600,
-					borderRadius: 28,
+					x: 36,
+					y: 800,
+					width: 928,
+					height: 660,
+					borderRadius: 32,
 					zIndex: 4,
 					props: {
 						shape: 'rect',
@@ -139,18 +141,18 @@ export function buildRecipeIngredientsCardEntry() {
 					type: 'text',
 					name: "You'll Need heading",
 					x: 72,
-					y: 892,
+					y: 836,
 					width: 856,
-					height: 52,
+					height: 64,
 					zIndex: 5,
 					props: {
 						text: "You'll Need...",
 						fontFamily: 'Georgia, "Times New Roman", serif',
-						fontSize: 36,
+						fontSize: 48,
 						fontWeight: 700,
 						color: '#1C1917',
 						align: 'left',
-						lineHeight: 1.15,
+						lineHeight: 1.1,
 						maxLines: 1,
 						shadow: false,
 					},
@@ -160,18 +162,18 @@ export function buildRecipeIngredientsCardEntry() {
 					type: 'text',
 					name: 'Ingredients list',
 					x: 72,
-					y: 960,
+					y: 920,
 					width: 856,
-					height: 400,
+					height: 460,
 					zIndex: 6,
 					props: {
 						text: '{{ingredients}}',
 						fontFamily: '"Segoe UI", Calibri, sans-serif',
-						fontSize: 30,
+						fontSize: 32,
 						fontWeight: 500,
 						color: '#292524',
 						align: 'left',
-						lineHeight: 1.35,
+						lineHeight: 1.55,
 						maxLines: 11,
 						shadow: false,
 					},
@@ -181,14 +183,14 @@ export function buildRecipeIngredientsCardEntry() {
 					type: 'text',
 					name: 'Subtitle',
 					x: 72,
-					y: 1388,
+					y: 1400,
 					width: 856,
-					height: 44,
+					height: 40,
 					zIndex: 7,
 					props: {
 						text: '{{subtitle}}',
 						fontFamily: '"Segoe UI", Calibri, sans-serif',
-						fontSize: 22,
+						fontSize: 24,
 						fontWeight: 500,
 						color: '#57534E',
 						align: 'left',
@@ -203,7 +205,6 @@ export function buildRecipeIngredientsCardEntry() {
 	};
 }
 
-/** All hand-authored official v2 Pinterest templates. */
 export function listOfficialV2PinterestTemplatePack() {
 	return [buildRecipeIngredientsCardEntry()];
 }

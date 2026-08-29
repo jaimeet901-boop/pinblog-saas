@@ -23,6 +23,8 @@ describe('Recipe Ingredients Card empty ingredients', () => {
 		});
 		const ingredientsLayer = resolved.layers.find((layer) => layer.id === 'lyr_ric_ingredients');
 		expect(ingredientsLayer.props.text).toBe('');
+		const headingLayer = resolved.layers.find((layer) => layer.id === 'lyr_ric_heading');
+		expect(headingLayer.props.text).toBe("You'll Need...");
 
 		const result = await renderDocument(entry.configuration, {
 			format: 'png',
