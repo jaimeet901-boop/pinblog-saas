@@ -17,6 +17,205 @@ export const IMAGE_JOB_PENDING = new Set(['queued', 'processing', 'rendering', '
 
 const POLL_ATTEMPTS = 48;
 const POLL_INTERVAL_MS = 2500;
+const PREVIEW_COMPOSE_CONCURRENCY = 2;
+
+async function runWithConcurrency(items, concurrency, workerFn) {
+	const list = Array.isArray(items) ? items : [];
+	if (list.length === 0) {
+		return [];
+	}
+	const results = new Array(list.length);
+	let cursor = 0;
+	const workerCount = Math.min(Math.max(1, concurrency), list.length);
+
+	async function worker() {
+		while (cursor < list.length) {
+			const index = cursor;
+			cursor += 1;
+			results[index] = await workerFn(list[index], index);
+		}
+	}
+
+	await Promise.all(Array.from({ length: workerCount }, () => worker()));
+	return results;
+}
+
+/**
+ * Compose pins whose jobs reached a terminal state and are not yet composed.
+ * @returns {Promise<Array<{ tempId: string, patch: object }>>}
+ */
+export async function composeTerminalPreviewPins({
+	aiPins = [],
+	jobs = [],
+	queuedJobs = [],
+	composedTempIds = new Set(),
+	pollTimedOut = false,
+	brandKit = null,
+	exportProfileId = 'pinterest_standard',
+	isCancelled = () => false,
+	missedError = 'AI image generation failed and no article image was available for fallback.',
+} = {}) {
+	if (isCancelled()) {
+		return [];
+	}
+
+	const pendingPins = aiPins.filter((pin) => {
+		if (composedTempIds.has(pin.tempId)) {
+			return false;
+		}
+		const job = jobs.find((item) => item.clientToken === pin.tempId || item.id === pin.imageJobId);
+		if (!job) {
+			return pollTimedOut;
+		}
+		return IMAGE_JOB_TERMINAL.has(String(job.status || '').toLowerCase());
+	});
+
+	if (pendingPins.length === 0) {
+		return [];
+	}
+
+	const composeInputs = buildComposeInputsFromJobs({
+		pins: pendingPins,
+		queuedJobs,
+		finishedJobs: jobs,
+		pollTimedOut,
+	});
+
+	const withBackground = composeInputs.filter((pin) => pin.featuredImage || pin._hasArticleCandidates);
+	const withoutBackground = composeInputs.filter((pin) => !pin.featuredImage && !pin._hasArticleCandidates);
+	const patches = [];
+
+	for (const missed of withoutBackground) {
+		composedTempIds.add(missed.tempId);
+		patches.push({
+			tempId: missed.tempId,
+			patch: {
+				imageUrl: '',
+				imageGenerationStatus: 'failed',
+				imageGenerationError: missed._aiError || missedError,
+			},
+		});
+	}
+
+	if (withBackground.length === 0 || isCancelled()) {
+		return patches;
+	}
+
+	const composedResults = await runWithConcurrency(withBackground, PREVIEW_COMPOSE_CONCURRENCY, async (input) => {
+		if (isCancelled()) {
+			return { input, result: null };
+		}
+		const [result] = await composeAndUploadFeaturedPins([input], {
+			brandKit,
+			exportProfileId,
+		});
+		return { input, result: result || null };
+	});
+
+	for (const { input, result } of composedResults) {
+		if (!input?.tempId || composedTempIds.has(input.tempId)) {
+			continue;
+		}
+		composedTempIds.add(input.tempId);
+		const basePin = aiPins.find((pin) => pin.tempId === input.tempId) || {};
+		patches.push({
+			tempId: input.tempId,
+			patch: mapComposeResultToPinPatch(basePin, input, result),
+		});
+	}
+
+	return patches;
+}
+
+async function pollAndComposePreviewImageJobs({
+	fetchFn,
+	jobIds,
+	aiPins,
+	queuedJobs,
+	brandKit,
+	exportProfileId,
+	onJobsUpdate,
+	onPinPatch,
+	isCancelled = () => false,
+} = {}) {
+	if (!Array.isArray(jobIds) || jobIds.length === 0) {
+		return { jobs: [], pollTimedOut: false, pinPatches: [] };
+	}
+
+	const composedTempIds = new Set();
+	const pinPatches = [];
+	let jobs = [];
+	let finishedCleanly = false;
+
+	for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt += 1) {
+		if (isCancelled()) {
+			break;
+		}
+
+		const response = await fetchFn(
+			`/ai-pin-images/jobs?ids=${encodeURIComponent(jobIds.join(','))}`,
+			{ method: 'GET' },
+		);
+		const payload = await response.json().catch(() => ({}));
+		if (!response.ok) {
+			throw new Error(payload?.message || `Failed to poll image jobs (${response.status})`);
+		}
+
+		jobs = Array.isArray(payload.items) ? payload.items : [];
+		if (typeof onJobsUpdate === 'function') {
+			onJobsUpdate(jobs);
+		}
+
+		const composePatches = await composeTerminalPreviewPins({
+			aiPins,
+			jobs,
+			queuedJobs,
+			composedTempIds,
+			pollTimedOut: false,
+			brandKit,
+			exportProfileId,
+			isCancelled,
+		});
+		for (const item of composePatches) {
+			pinPatches.push(item);
+			if (typeof onPinPatch === 'function') {
+				onPinPatch(item);
+			}
+		}
+
+		if (jobs.length > 0 && jobs.every((job) => IMAGE_JOB_TERMINAL.has(String(job.status || '').toLowerCase()))) {
+			finishedCleanly = true;
+			break;
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+	}
+
+	const pollTimedOut = !finishedCleanly;
+	const remainingPatches = await composeTerminalPreviewPins({
+		aiPins,
+		jobs,
+		queuedJobs,
+		composedTempIds,
+		pollTimedOut,
+		brandKit,
+		exportProfileId,
+		isCancelled,
+	});
+	for (const item of remainingPatches) {
+		pinPatches.push(item);
+		if (typeof onPinPatch === 'function') {
+			onPinPatch(item);
+		}
+	}
+
+	return {
+		jobs,
+		pollTimedOut,
+		pinPatches,
+		composedTempIds,
+	};
+}
 
 export function resolvePreviewImageProvider({
 } = {}) {
@@ -335,6 +534,7 @@ export async function runPreviewImagePipeline({
 	exportProfileId = 'pinterest_standard',
 	channel = '',
 	onJobsUpdate,
+	onPinPatch,
 	isCancelled = () => false,
 } = {}) {
 	if (!Array.isArray(pins) || pins.length === 0) {
@@ -381,6 +581,11 @@ export async function runPreviewImagePipeline({
 			featuredPins,
 			'Article image is required for Featured Image mode.',
 		);
+		for (const item of pinPatches) {
+			if (typeof onPinPatch === 'function') {
+				onPinPatch(item);
+			}
+		}
 		if (isCancelled()) {
 			return { pinPatches: [], pollTimedOut: false, lastResort: null };
 		}
@@ -408,9 +613,16 @@ export async function runPreviewImagePipeline({
 	}
 
 	const jobIds = queuedJobs.map((job) => job.id).filter(Boolean);
-	const { jobs: finishedJobs, pollTimedOut } = await pollPreviewImageJobs({
+	const {
+		pollTimedOut,
+		pinPatches: polledComposePatches,
+	} = await pollAndComposePreviewImageJobs({
 		fetchFn,
 		jobIds,
+		aiPins,
+		queuedJobs,
+		brandKit,
+		exportProfileId,
 		onJobsUpdate: (jobs) => {
 			if (isCancelled()) {
 				return;
@@ -419,22 +631,30 @@ export async function runPreviewImagePipeline({
 				onJobsUpdate(jobs);
 			}
 		},
+		onPinPatch: (item) => {
+			if (isCancelled()) {
+				return;
+			}
+			const existing = pinPatches.find((patch) => patch.tempId === item.tempId);
+			if (!existing) {
+				pinPatches.push(item);
+			}
+			if (typeof onPinPatch === 'function') {
+				onPinPatch(item);
+			}
+		},
+		isCancelled,
 	});
+
+	for (const item of polledComposePatches) {
+		if (!pinPatches.some((patch) => patch.tempId === item.tempId)) {
+			pinPatches.push(item);
+		}
+	}
 
 	if (isCancelled()) {
 		return { pinPatches: [], pollTimedOut, lastResort: null };
 	}
-
-	await applyComposeGroup(
-		buildComposeInputsFromJobs({
-			pins: aiPins,
-			queuedJobs,
-			finishedJobs,
-			pollTimedOut,
-		}),
-		aiPins,
-		'AI image generation failed and no article image was available for fallback.',
-	);
 
 	return {
 		pinPatches,

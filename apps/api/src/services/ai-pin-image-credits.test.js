@@ -309,6 +309,26 @@ describe('withAiImageCredits', () => {
 		assert.equal(gate.settleCalls.filter((s) => s.success).length, 2);
 	});
 
+	it('F. parallel bulk jobs maintain independent reservations', async () => {
+		const gate = createMemoryCreditGate({ 'ws-a': 2 });
+		let providerCalls = 0;
+		await Promise.all([
+			withAiImageCredits(baseJob({ id: 'parallel_1' }), async () => {
+				providerCalls += 1;
+				return [{ n: 1 }];
+			}, gate),
+			withAiImageCredits(baseJob({ id: 'parallel_2' }), async () => {
+				providerCalls += 1;
+				return [{ n: 2 }];
+			}, gate),
+		]);
+		assert.equal(providerCalls, 2);
+		assert.equal(gate.beginCalls.length, 2);
+		assert.equal(gate.beginCalls[0].idempotencyKey, 'ai-image:parallel_1:attempt:0');
+		assert.equal(gate.beginCalls[1].idempotencyKey, 'ai-image:parallel_2:attempt:0');
+		assert.equal(gate.wallets['ws-a'], 0);
+	});
+
 	it('F. bulk stops when the wallet is exhausted', async () => {
 		const gate = createMemoryCreditGate({ 'ws-a': 1 });
 		let providerCalls = 0;

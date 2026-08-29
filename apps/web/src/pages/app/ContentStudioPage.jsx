@@ -1236,6 +1236,14 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				channel: studioChannel,
 				exportProfileId: selectedExportProfileId,
 				isCancelled,
+				onPinPatch: ({ tempId, patch }) => {
+					if (isCancelled()) {
+						return;
+					}
+					setGeneratedPreviewPins((prev) => prev.map((pin) => (
+						pin.tempId === tempId ? { ...pin, ...patch } : pin
+					)));
+				},
 				onJobsUpdate: (jobs) => {
 					if (isCancelled()) {
 						return;

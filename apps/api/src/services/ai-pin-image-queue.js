@@ -67,8 +67,38 @@ function resolveActivePollIntervalSource() {
 const ACTIVE_POLL_INTERVAL_MS = resolveActivePollIntervalMs();
 const IDLE_POLL_INTERVAL_MS = resolveIdlePollIntervalMs();
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.AI_IMAGE_QUEUE_BATCH || '5', 10);
+const IMAGE_QUEUE_CONCURRENCY = Math.max(
+	1,
+	Number.parseInt(process.env.AI_IMAGE_QUEUE_CONCURRENCY || '3', 10) || 3,
+);
 const JOB_TIMEOUT_MS = Number.parseInt(process.env.AI_IMAGE_JOB_TIMEOUT_MS || '180000', 10);
 const STUCK_PROCESSING_MS = Number.parseInt(process.env.AI_IMAGE_QUEUE_STUCK_MS || '900000', 10);
+
+/**
+ * Bounded worker pool (same pattern as featuredComposeService).
+ * @template T
+ * @param {T[]} items
+ * @param {number} concurrency
+ * @param {(item: T, index: number) => Promise<void>} workerFn
+ */
+export async function runWithConcurrency(items, concurrency, workerFn) {
+	const list = Array.isArray(items) ? items : [];
+	if (list.length === 0) {
+		return;
+	}
+	let cursor = 0;
+	const workerCount = Math.min(Math.max(1, concurrency), list.length);
+
+	async function worker() {
+		while (cursor < list.length) {
+			const index = cursor;
+			cursor += 1;
+			await workerFn(list[index], index);
+		}
+	}
+
+	await Promise.all(Array.from({ length: workerCount }, () => worker()));
+}
 
 let workerTimer = null;
 let currentPollIntervalMs = ACTIVE_POLL_INTERVAL_MS;
@@ -559,6 +589,158 @@ async function claimImageJob(jobId) {
 	});
 }
 
+async function resolveClaimedImageJob(claimed) {
+	// Re-fetch full record so prompt_payload.provider is never dropped by a partial update response.
+	const fullJob = await pocketbaseClient.collection('ai_pin_image_jobs').getOne(claimed.id).catch(() => claimed);
+
+	// Re-confirm CAS ownership before side effects (another instance may have overwritten the claim).
+	if (String(fullJob.claim_token || '') !== String(claimed.claim_token || '')) {
+		return null;
+	}
+
+	return fullJob;
+}
+
+async function executeClaimedImageJob(fullJob) {
+	if (fullJob.ai_pin) {
+		try {
+			await assertAndGetJobPin(fullJob);
+		} catch (ownershipError) {
+			await setJobTerminalState({
+				job: fullJob,
+				status: 'failed',
+				lastError: ownershipError?.message || 'Pin ownership does not match job workspace',
+				skipPinUpdate: true,
+			});
+			failedTotal += 1;
+			lastErrorMessage = ownershipError?.message || 'Pin ownership mismatch';
+			logger.error(`AI pin image job ownership rejected: ${fullJob.id}`, ownershipError);
+			return;
+		}
+	}
+
+	if (fullJob.articleId) {
+		const ownerId = typeof fullJob.owner === 'string' ? fullJob.owner : (fullJob.owner?.id || '');
+		await safeTransitionArticleLifecycle(fullJob.articleId, 'PINS_GENERATING', {
+			ownerId,
+			source: 'ai_pin_image_queue',
+			message: 'Pin image generation started',
+			force: true,
+		});
+	}
+
+	if (fullJob.ai_pin) {
+		await pocketbaseClient.collection('ai_pins').update(fullJob.ai_pin, {
+			image_generation_status: 'processing',
+			image_generation_error: '',
+			image_job_id: fullJob.id,
+		}).catch(() => null);
+	}
+
+	try {
+		await withTimeout(processJob(fullJob), JOB_TIMEOUT_MS, `AI image job ${fullJob.id}`);
+		processedTotal += 1;
+		lastSuccessAt = new Date().toISOString();
+		logger.info(`AI pin image job completed: ${fullJob.id}`);
+	} catch (error) {
+		const ownershipCode = error?.errorCode || '';
+		if (
+			ownershipCode === 'PIN_OWNERSHIP_MISMATCH'
+			|| ownershipCode === 'PIN_WORKSPACE_MISMATCH'
+			|| ownershipCode === 'JOB_WORKSPACE_MISSING'
+			|| ownershipCode === 'PIN_NOT_FOUND'
+		) {
+			await setJobTerminalState({
+				job: fullJob,
+				status: 'failed',
+				lastError: error.message || 'Pin ownership does not match job workspace',
+				skipPinUpdate: true,
+			});
+			failedTotal += 1;
+			lastErrorMessage = error.message || 'Pin ownership mismatch';
+			logger.error(`AI pin image job ownership rejected: ${fullJob.id}`, error);
+			return;
+		}
+
+		const nextAttempts = (fullJob.attempt_count || 0) + 1;
+		const maxAttempts = fullJob.max_attempts || 3;
+		const fallbackImage = normalizeText(fullJob.featured_image_url, 1000);
+		const exhausted = nextAttempts >= maxAttempts;
+		const immediateFallback = Boolean(fallbackImage) && isImmediateImageFallbackError(error);
+
+		// Never fail the workflow for quota/timeout/provider issues when an article image exists.
+		if ((exhausted || immediateFallback) && fallbackImage) {
+			await setJobTerminalState({
+				job: fullJob,
+				status: 'fallback',
+				imageUrl: fallbackImage,
+				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
+			});
+			processedTotal += 1;
+			lastSuccessAt = new Date().toISOString();
+			logger.warn(`AI pin image job fallback used: ${fullJob.id}`);
+			return;
+		}
+
+		const shouldRetry = !exhausted;
+		if (!shouldRetry && fallbackImage) {
+			await setJobTerminalState({
+				job: fullJob,
+				status: 'fallback',
+				imageUrl: fallbackImage,
+				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
+			});
+			processedTotal += 1;
+			lastSuccessAt = new Date().toISOString();
+			logger.warn(`AI pin image job fallback used (terminal guard): ${fullJob.id}`);
+			return;
+		}
+
+		const retryPayload = await sanitizeCollectionPayload({
+			collection: 'ai_pin_image_jobs',
+			context: 'ai-image-queue:retry-update',
+			payload: {
+				status: shouldRetry ? 'queued' : 'failed',
+				attempt_count: nextAttempts,
+				last_error: userSafeImageError({ hasError: true }),
+				next_retry_at: shouldRetry ? nextRetryDate(nextAttempts) : null,
+				claim_token: '',
+			},
+		});
+
+		await pocketbaseClient.collection('ai_pin_image_jobs').update(fullJob.id, retryPayload).catch(() => null);
+
+		if (fullJob.ai_pin) {
+			try {
+				await assertAndGetJobPin(fullJob);
+				await pocketbaseClient.collection('ai_pins').update(fullJob.ai_pin, {
+					image_generation_status: shouldRetry ? 'queued' : 'failed',
+					image_generation_error: userSafeImageError({ hasError: true }),
+					image_job_id: fullJob.id,
+				}).catch(() => null);
+			} catch (ownershipError) {
+				logger.error(`Refusing pin status update for image job ${fullJob.id}: ${ownershipError.message}`);
+			}
+		}
+
+		if (!shouldRetry && fullJob.articleId) {
+			const ownerId = typeof fullJob.owner === 'string' ? fullJob.owner : (fullJob.owner?.id || '');
+			await safeTransitionArticleLifecycle(fullJob.articleId, 'FAILED', {
+				ownerId,
+				source: 'ai_pin_image_queue',
+				message: error?.message || 'Pin image generation failed',
+				failureReason: error?.message || 'Pin image generation failed',
+				failedStage: 'PINS_GENERATING',
+				force: true,
+			});
+		}
+
+		failedTotal += 1;
+		lastErrorMessage = error?.message || 'Image generation failed';
+		logger.error(`AI pin image job failed: ${fullJob.id}`, error);
+	}
+}
+
 async function processDueJobs() {
 	if (running) {
 		return false;
@@ -577,158 +759,21 @@ async function processDueJobs() {
 		const dueJobs = await getDueImageJobs(now);
 		hasQueueWork = dueJobs.length > 0;
 
+		const claimedJobs = [];
 		for (const job of dueJobs.slice(0, MAX_JOBS_PER_TICK)) {
 			const claimed = await claimImageJob(job.id);
 			if (!claimed) {
 				continue;
 			}
-
-			// Re-fetch full record so prompt_payload.provider is never dropped by a partial update response.
-			const fullJob = await pocketbaseClient.collection('ai_pin_image_jobs').getOne(claimed.id).catch(() => claimed);
-
-			// Re-confirm CAS ownership before side effects (another instance may have overwritten the claim).
-			if (String(fullJob.claim_token || '') !== String(claimed.claim_token || '')) {
-				continue;
-			}
-
-			if (fullJob.ai_pin) {
-				try {
-					await assertAndGetJobPin(fullJob);
-				} catch (ownershipError) {
-					await setJobTerminalState({
-						job: fullJob,
-						status: 'failed',
-						lastError: ownershipError?.message || 'Pin ownership does not match job workspace',
-						skipPinUpdate: true,
-					});
-					failedTotal += 1;
-					lastErrorMessage = ownershipError?.message || 'Pin ownership mismatch';
-					logger.error(`AI pin image job ownership rejected: ${fullJob.id}`, ownershipError);
-					continue;
-				}
-			}
-
-			if (fullJob.articleId) {
-				const ownerId = typeof fullJob.owner === 'string' ? fullJob.owner : (fullJob.owner?.id || '');
-				await safeTransitionArticleLifecycle(fullJob.articleId, 'PINS_GENERATING', {
-					ownerId,
-					source: 'ai_pin_image_queue',
-					message: 'Pin image generation started',
-					force: true,
-				});
-			}
-
-			if (fullJob.ai_pin) {
-				await pocketbaseClient.collection('ai_pins').update(fullJob.ai_pin, {
-					image_generation_status: 'processing',
-					image_generation_error: '',
-					image_job_id: fullJob.id,
-				}).catch(() => null);
-			}
-
-			try {
-				await withTimeout(processJob(fullJob), JOB_TIMEOUT_MS, `AI image job ${fullJob.id}`);
-				processedTotal += 1;
-				lastSuccessAt = new Date().toISOString();
-				logger.info(`AI pin image job completed: ${fullJob.id}`);
-			} catch (error) {
-				const ownershipCode = error?.errorCode || '';
-				if (
-					ownershipCode === 'PIN_OWNERSHIP_MISMATCH'
-					|| ownershipCode === 'PIN_WORKSPACE_MISMATCH'
-					|| ownershipCode === 'JOB_WORKSPACE_MISSING'
-					|| ownershipCode === 'PIN_NOT_FOUND'
-				) {
-					await setJobTerminalState({
-						job: fullJob,
-						status: 'failed',
-						lastError: error.message || 'Pin ownership does not match job workspace',
-						skipPinUpdate: true,
-					});
-					failedTotal += 1;
-					lastErrorMessage = error.message || 'Pin ownership mismatch';
-					logger.error(`AI pin image job ownership rejected: ${fullJob.id}`, error);
-					continue;
-				}
-
-				const nextAttempts = (fullJob.attempt_count || 0) + 1;
-				const maxAttempts = fullJob.max_attempts || 3;
-				const fallbackImage = normalizeText(fullJob.featured_image_url, 1000);
-				const exhausted = nextAttempts >= maxAttempts;
-				const immediateFallback = Boolean(fallbackImage) && isImmediateImageFallbackError(error);
-
-				// Never fail the workflow for quota/timeout/provider issues when an article image exists.
-				if ((exhausted || immediateFallback) && fallbackImage) {
-					await setJobTerminalState({
-						job: fullJob,
-						status: 'fallback',
-						imageUrl: fallbackImage,
-						lastError: userSafeImageError({ status: 'fallback', hasError: true }),
-					});
-					processedTotal += 1;
-					lastSuccessAt = new Date().toISOString();
-					logger.warn(`AI pin image job fallback used: ${fullJob.id}`);
-					continue;
-				}
-
-				const shouldRetry = !exhausted;
-				if (!shouldRetry && fallbackImage) {
-					await setJobTerminalState({
-						job: fullJob,
-						status: 'fallback',
-						imageUrl: fallbackImage,
-						lastError: userSafeImageError({ status: 'fallback', hasError: true }),
-					});
-					processedTotal += 1;
-					lastSuccessAt = new Date().toISOString();
-					logger.warn(`AI pin image job fallback used (terminal guard): ${fullJob.id}`);
-					continue;
-				}
-
-				const retryPayload = await sanitizeCollectionPayload({
-					collection: 'ai_pin_image_jobs',
-					context: 'ai-image-queue:retry-update',
-					payload: {
-						status: shouldRetry ? 'queued' : 'failed',
-						attempt_count: nextAttempts,
-						last_error: userSafeImageError({ hasError: true }),
-						next_retry_at: shouldRetry ? nextRetryDate(nextAttempts) : null,
-						claim_token: '',
-					},
-				});
-
-				await pocketbaseClient.collection('ai_pin_image_jobs').update(fullJob.id, retryPayload).catch(() => null);
-
-				if (fullJob.ai_pin) {
-					try {
-						await assertAndGetJobPin(fullJob);
-						await pocketbaseClient.collection('ai_pins').update(fullJob.ai_pin, {
-							image_generation_status: shouldRetry ? 'queued' : 'failed',
-							image_generation_error: userSafeImageError({ hasError: true }),
-							image_job_id: fullJob.id,
-						}).catch(() => null);
-					} catch (ownershipError) {
-						logger.error(`Refusing pin status update for image job ${fullJob.id}: ${ownershipError.message}`);
-					}
-				}
-
-				if (!shouldRetry && fullJob.articleId) {
-					const ownerId = typeof fullJob.owner === 'string' ? fullJob.owner : (fullJob.owner?.id || '');
-					await safeTransitionArticleLifecycle(fullJob.articleId, 'FAILED', {
-						ownerId,
-						source: 'ai_pin_image_queue',
-						message: error?.message || 'Pin image generation failed',
-						failureReason: error?.message || 'Pin image generation failed',
-						failedStage: 'PINS_GENERATING',
-						force: true,
-					});
-				}
-
-				failedTotal += 1;
-				lastErrorMessage = error?.message || 'Image generation failed';
-				logger.error(`AI pin image job failed: ${fullJob.id}`, error);
+			const fullJob = await resolveClaimedImageJob(claimed);
+			if (fullJob) {
+				claimedJobs.push(fullJob);
 			}
 		}
+
+		await runWithConcurrency(claimedJobs, IMAGE_QUEUE_CONCURRENCY, async (fullJob) => {
+			await executeClaimedImageJob(fullJob);
+		});
 	} catch (error) {
 		lastErrorMessage = error?.message || 'AI image queue processing failed';
 		logger.error('AI image queue processing failed:', error);
@@ -797,6 +842,7 @@ export function getAIPinImageQueueStatus() {
 		idlePollIntervalMs: IDLE_POLL_INTERVAL_MS,
 		activePollIntervalSource: resolveActivePollIntervalSource(),
 		batchSize: MAX_JOBS_PER_TICK,
+		concurrency: IMAGE_QUEUE_CONCURRENCY,
 		processedTotal,
 		failedTotal,
 		lastRunAt,
