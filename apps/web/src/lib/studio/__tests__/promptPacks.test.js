@@ -136,4 +136,36 @@ describe('buildPinPromptFromConfig', () => {
 		expect(prompt).toContain('Custom Facebook system');
 		expect(prompt).toContain('Facebook Page art director');
 	});
+
+	it('embeds SOURCE_INGREDIENTS into the pinterest pin-copy prompt (same request)', () => {
+		const prompt = buildLegacyPinterestPinPromptFromConfig({
+			config: sampleConfig,
+			article: {
+				...sampleArticle,
+				sourceIngredients: [
+					'1 cup cottage cheese (full-fat or low-fat; small-curd works best)',
+					'¼ cup pizza or marinara sauce',
+					'½ cup shredded mozzarella cheese, divided',
+				],
+			},
+			count: 1,
+			panel: samplePanel,
+		});
+		expect(prompt).toContain('SOURCE_INGREDIENTS');
+		expect(prompt).toContain('cottage cheese');
+		expect(prompt).toContain('"ingredients":');
+		expect(prompt).toContain('never invent');
+		expect(prompt).toContain('Do not use recipeAnalysis.ingredients as a source of truth');
+	});
+
+	it('requires empty ingredients array when no source list is available', () => {
+		const prompt = buildLegacyPinterestPinPromptFromConfig({
+			config: sampleConfig,
+			article: sampleArticle,
+			count: 1,
+			panel: samplePanel,
+		});
+		expect(prompt).toContain('SOURCE_INGREDIENTS: (none available)');
+		expect(prompt).toContain('Set each pin "ingredients" to []');
+	});
 });

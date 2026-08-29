@@ -5,6 +5,10 @@
 
 import { buildLocalPinsFromArticle } from '@/lib/featuredPinLocal';
 import { classifyTextProviderError } from '@/lib/textProviderErrors';
+import {
+	extractSourceIngredientsFromArticle,
+	resolvePinIngredients,
+} from '@/lib/pinIngredients.js';
 
 export const PIN_COPY_SOURCE = Object.freeze({
 	AI: 'ai',
@@ -49,6 +53,17 @@ export function buildPinGenerationMeta({
 	};
 }
 
+function attachResolvedIngredients(pins, article) {
+	const sourceIngredients = extractSourceIngredientsFromArticle(article);
+	return (Array.isArray(pins) ? pins : []).map((pin) => ({
+		...pin,
+		ingredients: resolvePinIngredients({
+			sourceIngredients,
+			aiIngredients: pin?.ingredients,
+		}),
+	}));
+}
+
 /**
  * Resolve pin copy for one article.
  * Text-only: title, description, SEO, keywords, imagePrompt.
@@ -83,12 +98,12 @@ export async function resolveStudioPinCopy({
 } = {}) {
 	const n = Math.max(1, Number(count) || 1);
 
-	const localPins = () => buildLocalPinsFromArticle({
+	const localPins = () => attachResolvedIngredients(buildLocalPinsFromArticle({
 		article,
 		count: n,
 		panel,
 		analysis,
-	});
+	}), article);
 
 	try {
 		const prompt = typeof buildPrompt === 'function' ? buildPrompt() : '';
@@ -124,7 +139,7 @@ export async function resolveStudioPinCopy({
 			fallbackReason: null,
 		});
 		return {
-			pins: list.slice(0, n),
+			pins: attachResolvedIngredients(list.slice(0, n), article),
 			copySource: meta.copySource,
 			imageSource: meta.imageSource,
 			fallbackReason: meta.fallbackReason,

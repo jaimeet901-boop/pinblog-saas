@@ -596,6 +596,7 @@ export async function resolveArticleImageSources({ url, existingFeaturedImage = 
 			contentImages: [],
 			resolvedImage,
 			source: resolvedImage ? 'stored' : 'none',
+			ingredients: [],
 		};
 	}
 
@@ -609,8 +610,12 @@ export async function resolveArticleImageSources({ url, existingFeaturedImage = 
 			contentImages: [],
 			resolvedImage,
 			source: resolvedImage ? 'stored' : 'none',
+			ingredients: [],
 		};
 	}
+
+	const { extractIngredientsFromHtml } = await import('./recipe-ingredients-extract.js');
+	const ingredients = extractIngredientsFromHtml(result.body);
 
 	const parsed = parseArticleHtml(pageUrl, result.body);
 	const scrapedContentImages = Array.isArray(parsed.contentImages) ? parsed.contentImages : [];
@@ -626,6 +631,7 @@ export async function resolveArticleImageSources({ url, existingFeaturedImage = 
 			contentImages,
 			resolvedImage: featuredExisting,
 			source: 'stored',
+			ingredients,
 		};
 	}
 
@@ -639,6 +645,7 @@ export async function resolveArticleImageSources({ url, existingFeaturedImage = 
 			contentImages,
 			resolvedImage: parsedFeatured,
 			source: 'meta_or_body',
+			ingredients,
 		};
 	}
 
@@ -649,6 +656,7 @@ export async function resolveArticleImageSources({ url, existingFeaturedImage = 
 		contentImages,
 		resolvedImage,
 		source: resolvedImage ? 'body' : 'none',
+		ingredients,
 	};
 }
 

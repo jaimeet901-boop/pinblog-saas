@@ -870,6 +870,7 @@ router.post('/:websiteId/articles/resolve-images', async (req, res) => {
 				featuredImage: '',
 				contentImages: [],
 				resolvedImage: '',
+				ingredients: [],
 			});
 			continue;
 		}
@@ -899,6 +900,16 @@ router.post('/:websiteId/articles/resolve-images', async (req, res) => {
 			}).catch(() => null);
 		}
 
+		let ingredients = Array.isArray(resolved.ingredients) ? resolved.ingredients : [];
+		if (ingredients.length === 0 && record.content) {
+			try {
+				const { extractIngredientsFromHtml } = await import('../services/recipe-ingredients-extract.js');
+				ingredients = extractIngredientsFromHtml(String(record.content || ''));
+			} catch {
+				ingredients = [];
+			}
+		}
+
 		items.push({
 			articleId,
 			ok: true,
@@ -907,6 +918,7 @@ router.post('/:websiteId/articles/resolve-images', async (req, res) => {
 			resolvedImage: resolved.resolvedImage || '',
 			source: resolved.source || 'none',
 			error: resolved.error || '',
+			ingredients,
 		});
 	}
 

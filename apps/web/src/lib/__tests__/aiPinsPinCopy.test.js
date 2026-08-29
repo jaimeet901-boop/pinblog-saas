@@ -147,6 +147,74 @@ describe('resolveStudioPinCopy', () => {
 		});
 		expect(result.copySource).toBe(PIN_COPY_SOURCE.LOCAL_EMPTY_PARSE);
 		expect(result.fallbackReason).toBe('empty_ai_response');
+		expect(result.pins[0].ingredients).toBe('');
+	});
+
+	it('validates AI ingredients against source in the same generateText call (no second request)', async () => {
+		const generateText = vi.fn(async () => ({
+			text: JSON.stringify({
+				pins: [{
+					title: 'Pizza Bowl',
+					description: 'High protein',
+					overlayText: 'Save',
+					ingredients: ['Cottage cheese', 'Marinara sauce', 'Invented truffle oil'],
+				}],
+			}),
+		}));
+		const withSource = {
+			...article,
+			sourceIngredients: [
+				'1 cup cottage cheese (full-fat or low-fat; small-curd works best)',
+				'¼ cup pizza or marinara sauce',
+				'½ cup shredded mozzarella cheese, divided',
+			],
+		};
+		const result = await resolveStudioPinCopy({
+			imageMode: 'generate_ai',
+			article: withSource,
+			count: 1,
+			panel: {},
+			generateText,
+			buildPrompt: () => 'prompt',
+			parsePins: (text) => JSON.parse(text).pins,
+		});
+		expect(generateText).toHaveBeenCalledTimes(1);
+		expect(result.pins[0].ingredients).toContain('cottage cheese');
+		expect(result.pins[0].ingredients.toLowerCase()).not.toContain('truffle');
+	});
+
+	it('keeps validated condensed ingredients from the single AI response', async () => {
+		const generateText = vi.fn(async () => ({
+			text: JSON.stringify({
+				pins: [{
+					title: 'Pizza Bowl',
+					description: 'High protein',
+					overlayText: 'Save',
+					ingredients: ['Cottage cheese', 'Marinara sauce', 'Mozzarella'],
+				}],
+			}),
+		}));
+		const withSource = {
+			...article,
+			sourceIngredients: [
+				'1 cup cottage cheese (full-fat or low-fat; small-curd works best)',
+				'¼ cup pizza or marinara sauce',
+				'½ cup shredded mozzarella cheese, divided',
+			],
+		};
+		const result = await resolveStudioPinCopy({
+			article: withSource,
+			count: 1,
+			generateText,
+			buildPrompt: () => 'prompt',
+			parsePins: (text) => JSON.parse(text).pins,
+		});
+		expect(generateText).toHaveBeenCalledTimes(1);
+		expect(result.pins[0].ingredients.split('\n')).toEqual([
+			'Cottage cheese',
+			'Marinara sauce',
+			'Mozzarella',
+		]);
 	});
 });
 

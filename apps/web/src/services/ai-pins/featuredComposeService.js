@@ -63,6 +63,8 @@ async function composeSingleFeaturedPin(pin, { brandKit, profile }) {
 					category: pin.category,
 					website: pin.website,
 					author: pin.author,
+					ingredients: pin.ingredients || '',
+					recipe: { ingredients: pin.ingredients || '' },
 				},
 				logoUrl: brandKit?.logoUrl || '',
 				watermarkText: brandKit?.watermarkText || '',

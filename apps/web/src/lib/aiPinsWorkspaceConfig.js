@@ -158,17 +158,33 @@ export function buildLegacyPinterestPinPromptFromConfig({ config, article, count
 	const userSeed = String(config?.prompts?.pinUser || '').trim();
 	const header = system || 'You are a Pinterest SEO expert for blog traffic growth.';
 	const guidance = userSeed ? `Platform guidance: ${userSeed}\n` : '';
+	const sourceIngredients = Array.isArray(article?.sourceIngredients)
+		? article.sourceIngredients.map((item) => String(item || '').trim()).filter(Boolean)
+		: [];
+	const sourceIngredientsBlock = sourceIngredients.length > 0
+		? `SOURCE_INGREDIENTS (authoritative recipe list — condense ONLY from these; never invent or substitute):
+${sourceIngredients.map((line, i) => `${i + 1}. ${line}`).join('\n')}
+INGREDIENT RULES:
+- Each pin MUST include "ingredients": an array of concise Pinterest-friendly lines.
+- Use ONLY items from SOURCE_INGREDIENTS (shorten/format allowed; no new items, no pantry staples, no substitutions).
+- Target about 6–10 lines. If fewer than 6 source items, return all of them. If more than 10–12, pick the most important subset FROM THE SOURCE ONLY.
+- Do not invent ingredients from the title or meta description.
+- Do not use recipeAnalysis.ingredients as a source of truth for the pin list.
+`
+		: `SOURCE_INGREDIENTS: (none available)
+- Set each pin "ingredients" to [] (empty). Do NOT invent ingredients from the title or meta.
+`;
 
 	return `${header}
 ${guidance}You are a senior Pinterest art director creating PREMIUM BlogToPin / Canva-quality pins.
-First ANALYZE the recipe: category family (dessert|healthy|dinner|breakfast|drinks|snacks|general), ingredients, mood, cooking time, difficulty, audience.
+First ANALYZE the recipe: category family (dessert|healthy|dinner|breakfast|drinks|snacks|general), mood, cooking time, difficulty, audience.
 Then for EACH pin write short luxury marketing copy AND a designRecommendation for that family identity.
 STRICT COPY RULES:
 - title MUST be 3 to 6 words only (punchy Pinterest headline, no long sentences).
 - subtitle is optional (max 6 words) — soft supporting line under the title.
 - overlayText is a short CTA badge (2–4 words), e.g. "Save Recipe", "Try Tonight".
 - imagePrompt MUST be a detailed background photo prompt ONLY — describe food/lifestyle scene, lighting, styling, and ingredients. No text, no typography, no pin layout, no title, no CTA, no borders (template overlay is applied separately).
-Use the Premium Design System: prefer distinct templates from the recipe family identity; never reuse the same template, font mood, or CTA style in this batch.
+${sourceIngredientsBlock}Use the Premium Design System: prefer distinct templates from the recipe family identity; never reuse the same template, font mood, or CTA style in this batch.
 Return ONLY a valid JSON object in this exact shape:
 {
   "recipeAnalysis": {
@@ -176,8 +192,7 @@ Return ONLY a valid JSON object in this exact shape:
     "mood": "indulgent",
     "cookingTime": "under_30",
     "difficulty": "easy",
-    "audience": "families",
-    "ingredients": ["chocolate", "butter"]
+    "audience": "families"
   },
   "pins": [
     {
@@ -185,6 +200,7 @@ Return ONLY a valid JSON object in this exact shape:
       "subtitle": "Gooey center",
       "description": "Short pin description for clicks",
       "overlayText": "Save Recipe",
+      "ingredients": ["Dark chocolate", "Butter", "Eggs", "Sugar"],
       "layoutStyle": "handwritten_accent",
       "designRecommendation": {
         "template": "handwritten_accent",

@@ -1526,10 +1526,15 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			targets = targets.map((article) => {
 				const resolved = resolvedImages.get(article.id);
 				const nextFeatured = String(resolved?.resolvedImage || article.featuredImage || '').trim();
+				const sourceIngredients = Array.isArray(resolved?.ingredients)
+					? resolved.ingredients.map((item) => String(item || '').trim()).filter(Boolean)
+					: [];
 				return {
 					...article,
 					featuredImage: nextFeatured,
 					contentImages: Array.isArray(resolved?.contentImages) ? resolved.contentImages : [],
+					sourceIngredients,
+					ingredients: sourceIngredients,
 				};
 			});
 
@@ -1660,6 +1665,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 						subtitle: String(pin.subtitle || '').trim(),
 						description: String(pin.description || analysis?.seoDescription || workingPanel.pinDescription || '').trim(),
 						overlayText: String(pin.overlayText || analysis?.cta || workingPanel.textOverlay || '').trim(),
+						ingredients: String(pin.ingredients || '').trim(),
 						imagePrompt: String(pin.imagePrompt || '').trim(),
 						imageUrl: '',
 						suggestedKeywords: safeArray(pin.suggestedKeywords?.length ? pin.suggestedKeywords : analysis?.keywords),
@@ -2214,7 +2220,19 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 
 		setGenerating(true);
 		try {
-			const copyResult = await generatePinsForArticle(article, 1, {
+			const resolvedImages = await resolveArticleImagesForTargets([article]);
+			const resolved = resolvedImages.get(article.id);
+			const sourceIngredients = Array.isArray(resolved?.ingredients)
+				? resolved.ingredients.map((item) => String(item || '').trim()).filter(Boolean)
+				: (Array.isArray(article.sourceIngredients) ? article.sourceIngredients : []);
+			const articleWithIngredients = {
+				...article,
+				sourceIngredients,
+				ingredients: sourceIngredients,
+				featuredImage: String(resolved?.resolvedImage || article.featuredImage || '').trim(),
+				contentImages: Array.isArray(resolved?.contentImages) ? resolved.contentImages : (article.contentImages || []),
+			};
+			const copyResult = await generatePinsForArticle(articleWithIngredients, 1, {
 				...panel,
 				imageMode: panel.imageMode === 'use_featured' ? 'use_featured' : panel.imageMode,
 			});
@@ -2948,6 +2966,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 															category: pin.category,
 															website: pin.website,
 															author: pin.author,
+															ingredients: pin.ingredients || '',
 															overlayText: pin.overlayText,
 														}}
 													/>
@@ -2967,6 +2986,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 																category: pin.category,
 																website: pin.website,
 																author: pin.author,
+																ingredients: pin.ingredients || '',
 																overlayText: pin.overlayText,
 															}}
 														/>
@@ -3286,6 +3306,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 											category: inspectorPin.category,
 											website: inspectorPin.website,
 											author: inspectorPin.author,
+											ingredients: inspectorPin.ingredients || '',
 											overlayText: inspectorPin.overlayText,
 										}}
 									/>
@@ -3305,6 +3326,7 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 												category: inspectorPin.category,
 												website: inspectorPin.website,
 												author: inspectorPin.author,
+												ingredients: inspectorPin.ingredients || '',
 												overlayText: inspectorPin.overlayText,
 											}}
 										/>

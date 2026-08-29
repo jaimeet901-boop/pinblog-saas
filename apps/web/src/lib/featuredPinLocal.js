@@ -120,6 +120,9 @@ export function buildLocalPinsFromArticle({ article, count = 1, panel = {}, anal
 			? analysis.hashtags
 			: ['#pinterest', '#recipe'],
 	);
+	const sourceIngredients = Array.isArray(article?.sourceIngredients)
+		? article.sourceIngredients
+		: (Array.isArray(article?.ingredients) ? article.ingredients : []);
 
 	return Array.from({ length: n }).map((_, index) => {
 		const builder = HEADLINE_BUILDERS[index % HEADLINE_BUILDERS.length];
@@ -136,6 +139,7 @@ export function buildLocalPinsFromArticle({ article, count = 1, panel = {}, anal
 			subtitle,
 			description: truncate(baseDescription || subtitle, 160),
 			overlayText,
+			ingredients: sourceIngredients,
 			suggestedKeywords: keywords,
 			suggestedHashtags: hashtags,
 			imagePrompt: '',
