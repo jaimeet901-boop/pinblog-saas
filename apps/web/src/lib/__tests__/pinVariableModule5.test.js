@@ -36,6 +36,26 @@ describe('Variable Engine Module 5', () => {
 		expect(map['{{author.name}}']).toBe('Ada');
 		expect(map['{{brand.primary_color}}']).toBe('#112233');
 		expect(listRegisteredVariables()).toContain('{{post.title}}');
+		expect(listRegisteredVariables()).toContain('{{ingredients}}');
+		expect(listRegisteredVariables()).toContain('{{recipe.ingredients}}');
+	});
+
+	it('resolves ingredients aliases from string or array', () => {
+		const fromArray = resolveVariables({
+			ingredients: ['Flour', 'Eggs', 'Milk'],
+		});
+		expect(fromArray['{{ingredients}}']).toBe('Flour\nEggs\nMilk');
+		expect(fromArray['{{recipe.ingredients}}']).toBe('Flour\nEggs\nMilk');
+
+		const fromString = resolveVariables({
+			recipe: { ingredients: 'Butter\nSugar' },
+		});
+		expect(fromString['{{ingredients}}']).toBe('Butter\nSugar');
+		expect(fromString['{{recipe.ingredients}}']).toBe('Butter\nSugar');
+
+		const empty = resolveVariables({});
+		expect(empty['{{ingredients}}']).toBe('');
+		expect(empty['{{recipe.ingredients}}']).toBe('');
 	});
 
 	it('supports fallback expressions', () => {

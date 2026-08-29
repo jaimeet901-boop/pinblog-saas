@@ -99,6 +99,7 @@ export const VARIABLE_TOKENS = Object.freeze([
 	'{{date}}',
 	'{{reading_time}}',
 	'{{cta}}',
+	'{{ingredients}}',
 	// Namespaced tokens (Module 5)
 	'{{post.title}}',
 	'{{post.subtitle}}',
@@ -109,6 +110,7 @@ export const VARIABLE_TOKENS = Object.freeze([
 	'{{recipe.total_time}}',
 	'{{recipe.servings}}',
 	'{{recipe.rating}}',
+	'{{recipe.ingredients}}',
 	'{{author.name}}',
 	'{{website.name}}',
 	'{{brand.logo}}',

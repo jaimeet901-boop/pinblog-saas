@@ -18,6 +18,12 @@ describe('pinGalleryDemoContent', () => {
 		expect(content.title).toBeTruthy();
 		expect(content.featuredImageUrl).toMatch(/^https:\/\//);
 		expect(content.contentKey).toMatch(/^demo:/);
+		expect(content.ingredients).toBeTruthy();
+		expect(content.ingredients.split('\n').length).toBeGreaterThanOrEqual(3);
+	});
+
+	it('includes ingredients on every demo recipe', () => {
+		expect(DEMO_RECIPES.every((recipe) => Array.isArray(recipe.ingredients) && recipe.ingredients.length > 0)).toBe(true);
 	});
 
 	it('switches to article content when an article is provided', () => {

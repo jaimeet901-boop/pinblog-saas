@@ -11,6 +11,7 @@ import {
 	applyPinLayoutToTemplateConfig,
 } from '../src/lib/pinLayoutCatalog.js';
 import { createDefaultTemplateConfig } from '../src/lib/pinTemplates.js';
+import { listOfficialV2PinterestTemplatePack } from './official-v2-recipe-pack.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -249,11 +250,13 @@ const facebookCatalog = FACEBOOK_PIN_LAYOUT_CATALOG.map((layout, index) => build
 	tagExtras: ['facebook', 'link-post'],
 }));
 
-const catalog = [...pinterestCatalog, ...facebookCatalog];
+const v2PinterestPack = listOfficialV2PinterestTemplatePack();
+const catalog = [...pinterestCatalog, ...v2PinterestPack, ...facebookCatalog];
 
 const outJs = `/**
- * AUTO-GENERATED from PIN_LAYOUT_CATALOG (${pinterestCatalog.length} Pinterest + ${facebookCatalog.length} Facebook layouts).
+ * AUTO-GENERATED from PIN_LAYOUT_CATALOG (${pinterestCatalog.length} Pinterest layouts + ${v2PinterestPack.length} v2 pack + ${facebookCatalog.length} Facebook layouts).
  * Do not hand-edit — run: npx vite-node scripts/generate-official-catalog.mjs
+ * Hand-authored v2 entries live in scripts/official-v2-recipe-pack.mjs
  */
 
 export const OFFICIAL_PIN_TEMPLATE_CATALOG = ${JSON.stringify(catalog, null, '\t')};
@@ -278,6 +281,16 @@ fs.writeFileSync(webPath, outJs, 'utf8');
 
 function fingerprint(entry) {
 	const c = entry.configuration;
+	if (c?.editorVersion === 2 || Array.isArray(c?.layers)) {
+		return {
+			layout: `v2|${entry.templateUuid}|${c.layers?.length || 0}`,
+			typography: `v2|${entry.templateUuid}`,
+			cta: `v2|${entry.templateUuid}`,
+			title: `v2|${entry.templateUuid}`,
+			image: `v2|${entry.templateUuid}`,
+			full: `v2|${entry.templateUuid}|${c.canvas?.width}x${c.canvas?.height}|${c.layers?.length || 0}`,
+		};
+	}
 	const L = c.layout || {};
 	const T = c.typography || {};
 	const O = c.textOverlay || {};
@@ -296,8 +309,9 @@ const fps = catalog.map(fingerprint);
 const check = (key) => new Set(fps.map((f) => f[key])).size;
 console.log(JSON.stringify({
 	total: catalog.length,
-	pinterest: pinterestCatalog.length,
+	pinterest: pinterestCatalog.length + v2PinterestPack.length,
 	facebook: facebookCatalog.length,
+	v2Pack: v2PinterestPack.length,
 	uuidUnique: new Set(catalog.map((e) => e.templateUuid)).size,
 	layoutUnique: check('layout'),
 	typographyUnique: check('typography'),

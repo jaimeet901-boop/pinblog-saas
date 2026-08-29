@@ -4,6 +4,8 @@
  * Food photos: Unsplash (loaded via same-origin compose proxy at render time).
  */
 
+import { formatIngredientsList, resolveIngredientsForContext } from './pinIngredients.js';
+
 /** Curated food photography — portrait crops suitable for 1000×1500 pins. */
 export const DEMO_FOOD_IMAGES = Object.freeze([
 	'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1000&h=1500&q=80',
@@ -28,6 +30,14 @@ export const DEMO_RECIPES = Object.freeze([
 		description: 'Bright lemon, herbs, and roasted chicken over warm grains.',
 		website: 'seodeva.demo',
 		cta: 'Save Recipe',
+		ingredients: [
+			'2 chicken breasts',
+			'1 cup cooked grains',
+			'1 lemon',
+			'Fresh herbs',
+			'Olive oil',
+			'Sea salt',
+		],
 	},
 	{
 		title: 'Creamy Vanilla Berry Pudding',
@@ -36,6 +46,13 @@ export const DEMO_RECIPES = Object.freeze([
 		description: 'Silky vanilla pudding topped with macerated berries.',
 		website: 'seodeva.demo',
 		cta: 'Get the Recipe',
+		ingredients: [
+			'2 cups milk',
+			'1/3 cup sugar',
+			'2 tbsp cornstarch',
+			'1 tsp vanilla',
+			'Fresh berries',
+		],
 	},
 	{
 		title: 'Street Corn Chicken Skillet',
@@ -44,6 +61,14 @@ export const DEMO_RECIPES = Object.freeze([
 		description: 'Charred corn, chili-lime chicken, and fresh cilantro.',
 		website: 'seodeva.demo',
 		cta: 'Cook This',
+		ingredients: [
+			'1 lb chicken thighs',
+			'2 cups corn',
+			'Chili powder',
+			'Lime',
+			'Cilantro',
+			'Cotija cheese',
+		],
 	},
 	{
 		title: 'Honey Garlic Salmon',
@@ -52,6 +77,13 @@ export const DEMO_RECIPES = Object.freeze([
 		description: 'Glazed salmon with crispy edges and sticky honey garlic sauce.',
 		website: 'seodeva.demo',
 		cta: 'Save Recipe',
+		ingredients: [
+			'2 salmon fillets',
+			'3 tbsp honey',
+			'3 garlic cloves',
+			'Soy sauce',
+			'Black pepper',
+		],
 	},
 	{
 		title: 'Fluffy Blueberry Pancakes',
@@ -60,6 +92,13 @@ export const DEMO_RECIPES = Object.freeze([
 		description: 'Buttermilk pancakes loaded with juicy blueberries.',
 		website: 'seodeva.demo',
 		cta: 'Make Breakfast',
+		ingredients: [
+			'1 1/2 cups flour',
+			'1 cup buttermilk',
+			'1 egg',
+			'1 cup blueberries',
+			'2 tbsp butter',
+		],
 	},
 	{
 		title: 'Iced Matcha Latte',
@@ -68,6 +107,12 @@ export const DEMO_RECIPES = Object.freeze([
 		description: 'Creamy iced matcha with a soft foam finish.',
 		website: 'seodeva.demo',
 		cta: 'Save Drink',
+		ingredients: [
+			'1 tsp matcha powder',
+			'1 cup milk',
+			'Ice',
+			'1 tsp honey',
+		],
 	},
 ]);
 
@@ -131,6 +176,15 @@ export function resolveGalleryPreviewContent({ article = null, templateIndex = 0
 	const titleFromArticle = String(article?.title || '').trim();
 
 	if (titleFromArticle || featuredFromArticle) {
+		const ingredients = resolveIngredientsForContext({
+			content: {
+				ingredients: article?.ingredients,
+				sections: article?.sections,
+				recipe_schema: article?.recipe_schema || article?.recipeSchema,
+				recipe: article?.recipe,
+			},
+			variables: {},
+		}) || formatIngredientsList(recipe.ingredients);
 		return {
 			source: 'article',
 			title: titleFromArticle || recipe.title,
@@ -139,6 +193,7 @@ export function resolveGalleryPreviewContent({ article = null, templateIndex = 0
 			description: String(article?.metaDescription || recipe.description).trim() || recipe.description,
 			website: domainFromUrl(article?.url || article?.website),
 			cta: 'Save Recipe',
+			ingredients,
 			featuredImageUrl: featuredFromArticle || DEMO_FOOD_IMAGES[imageIndex],
 			imageSeed: imageIndex,
 			contentKey: `article:${article?.id || titleFromArticle}:${featuredFromArticle.slice(0, 80)}`,
@@ -153,6 +208,7 @@ export function resolveGalleryPreviewContent({ article = null, templateIndex = 0
 		description: recipe.description,
 		website: recipe.website,
 		cta: recipe.cta,
+		ingredients: formatIngredientsList(recipe.ingredients),
 		featuredImageUrl: DEMO_FOOD_IMAGES[imageIndex],
 		imageSeed: imageIndex,
 		contentKey: `demo:${recipe.title}:${imageIndex}`,

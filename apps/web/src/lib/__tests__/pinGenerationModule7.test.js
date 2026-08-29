@@ -78,6 +78,26 @@ describe('Pin Generation Module 7', () => {
 		expect(ctx.title).toBe('Cake');
 		expect(ctx.image).toBe('https://cdn/ai.png');
 		expect(ctx.logo).toBe('https://cdn/logo.png');
+		expect(ctx.ingredients).toBe('');
+	});
+
+	it('hydrates ingredients into generation context', () => {
+		const fromVariables = buildGenerationVariableContext({
+			content: { title: 'Cake' },
+			variables: { ingredients: ['Flour', 'Sugar'] },
+			imageUrl: 'https://cdn/ai.png',
+		});
+		expect(fromVariables.ingredients).toBe('Flour\nSugar');
+		expect(fromVariables.recipe.ingredients).toBe('Flour\nSugar');
+
+		const fromSchema = buildGenerationVariableContext({
+			content: {
+				title: 'Cake',
+				recipe_schema: { recipeIngredient: ['Eggs', 'Butter'] },
+			},
+			imageUrl: 'https://cdn/ai.png',
+		});
+		expect(fromSchema.ingredients).toBe('Eggs\nButter');
 	});
 
 	it('orchestrates modules via adapters without mutating template', async () => {

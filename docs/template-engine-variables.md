@@ -65,3 +65,12 @@ Built-ins `ai.caption` / `ai.hook` read `ctx.ai.*` until a provider fills them.
 ## Backward compatibility
 
 Legacy `{{title}}`, `{{description}}`, … remain registered aliases. `applyTemplateVariables` delegates to the engine.
+
+## Recipe ingredients
+
+| Token | Notes |
+|-------|-------|
+| `{{ingredients}}` | Newline-separated ingredient list (string or array input) |
+| `{{recipe.ingredients}}` | Alias of `{{ingredients}}` |
+
+Hydration preference (pin generation): explicit `variables.ingredients` / `content.ingredients` → recipe schema `recipeIngredient` → article “Ingredients” section → empty string. Lists are capped around 12 items for pin readability. Empty values resolve to `''` and must not crash rendering.

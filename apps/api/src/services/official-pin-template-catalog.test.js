@@ -93,15 +93,19 @@ describe('official pin template catalog — pinterest pack', () => {
 		}
 	});
 
-	it('exports exactly 32 unique published-ready Pinterest templates', () => {
+	it('exports exactly 33 unique published-ready Pinterest templates', () => {
 		const catalog = listOfficialPinterestPinTemplateCatalog();
-		assert.equal(catalog.length, 32);
+		assert.equal(catalog.length, 33);
 		const uuids = catalog.map((entry) => entry.templateUuid);
 		const layoutIds = catalog.map((entry) => entry.layoutId);
-		assert.equal(new Set(uuids).size, 32);
-		assert.equal(new Set(layoutIds).size, 32);
-		const structures = catalog.map(structuralKey);
-		assert.equal(new Set(structures).size, 32, 'each Pinterest template must have a unique structural signature');
+		assert.equal(new Set(uuids).size, 33);
+		assert.equal(new Set(layoutIds).size, 33);
+		const structures = catalog.map((entry) => (
+			entry.configuration?.editorVersion === 2
+				? `v2:${entry.templateUuid}`
+				: structuralKey(entry)
+		));
+		assert.equal(new Set(structures).size, 33, 'each Pinterest template must have a unique structural signature');
 
 		for (const entry of catalog) {
 			assert.match(entry.templateUuid, /^chefia-official-/);
@@ -122,7 +126,7 @@ describe('official pin template catalog — pinterest pack', () => {
 
 	it('appends the Phase A recipe pack as Pinterest-only official templates', () => {
 		const catalog = listOfficialPinterestPinTemplateCatalog();
-		const pack = catalog.slice(24);
+		const pack = catalog.slice(24, 32);
 		assert.equal(pack.length, 8);
 		for (let index = 0; index < 8; index += 1) {
 			const entry = pack[index];
@@ -137,6 +141,30 @@ describe('official pin template catalog — pinterest pack', () => {
 			const validated = validateTemplateConfiguration(entry.configuration);
 			assert.equal(validated.ok, true, JSON.stringify(validated.issues));
 		}
+	});
+
+	it('appends Recipe Ingredients Card as an official v2 layer template', () => {
+		const catalog = listOfficialPinterestPinTemplateCatalog();
+		const entry = catalog.find((item) => item.templateUuid === 'chefia-official-recipe-ingredients-card');
+		assert.ok(entry, 'v2 recipe ingredients card missing');
+		assert.equal(entry.name, 'Recipe Ingredients Card');
+		assert.equal(entry.channel, 'pinterest');
+		assert.equal(entry.category, 'recipes');
+		assert.equal(entry.configuration?.editorVersion, 2);
+		assert.equal(entry.configuration?.schemaVersion, 2);
+		assert.ok(Array.isArray(entry.configuration?.layers));
+		assert.ok(entry.configuration.layers.length >= 6);
+		assert.equal(entry.configuration?.canvas?.width, 1000);
+		assert.equal(entry.configuration?.canvas?.height, 1500);
+		const ingredientLayer = entry.configuration.layers.find((layer) => layer.id === 'lyr_ric_ingredients');
+		assert.equal(ingredientLayer?.props?.text, '{{ingredients}}');
+		const titleLayer = entry.configuration.layers.find((layer) => layer.id === 'lyr_ric_title');
+		assert.equal(titleLayer?.props?.text, '{{title}}');
+		const serialized = JSON.stringify(entry.configuration);
+		assert.equal(serialized.includes('Greek Lemon'), false);
+		assert.equal(serialized.includes('2 chicken'), false);
+		const validated = validateTemplateConfiguration(entry.configuration);
+		assert.equal(validated.ok, true, JSON.stringify(validated.issues));
 	});
 });
 
@@ -185,9 +213,9 @@ describe('official pin template catalog — facebook pack', () => {
 describe('official pin template catalog — combined', () => {
 	it('combines pinterest and facebook without uuid collisions', () => {
 		const catalog = listOfficialPinTemplateCatalog();
-		assert.equal(catalog.length, 40);
-		assert.equal(new Set(catalog.map((entry) => entry.templateUuid)).size, 40);
-		assert.equal(filterOfficialCatalogByPack(catalog, 'pinterest').length, 32);
+		assert.equal(catalog.length, 41);
+		assert.equal(new Set(catalog.map((entry) => entry.templateUuid)).size, 41);
+		assert.equal(filterOfficialCatalogByPack(catalog, 'pinterest').length, 33);
 		assert.equal(filterOfficialCatalogByPack(catalog, 'facebook').length, 8);
 	});
 });

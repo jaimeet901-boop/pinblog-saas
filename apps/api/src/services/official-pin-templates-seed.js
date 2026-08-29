@@ -93,6 +93,10 @@ export async function bootstrapOfficialPinTemplates(options = {}) {
 				}
 				const configuration = validated.configuration;
 				const checksum = checksumOf(configuration);
+				const editorVersion = Number(configuration.editorVersion ?? configuration.editor_version) === 2 ? 2 : 1;
+				const schemaVersion = Number(configuration.schemaVersion ?? configuration.schema_version) === 2
+					? 2
+					: (editorVersion === 2 ? 2 : 1);
 				const payload = {
 					owner: ownerId,
 					created_by: ownerId,
@@ -106,8 +110,8 @@ export async function bootstrapOfficialPinTemplates(options = {}) {
 					template_uuid: entry.templateUuid,
 					config_checksum: checksum,
 					revision: 1,
-					editor_version: 1,
-					schema_version: 1,
+					editor_version: editorVersion,
+					schema_version: schemaVersion,
 					marketplace_meta: {
 						tags: entry.tags || [],
 						official: true,
@@ -129,6 +133,8 @@ export async function bootstrapOfficialPinTemplates(options = {}) {
 							status: 'published',
 							visibility: 'official',
 							config_checksum: payload.config_checksum,
+							editor_version: payload.editor_version,
+							schema_version: payload.schema_version,
 							marketplace_meta: payload.marketplace_meta,
 							deleted_at: '',
 						});

@@ -13,6 +13,7 @@ import {
 	isTerminalGenerationStage,
 	stageProgress,
 } from './pinGenerationConstants.js';
+import { resolveIngredientsForContext } from './pinIngredients.js';
 
 export class PinGenerationError extends Error {
 	constructor(message, { code = 'GENERATION_ERROR', recoverable = false, cause = null } = {}) {
@@ -124,6 +125,12 @@ export function buildGenerationVariableContext({
 		category: content.category || variables.category || '',
 		website: content.website || variables.website || brandKit?.websiteUrl || '',
 		author: content.author || variables.author || '',
+	};
+	const ingredients = resolveIngredientsForContext({ content, variables });
+	ctx.ingredients = ingredients;
+	ctx.recipe = {
+		...(ctx.recipe && typeof ctx.recipe === 'object' ? ctx.recipe : {}),
+		ingredients,
 	};
 	if (brandKit) {
 		ctx.brand = {

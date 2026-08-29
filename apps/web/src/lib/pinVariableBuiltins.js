@@ -5,6 +5,7 @@
 
 import { VARIABLE_TYPES } from './pinVariableTypes.js';
 import { getByPath } from './pinVariablePaths.js';
+import { formatIngredientsList } from './pinIngredients.js';
 
 function dyn(path, pick) {
 	return {
@@ -49,6 +50,13 @@ export function getBuiltInVariableDefinitions() {
 		dyn('recipe.servings', (ctx) => ctx.servings ?? ctx.analysis?.servings ?? ctx.recipe?.servings),
 		dyn('recipe.rating', (ctx) => ctx.rating ?? ctx.analysis?.rating ?? ctx.recipe?.rating),
 		dyn('recipe.title', (ctx) => ctx.recipe?.title ?? ctx.title),
+		computed('recipe.ingredients', (ctx) => formatIngredientsList(
+			ctx.ingredients
+			?? ctx.recipe?.ingredients
+			?? ctx.recipe?.recipeIngredient
+			?? ctx.recipe_schema?.recipeIngredient
+			?? ctx.article?.recipe_schema?.recipeIngredient,
+		)),
 
 		// Namespaced — author / website / brand
 		dyn('author.name', (ctx) => ctx.author ?? ctx.article?.author ?? ctx.author?.name),
@@ -103,6 +111,13 @@ export function getBuiltInVariableDefinitions() {
 		dyn('date', (ctx) => ctx.date ?? ctx.post?.date),
 		dyn('reading_time', (ctx) => ctx.reading_time ?? ctx.readingTime),
 		dyn('cta', (ctx) => ctx.cta ?? ctx.overlayText ?? ctx.brand?.cta_default ?? ctx.category ?? ''),
+		computed('ingredients', (ctx) => formatIngredientsList(
+			ctx.ingredients
+			?? ctx.recipe?.ingredients
+			?? ctx.recipe?.recipeIngredient
+			?? ctx.recipe_schema?.recipeIngredient
+			?? ctx.article?.recipe_schema?.recipeIngredient,
+		)),
 	];
 }
 
@@ -124,6 +139,7 @@ export const LEGACY_VARIABLE_TOKENS = Object.freeze([
 	'{{date}}',
 	'{{reading_time}}',
 	'{{cta}}',
+	'{{ingredients}}',
 ]);
 
 export const NAMESPACED_VARIABLE_TOKENS = Object.freeze([
@@ -136,6 +152,7 @@ export const NAMESPACED_VARIABLE_TOKENS = Object.freeze([
 	'{{recipe.total_time}}',
 	'{{recipe.servings}}',
 	'{{recipe.rating}}',
+	'{{recipe.ingredients}}',
 	'{{author.name}}',
 	'{{website.name}}',
 	'{{brand.logo}}',

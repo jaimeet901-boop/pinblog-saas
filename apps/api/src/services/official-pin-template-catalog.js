@@ -1,6 +1,7 @@
 /**
- * AUTO-GENERATED from PIN_LAYOUT_CATALOG (32 Pinterest + 8 Facebook layouts).
+ * AUTO-GENERATED from PIN_LAYOUT_CATALOG (32 Pinterest layouts + 1 v2 pack + 8 Facebook layouts).
  * Do not hand-edit — run: npx vite-node scripts/generate-official-catalog.mjs
+ * Hand-authored v2 entries live in scripts/official-v2-recipe-pack.mjs
  */
 
 export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
@@ -3846,6 +3847,235 @@ export const OFFICIAL_PIN_TEMPLATE_CATALOG = [
 			}
 		},
 		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%23171717%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23404040%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Ccircle%20cx%3D%22300%22%20cy%3D%22140%22%20r%3D%2270%22%20fill%3D%22%23f5f5f5%22%20opacity%3D%220.18%22%2F%3E%0A%3Crect%20x%3D%2236%22%20y%3D%22260%22%20width%3D%22328%22%20height%3D%22110%22%20rx%3D%2214%22%20fill%3D%22rgba(12%2C10%2C9%2C0.5)%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22300%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2222%22%20font-weight%3D%22700%22%3EBold%20Food%20Typography%3C%2Ftext%3E%0A%3Crect%20x%3D%22130%22%20y%3D%22335%22%20width%3D%22140%22%20height%3D%2228%22%20rx%3D%2214%22%20fill%3D%22%23f5f5f5%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2212%22%3Enone%20%C2%B7%20center%20%C2%B7%20below-title%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
+	},
+	{
+		"templateUuid": "chefia-official-recipe-ingredients-card",
+		"name": "Recipe Ingredients Card",
+		"category": "recipes",
+		"tags": [
+			"recipe",
+			"recipes",
+			"ingredients",
+			"card",
+			"pinterest",
+			"v2"
+		],
+		"layoutId": "recipe_ingredients_card",
+		"channel": "pinterest",
+		"configuration": {
+			"editorVersion": 2,
+			"schemaVersion": 2,
+			"canvas": {
+				"width": 1000,
+				"height": 1500
+			},
+			"category": "recipes",
+			"meta": {
+				"brandKitId": null,
+				"variantGroupId": null,
+				"autoLayoutProfile": null,
+				"marketplaceMeta": null
+			},
+			"groups": [],
+			"layers": [
+				{
+					"rotation": 0,
+					"opacity": 1,
+					"borderRadius": 0,
+					"visible": true,
+					"locked": false,
+					"groupId": null,
+					"id": "lyr_ric_bg",
+					"type": "background",
+					"name": "Background",
+					"x": 0,
+					"y": 0,
+					"width": 1000,
+					"height": 1500,
+					"zIndex": 0,
+					"props": {
+						"color": "#F5F8FB",
+						"imageSrc": ""
+					}
+				},
+				{
+					"rotation": 0,
+					"opacity": 1,
+					"borderRadius": 0,
+					"visible": true,
+					"locked": false,
+					"groupId": null,
+					"id": "lyr_ric_hero",
+					"type": "image",
+					"name": "Main image",
+					"x": 0,
+					"y": 0,
+					"width": 1000,
+					"height": 820,
+					"zIndex": 1,
+					"props": {
+						"src": "{{image}}",
+						"fit": "cover",
+						"focusX": 0.5,
+						"focusY": 0.35
+					}
+				},
+				{
+					"rotation": 0,
+					"opacity": 1,
+					"borderRadius": 0,
+					"visible": true,
+					"locked": false,
+					"groupId": null,
+					"id": "lyr_ric_hero_shade",
+					"type": "gradient",
+					"name": "Title shade",
+					"x": 0,
+					"y": 520,
+					"width": 1000,
+					"height": 300,
+					"zIndex": 2,
+					"props": {
+						"colors": [
+							"rgba(0,0,0,0)",
+							"rgba(28,25,23,0.72)"
+						],
+						"angle": 90
+					}
+				},
+				{
+					"rotation": 0,
+					"opacity": 1,
+					"borderRadius": 0,
+					"visible": true,
+					"locked": false,
+					"groupId": null,
+					"id": "lyr_ric_title",
+					"type": "text",
+					"name": "Recipe title",
+					"x": 56,
+					"y": 620,
+					"width": 888,
+					"height": 160,
+					"zIndex": 3,
+					"props": {
+						"text": "{{title}}",
+						"fontFamily": "Georgia, \"Times New Roman\", serif",
+						"fontSize": 64,
+						"fontWeight": 700,
+						"color": "#FFFFFF",
+						"align": "center",
+						"lineHeight": 1.12,
+						"maxLines": 3,
+						"shadow": true
+					}
+				},
+				{
+					"rotation": 0,
+					"opacity": 1,
+					"borderRadius": 28,
+					"visible": true,
+					"locked": false,
+					"groupId": null,
+					"id": "lyr_ric_panel",
+					"type": "shape",
+					"name": "Ingredients panel",
+					"x": 40,
+					"y": 860,
+					"width": 920,
+					"height": 600,
+					"zIndex": 4,
+					"props": {
+						"shape": "rect",
+						"fill": "#D7EAF7",
+						"stroke": "",
+						"strokeWidth": 0
+					}
+				},
+				{
+					"rotation": 0,
+					"opacity": 1,
+					"borderRadius": 0,
+					"visible": true,
+					"locked": false,
+					"groupId": null,
+					"id": "lyr_ric_heading",
+					"type": "text",
+					"name": "You'll Need heading",
+					"x": 72,
+					"y": 892,
+					"width": 856,
+					"height": 52,
+					"zIndex": 5,
+					"props": {
+						"text": "You'll Need...",
+						"fontFamily": "Georgia, \"Times New Roman\", serif",
+						"fontSize": 36,
+						"fontWeight": 700,
+						"color": "#1C1917",
+						"align": "left",
+						"lineHeight": 1.15,
+						"maxLines": 1,
+						"shadow": false
+					}
+				},
+				{
+					"rotation": 0,
+					"opacity": 1,
+					"borderRadius": 0,
+					"visible": true,
+					"locked": false,
+					"groupId": null,
+					"id": "lyr_ric_ingredients",
+					"type": "text",
+					"name": "Ingredients list",
+					"x": 72,
+					"y": 960,
+					"width": 856,
+					"height": 400,
+					"zIndex": 6,
+					"props": {
+						"text": "{{ingredients}}",
+						"fontFamily": "\"Segoe UI\", Calibri, sans-serif",
+						"fontSize": 30,
+						"fontWeight": 500,
+						"color": "#292524",
+						"align": "left",
+						"lineHeight": 1.35,
+						"maxLines": 11,
+						"shadow": false
+					}
+				},
+				{
+					"rotation": 0,
+					"opacity": 1,
+					"borderRadius": 0,
+					"visible": true,
+					"locked": false,
+					"groupId": null,
+					"id": "lyr_ric_subtitle",
+					"type": "text",
+					"name": "Subtitle",
+					"x": 72,
+					"y": 1388,
+					"width": 856,
+					"height": 44,
+					"zIndex": 7,
+					"props": {
+						"text": "{{subtitle}}",
+						"fontFamily": "\"Segoe UI\", Calibri, sans-serif",
+						"fontSize": 22,
+						"fontWeight": 500,
+						"color": "#57534E",
+						"align": "left",
+						"lineHeight": 1.2,
+						"maxLines": 1,
+						"shadow": false
+					}
+				}
+			]
+		},
+		"thumbnail": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22400%22%20height%3D%22600%22%20viewBox%3D%220%200%20400%20600%22%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%3Cstop%20stop-color%3D%22%231c1917%22%2F%3E%3Cstop%20offset%3D%220.45%22%20stop-color%3D%22%2344403c%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23d7eaf7%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%22400%22%20height%3D%22600%22%20fill%3D%22url(%23g)%22%2F%3E%0A%3Crect%20x%3D%220%22%20y%3D%220%22%20width%3D%22400%22%20height%3D%22320%22%20fill%3D%22%2378716c%22%2F%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22280%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2220%22%20font-weight%3D%22700%22%3ERecipe%20title%3C%2Ftext%3E%0A%3Crect%20x%3D%2228%22%20y%3D%22340%22%20width%3D%22344%22%20height%3D%22230%22%20rx%3D%2222%22%20fill%3D%22%23d7eaf7%22%2F%3E%0A%3Ctext%20x%3D%2252%22%20y%3D%22380%22%20text-anchor%3D%22start%22%20fill%3D%22%231c1917%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%2218%22%20font-weight%3D%22700%22%3EYou%26%2339%3Bll%20Need...%3C%2Ftext%3E%0A%3Ctext%20x%3D%2252%22%20y%3D%22420%22%20text-anchor%3D%22start%22%20fill%3D%22%2344403c%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2213%22%3E%E2%80%A2%20Ingredient%20one%3C%2Ftext%3E%0A%3Ctext%20x%3D%2252%22%20y%3D%22444%22%20text-anchor%3D%22start%22%20fill%3D%22%2344403c%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2213%22%3E%E2%80%A2%20Ingredient%20two%3C%2Ftext%3E%0A%3Ctext%20x%3D%2252%22%20y%3D%22468%22%20text-anchor%3D%22start%22%20fill%3D%22%2344403c%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2213%22%3E%E2%80%A2%20Ingredient%20three%3C%2Ftext%3E%0A%3Ctext%20x%3D%22200%22%20y%3D%22580%22%20text-anchor%3D%22middle%22%20fill%3D%22rgba(28%2C25%2C23%2C0.55)%22%20font-family%3D%22Segoe%20UI%2Csans-serif%22%20font-size%3D%2211%22%3Ev2%20%C2%B7%20ingredients%20%C2%B7%20panel%3C%2Ftext%3E%0A%3C%2Fsvg%3E"
 	},
 	{
 		"templateUuid": "chefia-official-facebook-centered-hero",

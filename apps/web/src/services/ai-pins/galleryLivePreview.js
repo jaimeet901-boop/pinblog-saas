@@ -103,6 +103,8 @@ export async function renderGalleryTemplatePreview({
 					cta: content.cta,
 					category: content.category,
 					description: content.description,
+					ingredients: content.ingredients || '',
+					recipe: { ingredients: content.ingredients || '' },
 				},
 				websiteDomain: content.website,
 			});
@@ -119,6 +121,8 @@ export async function renderGalleryTemplatePreview({
 					cta: content.cta,
 					category: content.category,
 					description: content.description,
+					ingredients: content.ingredients || '',
+					recipe: { ingredients: content.ingredients || '' },
 				},
 				websiteDomain: content.website,
 			});
