@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import pocketbaseClient from '../utils/pocketbaseClient.js';
 import logger from '../utils/logger.js';
 import {
@@ -20,6 +19,9 @@ import {
 	withPublishJobFailurePayload,
 } from './wordpress-errors.js';
 import { withWordpressPublishCredits } from './wordpress-publish-credits.js';
+import { claimJob } from './wordpress-publish-claim.js';
+
+export { claimJob, WORDPRESS_PUBLISH_JOB_CLAIM_PATH } from './wordpress-publish-claim.js';
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.WORDPRESS_QUEUE_POLL_MS || '10000', 10);
 const MAX_JOBS_PER_TICK = Number.parseInt(process.env.WORDPRESS_QUEUE_BATCH || '5', 10);
@@ -82,31 +84,6 @@ function nextRetryDate(attemptCount = 1) {
 	const delays = [0, 30_000, 120_000, 300_000];
 	const delay = delays[Math.min(capped, delays.length - 1)] || capped * 60_000;
 	return new Date(Date.now() + delay).toISOString();
-}
-
-async function claimJob(jobId) {
-	const current = await pocketbaseClient.collection('publish_jobs').getOne(jobId).catch(() => null);
-	if (!current || !['queued', 'scheduled'].includes(current.status)) {
-		return null;
-	}
-
-	const claimToken = randomBytes(16).toString('hex');
-	const nextVersion = Number(current.claim_version || 0) + 1;
-	const locked = await pocketbaseClient.collection('publish_jobs').update(jobId, {
-		status: 'publishing',
-		claim_token: claimToken,
-		claim_version: nextVersion,
-		started_at: current.started_at || new Date().toISOString(),
-		progress: 10,
-	}).catch(() => null);
-
-	if (!locked || locked.status !== 'publishing') return null;
-
-	const verified = await pocketbaseClient.collection('publish_jobs').getOne(jobId).catch(() => null);
-	if (!verified || verified.status !== 'publishing' || verified.claim_token !== claimToken) {
-		return null;
-	}
-	return verified;
 }
 
 async function markAuthFailure(siteId, websiteId, message) {

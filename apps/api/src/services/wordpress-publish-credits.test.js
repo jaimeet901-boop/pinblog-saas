@@ -20,6 +20,7 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const helperSource = readFileSync(path.join(here, 'wordpress-publish-credits.js'), 'utf8');
 const queueSource = readFileSync(path.join(here, 'wordpress-publish-queue.js'), 'utf8');
+const claimSource = readFileSync(path.join(here, 'wordpress-publish-claim.js'), 'utf8');
 const pipelineSource = readFileSync(path.join(here, 'publish-pipeline.js'), 'utf8');
 const engineSource = readFileSync(path.join(here, 'credits-engine.js'), 'utf8');
 
@@ -400,7 +401,7 @@ describe('CR-P1-3 wiring — reservation location and existing success path', ()
 	});
 
 	it('J. scheduled WordPress publishing follows the same gate', () => {
-		assert.match(queueSource, /\['queued', 'scheduled'\]\.includes\(current\.status\)/);
+		assert.match(claimSource, /\['queued', 'scheduled'\]\.includes\(current\.status\)/);
 		assert.match(queueSource, /status = "scheduled" && scheduled_at <= \{:now\}/);
 		assert.match(queueSource, /processJob\(claimed\)/);
 		assert.ok(
@@ -417,9 +418,10 @@ describe('CR-P1-3 wiring — reservation location and existing success path', ()
 	});
 
 	it('queue claim still aborts on token mismatch before processJob', () => {
-		assert.match(queueSource, /verified.claim_token !== claimToken/);
+		assert.match(claimSource, /verified.claim_token !== claimToken/);
+		assert.match(queueSource, /from '\.\/wordpress-publish-claim\.js'/);
 		assert.ok(
-			queueSource.indexOf('verified.claim_token !== claimToken')
+			queueSource.indexOf('claimJob(candidate.id)')
 				< queueSource.indexOf('processJob(claimed)'),
 		);
 	});
