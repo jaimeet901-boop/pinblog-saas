@@ -372,6 +372,30 @@ describe('toWordpressPublishingHistoryUiRow', () => {
 		expect(row.channelPayload).toBeUndefined();
 	});
 
+	it('labels accepted WordPress future as Scheduled on WordPress and not cancellable', () => {
+		const row = toWordpressPublishingHistoryUiRow(sampleWordpressNormalizedItem({
+			status: 'scheduled',
+			nativeStatus: 'published',
+			channelPayload: {
+				siteId: 'site_9',
+				wpStatus: 'future',
+				wpPostId: 441,
+				wpPostUrl: 'https://kitchen.example/tomato-soup',
+				slug: 'tomato-soup',
+			},
+			actions: {
+				canCancel: false,
+				canRetry: false,
+				canPublishNow: false,
+			},
+		}));
+		expect(row.status).toBe('scheduled');
+		expect(row.statusLabel).toBe('Scheduled on WordPress');
+		expect(row.canCancel).toBe(false);
+		expect(row.wpStatus).toBe('future');
+		expect(row.nativeStatus).toBe('published');
+	});
+
 	it('routes wordpress channel through toPublishingHistoryUiRow', () => {
 		const row = toPublishingHistoryUiRow(sampleWordpressNormalizedItem(), { channel: 'wordpress' });
 		expect(row.wpPostUrl).toBe('https://kitchen.example/tomato-soup');

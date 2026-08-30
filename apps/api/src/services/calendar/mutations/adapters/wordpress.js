@@ -7,6 +7,7 @@
  */
 
 import { mapWordpressJobToScheduledItem } from '../../providers/wordpress.js';
+import { syncArticleToDraftOnPublishAbort } from '../../../wordpress-article-status-sync.js';
 
 function freezeError(status, message, errorCode = 'VALIDATION_ERROR') {
 	const error = new Error(message);
@@ -39,6 +40,7 @@ async function assertOwnedJob(deps, req, jobId) {
  *   sanitize?: Function,
  *   resolveScheduledAtUtc: Function,
  *   getOwner?: Function,
+ *   updateArticle?: Function,
  * }} deps
  */
 export function createWordpressMutationAdapter(deps) {
@@ -48,6 +50,7 @@ export function createWordpressMutationAdapter(deps) {
 
 	const d = {
 		sanitize: async ({ payload }) => payload,
+		updateArticle: null,
 		...deps,
 	};
 
@@ -113,6 +116,11 @@ export function createWordpressMutationAdapter(deps) {
 			});
 
 			const updated = await d.updateJob(job.id, cancelledPayload);
+			if (job.article_id) {
+				await syncArticleToDraftOnPublishAbort(job.article_id, {
+					updateArticle: typeof d.updateArticle === 'function' ? d.updateArticle : undefined,
+				}).catch(() => null);
+			}
 			return {
 				channel: 'wordpress',
 				refId: updated.id,

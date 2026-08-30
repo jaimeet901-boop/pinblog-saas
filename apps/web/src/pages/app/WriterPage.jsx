@@ -1020,8 +1020,10 @@ Respond ONLY with the JSON object described in your instructions.`;
 
 			if (data.queued && !publishedUrl) {
 			toast({
-					title: 'Publish queued',
-					description: 'WordPress job is processing in the background. Check history shortly.',
+					title: extras.scheduledAt ? 'Scheduled on WordPress' : 'Publish queued',
+					description: extras.scheduledAt
+						? (publishedUrl || (data.id ? `Post #${data.id} created.` : 'Job accepted.'))
+						: 'WordPress job is processing in the background. Check history shortly.',
 				});
 			} else {
 				toast({

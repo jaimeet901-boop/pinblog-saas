@@ -20,6 +20,7 @@ import {
 } from './wordpress-errors.js';
 import { withWordpressPublishCredits } from './wordpress-publish-credits.js';
 import { claimJob } from './wordpress-publish-claim.js';
+import { applyWordpressPublishFailureArticleSync } from './wordpress-article-status-sync.js';
 
 export { claimJob, WORDPRESS_PUBLISH_JOB_CLAIM_PATH } from './wordpress-publish-claim.js';
 
@@ -409,6 +410,9 @@ async function failOrRetry(job, error) {
 		claim_token: '',
 		payload: failurePayload,
 	});
+	if (job.article_id) {
+		await applyWordpressPublishFailureArticleSync(job, { retryable: false }).catch(() => null);
+	}
 	await writeWordpressPublishQueueAudit({
 		...job,
 		status: 'failed',

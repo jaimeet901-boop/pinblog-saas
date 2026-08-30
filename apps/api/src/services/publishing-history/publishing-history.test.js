@@ -210,4 +210,25 @@ describe('normalizeWordpressPublishJob', () => {
 		assert.equal(item.actions.cancelPath, '/wordpress/jobs/wp3/cancel');
 		assert.equal(item.actions.canPublishNow, true);
 	});
+
+	it('presents accepted WordPress future as scheduled, not live published', () => {
+		const item = normalizeWordpressPublishJob({
+			id: 'wp_future',
+			site: 'site1',
+			title: 'Queued on WP',
+			status: 'published',
+			wp_status: 'future',
+			wp_post_id: 77,
+			wp_post_url: 'https://blog.example/queued',
+			scheduled_at: '2026-09-01T00:00:00.000Z',
+			completed_at: '2026-08-01T12:00:00.000Z',
+			created: '2026-08-01T11:00:00.000Z',
+			updated: '2026-08-01T12:00:00.000Z',
+		});
+		assert.equal(item.status, 'scheduled');
+		assert.equal(item.nativeStatus, 'published');
+		assert.equal(item.channelPayload.wpStatus, 'future');
+		assert.equal(item.actions.canCancel, false);
+		assert.equal(item.actions.cancelPath, null);
+	});
 });

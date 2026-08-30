@@ -41,7 +41,8 @@ function statusTone(status) {
 	return 'default';
 }
 
-function formatStatus(status) {
+function formatStatus(status, item) {
+	if (item?.statusLabel) return item.statusLabel;
 	if (!status) return 'Unknown';
 	return String(status).charAt(0).toUpperCase() + String(status).slice(1);
 }
@@ -426,9 +427,12 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 
 	const renderRowActions = (item, compact = false) => {
 		const canRetry = item.status === 'failed';
-		const canCancel = item.status === 'scheduled';
+		const canCancel = item.canCancel != null
+			? Boolean(item.canCancel)
+			: item.status === 'scheduled';
 		const canPublishNow = view.supportsPublishNow !== false
-			&& (item.status === 'scheduled' || item.status === 'failed');
+			&& (item.status === 'scheduled' || item.status === 'failed')
+			&& !(item.nativeStatus === 'published' && item.wpStatus === 'future');
 		const canCopy = Boolean(externalPostUrl(item));
 		const canOpenPost = Boolean(externalPostUrl(item));
 		const canOpenArticle = Boolean(historyContent(item)?.destinationUrl || item.destinationUrl);
@@ -685,7 +689,7 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 												<td className="whitespace-nowrap text-muted-foreground">
 													{publishStamp(item) ? new Date(publishStamp(item)).toLocaleString() : '—'}
 												</td>
-												<td><Badge tone={statusTone(item.status)}>{formatStatus(item.status)}</Badge></td>
+												<td><Badge tone={statusTone(item.status)}>{formatStatus(item.status, item)}</Badge></td>
 												<td>{renderRowActions(item, true)}</td>
 											</tr>
 										))}
@@ -710,7 +714,7 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 											<div className="min-w-0 flex-1 text-left">
 												<p className="truncate text-sm font-semibold">{historyContent(item)?.title || view.untitledFallback}</p>
 												<p className="mt-0.5 truncate text-xs text-muted-foreground">{destinationLabel(item)} · {accountLabel(item)}</p>
-												<div className="mt-2"><Badge tone={statusTone(item.status)}>{formatStatus(item.status)}</Badge></div>
+												<div className="mt-2"><Badge tone={statusTone(item.status)}>{formatStatus(item.status, item)}</Badge></div>
 											</div>
 										</div>
 										<div className="mt-3">{renderRowActions(item)}</div>
@@ -747,7 +751,7 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 
 							<div>
 								<p className="font-display text-lg font-semibold leading-snug">{historyContent(selected)?.title || view.untitledFallback}</p>
-								<div className="mt-2"><Badge tone={statusTone(selected.status)}>{formatStatus(selected.status)}</Badge></div>
+								<div className="mt-2"><Badge tone={statusTone(selected.status)}>{formatStatus(selected.status, selected)}</Badge></div>
 							</div>
 
 							<div className="pub-meta">
@@ -795,13 +799,15 @@ export default function PublishingHistoryPage({ product = AI_PINS_PRODUCT }) {
 										Retry
 									</Button>
 								) : null}
-								{selected.status === 'scheduled' || selected.status === 'failed' ? (
+								{view.supportsPublishNow !== false
+									&& (selected.status === 'scheduled' || selected.status === 'failed')
+									&& !(selected.nativeStatus === 'published' && selected.wpStatus === 'future') ? (
 									<Button size="sm" variant="outline" onClick={() => publishNow(selected.id)} disabled={publishingNowId === selected.id}>
 										{publishingNowId === selected.id ? <Spinner className="h-4 w-4" /> : <Send size={14} />}
 										Publish Now
 									</Button>
 								) : null}
-								{selected.status === 'scheduled' ? (
+								{(selected.canCancel != null ? selected.canCancel : selected.status === 'scheduled') ? (
 									<Button size="sm" variant="outline" onClick={() => cancelScheduled(selected.id)} disabled={cancellingId === selected.id}>
 										{cancellingId === selected.id ? <Spinner className="h-4 w-4" /> : <XCircle size={14} />}
 										Cancel schedule

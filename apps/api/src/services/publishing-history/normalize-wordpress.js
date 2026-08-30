@@ -22,7 +22,13 @@ import {
 export function normalizeWordpressPublishJob(job = {}, ctx = {}) {
 	const site = ctx.site || job.expand?.site || null;
 	const nativeStatus = asText(job.status, 40);
-	const status = normalizePublishingStatus(nativeStatus);
+	const wpStatus = asText(job.wp_status || job.wpStatus, 40);
+	const acceptedWpFuture = String(nativeStatus).toLowerCase() === 'published'
+		&& String(wpStatus).toLowerCase() === 'future';
+	// Keep publish_jobs.status terminal "published" in DB; present WP future as scheduled in history.
+	const status = acceptedWpFuture
+		? 'scheduled'
+		: normalizePublishingStatus(nativeStatus);
 	const jobId = asText(job.id, 80);
 	const item = baseItem({
 		channel: 'wordpress',
@@ -71,20 +77,28 @@ export function normalizeWordpressPublishJob(job = {}, ctx = {}) {
 	item.nextRetryAt = asIsoOrNull(job.next_retry_at);
 	item.lastError = asText(job.last_error, 5000);
 
-	item.actions = buildActions({
+	const actions = buildActions({
 		status,
 		externalUrl,
 		retryPath: `/wordpress/jobs/${encodeURIComponent(jobId)}/retry`,
 		cancelPath: `/wordpress/jobs/${encodeURIComponent(jobId)}/cancel`,
 		publishNowPath: null,
 	});
+	// Terminal WP-future acceptance stays non-cancellable (job lifecycle remains published).
+	if (acceptedWpFuture) {
+		actions.canCancel = false;
+		actions.canPublishNow = false;
+		actions.cancelPath = null;
+		actions.publishNowPath = null;
+	}
+	item.actions = actions;
 
 	item.workflowId = asText(job.workflow_id, 120) || null;
 	item.correlationId = asText(job.correlation_id || job.idempotency_key, 120) || null;
 
 	item.channelPayload = {
 		siteId: item.destination.targetId,
-		wpStatus: asText(job.wp_status, 40),
+		wpStatus,
 		wpPostId: job.wp_post_id != null ? Number(job.wp_post_id) || null : null,
 		wpPostUrl: externalUrl,
 		progress: asNumber(job.progress, 0),

@@ -168,6 +168,18 @@ export function toWordpressPublishingHistoryUiRow(item) {
 		scheduledAt: item.scheduledAt || '',
 		timezone: asText(item.timezone),
 		status: asText(item.status) || asText(item.nativeStatus),
+		nativeStatus: asText(item.nativeStatus),
+		wpStatus: asText(payload.wpStatus),
+		statusLabel: (
+			asText(item.status) === 'scheduled'
+			&& asText(item.nativeStatus).toLowerCase() === 'published'
+			&& asText(payload.wpStatus).toLowerCase() === 'future'
+		)
+			? 'Scheduled on WordPress'
+			: '',
+		canCancel: item.actions && typeof item.actions === 'object'
+			? Boolean(item.actions.canCancel)
+			: (asText(item.status) === 'scheduled'),
 		attemptCount: Number(item.attemptCount) || 0,
 		maxAttempts: Number(item.maxAttempts) || 3,
 		nextRetryAt: item.nextRetryAt || '',
