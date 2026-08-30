@@ -102,3 +102,53 @@ describe('High Priority #3 — Writer publish/schedule double-submit lock', () =
 		expect(src).toMatch(/if \(submitting \|\| submitLockRef\.current\) return/);
 	});
 });
+
+describe('P1 #4 — Writer schedule timezone metadata', () => {
+	it('forwards selected timezone into /wordpress/schedule request body', () => {
+		const writerSrc = readFileSync(writerPagePath, 'utf8');
+		const modalSrc = readFileSync(scheduleModalPath, 'utf8');
+
+		const handleBlock = writerSrc.slice(
+			writerSrc.indexOf('const handleScheduleSubmit'),
+			writerSrc.indexOf('const copyArticle'),
+		);
+		expect(handleBlock).toMatch(/handleScheduleSubmit = async \(\{ scheduledAt, timezone \}\)/);
+		expect(handleBlock).toMatch(/timezone,/);
+
+		const publishBlock = writerSrc.slice(
+			writerSrc.indexOf('const publishToWp'),
+			writerSrc.indexOf('const openScheduleModal'),
+		);
+		expect(publishBlock).toContain("'/wordpress/schedule'");
+		expect(publishBlock).toMatch(/\.\.\.\(extras\.timezone \? \{ timezone: extras\.timezone \} : \{\}\)/);
+		expect(publishBlock).toMatch(/scheduledAt: extras\.scheduledAt \|\| undefined/);
+
+		// Same omit-when-empty body merge used by publishToWp for /wordpress/schedule.
+		const extras = {
+			scheduledAt: '2026-11-01T15:00:00.000Z',
+			timezone: 'America/New_York',
+		};
+		const scheduleBody = {
+			scheduledAt: extras.scheduledAt || undefined,
+			...(extras.timezone ? { timezone: extras.timezone } : {}),
+		};
+		expect(scheduleBody.timezone).toBe('America/New_York');
+		expect(scheduleBody.scheduledAt).toBe('2026-11-01T15:00:00.000Z');
+		expect({
+			scheduledAt: extras.scheduledAt || undefined,
+			...({} /* empty timezone omitted */),
+		}).not.toHaveProperty('timezone');
+
+		// Modal still produces UTC ISO via existing conversion; timezone is metadata only.
+		expect(modalSrc).toContain('export function scheduleWallTimeToIso');
+		expect(modalSrc).toMatch(/const scheduledAt = scheduleWallTimeToIso\(date, time, timezone\)/);
+		expect(modalSrc).toMatch(/await onSubmit\?\.\(\{\s*scheduledAt,\s*timezone,/);
+	});
+
+	it('does not alter scheduleWallTimeToIso conversion logic', () => {
+		const modalSrc = readFileSync(scheduleModalPath, 'utf8');
+		expect(modalSrc).toContain("timeZone: tz");
+		expect(modalSrc).toContain('return result.toISOString()');
+		expect(modalSrc).not.toMatch(/scheduleWallTimeToIso[\s\S]*Date\.parse\(timezone\)/);
+	});
+});

@@ -998,6 +998,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 					metaDescription: article.meta_description,
 					status: extras.scheduledAt ? 'future' : wpStatus,
 					scheduledAt: extras.scheduledAt || undefined,
+					...(extras.timezone ? { timezone: extras.timezone } : {}),
 					categories: form.wpCategory ? [form.wpCategory] : [],
 					tags: form.tags,
 					featuredImageUrl: article.featured_image || article.image_url || '',
@@ -1085,9 +1086,10 @@ Respond ONLY with the JSON object described in your instructions.`;
 		setScheduleOpen(true);
 	};
 
-	const handleScheduleSubmit = async ({ scheduledAt }) => {
+	const handleScheduleSubmit = async ({ scheduledAt, timezone }) => {
 		await publishToWp('future', {
 			scheduledAt,
+			timezone,
 			throwOnError: true,
 			silent: true,
 		});
