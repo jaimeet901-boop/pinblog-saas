@@ -1,5 +1,6 @@
 /**
- * P0 #2 — WordPress publish_jobs atomic claim (DB-side conditional UPDATE).
+ * P0 #2 — WordPress publish_jobs atomic claim (API-side; image-safe).
+ * Does not read apps/pocketbase (API image has apps/api only).
  * Run: node --test src/services/wordpress-publish-queue.claim-cas.test.js
  */
 import assert from 'node:assert/strict';
@@ -12,19 +13,9 @@ import {
 	claimJob,
 } from './wordpress-publish-claim.js';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
-const claimSource = readFileSync(
-	path.join(root, 'apps/api/src/services/wordpress-publish-claim.js'),
-	'utf8',
-);
-const queueSource = readFileSync(
-	path.join(root, 'apps/api/src/services/wordpress-publish-queue.js'),
-	'utf8',
-);
-const hookSource = readFileSync(
-	path.join(root, 'apps/pocketbase/pb_hooks/wordpress-publish-jobs-claim.pb.js'),
-	'utf8',
-);
+const here = path.dirname(fileURLToPath(import.meta.url));
+const claimSource = readFileSync(path.join(here, 'wordpress-publish-claim.js'), 'utf8');
+const queueSource = readFileSync(path.join(here, 'wordpress-publish-queue.js'), 'utf8');
 
 /**
  * Simulates PocketBase conditional UPDATE: only one concurrent claim wins.
@@ -131,22 +122,5 @@ describe('wordpress publish queue atomic claim (P0 #2)', () => {
 
 	it('exports claim path constant', () => {
 		assert.equal(WORDPRESS_PUBLISH_JOB_CLAIM_PATH, '/api/wordpress/publish-jobs/claim');
-	});
-});
-
-describe('wordpress publish-jobs claim hook contract (P0 #2)', () => {
-	it('registers POST claim with superuser auth and conditional SQL', () => {
-		assert.match(hookSource, /routerAdd\("POST", "\/api\/wordpress\/publish-jobs\/claim"/);
-		assert.match(hookSource, /\$apis\.requireSuperuserAuth\(\)/);
-		assert.match(hookSource, /\$app\.db\(\)/);
-		assert.match(hookSource, /newQuery\(/);
-		assert.match(hookSource, /UPDATE publish_jobs SET/);
-		assert.match(hookSource, /status = 'publishing'/);
-		assert.match(hookSource, /claim_token = \{:token\}/);
-		assert.match(hookSource, /claim_version = COALESCE\(claim_version, 0\) \+ 1/);
-		assert.match(hookSource, /WHERE id = \{:id\} AND status IN \('queued', 'scheduled'\)/);
-		assert.match(hookSource, /rowsAffected/);
-		assert.match(hookSource, /affected !== 1/);
-		assert.doesNotMatch(hookSource, /collection\(['"]publish_jobs['"]\)\.update/);
 	});
 });
