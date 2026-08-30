@@ -983,6 +983,57 @@ export async function uploadWordpressMedia({
 	};
 }
 
+/** Statuses included when recovering a post/page created before local wp_post_id persistence. */
+export const WORDPRESS_SLUG_RECOVERY_STATUSES = 'publish,future,draft,pending,private';
+
+/**
+ * Require exactly one item whose slug equals `slug` (trimmed). Ambiguous/empty → null.
+ * @param {Array<{ id?: number, slug?: string }>} items
+ * @param {string} slug
+ */
+export function pickExactWordpressSlugMatch(items, slug) {
+	const wanted = String(slug || '').trim();
+	if (!wanted) return null;
+	const matches = (Array.isArray(items) ? items : []).filter((item) => (
+		String(item?.slug || '').trim() === wanted
+		&& Number(item?.id) > 0
+	));
+	if (matches.length !== 1) return null;
+	return matches[0];
+}
+
+/**
+ * Look up an existing WP post/page by exact slug for create-retry recovery.
+ * Returns null on no match, ambiguity, or lookup failure (caller should create).
+ */
+export async function findWordpressContentByExactSlug({
+	url,
+	username,
+	appPassword,
+	password,
+	authType,
+	slug,
+	contentType = 'post',
+	logContext = null,
+} = {}) {
+	const wanted = String(slug || '').trim();
+	if (!wanted) return null;
+
+	try {
+		const base = resolveWordpressOrigin(url);
+		const auth = authFromOptions({ authType, username, appPassword, password });
+		const resource = contentType === 'page' ? 'pages' : 'posts';
+		const path = `/wp-json/wp/v2/${resource}`
+			+ `?slug=${encodeURIComponent(wanted)}`
+			+ `&status=${encodeURIComponent(WORDPRESS_SLUG_RECOVERY_STATUSES)}`
+			+ '&per_page=10&context=edit';
+		const items = await wpFetch(base, auth, path, { logContext });
+		return pickExactWordpressSlugMatch(items, wanted);
+	} catch {
+		return null;
+	}
+}
+
 export async function createOrUpdateWordpressPost({
 	url,
 	username,

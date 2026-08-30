@@ -2,6 +2,7 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import logger from '../utils/logger.js';
 import {
 	createOrUpdateWordpressPost,
+	findWordpressContentByExactSlug,
 	uploadWordpressMedia,
 } from './wordpress-client.js';
 import { getSiteCredentialsPlain } from './wordpress-sites.js';
@@ -251,8 +252,23 @@ async function processJob(job) {
 		return;
 	}
 
-	const updatePostId = resolveWordpressUpdatePostId(job);
+	let updatePostId = resolveWordpressUpdatePostId(job);
 	const contentType = job.payload?.contentType === 'page' ? 'page' : 'post';
+	if (!updatePostId && String(job.slug || '').trim()) {
+		const recovered = await findWordpressContentByExactSlug({
+			url: site.url,
+			username,
+			appPassword,
+			authType,
+			slug: job.slug,
+			contentType,
+			logContext,
+		}).catch(() => null);
+		const recoveredId = Number(recovered?.id) || 0;
+		if (recoveredId > 0) {
+			updatePostId = recoveredId;
+		}
+	}
 	const result = await withWordpressPublishCredits(job, async () => createOrUpdateWordpressPost({
 		url: site.url,
 		username,
