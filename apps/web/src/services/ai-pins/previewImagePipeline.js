@@ -21,6 +21,19 @@ const POLL_INTERVAL_MS = 2500;
 const POLL_ATTEMPTS = 80;
 const PREVIEW_COMPOSE_CONCURRENCY = 2;
 
+/** One patch per tempId; later updates replace earlier queued/poll patches. */
+function upsertPinPatch(collection, item) {
+	if (!item?.tempId) {
+		return;
+	}
+	const idx = collection.findIndex((patch) => patch.tempId === item.tempId);
+	if (idx >= 0) {
+		collection[idx] = item;
+	} else {
+		collection.push(item);
+	}
+}
+
 async function runWithConcurrency(items, concurrency, workerFn) {
 	const list = Array.isArray(items) ? items : [];
 	if (list.length === 0) {
@@ -191,7 +204,7 @@ async function pollAndComposePreviewImageJobs({
 			isCancelled,
 		});
 		for (const item of composePatches) {
-			pinPatches.push(item);
+			upsertPinPatch(pinPatches, item);
 			if (typeof onPinPatch === 'function') {
 				onPinPatch(item);
 			}
@@ -217,7 +230,7 @@ async function pollAndComposePreviewImageJobs({
 		isCancelled,
 	});
 	for (const item of remainingPatches) {
-		pinPatches.push(item);
+		upsertPinPatch(pinPatches, item);
 		if (typeof onPinPatch === 'function') {
 			onPinPatch(item);
 		}
@@ -651,7 +664,7 @@ export async function runPreviewImagePipeline({
 	for (const pin of aiPins) {
 		const job = queuedJobs.find((item) => item.clientToken === pin.tempId);
 		if (job) {
-			pinPatches.push({ tempId: pin.tempId, patch: mapPollJobToPinPatch(pin, job) });
+			upsertPinPatch(pinPatches, { tempId: pin.tempId, patch: mapPollJobToPinPatch(pin, job) });
 		}
 	}
 
@@ -678,10 +691,7 @@ export async function runPreviewImagePipeline({
 			if (isCancelled()) {
 				return;
 			}
-			const existing = pinPatches.find((patch) => patch.tempId === item.tempId);
-			if (!existing) {
-				pinPatches.push(item);
-			}
+			upsertPinPatch(pinPatches, item);
 			if (typeof onPinPatch === 'function') {
 				onPinPatch(item);
 			}
@@ -690,9 +700,7 @@ export async function runPreviewImagePipeline({
 	});
 
 	for (const item of polledComposePatches) {
-		if (!pinPatches.some((patch) => patch.tempId === item.tempId)) {
-			pinPatches.push(item);
-		}
+		upsertPinPatch(pinPatches, item);
 	}
 
 	if (isCancelled()) {

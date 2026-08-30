@@ -234,5 +234,54 @@ describe('previewImagePipeline compose-on-completion', () => {
 		});
 		expect(result.pinPatches).toHaveLength(1);
 		expect(result.pinPatches[0].tempId).toBe('solo');
+		expect(result.pinPatches[0].patch.imageGenerationStatus).toBe('completed');
+		expect(result.pinPatches[0].patch.imageUrl).toContain('composed-solo');
+	});
+
+	it('replaces queued patch with completed compose patch for the same tempId', async () => {
+		const fetchFn = vi.fn(async (url) => {
+			if (String(url).includes('/jobs?ids=')) {
+				return {
+					ok: true,
+					json: async () => ({
+						items: [{
+							id: 'j-chicago',
+							clientToken: 'article-1',
+							status: 'completed',
+							imageUrl: 'https://cdn.example/ai-background.png',
+						}],
+					}),
+				};
+			}
+			return {
+				ok: true,
+				json: async () => ({
+					items: [{
+						id: 'j-chicago',
+						clientToken: 'article-1',
+						status: 'queued',
+					}],
+				}),
+			};
+		});
+
+		const result = await runPreviewImagePipeline({
+			fetchFn,
+			pins: [{
+				tempId: 'article-1',
+				articleId: 'a1',
+				title: 'Classic Chicago Spaghetti Night',
+				imageMode: 'generate_ai',
+				imagePlan: { imageMode: 'generate_ai' },
+				featuredImage: 'https://cdn.example/featured.jpg',
+				sourceImageUrl: 'https://cdn.example/featured.jpg',
+			}],
+		});
+
+		expect(result.pinPatches).toHaveLength(1);
+		const finalPatch = result.pinPatches[0].patch;
+		expect(finalPatch.imageGenerationStatus).toBe('completed');
+		expect(finalPatch.imageUrl).toContain('composed-article-1');
+		expect(finalPatch.imageGenerationStatus).not.toBe('queued');
 	});
 });
