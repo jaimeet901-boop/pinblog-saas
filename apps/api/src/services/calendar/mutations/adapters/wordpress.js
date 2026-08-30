@@ -95,6 +95,9 @@ export function createWordpressMutationAdapter(deps) {
 
 		async cancel(req, refId) {
 			const { job } = await assertOwnedJob(d, req, refId);
+			if (job.status === 'publishing') {
+				throw freezeError(409, 'Job is already publishing and cannot be cancelled', 'JOB_PUBLISHING');
+			}
 			if (['published', 'cancelled'].includes(job.status)) {
 				throw freezeError(400, 'Job cannot be cancelled', 'INVALID_STATUS');
 			}

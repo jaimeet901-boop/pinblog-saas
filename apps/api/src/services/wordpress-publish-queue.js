@@ -139,6 +139,41 @@ function resolveWordpressUpdatePostId(job) {
 	return job.payload?.updatePostId || job.wp_post_id || null;
 }
 
+/**
+ * Re-read publish_jobs and confirm this worker still owns an active claim.
+ * Returns true to proceed; false to abort without mutating status.
+ */
+async function assertWordpressPublishClaimStillActive(job) {
+	const jobId = job?.id;
+	if (!jobId) {
+		logger.warn('[wordpress-queue] claim re-check aborted: missing job id');
+		return false;
+	}
+
+	const fresh = await pocketbaseClient.collection('publish_jobs').getOne(jobId).catch(() => null);
+	if (!fresh) {
+		logger.info(`[wordpress-queue] job ${jobId} claim re-check aborted: job missing`);
+		return false;
+	}
+	if (fresh.status === 'cancelled') {
+		logger.info(`[wordpress-queue] job ${jobId} claim re-check aborted: cancelled`);
+		return false;
+	}
+	if (fresh.status !== 'publishing') {
+		logger.info(`[wordpress-queue] job ${jobId} claim re-check aborted: status=${fresh.status}`);
+		return false;
+	}
+	if (String(fresh.claim_token || '') !== String(job.claim_token || '')) {
+		logger.info(`[wordpress-queue] job ${jobId} claim re-check aborted: claim_token mismatch`);
+		return false;
+	}
+	if (Number(fresh.claim_version || 0) !== Number(job.claim_version || 0)) {
+		logger.info(`[wordpress-queue] job ${jobId} claim re-check aborted: claim_version mismatch`);
+		return false;
+	}
+	return true;
+}
+
 async function processJob(job) {
 	const started = Date.now();
 	const ownerId = job.owner;
@@ -231,6 +266,11 @@ async function processJob(job) {
 		}
 	} else {
 		await pocketbaseClient.collection('publish_jobs').update(job.id, { progress: 55 }).catch(() => null);
+	}
+
+	const claimStillActive = await assertWordpressPublishClaimStillActive(job);
+	if (!claimStillActive) {
+		return;
 	}
 
 	const updatePostId = resolveWordpressUpdatePostId(job);

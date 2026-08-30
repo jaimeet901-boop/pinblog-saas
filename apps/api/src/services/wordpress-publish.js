@@ -293,6 +293,9 @@ export async function retryPublishJob(ownerId, jobId, req = null) {
 
 export async function cancelPublishJob(ownerId, jobId, req = null) {
 	const job = await loadOwnedPublishJob(ownerId, jobId, req);
+	if (job.status === 'publishing') {
+		throw httpError(409, 'Job is already publishing and cannot be cancelled', 'JOB_PUBLISHING');
+	}
 	if (['published', 'cancelled'].includes(job.status)) {
 		throw httpError(400, 'Job cannot be cancelled', 'INVALID_STATUS');
 	}
