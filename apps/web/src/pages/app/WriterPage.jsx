@@ -14,6 +14,13 @@ import {
 	autoHeadingCount,
 	resolveWriterLengthPreset,
 } from '@/lib/writerArticleLength';
+import {
+	DEFAULT_WRITER_LANGUAGE,
+	WRITER_LANGUAGES,
+	buildWriterLanguageEnforcement,
+	normalizeWriterLanguage,
+	writerContentLanguageAttrs,
+} from '@/lib/writerLanguage';
 import { uploadImageBlob } from '@/services/ai-pins/imageLifecycle';
 import { useWorkspaceWebsites } from '@/hooks/useWorkspaceWebsites';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
@@ -61,7 +68,7 @@ const initForm = {
 	keyword: '',
 	secondary: '',
 	country: 'United States',
-	language: 'English',
+	language: DEFAULT_WRITER_LANGUAGE,
 	length: resolveWriterLengthPreset('medium').label,
 	tone: 'Friendly',
 	headings: autoHeadingCount(resolveWriterLengthPreset('medium')),
@@ -535,7 +542,10 @@ export default function WriterPage() {
 		streamRef.current.scrollTop = streamRef.current.scrollHeight;
 	}, [stream, generating]);
 
-	const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+	const set = (k) => (e) => setForm((f) => ({
+		...f,
+		[k]: k === 'language' ? normalizeWriterLanguage(e.target.value) : e.target.value,
+	}));
 	const setLength = (e) => {
 		const nextLength = e.target.value;
 		const preset = resolveWriterLengthPreset(nextLength);
@@ -623,6 +633,10 @@ export default function WriterPage() {
 
 	const insights = useMemo(() => scoreArticle(article, form), [article, form]);
 	const creditEstimate = writerCreditCost;
+	const contentLangAttrs = useMemo(
+		() => writerContentLanguageAttrs(form.language),
+		[form.language],
+	);
 
 	const buildPrompt = () => {
 		const include = Object.entries(options)
@@ -642,12 +656,14 @@ export default function WriterPage() {
 		const seo = seoLevelGuidance(form.seoLevel);
 		const lengthPreset = resolveWriterLengthPreset(form.length);
 		const headingTarget = autoHeadingCount(lengthPreset);
+		const language = normalizeWriterLanguage(form.language);
 
 		return `Write a complete SEO-optimized food blog article.
 Main keyword: ${form.keyword}
 Secondary keywords: ${form.secondary || 'none'}
 Country: ${form.country}
-Language: ${form.language}
+Language: ${language}
+${buildWriterLanguageEnforcement(language)}
 Article length: ${lengthPreset.label}
 Required word count: ${lengthPreset.minWords}-${lengthPreset.maxWords} words (introduction + sections + FAQ + conclusion).
 NEVER stop before ${lengthPreset.minWords} words. Expand sections and add H2/H3 headings as needed.
@@ -757,6 +773,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 				articleLength: lengthPreset.id,
 				minWords: lengthPreset.minWords,
 				maxWords: lengthPreset.maxWords,
+				language: normalizeWriterLanguage(form.language),
 			});
 			if (cancelRequestedRef.current || controller.signal.aborted) {
 				throw Object.assign(new Error('Generation cancelled'), { errorCode: 'GENERATION_CANCELLED' });
@@ -1112,7 +1129,13 @@ Respond ONLY with the JSON object described in your instructions.`;
 		setArticle(next);
 		setArticleBaseline(next);
 		setSavedFingerprint(null);
-		if (item.formSnapshot) setForm((prev) => ({ ...prev, ...item.formSnapshot }));
+		if (item.formSnapshot) {
+			setForm((prev) => ({
+				...prev,
+				...item.formSnapshot,
+				language: normalizeWriterLanguage(item.formSnapshot.language || prev.language),
+			}));
+		}
 		toast({ title: 'Restored', description: item.title });
 	};
 
@@ -1138,7 +1161,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 		const nextForm = {
 			...form,
 			keyword: draft.keyword || form.keyword,
-			language: draft.language || form.language,
+			language: normalizeWriterLanguage(draft.language || form.language),
 			country: draft.country || form.country,
 			tone: draft.tone || form.tone,
 			customPrompt: body.custom_prompt || form.customPrompt || '',
@@ -1469,9 +1492,9 @@ Respond ONLY with the JSON object described in your instructions.`;
 						<Input label="Secondary keywords" value={form.secondary} onChange={set('secondary')} placeholder="plant-based, dairy-free" />
 						<div className="grid grid-cols-2 gap-3">
 							<Input label="Country" value={form.country} onChange={set('country')} />
-							<Select label="Language" value={form.language} onChange={set('language')}>
-									{['English', 'French', 'Spanish', 'German', 'Italian', 'Portuguese', 'Dutch', 'Arabic'].map((l) => (
-										<option key={l}>{l}</option>
+							<Select label="Language" value={normalizeWriterLanguage(form.language)} onChange={set('language')}>
+									{WRITER_LANGUAGES.map((l) => (
+										<option key={l} value={l}>{l}</option>
 									))}
 							</Select>
 						</div>
@@ -1692,7 +1715,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 					</form>
 				</aside>
 
-				<section className="wr-atelier__editor p-4 sm:p-5" ref={editorRef}>
+				<section className="wr-atelier__editor p-4 sm:p-5" ref={editorRef} {...contentLangAttrs}>
 					<div className="wr-stats">
 						<span className="wr-stat"><strong>{stats.words}</strong> words</span>
 						<span className="wr-stat"><strong>{stats.chars}</strong> chars</span>
@@ -1834,7 +1857,13 @@ Respond ONLY with the JSON object described in your instructions.`;
 							<div className="grid gap-3">
 							<Input label="SEO title" value={article.seo_title || ''} onChange={(e) => upd('seo_title', e.target.value)} />
 							<Textarea label="Meta description" rows={2} value={article.meta_description || ''} onChange={(e) => upd('meta_description', e.target.value)} />
-							<Input label="Slug" value={article.slug || ''} onChange={(e) => upd('slug', e.target.value)} />
+							<Input
+								label="Slug"
+								dir="ltr"
+								lang="en"
+								value={article.slug || ''}
+								onChange={(e) => upd('slug', e.target.value)}
+							/>
 										</div>
 
 							<article className="wr-doc">
@@ -1936,7 +1965,9 @@ Respond ONLY with the JSON object described in your instructions.`;
 						<div className="wr-assist-card__title"><span>Meta Title Preview</span></div>
 						<div className="wr-preview-box">
 							<div className="wr-preview-box__label">Google-style title</div>
-							{article?.seo_title || 'Your SEO title will preview here'}
+							<div {...contentLangAttrs}>
+								{article?.seo_title || 'Your SEO title will preview here'}
+							</div>
 								</div>
 					</div>
 
@@ -1944,7 +1975,9 @@ Respond ONLY with the JSON object described in your instructions.`;
 						<div className="wr-assist-card__title"><span>Meta Description Preview</span></div>
 						<div className="wr-preview-box">
 							<div className="wr-preview-box__label">Snippet</div>
-							{article?.meta_description || 'Meta description preview appears after writing.'}
+							<div {...contentLangAttrs}>
+								{article?.meta_description || 'Meta description preview appears after writing.'}
+							</div>
 						</div>
 					</div>
 

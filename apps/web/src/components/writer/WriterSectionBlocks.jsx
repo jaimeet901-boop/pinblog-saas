@@ -7,6 +7,10 @@ import {
 import { Button, Input, Textarea, Spinner } from '@/components/kit';
 import { generateText, extractJson } from '@/lib/aiGenerate';
 import { isFeatureLockedError } from '@/lib/templateAccess';
+import {
+	buildWriterLanguageEnforcement,
+	normalizeWriterLanguage,
+} from '@/lib/writerLanguage';
 
 /** Compact section AI toolbar — same Phase 3.2 flow, more discoverable actions. */
 export const SECTION_AI_ACTIONS = [
@@ -127,7 +131,7 @@ function actionInstruction(actionId) {
 	}
 }
 
-function buildSectionPrompt({
+export function buildSectionPrompt({
 	actionId,
 	kind,
 	keyword,
@@ -137,9 +141,11 @@ function buildSectionPrompt({
 	payload,
 }) {
 	const instruction = actionInstruction(actionId);
+	const resolvedLanguage = normalizeWriterLanguage(language);
 	const context = [
 		`Main keyword: ${keyword || '(none)'}`,
-		`Language: ${language || 'English'}`,
+		`Language: ${resolvedLanguage}`,
+		buildWriterLanguageEnforcement(resolvedLanguage),
 		`Tone: ${tone || 'Friendly'}`,
 		`Article title: ${title || '(untitled)'}`,
 		`Section type: ${kind}`,
@@ -616,7 +622,7 @@ export default function WriterSectionBlocks({
 				actionId,
 				kind: block.kind,
 				keyword: form?.keyword,
-				language: form?.language,
+				language: normalizeWriterLanguage(form?.language),
 				tone: form?.tone,
 				title: article.seo_title,
 				payload,
@@ -625,6 +631,7 @@ export default function WriterSectionBlocks({
 				singleShot: true,
 				signal: controller.signal,
 				idempotencyKey,
+				language: normalizeWriterLanguage(form?.language),
 			});
 			if (controller.signal.aborted) return;
 

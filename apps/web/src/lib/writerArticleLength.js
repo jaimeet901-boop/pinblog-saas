@@ -3,6 +3,8 @@
  * Kept in sync with apps/api/src/services/writer-article-length.js
  */
 
+import { buildWriterLanguageEnforcement, normalizeWriterLanguage } from './writerLanguage.js';
+
 /** @typedef {{
  *   id: string,
  *   label: string,
@@ -131,9 +133,9 @@ export function countArticleWords(article) {
 /**
  * Build a continuation prompt that asks only for additive JSON.
  * @param {object} article
- * @param {{ minWords: number, maxWords: number, currentWords: number }} params
+ * @param {{ minWords: number, maxWords: number, currentWords: number, language?: string }} params
  */
-export function buildContinuationPrompt(article, { minWords, maxWords, currentWords }) {
+export function buildContinuationPrompt(article, { minWords, maxWords, currentWords, language } = {}) {
 	const lastHeading = Array.isArray(article?.sections) && article.sections.length
 		? String(article.sections[article.sections.length - 1]?.heading || '').trim()
 		: '';
@@ -142,6 +144,8 @@ export function buildContinuationPrompt(article, { minWords, maxWords, currentWo
 		? article.sections.map((section, index) => `${index + 1}. ${section?.heading || 'Section'}`).join('\n')
 		: '(none)';
 
+	const languageBlock = buildWriterLanguageEnforcement(normalizeWriterLanguage(language));
+
 	return `Continue the food blog article below. Do NOT regenerate the full article.
 Current word count: ${currentWords}. Required minimum: ${minWords} (target range ${minWords}-${maxWords}).
 You must add at least ${deficit} more words.
@@ -149,6 +153,8 @@ You must add at least ${deficit} more words.
 Continue ONLY from the last section${lastHeading ? ` ("${lastHeading}")` : ''}.
 Add new H2/H3 sections after the existing ones. Optionally expand FAQ and conclusion.
 Preserve SEO fields, recipe_schema, internal/external link style, HTML formatting, and existing section content.
+
+${languageBlock}
 
 Existing section outline (do not repeat these headings):
 ${existingOutline}

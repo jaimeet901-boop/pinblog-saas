@@ -494,6 +494,53 @@
 	text-align: left;
 }
 
+.wr-atelier__editor[dir="rtl"] .wr-doc,
+.wr-atelier__editor[dir="rtl"] .wr-doc__title,
+.wr-atelier__editor[dir="rtl"] .wr-doc__meta,
+.wr-atelier__editor[dir="rtl"] .wr-doc__body,
+.wr-atelier__editor[dir="rtl"] .wr-doc__body :where(h1, h2, h3, h4, p, li, blockquote, td, th) {
+	direction: rtl;
+	text-align: right;
+}
+
+.wr-atelier__editor[dir="rtl"] input:not([dir="ltr"]),
+.wr-atelier__editor[dir="rtl"] textarea {
+	direction: rtl;
+	text-align: right;
+}
+
+.wr-atelier__editor[dir="rtl"] input[dir="ltr"] {
+	direction: ltr;
+	text-align: left;
+}
+
+.wr-atelier__editor[dir="ltr"] input:not([dir="ltr"]),
+.wr-atelier__editor[dir="ltr"] textarea {
+	direction: ltr;
+	text-align: left;
+}
+
+.wr-atelier__editor[dir="rtl"] .wr-doc__body ul,
+.wr-atelier__editor[dir="rtl"] .wr-doc__body ol {
+	margin: 0.55rem 1.25rem 0.55rem 0;
+}
+
+.wr-atelier__editor[dir="rtl"] .wr-doc__body blockquote {
+	border-left: none;
+	border-right: 3px solid hsl(var(--primary));
+	border-radius: 0.75rem 0 0 0.75rem;
+}
+
+.wr-preview-box [dir="rtl"] {
+	direction: rtl;
+	text-align: right;
+}
+
+.wr-preview-box [dir="ltr"] {
+	direction: ltr;
+	text-align: left;
+}
+
 .wr-doc__body th {
 	background: hsl(var(--secondary) / 0.55);
 }

@@ -204,6 +204,7 @@ export async function generateText(prompt, {
 	articleLength,
 	minWords,
 	maxWords,
+	language,
 	skipLengthContinuation = false,
 } = {}) {
 	const preset = articleLength || minWords || maxWords
@@ -256,6 +257,7 @@ export async function generateText(prompt, {
 		minWords: resolvedMin,
 		maxWords: resolvedMax || preset?.maxWords || resolvedMin,
 		currentWords,
+		language,
 	});
 
 	const continuation = await streamOnce({

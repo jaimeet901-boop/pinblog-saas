@@ -87,11 +87,13 @@ describe('writerArticleLength word count + merge', () => {
 			minWords: 1800,
 			maxWords: 2500,
 			currentWords: 624,
+			language: 'English',
 		});
 		expect(prompt).toContain('Do NOT regenerate the full article');
 		expect(prompt).toContain('1800');
 		expect(prompt).toContain('"sections"');
 		expect(prompt).toContain('Ingredients');
+		expect(prompt).toContain('Write ALL user-facing content in English');
 	});
 });
 
