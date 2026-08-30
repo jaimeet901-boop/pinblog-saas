@@ -1,11 +1,12 @@
 /**
  * Sprint 3 — Content Studio preview image pipeline.
- * Image provider selection, job queue, polling, fallback, and compose live here.
+ * Image provider selection, job queue, polling, and compose live here.
  * Text copy is resolved separately (aiPinsPinCopy); this module never chooses copy.
  *
  * Featured / Always Featured (imageMode use_featured) composes the article image
- * and does not enqueue AI image jobs. Article images remain fallback-only for
- * generate_ai jobs that fail, time out, or are unavailable.
+ * and does not enqueue AI image jobs.
+ * generate_ai requires a real AI image job success — never silently substitutes
+ * the article featured image on failure, timeout, or pending.
  */
 
 import { listArticleImageCandidates, pinsNeedingAiImageJobs } from '@/lib/imageSourceStrategy';
@@ -15,8 +16,9 @@ import { withUpdatedImageSourceMeta } from '@/lib/aiPinsPinCopy';
 export const IMAGE_JOB_TERMINAL = new Set(['completed', 'fallback', 'failed']);
 export const IMAGE_JOB_PENDING = new Set(['queued', 'processing', 'rendering', 'pending', 'running']);
 
-const POLL_ATTEMPTS = 48;
+/** Match server AI_IMAGE_JOB_TIMEOUT_MS default (180s) with margin. */
 const POLL_INTERVAL_MS = 2500;
+const POLL_ATTEMPTS = 80;
 const PREVIEW_COMPOSE_CONCURRENCY = 2;
 
 async function runWithConcurrency(items, concurrency, workerFn) {
@@ -53,7 +55,7 @@ export async function composeTerminalPreviewPins({
 	brandKit = null,
 	exportProfileId = 'pinterest_standard',
 	isCancelled = () => false,
-	missedError = 'AI image generation failed and no article image was available for fallback.',
+	missedError = 'AI image generation failed. Please try again.',
 } = {}) {
 	if (isCancelled()) {
 		return [];
@@ -67,7 +69,12 @@ export async function composeTerminalPreviewPins({
 		if (!job) {
 			return pollTimedOut;
 		}
-		return IMAGE_JOB_TERMINAL.has(String(job.status || '').toLowerCase());
+		const status = String(job.status || '').toLowerCase();
+		if (IMAGE_JOB_TERMINAL.has(status)) {
+			return true;
+		}
+		// Still pending after poll budget: surface failure, do not wait forever.
+		return pollTimedOut;
 	});
 
 	if (pendingPins.length === 0) {
@@ -81,8 +88,13 @@ export async function composeTerminalPreviewPins({
 		pollTimedOut,
 	});
 
-	const withBackground = composeInputs.filter((pin) => pin.featuredImage || pin._hasArticleCandidates);
-	const withoutBackground = composeInputs.filter((pin) => !pin.featuredImage && !pin._hasArticleCandidates);
+	// generate_ai: only compose when we have a real AI background URL (completed).
+	const withBackground = composeInputs.filter((pin) => (
+		pin.featuredImage
+		&& !pin._usedArticleFallback
+		&& String(pin._aiStatus || '').toLowerCase() === 'completed'
+	));
+	const withoutBackground = composeInputs.filter((pin) => !withBackground.includes(pin));
 	const patches = [];
 
 	for (const missed of withoutBackground) {
@@ -91,8 +103,10 @@ export async function composeTerminalPreviewPins({
 			tempId: missed.tempId,
 			patch: {
 				imageUrl: '',
+				backgroundImageUrl: '',
 				imageGenerationStatus: 'failed',
 				imageGenerationError: missed._aiError || missedError,
+				imageSource: missed.imageSource || 'ai_generated',
 			},
 		});
 	}
@@ -223,13 +237,14 @@ export function resolvePreviewImageProvider({
 }
 
 /**
- * Resolve background URL for template compose.
- * Article candidates are used only when AI did not succeed.
+ * Resolve background URL for template compose (generate_ai jobs only).
+ * Article candidates must never replace a failed/pending/timed-out AI image.
  */
 export function resolvePinBackgroundFromJob({ pin, job, pollTimedOut = false } = {}) {
 	const articleCandidates = listArticleImageCandidates(pin);
 	const aiUrl = String(job?.imageUrl || '').trim();
 	const status = String(job?.status || '').toLowerCase();
+	const hasArticleCandidates = articleCandidates.length > 0;
 
 	if (status === 'completed' && aiUrl) {
 		return {
@@ -237,42 +252,50 @@ export function resolvePinBackgroundFromJob({ pin, job, pollTimedOut = false } =
 			usedArticleFallback: false,
 			aiStatus: 'completed',
 			aiError: '',
-			hasArticleCandidates: articleCandidates.length > 0,
+			hasArticleCandidates,
 		};
 	}
 
-	if (status === 'fallback' && aiUrl) {
+	if (status === 'fallback') {
 		return {
-			background: aiUrl,
-			usedArticleFallback: true,
-			aiStatus: 'fallback',
-			aiError: 'Using article image.',
-			hasArticleCandidates: articleCandidates.length > 0,
+			background: '',
+			usedArticleFallback: false,
+			aiStatus: 'failed',
+			aiError: String(job?.lastError || '').trim()
+				|| 'AI image generation failed. The article image was not used as a substitute.',
+			hasArticleCandidates,
 		};
 	}
 
-	const shouldFallback = pollTimedOut
-		|| status === 'failed'
-		|| IMAGE_JOB_PENDING.has(status);
-
-	if (shouldFallback && articleCandidates.length > 0) {
+	if (status === 'failed') {
 		return {
-			background: articleCandidates[0],
-			usedArticleFallback: true,
-			aiStatus: pollTimedOut ? 'failed' : (status || 'failed'),
-			aiError: 'Using article image.',
-			hasArticleCandidates: true,
+			background: '',
+			usedArticleFallback: false,
+			aiStatus: 'failed',
+			aiError: String(job?.lastError || '').trim()
+				|| 'AI image generation failed. Please try again.',
+			hasArticleCandidates,
+		};
+	}
+
+	if (pollTimedOut || IMAGE_JOB_PENDING.has(status) || !job) {
+		return {
+			background: '',
+			usedArticleFallback: false,
+			aiStatus: 'failed',
+			aiError: pollTimedOut
+				? 'AI image generation timed out. Please try again.'
+				: 'AI image generation is still in progress or unavailable.',
+			hasArticleCandidates,
 		};
 	}
 
 	return {
-		background: aiUrl || '',
+		background: '',
 		usedArticleFallback: false,
-		aiStatus: status || (pollTimedOut ? 'failed' : ''),
-		aiError: pollTimedOut || status === 'failed'
-			? 'Image generation is unavailable right now. Please try again later.'
-			: '',
-		hasArticleCandidates: articleCandidates.length > 0,
+		aiStatus: status || 'failed',
+		aiError: 'AI image generation failed. Please try again.',
+		hasArticleCandidates,
 	};
 }
 
@@ -297,24 +320,26 @@ export function mapPollJobToPinPatch(pin, job) {
 	if (!job) {
 		return pin;
 	}
+	const status = String(job.status || '').toLowerCase();
+	const failed = status === 'failed' || status === 'fallback';
 	return {
 		...pin,
 		imageJobId: job.id,
-		backgroundImageUrl: job.imageUrl || pin.backgroundImageUrl || '',
-		imageGenerationStatus: job.status,
-		imageGenerationError: job.lastError || '',
-		imageSource: job.status === 'completed'
+		backgroundImageUrl: status === 'completed' ? (job.imageUrl || pin.backgroundImageUrl || '') : '',
+		imageGenerationStatus: failed ? 'failed' : job.status,
+		imageGenerationError: failed
+			? (job.lastError || 'AI image generation failed. Please try again.')
+			: (job.lastError || ''),
+		imageSource: status === 'completed'
 			? 'ai_generated'
-			: job.status === 'fallback'
-				? 'featured_fallback'
-				: pin.imageSource,
-		generationMeta: (job.status === 'completed' || job.status === 'fallback')
+			: pin.imageSource,
+		generationMeta: status === 'completed'
 			? withUpdatedImageSourceMeta(
 				pin.generationMeta || {
 					copySource: pin.copySource,
 					fallbackReason: pin.fallbackReason,
 				},
-				job.status === 'completed' ? 'ai_generated' : 'featured_fallback',
+				'ai_generated',
 			)
 			: pin.generationMeta,
 	};
@@ -361,22 +386,40 @@ export function mapComposeResultToPinPatch(pin, input, result) {
 	}
 
 	const usedFallback = input._usedArticleFallback || input._aiStatus === 'fallback';
+	if (usedFallback || String(input._aiStatus || '').toLowerCase() === 'failed') {
+		return {
+			...pin,
+			imageUrl: '',
+			backgroundImageUrl: '',
+			imageSource: 'ai_generated',
+			imageOrigin: 'ai',
+			generationMeta: withUpdatedImageSourceMeta(
+				pin.generationMeta || {
+					copySource: pin.copySource,
+					fallbackReason: pin.fallbackReason,
+				},
+				'ai_generated',
+			),
+			imageGenerationStatus: 'failed',
+			imageGenerationError: input._aiError
+				|| 'AI image generation failed. Please try again.',
+		};
+	}
+
 	return {
 		...pin,
 		imageUrl: result.imageUrl,
-		imageSource: usedFallback ? 'featured_fallback' : 'ai_generated',
-		imageOrigin: usedFallback ? (pin.fallbackImageOrigin || 'featured') : 'ai',
+		imageSource: 'ai_generated',
+		imageOrigin: 'ai',
 		generationMeta: withUpdatedImageSourceMeta(
 			pin.generationMeta || {
 				copySource: pin.copySource,
 				fallbackReason: pin.fallbackReason,
 			},
-			usedFallback ? 'featured_fallback' : 'ai_generated',
+			'ai_generated',
 		),
 		imageGenerationStatus: 'completed',
-		imageGenerationError: usedFallback
-			? (input._aiError || 'AI unavailable — article image composed with template.')
-			: (result.hosted === false ? (result.error || '') : ''),
+		imageGenerationError: result.hosted === false ? (result.error || '') : '',
 	};
 }
 

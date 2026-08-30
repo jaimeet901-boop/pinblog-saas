@@ -15,7 +15,6 @@ import {
 } from '../utils/pocketbase-safe-query.js';
 import { claimJobByCas } from './queue/claim.js';
 import { assertJobPinOwnership } from './queue/job-ownership.js';
-import { isImmediateImageFallbackError } from '../constants/image-source-strategy.js';
 import { safeTransitionArticleLifecycle } from './article-lifecycle.js';
 import { buildBackgroundImagePrompt } from './ai-pin-background-prompt.js';
 import {
@@ -360,56 +359,21 @@ async function processJob(job) {
 	const falKey = await getPlatformProviderApiKey('fal');
 	const geminiKey = await getPlatformProviderApiKey('gemini');
 
+	// generate_ai must never soft-succeed with the article featured image.
 	if (provider === 'openai' && !openaiKey) {
-		if (fallbackImage) {
-			await setJobTerminalState({
-				job,
-				status: 'fallback',
-				imageUrl: fallbackImage,
-				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
-			});
-			return;
-		}
 		throw new Error('Image generation is unavailable');
 	}
 
 	if ((provider === 'fal' || provider === 'flux') && !falKey) {
-		if (fallbackImage) {
-			await setJobTerminalState({
-				job,
-				status: 'fallback',
-				imageUrl: fallbackImage,
-				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
-			});
-			return;
-		}
 		throw new Error('Image generation is unavailable');
 	}
 
 	if (provider === 'gemini' && !geminiKey) {
-		if (fallbackImage) {
-			await setJobTerminalState({
-				job,
-				status: 'fallback',
-				imageUrl: fallbackImage,
-				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
-			});
-			return;
-		}
 		throw new Error('Image generation is unavailable');
 	}
 
 	if (!['openai', 'fal', 'flux', 'gemini'].includes(provider)
 		&& !falKey && !openaiKey && !geminiKey) {
-		if (fallbackImage) {
-			await setJobTerminalState({
-				job,
-				status: 'fallback',
-				imageUrl: fallbackImage,
-				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
-			});
-			return;
-		}
 		throw new Error('Image generation is unavailable');
 	}
 
@@ -664,38 +628,10 @@ async function executeClaimedImageJob(fullJob) {
 
 		const nextAttempts = (fullJob.attempt_count || 0) + 1;
 		const maxAttempts = fullJob.max_attempts || 3;
-		const fallbackImage = normalizeText(fullJob.featured_image_url, 1000);
 		const exhausted = nextAttempts >= maxAttempts;
-		const immediateFallback = Boolean(fallbackImage) && isImmediateImageFallbackError(error);
-
-		// Never fail the workflow for quota/timeout/provider issues when an article image exists.
-		if ((exhausted || immediateFallback) && fallbackImage) {
-			await setJobTerminalState({
-				job: fullJob,
-				status: 'fallback',
-				imageUrl: fallbackImage,
-				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
-			});
-			processedTotal += 1;
-			lastSuccessAt = new Date().toISOString();
-			logger.warn(`AI pin image job fallback used: ${fullJob.id}`);
-			return;
-		}
-
 		const shouldRetry = !exhausted;
-		if (!shouldRetry && fallbackImage) {
-			await setJobTerminalState({
-				job: fullJob,
-				status: 'fallback',
-				imageUrl: fallbackImage,
-				lastError: userSafeImageError({ status: 'fallback', hasError: true }),
-			});
-			processedTotal += 1;
-			lastSuccessAt = new Date().toISOString();
-			logger.warn(`AI pin image job fallback used (terminal guard): ${fullJob.id}`);
-			return;
-		}
 
+		// generate_ai: fail/retry only — never substitute featured_image_url.
 		const retryPayload = await sanitizeCollectionPayload({
 			collection: 'ai_pin_image_jobs',
 			context: 'ai-image-queue:retry-update',

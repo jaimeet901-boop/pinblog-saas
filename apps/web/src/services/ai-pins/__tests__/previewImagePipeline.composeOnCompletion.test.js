@@ -199,6 +199,10 @@ describe('previewImagePipeline compose-on-completion', () => {
 		});
 		expect(patches.map((item) => item.tempId).sort()).toEqual(['bad', 'ok']);
 		expect(patches.find((item) => item.tempId === 'ok')?.patch.imageUrl).toContain('composed-ok');
+		const bad = patches.find((item) => item.tempId === 'bad');
+		expect(bad?.patch.imageUrl).toBe('');
+		expect(bad?.patch.imageGenerationStatus).toBe('failed');
+		expect(bad?.patch.imageGenerationError).toMatch(/failed|provider/i);
 	});
 
 	it('count=1 AI pin still composes on completion', async () => {

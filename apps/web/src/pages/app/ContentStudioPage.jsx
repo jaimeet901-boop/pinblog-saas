@@ -67,6 +67,7 @@ import { useWorkspaceWebsites } from '@/hooks/useWorkspaceWebsites';
 import {
 	normalizeImageSourceStrategy,
 	pickArticleImageUrl,
+	pinsNeedingAiImageJobs,
 	planImageSource,
 	preferFeaturedImageForTemplate,
 	resolveGenerateImageMode,
@@ -1262,8 +1263,8 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			if (pollTimedOut) {
 				toast({
 					variant: 'destructive',
-					title: 'Image generation timed out',
-					description: 'Studio stopped waiting. Article images are used when available; use Retry on individual pins if needed.',
+					title: 'AI image generation timed out',
+					description: 'Studio stopped waiting for the AI image. Article images were not used as a substitute. Use Retry on individual pins if needed.',
 				});
 			}
 
@@ -1291,16 +1292,42 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 				return;
 			}
 			console.error('[AI Pins] image workflow failed', error);
+			const aiPinsInRequest = pinsNeedingAiImageJobs(pins);
+			if (aiPinsInRequest.length > 0) {
+				const aiTempIds = new Set(aiPinsInRequest.map((pin) => pin.tempId));
+				toast({
+					variant: 'destructive',
+					title: 'AI image generation failed',
+					description: error?.message
+						|| 'The AI background image could not be generated. Article images were not used as a substitute.',
+				});
+				setGeneratedPreviewPins((prev) => prev.map((pin) => {
+					if (!aiTempIds.has(pin.tempId)) {
+						return pin;
+					}
+					if (pin.imageUrl && pin.imageGenerationStatus === 'completed' && pin.imageSource === 'ai_generated') {
+						return pin;
+					}
+					return {
+						...pin,
+						imageUrl: '',
+						backgroundImageUrl: '',
+						imageGenerationStatus: 'failed',
+						imageGenerationError: error?.message || 'AI image generation failed. Please try again.',
+					};
+				}));
+				return;
+			}
 			const lastResort = await runLastResortArticleCompose({
 				pins,
 				brandKit,
 				exportProfileId: selectedExportProfileId,
 			}).catch(() => null);
 			if (lastResort?.length) {
-				applyTemplateComposeResults(lastResort, { imageSource: 'featured_fallback' });
+				applyTemplateComposeResults(lastResort, { imageSource: 'featured_composed' });
 				toast({
-					title: 'Used article images',
-					description: 'AI image generation was unavailable. Pins were composed with article images and your selected template.',
+					title: 'Featured image compose issue',
+					description: 'Recovered featured-image pins with the article image and your selected template.',
 				});
 				return;
 			}
@@ -1845,44 +1872,39 @@ export default function ContentStudioPage({ product = AI_PINS_PRODUCT }) {
 			});
 			const finished = finishedJobs.find((item) => item.id === job.id) || job;
 			const resolved = resolvePinBackgroundFromJob({ pin, job: finished, pollTimedOut });
-			if (!resolved.background) {
-				throw new Error(resolved.aiError || finished.lastError || 'AI image generation failed and no article image was available.');
+			if (!resolved.background || resolved.usedArticleFallback || resolved.aiStatus !== 'completed') {
+				throw new Error(resolved.aiError || finished.lastError || 'AI image generation failed. Please try again.');
 			}
 			const composed = await composeAndUploadFeaturedPins([{
 				...pin,
 				featuredImage: resolved.background,
 				contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
 			}], { brandKit, exportProfileId: selectedExportProfileId });
-			const imageSource = resolved.usedArticleFallback ? 'featured_fallback' : 'ai_generated';
 			applyTemplateComposeResults(
-				composed.map((item) => ({ ...item, imageSource })),
-				{ imageSource },
+				composed.map((item) => ({ ...item, imageSource: 'ai_generated' })),
+				{ imageSource: 'ai_generated' },
 			);
 		} catch (error) {
 			if (isFeatureLockedError(error)) {
 				openAiImagesUpgradeModal(error);
 				return;
 			}
-			const fallback = String(pin.sourceImageUrl || pin.featuredImage || '').trim();
-			if (fallback) {
-				try {
-					const brandKit = brandKits.find((item) => item.id === selectedBrandKitId) || null;
-					const composed = await composeAndUploadFeaturedPins([{
-						...pin,
-						featuredImage: fallback,
-						contentImages: Array.isArray(pin.contentImages) ? pin.contentImages : [],
-					}], { brandKit, exportProfileId: selectedExportProfileId });
-					applyTemplateComposeResults(composed, { imageSource: 'featured_fallback' });
-					toast({
-						title: 'Used article image',
-						description: 'AI regenerate failed; composed the selected template on the article image instead.',
-					});
-					return;
-				} catch {
-					// fall through
-				}
-			}
-			toast({ variant: 'destructive', title: 'Image regenerate failed', description: error.message });
+			setGeneratedPreviewPins((prev) => prev.map((item) => (
+				item.tempId === pin.tempId
+					? {
+						...item,
+						imageUrl: '',
+						backgroundImageUrl: '',
+						imageGenerationStatus: 'failed',
+						imageGenerationError: error?.message || 'AI image regenerate failed. Please try again.',
+					}
+					: item
+			)));
+			toast({
+				variant: 'destructive',
+				title: 'AI image regenerate failed',
+				description: error?.message || 'The AI background image could not be regenerated. Article images were not used as a substitute.',
+			});
 		} finally {
 			setGeneratingImages(false);
 		}

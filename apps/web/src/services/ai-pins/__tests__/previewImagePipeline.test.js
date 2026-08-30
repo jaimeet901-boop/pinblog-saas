@@ -30,7 +30,7 @@ describe('previewImagePipeline', () => {
 		expect(resolved.usedArticleFallback).toBe(false);
 	});
 
-	it('resolvePinBackgroundFromJob uses article image only on fallback/failure', () => {
+	it('resolvePinBackgroundFromJob never substitutes article image on failure or timeout', () => {
 		const pin = {
 			featuredImage: 'https://cdn.example/article.jpg',
 			sourceImageUrl: 'https://cdn.example/article.jpg',
@@ -39,16 +39,26 @@ describe('previewImagePipeline', () => {
 			pin,
 			job: { status: 'failed', lastError: 'quota exceeded' },
 		});
-		expect(failed.background).toBe('https://cdn.example/article.jpg');
-		expect(failed.usedArticleFallback).toBe(true);
+		expect(failed.background).toBe('');
+		expect(failed.usedArticleFallback).toBe(false);
+		expect(failed.aiStatus).toBe('failed');
 
 		const timedOut = resolvePinBackgroundFromJob({
 			pin,
 			job: { status: 'processing' },
 			pollTimedOut: true,
 		});
-		expect(timedOut.background).toBe('https://cdn.example/article.jpg');
-		expect(timedOut.usedArticleFallback).toBe(true);
+		expect(timedOut.background).toBe('');
+		expect(timedOut.usedArticleFallback).toBe(false);
+		expect(timedOut.aiStatus).toBe('failed');
+
+		const legacyFallback = resolvePinBackgroundFromJob({
+			pin,
+			job: { status: 'fallback', imageUrl: 'https://cdn.example/article.jpg' },
+		});
+		expect(legacyFallback.background).toBe('');
+		expect(legacyFallback.usedArticleFallback).toBe(false);
+		expect(legacyFallback.aiStatus).toBe('failed');
 	});
 
 	it('buildComposeInputsFromJobs never prefers article image when AI succeeded', () => {
@@ -170,5 +180,28 @@ describe('previewImagePipeline', () => {
 		expect(error.status).toBe(503);
 		expect(error.errorCode).toBeUndefined();
 		expect(isFeatureLockedError(error)).toBe(false);
+	});
+
+	it('mapPollJobToPinPatch treats fallback/failed as failed without featured success', async () => {
+		const { mapPollJobToPinPatch } = await import('../previewImagePipeline.js');
+		const pin = { tempId: 't1', imageSource: 'ai_generated' };
+		const failed = mapPollJobToPinPatch(pin, {
+			id: 'j1',
+			status: 'fallback',
+			imageUrl: 'https://cdn.example/article.jpg',
+			lastError: 'provider down',
+		});
+		expect(failed.imageGenerationStatus).toBe('failed');
+		expect(failed.imageSource).toBe('ai_generated');
+		expect(failed.backgroundImageUrl).toBe('');
+
+		const completed = mapPollJobToPinPatch(pin, {
+			id: 'j2',
+			status: 'completed',
+			imageUrl: 'https://cdn.example/ai.png',
+		});
+		expect(completed.imageGenerationStatus).toBe('completed');
+		expect(completed.backgroundImageUrl).toBe('https://cdn.example/ai.png');
+		expect(completed.imageSource).toBe('ai_generated');
 	});
 });

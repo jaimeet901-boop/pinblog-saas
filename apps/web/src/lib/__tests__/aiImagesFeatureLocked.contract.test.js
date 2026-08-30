@@ -39,7 +39,9 @@ describe('FEATURE_LOCKED UX — Content Studio + Writer', () => {
 
 		const regen = sliceBetween(studio, 'const regeneratePreviewImage', 'const downloadImage');
 		assert.ok(regen.includes('isFeatureLockedError(error)'));
-		assert.ok(regen.indexOf('isFeatureLockedError(error)') < regen.indexOf("imageSource: 'featured_fallback'"));
+		assert.doesNotMatch(regen, /featured_fallback/);
+		assert.match(regen, /AI image regenerate failed/);
+		assert.ok(regen.indexOf('isFeatureLockedError(error)') < regen.indexOf('AI image regenerate failed'));
 	});
 
 	it('B. handleGenerate: FEATURE_LOCKED before Generation failed toast', () => {
