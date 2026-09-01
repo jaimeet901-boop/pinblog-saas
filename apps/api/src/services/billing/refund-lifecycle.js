@@ -1,4 +1,5 @@
 import { buildPaddleCreditPackIdempotencyKey } from './paddle-transaction-verification.js';
+import { seatsForPlanAssignment } from './plan-seats.js';
 
 async function resolvePocketbaseClient(override) {
 	if (override) return override;
@@ -145,6 +146,7 @@ export async function handleSubscriptionRefundPending({
 				billing_status: 'refunded',
 				cancel_at_period_end: false,
 				plan: free?.id || subscription.plan,
+				...(free ? { seats: seatsForPlanAssignment(free) } : {}),
 				last_webhook_event_id: String(eventId || '').slice(0, 180),
 				last_verified_at: new Date().toISOString(),
 			});

@@ -2,6 +2,7 @@ import pocketbaseClient from '../utils/pocketbaseClient.js';
 import { httpError } from '../middleware/require-admin.js';
 import { ensurePlansSeeded, mapPlanDto } from './plans.js';
 import { capabilitiesForMembership, normalizeWorkspaceRole } from './workspace-rbac.js';
+import { seatsForPlanAssignment } from './billing/plan-seats.js';
 
 function slugify(value) {
 	return String(value || '')
@@ -84,7 +85,7 @@ async function ensureSubscription(workspace, user) {
 		owner_email: user.email || '',
 		plan: plan.id,
 		status: 'active',
-		seats: 1,
+		seats: seatsForPlanAssignment(plan),
 		current_period_start: now.toISOString(),
 		current_period_end: end.toISOString(),
 		credits_balance: Number(plan.credits) || 0,

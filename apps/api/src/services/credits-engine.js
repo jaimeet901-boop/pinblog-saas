@@ -8,6 +8,7 @@ import { httpError } from '../middleware/require-admin.js';
 import { getPlatformSettings } from './platform-settings.js';
 import logger from '../utils/logger.js';
 import { withWorkspaceCreditLock } from './credit-workspace-lock.js';
+import { seatsForPlanAssignment } from './billing/plan-seats.js';
 
 export const DEFAULT_CREDIT_COSTS = Object.freeze({
 	ai_analyze: 1,
@@ -325,7 +326,7 @@ export async function ensureWorkspaceWallet(workspaceKey, {
 		plan: plan.id,
 		status: 'active',
 		billing_status: 'active',
-		seats: 1,
+		seats: seatsForPlanAssignment(plan),
 		current_period_start: now.toISOString(),
 		current_period_end: end.toISOString(),
 		credits_balance: balance,

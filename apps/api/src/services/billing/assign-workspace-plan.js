@@ -1,4 +1,5 @@
 import { syncEntitlementMirrors } from './entitlement-sync.js';
+import { seatsForAdminPlanAssignment } from './plan-seats.js';
 import {
 	buildAdminAssignMetadataFields,
 	resolveAdminOverrideActor,
@@ -37,6 +38,17 @@ async function resolveExistingWorkspace(pb, workspaceKey) {
 	} catch {
 		return null;
 	}
+}
+
+async function countActiveInvitedMembers(pb, workspaceId) {
+	const rows = await pb.collection('workspace_members').getFullList({
+		filter: pb.filter('workspace = {:ws} && (status = "active" || status = "invited")', {
+			ws: workspaceId,
+		}),
+		fields: 'id,status',
+		requestKey: null,
+	}).catch(() => []);
+	return rows.length;
 }
 
 export async function assignWorkspacePlan(payload = {}, adminContext = {}, deps = {}) {
@@ -84,6 +96,12 @@ export async function assignWorkspacePlan(payload = {}, adminContext = {}, deps 
 	}
 
 	const fromPlan = existing?.expand?.plan?.slug || existing?.plan || '';
+	const activeMemberCount = workspace?.id
+		? await countActiveInvitedMembers(pb, workspace.id)
+		: 0;
+	const explicitSeats = payload.seats != null && payload.seats !== ''
+		? payload.seats
+		: null;
 	const body = {
 		workspace_key: workspaceKey,
 		workspace_name: workspaceName,
@@ -91,7 +109,10 @@ export async function assignWorkspacePlan(payload = {}, adminContext = {}, deps 
 		plan: plan.id,
 		status: payload.status || 'active',
 		billing_status: payload.billingStatus || payload.status || 'active',
-		seats: Number(payload.seats) || existing?.seats || 1,
+		seats: seatsForAdminPlanAssignment(plan, {
+			adminOverrideSeats: explicitSeats,
+			activeMemberCount,
+		}),
 		current_period_start: now.toISOString(),
 		current_period_end: end.toISOString(),
 		credits_balance: Number(payload.creditsBalance ?? existing?.credits_balance ?? plan.credits) || 0,

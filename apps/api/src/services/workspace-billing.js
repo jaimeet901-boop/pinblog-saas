@@ -11,6 +11,7 @@ import {
 	resolveAuthoritativePlanBillingType,
 } from './billing/billing-model.js';
 import { getCreditCosts } from './credits-engine.js';
+import { seatsForPlanAssignment } from './billing/plan-seats.js';
 import {
 	assertFreePlanSelectable,
 	filterPublicPlanCatalog,
@@ -294,7 +295,7 @@ async function applyWorkspacePlanChange(req, plan, {
 		plan: plan.id,
 		status: 'active',
 		billing_status: 'active',
-		seats: Number(req.workspaceSubscription?.seats) || 1,
+		seats: seatsForPlanAssignment(plan),
 		current_period_start: now.toISOString(),
 		current_period_end: end.toISOString(),
 		credits_balance: Number(plan.credits) || 0,

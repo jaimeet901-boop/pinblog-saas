@@ -1,4 +1,5 @@
 import { resolveRegistryEntryByPriceId } from './price-registry-resolver.js';
+import { seatsForPlanAssignment } from './plan-seats.js';
 
 const LOCAL_PADDLE_STATUSES = Object.freeze([
 	'active',
@@ -119,6 +120,7 @@ export function buildPaddleSubscriptionReconciliationPatch({
 
 		if (planRecord?.id) {
 			patch.plan = planRecord.id;
+			patch.seats = seatsForPlanAssignment(planRecord);
 		}
 	}
 

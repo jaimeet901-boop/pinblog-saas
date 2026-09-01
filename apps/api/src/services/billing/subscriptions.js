@@ -22,6 +22,7 @@ import { validateBillingSource } from './billing-model.js';
 import { resolveLocalRenewalSkipReason } from './provider-managed-subscription.js';
 import { cancelPreviousPaddleSubscriptionAfterRotation } from './paddle-previous-subscription-cleanup.js';
 import { maybeSendSubscriptionWelcomeEmail } from '../email/subscription-welcome-mail.js';
+import { seatsForPlanAssignment } from './plan-seats.js';
 
 export { cancelPreviousPaddleSubscriptionAfterRotation } from './paddle-previous-subscription-cleanup.js';
 
@@ -86,15 +87,17 @@ export async function renewSubscription(workspaceKey, { actor = 'scheduler', for
 		let planId = subscription.plan;
 		let fromPlan = subscription.expand?.plan?.slug || '';
 		let toPlan = fromPlan;
+		let pendingPlanRecord = null;
 		if (subscription.pending_plan) {
 			const pending = await loadPlan(subscription.pending_plan);
 			if (pending) {
+				pendingPlanRecord = pending;
 				planId = pending.id;
 				toPlan = pending.slug;
 			}
 		}
 
-		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, {
+		const renewalPatch = {
 			status: 'active',
 			billing_status: 'active',
 			plan: planId,
@@ -105,7 +108,12 @@ export async function renewSubscription(workspaceKey, { actor = 'scheduler', for
 			grace_period_ends_at: null,
 			last_payment_status: 'succeeded',
 			last_payment_at: now.toISOString(),
-		});
+		};
+		if (pendingPlanRecord) {
+			renewalPatch.seats = seatsForPlanAssignment(pendingPlanRecord);
+		}
+
+		await pocketbaseClient.collection('workspace_subscriptions').update(subscription.id, renewalPatch);
 
 		let resetResult = null;
 		if (config.autoResetCredits) {
@@ -188,6 +196,7 @@ export async function upgradeSubscription(workspaceKey, planSlugOrId, { actor = 
 			status: subscription.status === 'trialing' ? 'active' : (subscription.status || 'active'),
 			billing_status: 'active',
 			credits_balance: nextCredits,
+			seats: seatsForPlanAssignment(nextPlan),
 			provider: provider.code,
 		});
 
@@ -275,6 +284,7 @@ export async function downgradeSubscription(workspaceKey, planSlugOrId, { actor 
 		plan: nextPlan.id,
 		pending_plan: '',
 		credits_balance: balance,
+		seats: seatsForPlanAssignment(nextPlan),
 	});
 	await logBillingAction({
 		action: 'Subscription downgraded',
@@ -310,6 +320,7 @@ export async function expireTrial(workspaceKey, { actor = 'scheduler' } = {}) {
 		billing_status: 'trial_expired',
 		plan: free?.id || subscription.plan,
 		pending_plan: '',
+		...(free ? { seats: seatsForPlanAssignment(free) } : {}),
 	});
 	await logBillingAction({
 		action: 'Trial expired',
@@ -372,6 +383,7 @@ export async function expireSubscription(workspaceKey, { actor = 'scheduler' } =
 		pending_plan: '',
 		grace_period_ends_at: null,
 		cancel_at_period_end: false,
+		...(free ? { seats: seatsForPlanAssignment(free) } : {}),
 	});
 	if (free) {
 		await syncEntitlementMirrors({
@@ -548,6 +560,7 @@ export async function fulfillSubscriptionPurchase({
 			billing_status: 'active',
 			pending_plan: '',
 			credits_balance: Number(plan.credits) || 0,
+			seats: seatsForPlanAssignment(plan),
 			current_period_start: now.toISOString(),
 			current_period_end: end.toISOString(),
 			provider: provider || subscription.provider || 'none',
@@ -694,6 +707,7 @@ export async function activatePaddleSubscription({
 			billing_status: 'active',
 			pending_plan: '',
 			credits_balance: creditsBalance,
+			seats: seatsForPlanAssignment(plan),
 			current_period_start: now.toISOString(),
 			current_period_end: end.toISOString(),
 			grace_period_ends_at: null,
@@ -932,6 +946,7 @@ export async function handlePaddleCancellation({
 			billing_status: 'canceled',
 			cancel_at_period_end: false,
 			plan: free?.id || subscription.plan,
+			...(free ? { seats: seatsForPlanAssignment(free) } : {}),
 			last_webhook_event_id: String(eventId || '').slice(0, 180),
 			last_verified_at: new Date().toISOString(),
 		});
@@ -1059,6 +1074,7 @@ export async function activatePayPalSubscription({
 			billing_status: 'active',
 			pending_plan: '',
 			credits_balance: creditsBalance,
+			seats: seatsForPlanAssignment(plan),
 			current_period_start: now.toISOString(),
 			current_period_end: end.toISOString(),
 			grace_period_ends_at: null,
@@ -1259,6 +1275,7 @@ export async function handlePayPalCancellation({
 			billing_status: 'canceled',
 			cancel_at_period_end: false,
 			plan: free?.id || subscription.plan,
+			...(free ? { seats: seatsForPlanAssignment(free) } : {}),
 			last_webhook_event_id: String(eventId || '').slice(0, 180),
 			last_verified_at: new Date().toISOString(),
 		});

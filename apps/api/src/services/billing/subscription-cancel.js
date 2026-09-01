@@ -1,4 +1,5 @@
 import { BILLING_PROVIDERS } from './providers/base.js';
+import { seatsForPlanAssignment } from './plan-seats.js';
 import {
 	buildSubscriptionCancelIdempotencyKey,
 	CANCELLATION_IDEMPOTENCY_STALE_MS,
@@ -208,6 +209,7 @@ async function applyImmediateCancellationUpdate(subscription, pb, loadPlanFn, sy
 		billing_status: 'canceled',
 		cancel_at_period_end: false,
 		plan: free?.id || subscription.plan,
+		...(free ? { seats: seatsForPlanAssignment(free) } : {}),
 	});
 	if (free) {
 		await syncFn({
