@@ -15,6 +15,7 @@ import adminRouter from './admin/index.js';
 import workspaceRouter from './workspace/index.js';
 import legalRouter from './legal.js';
 import platformIdentityRouter from './platform-identity.js';
+import publicPlansRouter from './public-plans.js';
 import billingRouter from './billing.js';
 import tenantContentRouter from './tenant-content.js';
 import publishingRouter from './publishing.js';
@@ -30,6 +31,7 @@ export default () => {
     });
     router.use('/legal', legalRouter);
     router.use('/platform/identity', platformIdentityRouter);
+    router.use('/public/plans', publicPlansRouter);
     router.use('/billing', billingRouter);
     router.use('/integrated-ai', integratedAiRouter);
     router.use('/websites', pocketbaseAuth, attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation('workspace.websites.manage'), websitesRouter);

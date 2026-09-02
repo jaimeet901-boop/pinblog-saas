@@ -8,7 +8,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+	buildPublicPricingPlanCards,
 	buildUpgradeModalPlanCards,
+	formatUsd,
 	mapPlanCard,
 	planPriceDisplay,
 	startSubscriptionCheckout,
@@ -61,6 +63,34 @@ describe('subscriptionPlanCards', () => {
 		assert.equal(card.monthlyPrice, 19);
 		assert.equal(card.credits, 500);
 		assert.equal(planPriceDisplay(card, 'monthly').amountLabel, '$19');
+	});
+
+	it('formatUsd adds grouping separators for large yearly prices', () => {
+		assert.equal(formatUsd(1290), '$1,290');
+		assert.equal(planPriceDisplay({
+			monthlyPrice: 129,
+			yearlyPrice: 1290,
+		}, 'yearly').amountLabel, '$1,290');
+	});
+
+	it('buildPublicPricingPlanCards excludes Free and uses live catalog only', () => {
+		const cards = buildPublicPricingPlanCards([
+			...CATALOG,
+			{
+				slug: 'business',
+				name: 'Business',
+				monthlyPrice: 129,
+				yearlyPrice: 1290,
+				credits: 8000,
+				highlight: false,
+				limits: { articlesPerMonth: 5000, wordpressSites: 40, imagesPerMonth: 5000 },
+				support: 'Chat + email',
+			},
+		]);
+		const ids = cards.map((plan) => plan.id);
+		assert.ok(!ids.includes('free'));
+		assert.ok(!ids.includes('enterprise'));
+		assert.equal(cards.find((plan) => plan.id === 'business')?.monthlyPrice, 129);
 	});
 
 	it('buildUpgradeModalPlanCards excludes Free and current plan; marks Pro popular', () => {

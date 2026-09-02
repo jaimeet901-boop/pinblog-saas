@@ -14,6 +14,7 @@ import { WorkspaceProvider } from '@/context/WorkspaceContext';
 import { ActiveWebsiteProvider } from '@/context/ActiveWebsiteContext';
 
 import LandingPage from '@/pages/LandingPage';
+import PricingPage from '@/pages/PricingPage';
 import LegalPage from '@/pages/LegalPage';
 import LoginPage from '@/pages/auth/LoginPage';
 import SignupPage from '@/pages/auth/SignupPage';
@@ -128,6 +129,7 @@ function App() {
 						<ScrollToTop />
 						<Routes>
 						<Route path="/" element={<LandingPage />} />
+						<Route path="/pricing" element={<PricingPage />} />
 						<Route path="/privacy" element={<LegalPage slug="privacy" />} />
 						<Route path="/terms" element={<LegalPage slug="terms" />} />
 						<Route path="/cookies" element={<LegalPage slug="cookies" />} />

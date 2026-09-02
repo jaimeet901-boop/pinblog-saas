@@ -39,6 +39,16 @@ export function planItemsFromDto(plan = {}) {
 	];
 }
 
+export function formatUsd(amount) {
+	const value = Number(amount);
+	if (!Number.isFinite(value)) return '$0';
+	return new Intl.NumberFormat('en-US', {
+		style: 'currency',
+		currency: 'USD',
+		maximumFractionDigits: 0,
+	}).format(value);
+}
+
 export function mapPlanCard(plan) {
 	const monthlyPrice = Number(plan.monthlyPrice ?? plan.price);
 	const yearlyPrice = Number(plan.yearlyPrice);
@@ -70,7 +80,7 @@ export function planPriceDisplay(plan, billingInterval = 'monthly') {
 		? (Number(yearlyPrice) || Number(monthlyPrice) || 0)
 		: (Number(monthlyPrice) || 0);
 	return {
-		amountLabel: `$${amount}`,
+		amountLabel: formatUsd(amount),
 		periodLabel: billingInterval === 'yearly' ? '/yr' : '/mo',
 	};
 }
@@ -110,6 +120,27 @@ export function buildUpgradeModalPlanCards(rawPlans = [], { currentPlanSlug = 'f
 	if (hasPopular) return merged;
 
 	return merged.map((plan) => (
+		String(plan.id).toLowerCase() === 'pro'
+			? { ...plan, popular: true }
+			: plan
+	));
+}
+
+/**
+ * Paid plan cards for the public /pricing page (live catalog only — no placeholders).
+ */
+export function buildPublicPricingPlanCards(rawPlans = []) {
+	const mapped = (Array.isArray(rawPlans) ? rawPlans : [])
+		.map(mapPlanCard)
+		.filter((plan) => {
+			const id = String(plan.id || '').trim().toLowerCase();
+			return id && id !== 'free' && !plan.placeholder;
+		});
+
+	const hasPopular = mapped.some((plan) => plan.popular);
+	if (hasPopular) return mapped;
+
+	return mapped.map((plan) => (
 		String(plan.id).toLowerCase() === 'pro'
 			? { ...plan, popular: true }
 			: plan

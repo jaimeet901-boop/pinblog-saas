@@ -193,6 +193,7 @@ export default function LandingPage() {
 						<a href="#features">Features</a>
 						<a href="#workflow">Workflow</a>
 						<a href="#channels">Channels</a>
+						<Link to="/pricing">Pricing</Link>
 						{documentationUrl ? (
 							<a href={documentationUrl} target="_blank" rel="noopener noreferrer">Docs</a>
 						) : null}
