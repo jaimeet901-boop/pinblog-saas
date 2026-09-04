@@ -88,8 +88,9 @@ describe('High Priority #2 — sanitize AI / rich HTML before dangerouslySetInne
 		const writer = readFileSync(writerPagePath, 'utf8');
 		expect(writer).toContain("from '@/lib/sanitizeHtml'");
 		expect(writer).toContain('sanitizeRichHtml');
-		expect(writer).toMatch(/sanitizeRichHtml\(\s*composeHtml\(article\)/);
-		expect(writer).not.toMatch(/composeHtml\(article\)\.replace\(\/<script/);
+		expect(writer).toMatch(/sanitizeRichHtml\(\s*composeArticleHtml\(article\)/);
+		expect(writer).not.toMatch(/composeArticleHtml\(article\)\.replace\(\/<script/);
+		expect(writer).toContain("from '@/lib/writerComposeHtml'");
 
 		const legal = readFileSync(legalPagePath, 'utf8');
 		expect(legal).toContain('sanitizeRichHtml');

@@ -905,38 +905,62 @@ export async function uploadWordpressMedia({
 	authType,
 	imageUrl,
 	filename,
+	altText = null,
+	requireHttps = false,
 	logContext = null,
+	loadImageBytes = null,
+	fetchFn = null,
 }) {
 	if (!imageUrl) return null;
 	const base = resolveWordpressOrigin(url);
 	const auth = authFromOptions({ authType, username, appPassword, password });
 
-	let imageResponse;
+	const {
+		loadImageBytesForWordpressUpload,
+		buildWpWriterMediaFilename,
+		WP_WRITER_MEDIA_UPLOAD_TIMEOUT_MS,
+	} = await import('./wordpress-writer-media.js');
+
+	let loaded;
 	try {
-		const { safeFetch } = await import('../utils/ssrf-guard.js');
-		({ response: imageResponse } = await safeFetch(imageUrl, { fieldName: 'featured_image_url' }));
+		const loader = typeof loadImageBytes === 'function'
+			? loadImageBytes
+			: loadImageBytesForWordpressUpload;
+		loaded = await loader(imageUrl, {
+			requireHttps,
+			fieldName: 'featured_image_url',
+		});
 	} catch (err) {
+		if (err?.httpStatus) {
+			throw createMediaDownloadHttpError(err.httpStatus);
+		}
 		throw createMediaDownloadError(err);
 	}
-	if (!imageResponse.ok) {
-		throw createMediaDownloadHttpError(imageResponse.status);
+
+	const contentType = loaded?.contentType || 'image/jpeg';
+	const buffer = loaded?.buffer;
+	if (!Buffer.isBuffer(buffer) || !buffer.length) {
+		throw createMediaDownloadError(new Error('Empty image bytes'));
 	}
 
-	const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
-	const buffer = Buffer.from(await imageResponse.arrayBuffer());
-	const safeName = filename || `chefia-${Date.now()}.${contentType.includes('png') ? 'png' : 'jpg'}`;
+	const safeName = String(filename || '').trim()
+		|| buildWpWriterMediaFilename({ contentType, type: 'media' });
 	const started = Date.now();
+	const doFetch = typeof fetchFn === 'function' ? fetchFn : fetch;
+	const controller = new AbortController();
+	const uploadTimer = setTimeout(() => controller.abort(), WP_WRITER_MEDIA_UPLOAD_TIMEOUT_MS);
 
 	let response;
 	try {
-		response = await fetch(`${base}/wp-json/wp/v2/media`, {
+		response = await doFetch(`${base}/wp-json/wp/v2/media`, {
 			method: 'POST',
 			headers: {
 				Authorization: auth,
 				'Content-Type': contentType,
-				'Content-Disposition': `attachment; filename="${safeName}"`,
+				'Content-Disposition': `attachment; filename="${safeName.replace(/"/g, '')}"`,
 			},
 			body: buffer,
+			signal: controller.signal,
 		});
 	} catch (err) {
 		if (logContext) {
@@ -950,6 +974,8 @@ export async function uploadWordpressMedia({
 			});
 		}
 		throw createMediaUploadNetworkError(err);
+	} finally {
+		clearTimeout(uploadTimer);
 	}
 
 	const text = await response.text().catch(() => '');
@@ -977,9 +1003,36 @@ export async function uploadWordpressMedia({
 		throw refineMediaUploadRestError(buildWordpressRestFailure(response, data, text));
 	}
 
+	const mediaId = Number(data?.id) || 0;
+	if (!mediaId) {
+		throw createMediaUploadNetworkError(new Error('WordPress media response missing id'));
+	}
+
+	const sourceUrl = String(data?.source_url || data?.guid?.rendered || '').trim();
+	const alt = String(altText ?? '').trim().slice(0, 500);
+	if (alt) {
+		const altController = new AbortController();
+		const altTimer = setTimeout(() => altController.abort(), 15_000);
+		try {
+			await doFetch(`${base}/wp-json/wp/v2/media/${mediaId}`, {
+				method: 'POST',
+				headers: {
+					Authorization: auth,
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({ alt_text: alt }),
+				signal: altController.signal,
+			});
+		} catch {
+			// Alt text is best-effort; upload already succeeded.
+		} finally {
+			clearTimeout(altTimer);
+		}
+	}
+
 	return {
-		id: data?.id,
-		url: data?.source_url || data?.guid?.rendered || '',
+		id: mediaId,
+		url: sourceUrl,
 	};
 }
 

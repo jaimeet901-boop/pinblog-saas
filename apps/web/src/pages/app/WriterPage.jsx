@@ -63,6 +63,11 @@ import {
 	readWriterCreditCost,
 	readWriterCreditRemaining,
 } from '@/lib/writerGenerateCredits';
+import {
+	fetchWriterArticleImages,
+	normalizeClientImageCount,
+} from '@/lib/writerArticleImages';
+import { composeArticleHtml } from '@/lib/writerComposeHtml';
 import './WriterPage.css';
 const initForm = {
 	keyword: '',
@@ -78,6 +83,8 @@ const initForm = {
 	wpCategory: '',
 	tags: '',
 	customPrompt: '',
+	/** Article stock/AI images to plan after generation (0 = off; not LLM-related). */
+	imageCount: 0,
 };
 
 const initOptions = {
@@ -179,33 +186,6 @@ const INLINE_TOOLS = [
 function stripHtml(value) {
 	if (typeof value !== 'string') return '';
 	return value.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-}
-
-function composeHtml(a) {
-	const parts = [];
-	if (a.introduction) parts.push(a.introduction);
-	for (const s of a.sections || []) {
-		const level = s.level === 'h3' ? 'h3' : 'h2';
-		parts.push(`<${level}>${s.heading || ''}</${level}>`);
-		parts.push(s.content || '');
-	}
-	if (a.faq?.length) {
-		parts.push('<h2>Frequently Asked Questions</h2>');
-		for (const f of a.faq) {
-			parts.push(`<h3>${f.question || ''}</h3>`);
-			parts.push(`<p>${f.answer || ''}</p>`);
-		}
-	}
-	if (a.conclusion) {
-		parts.push('<h2>Conclusion</h2>');
-		parts.push(a.conclusion);
-	}
-	if (a.recipe_schema) {
-		parts.push(
-			`<script type="application/ld+json">${JSON.stringify(a.recipe_schema)}</script>`,
-		);
-	}
-	return parts.join('\n');
 }
 
 function articlePlainText(a) {
@@ -790,9 +770,31 @@ Respond ONLY with the JSON object described in your instructions.`;
 				published_at: '',
 				custom_prompt: form.customPrompt || '',
 			});
+
+			let articleWithImages = next;
+			const imageCount = normalizeClientImageCount(form.imageCount);
+			if (imageCount > 0) {
+				try {
+					const imageResult = await fetchWriterArticleImages({
+						article: next,
+						imageCount,
+						requestId: idempotencyKey,
+					});
+					if (imageResult?.ok && imageResult.images) {
+						articleWithImages = {
+							...next,
+							images: imageResult.images,
+						};
+					}
+				} catch {
+					// Image side-channel must never fail article generation
+					articleWithImages = next;
+				}
+			}
+
 			generationSnapshotRef.current = null;
-			setArticle(next);
-			setArticleBaseline(next);
+			setArticle(articleWithImages);
+			setArticleBaseline(articleWithImages);
 			setSavedFingerprint(null);
 			setSaveError(null);
 			setGenPhase('completed');
@@ -800,9 +802,9 @@ Respond ONLY with the JSON object described in your instructions.`;
 				{
 					id: `${Date.now()}`,
 					keyword: form.keyword,
-					title: next.seo_title || form.keyword,
+					title: articleWithImages.seo_title || form.keyword,
 					at: new Date().toISOString(),
-					snapshot: next,
+					snapshot: articleWithImages,
 					formSnapshot: { ...form },
 				},
 				...prev,
@@ -992,7 +994,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 					websiteId: site.id,
 					articleId: articleRecordId,
 					title: article.seo_title || form.keyword,
-					content: composeHtml(article),
+					content: composeArticleHtml(article),
 					slug: article.slug,
 					excerpt: article.meta_description,
 					metaDescription: article.meta_description,
@@ -1002,6 +1004,9 @@ Respond ONLY with the JSON object described in your instructions.`;
 					categories: form.wpCategory ? [form.wpCategory] : [],
 					tags: form.tags,
 					featuredImageUrl: article.featured_image || article.image_url || '',
+					...(article?.images?.assets?.length
+						? { writerImages: article.images }
+						: {}),
 					seo: {
 						title: article.seo_title,
 						metaDescription: article.meta_description,
@@ -1099,7 +1104,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 	const copyArticle = async () => {
 		if (!article) return;
 		try {
-			await navigator.clipboard.writeText(composeHtml(article));
+			await navigator.clipboard.writeText(composeArticleHtml(article));
 			toast({ title: 'Copied', description: 'HTML article copied to clipboard.' });
 		} catch {
 			toast({ variant: 'destructive', title: 'Copy failed', description: 'Clipboard access was blocked.' });
@@ -1108,7 +1113,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 
 	const exportArticle = () => {
 		if (!article) return;
-		const blob = new Blob([composeHtml(article)], { type: 'text/html;charset=utf-8' });
+		const blob = new Blob([composeArticleHtml(article)], { type: 'text/html;charset=utf-8' });
 		const url = URL.createObjectURL(blob);
 		const anchor = document.createElement('a');
 		anchor.href = url;
@@ -1329,7 +1334,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 
 	const renderedHtml = useMemo(() => {
 		if (!article) return '';
-		return sanitizeRichHtml(composeHtml(article));
+		return sanitizeRichHtml(composeArticleHtml(article));
 	}, [article]);
 
 	const showPublishedSuccess = shouldShowPublishedSuccessBanner({
@@ -1560,6 +1565,27 @@ Respond ONLY with the JSON object described in your instructions.`;
 
 						<Section id="images" open={openSections.images} onToggle={toggleSection}>
 							<div className="space-y-2">
+								<Select
+									label="Article images"
+									value={String(normalizeClientImageCount(form.imageCount))}
+									onChange={(e) => setForm((f) => ({
+										...f,
+										imageCount: normalizeClientImageCount(e.target.value),
+									}))}
+								>
+									<option value="0">0 — none (default)</option>
+									<option value="1">1 image</option>
+									<option value="2">2 images</option>
+									<option value="3">3 images</option>
+									<option value="4">4 images</option>
+									<option value="5">5 images</option>
+								</Select>
+								<p className="text-[11px] text-muted-foreground -mt-1">
+									Plans free stock photos for the finished article (Pexels first). AI image credits are used only if stock cannot fill a slot. Does not change the article text prompt.
+								</p>
+							</div>
+
+							<div className="space-y-2 pt-2">
 								<p className="text-sm font-medium">Featured Image</p>
 								{article?.featured_image ? (
 									<div className="wr-image-preview">

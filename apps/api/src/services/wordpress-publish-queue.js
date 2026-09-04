@@ -22,6 +22,16 @@ import {
 import { withWordpressPublishCredits } from './wordpress-publish-credits.js';
 import { claimJob } from './wordpress-publish-claim.js';
 import { applyWordpressPublishFailureArticleSync } from './wordpress-article-status-sync.js';
+import {
+	buildWpWriterMediaFilename,
+	isWpWriterDataImageUrl,
+	readWriterMediaMap,
+	removeSeodevaFiguresBySrc,
+	resolveWriterImagesForJob,
+	rewriteSeodevaArticleImageSrc,
+	selectWriterAssetsForUpload,
+	writeWriterMediaMap,
+} from './wordpress-writer-media.js';
 
 export { claimJob, WORDPRESS_PUBLISH_JOB_CLAIM_PATH } from './wordpress-publish-claim.js';
 
@@ -197,7 +207,71 @@ async function processJob(job) {
 
 	let mediaId = Number(job.wp_media_id) || 0;
 	const mediaIds = Array.isArray(job.media_ids) ? [...job.media_ids] : [];
+	const { bySlotId, bySourceUrl } = readWriterMediaMap(job);
+	let contentHtml = String(job.content || '');
 
+	const writerImages = await resolveWriterImagesForJob(job, {
+		getArticle: (id) => pocketbaseClient.collection('articles').getOne(id),
+	});
+
+	const persistMediaState = async (progress = 55) => {
+		const nextPayload = {
+			...(job.payload && typeof job.payload === 'object' ? job.payload : {}),
+			writerMediaMap: writeWriterMediaMap(bySlotId, bySourceUrl),
+		};
+		job = { ...job, payload: nextPayload, content: contentHtml, media_ids: mediaIds, wp_media_id: mediaId };
+		await pocketbaseClient.collection('publish_jobs').update(job.id, {
+			wp_media_id: mediaId,
+			media_ids: mediaIds,
+			content: contentHtml,
+			payload: nextPayload,
+			progress,
+		}).catch(() => null);
+	};
+
+	const rememberUpload = (asset, uploaded) => {
+		const id = Number(uploaded?.id) || 0;
+		const wpUrl = String(uploaded?.url || '').trim();
+		const sourceUrl = String(asset?.url || '').trim();
+		if (!id || !wpUrl || !sourceUrl) return null;
+		const entry = { wpMediaId: id, wpUrl, sourceUrl };
+		const slotId = String(asset?.slotId || '').trim();
+		if (slotId) bySlotId[slotId] = entry;
+		bySourceUrl[sourceUrl] = entry;
+		if (!mediaIds.includes(id)) mediaIds.push(id);
+		return entry;
+	};
+
+	const lookupCached = (asset) => {
+		const slotId = String(asset?.slotId || '').trim();
+		const sourceUrl = String(asset?.url || '').trim();
+		if (slotId && bySlotId[slotId]?.wpUrl) return bySlotId[slotId];
+		if (sourceUrl && bySourceUrl[sourceUrl]?.wpUrl) return bySourceUrl[sourceUrl];
+		return null;
+	};
+
+	const uploadWriterAsset = async (asset, filenameHint) => {
+		const cached = lookupCached(asset);
+		if (cached) return cached;
+		const uploaded = await uploadWordpressMedia({
+			url: site.url,
+			username,
+			appPassword,
+			authType,
+			imageUrl: asset.url,
+			filename: filenameHint || buildWpWriterMediaFilename({
+				slotId: asset.slotId,
+				type: asset.type,
+				slug: job.slug,
+			}),
+			altText: asset.alt || '',
+			requireHttps: !isWpWriterDataImageUrl(asset.url),
+			logContext,
+		});
+		return rememberUpload(asset, uploaded);
+	};
+
+	// 1) Manual featured URL wins (existing behavior)
 	if (job.featured_image_url && !mediaId) {
 		try {
 			await logWorkflowStep({
@@ -218,11 +292,7 @@ async function processJob(job) {
 			});
 			mediaId = Number(uploaded?.id) || 0;
 			if (mediaId) mediaIds.push(mediaId);
-			await pocketbaseClient.collection('publish_jobs').update(job.id, {
-				wp_media_id: mediaId,
-				media_ids: mediaIds,
-				progress: 55,
-			}).catch(() => null);
+			await persistMediaState(55);
 			await logWorkflowStep({
 				ownerId,
 				action: 'workflow.image_upload',
@@ -239,12 +309,93 @@ async function processJob(job) {
 				resourceId: job.id,
 				metadata: { error: error.message },
 			});
-			// Retryable media failure — bubble unless attempts exhausted later
 			if (error.retryable === undefined) error.retryable = true;
 			throw error;
 		}
+	} else if (!mediaId && !job.featured_image_url) {
+		// 2) Generated featured Writer asset when no manual featured URL
+		const featuredAssets = selectWriterAssetsForUpload(writerImages, 'featured');
+		const featured = featuredAssets[0];
+		if (featured) {
+			try {
+				await logWorkflowStep({
+					ownerId,
+					action: 'workflow.image_upload',
+					resourceType: 'publish_jobs',
+					resourceId: job.id,
+					metadata: { imageUrl: featured.url, writerFeatured: true },
+				});
+				const entry = await uploadWriterAsset(
+					featured,
+					buildWpWriterMediaFilename({
+						slotId: featured.slotId || 'slot-featured',
+						type: 'featured',
+						slug: job.slug,
+					}),
+				);
+				mediaId = Number(entry?.wpMediaId) || 0;
+				await persistMediaState(55);
+				await logWorkflowStep({
+					ownerId,
+					action: 'workflow.image_upload',
+					resourceType: 'publish_jobs',
+					resourceId: job.id,
+					metadata: { mediaId, result: 'ok', writerFeatured: true },
+				});
+			} catch (error) {
+				await logWorkflowStep({
+					ownerId,
+					action: 'workflow.image_upload',
+					result: 'error',
+					resourceType: 'publish_jobs',
+					resourceId: job.id,
+					metadata: { error: error.message, writerFeatured: true },
+				});
+				if (error.retryable === undefined) error.retryable = true;
+				throw error;
+			}
+		} else {
+			await pocketbaseClient.collection('publish_jobs').update(job.id, { progress: 55 }).catch(() => null);
+		}
 	} else {
 		await pocketbaseClient.collection('publish_jobs').update(job.id, { progress: 55 }).catch(() => null);
+	}
+
+	// 3) Inline Writer images — soft failure policy
+	const inlineAssets = selectWriterAssetsForUpload(writerImages, 'inline');
+	if (inlineAssets.length) {
+		const urlRewriteMap = new Map();
+		const removeSrcs = new Set();
+
+		for (const asset of inlineAssets) {
+			const sourceUrl = String(asset.url || '').trim();
+			try {
+				const entry = await uploadWriterAsset(asset);
+				if (entry?.wpUrl) {
+					urlRewriteMap.set(sourceUrl, entry.wpUrl);
+					await persistMediaState(58);
+				}
+			} catch (error) {
+				logger.warn('[wordpress-publish] inline writer image upload failed', {
+					jobId: job.id,
+					slotId: asset.slotId || null,
+					errorCode: error?.errorCode || null,
+					message: String(error?.message || '').slice(0, 200),
+				});
+				if (isWpWriterDataImageUrl(sourceUrl)) {
+					removeSrcs.add(sourceUrl);
+				}
+				// HTTPS: keep original URL in HTML
+			}
+		}
+
+		if (urlRewriteMap.size) {
+			contentHtml = rewriteSeodevaArticleImageSrc(contentHtml, urlRewriteMap);
+		}
+		if (removeSrcs.size) {
+			contentHtml = removeSeodevaFiguresBySrc(contentHtml, removeSrcs);
+		}
+		await persistMediaState(60);
 	}
 
 	const claimStillActive = await assertWordpressPublishClaimStillActive(job);
@@ -276,7 +427,7 @@ async function processJob(job) {
 		authType,
 		postId: updatePostId || undefined,
 		title: job.title,
-		content: job.content,
+		content: contentHtml,
 		excerpt: job.excerpt,
 		slug: job.slug,
 		status: job.wp_status,

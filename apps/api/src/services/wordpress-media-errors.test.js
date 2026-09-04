@@ -19,7 +19,17 @@ import {
 	WORDPRESS_ERROR_CODES,
 } from './wordpress-errors.js';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(here, '../../../..');
+
+function readServiceSource(filename) {
+	const local = path.join(here, filename);
+	try {
+		return readFileSync(local, 'utf8');
+	} catch {
+		return readFileSync(path.join(root, 'apps/api/src/services', filename), 'utf8');
+	}
+}
 
 describe('wordpress media error taxonomy (P1-9)', () => {
 	it('classifies SSRF/validation download failures as VALIDATION_ERROR', () => {
@@ -104,17 +114,17 @@ describe('wordpress media error taxonomy (P1-9)', () => {
 	});
 
 	it('uploadWordpressMedia uses structured media classifiers (source)', () => {
-		const source = readFileSync(path.join(root, 'apps/api/src/services/wordpress-client.js'), 'utf8');
+		const source = readServiceSource('wordpress-client.js');
 		assert.match(source, /createMediaDownloadError\(err\)/);
-		assert.match(source, /createMediaDownloadHttpError\(imageResponse\.status\)/);
+		assert.match(source, /createMediaDownloadHttpError/);
 		assert.match(source, /createMediaUploadNetworkError\(err\)/);
 		assert.match(source, /refineMediaUploadRestError\(buildWordpressRestFailure/);
-		assert.match(source, /\{\s*response:\s*imageResponse\s*\}\s*=\s*await safeFetch/);
+		assert.match(source, /loadImageBytesForWordpressUpload/);
 		assert.doesNotMatch(source, /WORDPRESS_ERROR_CODES\.WP_MEDIA_ERROR/);
 	});
 
 	it('publish queue preserves classified retryable semantics (source)', () => {
-		const source = readFileSync(path.join(root, 'apps/api/src/services/wordpress-publish-queue.js'), 'utf8');
+		const source = readServiceSource('wordpress-publish-queue.js');
 		assert.match(source, /if \(error\.retryable === undefined\) error\.retryable = true/);
 	});
 
@@ -160,28 +170,29 @@ describe('wordpress media error taxonomy (P1-9)', () => {
 	});
 
 	it('P1-8 centralized route serialization remains intact (source)', () => {
-		const routes = readFileSync(path.join(root, 'apps/api/src/routes/wordpress/index.js'), 'utf8');
+		const routesPath = path.join(here, '../routes/wordpress/index.js');
+		const routes = readFileSync(routesPath, 'utf8');
 		assert.match(routes, /respondWordpressApiError\(res, err\)/);
 	});
 
 	it('P1-7 draft-only capability behavior remains intact (source)', () => {
-		const source = readFileSync(path.join(root, 'apps/api/src/services/wordpress-client.js'), 'utf8');
+		const source = readServiceSource('wordpress-client.js');
 		assert.match(source, /assertWordpressStatusAllowed/);
 		assert.match(source, /WP_CAPABILITY_DENIED/);
 	});
 
 	it('P1-6 retry idempotency remains intact (source)', () => {
-		const source = readFileSync(path.join(root, 'apps/api/src/services/wordpress-publish-queue.js'), 'utf8');
+		const source = readServiceSource('wordpress-publish-queue.js');
 		assert.match(source, /persistWordpressPostIdentity/);
 	});
 
 	it('P1-5 workspace scoping remains intact (source)', () => {
-		const publish = readFileSync(path.join(root, 'apps/api/src/services/wordpress-publish.js'), 'utf8');
+		const publish = readServiceSource('wordpress-publish.js');
 		assert.match(publish, /loadOwnedPublishJob/);
 	});
 
 	it('P1-4 enqueue workspace scope remains intact (source)', () => {
-		const publish = readFileSync(path.join(root, 'apps/api/src/services/wordpress-publish.js'), 'utf8');
+		const publish = readServiceSource('wordpress-publish.js');
 		assert.match(publish, /req:\s*ctx\.req/);
 	});
 });

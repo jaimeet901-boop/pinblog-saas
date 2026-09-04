@@ -19,6 +19,7 @@ import publicPlansRouter from './public-plans.js';
 import billingRouter from './billing.js';
 import tenantContentRouter from './tenant-content.js';
 import publishingRouter from './publishing.js';
+import writerArticleImagesRouter from './writer-article-images.js';
 
 const router = Router();
 
@@ -34,6 +35,7 @@ export default () => {
     router.use('/public/plans', publicPlansRouter);
     router.use('/billing', billingRouter);
     router.use('/integrated-ai', integratedAiRouter);
+    router.use('/writer-article-images', writerArticleImagesRouter);
     router.use('/websites', pocketbaseAuth, attachWorkspace, requireWorkspaceRead, requireWorkspaceMutation('workspace.websites.manage'), websitesRouter);
     router.use('/wordpress', wordpressRouter);
     router.use('/pinterest', pinterestRouter);
