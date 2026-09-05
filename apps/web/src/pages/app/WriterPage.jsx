@@ -22,6 +22,10 @@ import {
 	writerContentLanguageAttrs,
 } from '@/lib/writerLanguage';
 import { uploadImageBlob } from '@/services/ai-pins/imageLifecycle';
+import {
+	ensureWriterImagesHosted,
+	sanitizeWriterImagesForPersist,
+} from '@/lib/writerImagesPersist';
 import { useWorkspaceWebsites } from '@/hooks/useWorkspaceWebsites';
 import { withWebsiteQuery } from '@/lib/websites/activeWebsite';
 import { usePersistWebsiteQuery } from '@/hooks/usePersistWebsiteQuery';
@@ -235,7 +239,8 @@ function normalizeGallery(value) {
 function buildPersistableBody(article, form) {
 	if (!article || typeof article !== 'object') return null;
 	const clean = stripEditorIds(article);
-	return {
+	const images = sanitizeWriterImagesForPersist(clean.images);
+	const body = {
 		...clean,
 		featured_image: String(clean.featured_image || '').trim(),
 		gallery_images: normalizeGallery(clean.gallery_images),
@@ -243,6 +248,12 @@ function buildPersistableBody(article, form) {
 		published_url: String(clean.published_url || '').trim(),
 		published_at: String(clean.published_at || '').trim(),
 	};
+	if (images) {
+		body.images = images;
+	} else {
+		delete body.images;
+	}
+	return body;
 }
 
 /** Fingerprint of fields persisted by Save Draft — used for dirty tracking. */
@@ -781,10 +792,23 @@ Respond ONLY with the JSON object described in your instructions.`;
 						requestId: idempotencyKey,
 					});
 					if (imageResult?.ok && imageResult.images) {
-						articleWithImages = {
-							...next,
-							images: imageResult.images,
-						};
+						const hosted = await ensureWriterImagesHosted(imageResult.images, {
+							uploadImageBlob,
+							title: next.seo_title || form.keyword || 'writer-article-image',
+						});
+						if (hosted.stats.failed > 0) {
+							toast({
+								variant: 'destructive',
+								title: 'Some article images could not be stored',
+								description: `${hosted.stats.failed} image(s) were skipped. You can still save the draft.`,
+							});
+						}
+						if (hosted.images) {
+							articleWithImages = {
+								...next,
+								images: hosted.images,
+							};
+						}
 					}
 				} catch {
 					// Image side-channel must never fail article generation
@@ -880,10 +904,30 @@ Respond ONLY with the JSON object described in your instructions.`;
 			: null;
 
 		try {
-			const persistBody = buildPersistableBody(article, form);
+			const hosted = await ensureWriterImagesHosted(article.images, {
+				uploadImageBlob,
+				title: article.seo_title || form.keyword || 'writer-article-image',
+			});
+			const articleForPersist = hosted.images
+				? { ...article, images: hosted.images }
+				: (() => {
+					const next = { ...article };
+					delete next.images;
+					return next;
+				})();
+			if (hosted.stats.failed > 0) {
+				toast({
+					variant: 'destructive',
+					title: 'Some article images could not be stored',
+					description: `${hosted.stats.failed} image(s) were skipped. Saving the draft without them.`,
+				});
+			}
+			setArticle(articleForPersist);
+
+			const persistBody = buildPersistableBody(articleForPersist, form);
 			const payload = buildArticlePersistPayload({
 				form,
-				article,
+				article: articleForPersist,
 				persistBody,
 				status,
 				scheduledAt: status === 'scheduled' ? new Date(Date.now() + 86400000).toISOString() : '',
@@ -907,8 +951,8 @@ Respond ONLY with the JSON object described in your instructions.`;
 			}
 
 			// Keep editor state; mark clean.
-			setArticleBaseline(article);
-			setSavedFingerprint(buildSaveFingerprint(article, form));
+			setArticleBaseline(articleForPersist);
+			setSavedFingerprint(buildSaveFingerprint(articleForPersist, form));
 			toast({
 				title: 'Saved',
 				description: status === 'draft'
@@ -960,11 +1004,31 @@ Respond ONLY with the JSON object described in your instructions.`;
 		}
 		setPublishing(true);
 		try {
-			const persistBody = buildPersistableBody(article, form);
+			const hosted = await ensureWriterImagesHosted(article.images, {
+				uploadImageBlob,
+				title: article.seo_title || form.keyword || 'writer-article-image',
+			});
+			const articleForPersist = hosted.images
+				? { ...article, images: hosted.images }
+				: (() => {
+					const next = { ...article };
+					delete next.images;
+					return next;
+				})();
+			if (hosted.stats.failed > 0 && !extras.silent) {
+				toast({
+					variant: 'destructive',
+					title: 'Some article images could not be stored',
+					description: `${hosted.stats.failed} image(s) were skipped before publish.`,
+				});
+			}
+			setArticle(articleForPersist);
+
+			const persistBody = buildPersistableBody(articleForPersist, form);
 			const articleStatus = extras.scheduledAt ? 'scheduled' : (wpStatus === 'publish' ? 'published' : 'draft');
 			const payload = buildArticlePersistPayload({
 				form,
-				article,
+				article: articleForPersist,
 				persistBody,
 				status: articleStatus,
 				scheduledAt: extras.scheduledAt || '',
@@ -993,25 +1057,25 @@ Respond ONLY with the JSON object described in your instructions.`;
 					siteId: site.id,
 					websiteId: site.id,
 					articleId: articleRecordId,
-					title: article.seo_title || form.keyword,
-					content: composeArticleHtml(article),
-					slug: article.slug,
-					excerpt: article.meta_description,
-					metaDescription: article.meta_description,
+					title: articleForPersist.seo_title || form.keyword,
+					content: composeArticleHtml(articleForPersist),
+					slug: articleForPersist.slug,
+					excerpt: articleForPersist.meta_description,
+					metaDescription: articleForPersist.meta_description,
 					status: extras.scheduledAt ? 'future' : wpStatus,
 					scheduledAt: extras.scheduledAt || undefined,
 					...(extras.timezone ? { timezone: extras.timezone } : {}),
 					categories: form.wpCategory ? [form.wpCategory] : [],
 					tags: form.tags,
-					featuredImageUrl: article.featured_image || article.image_url || '',
-					...(article?.images?.assets?.length
-						? { writerImages: article.images }
+					featuredImageUrl: articleForPersist.featured_image || articleForPersist.image_url || '',
+					...(articleForPersist?.images?.assets?.length
+						? { writerImages: articleForPersist.images }
 						: {}),
 					seo: {
-						title: article.seo_title,
-						metaDescription: article.meta_description,
+						title: articleForPersist.seo_title,
+						metaDescription: articleForPersist.meta_description,
 					},
-					recipeCard: options.recipe ? (article.recipe || article.recipe_card || { enabled: true }) : null,
+					recipeCard: options.recipe ? (articleForPersist.recipe || articleForPersist.recipe_card || { enabled: true }) : null,
 					enqueuePinterest: true,
 					idempotencyKey: `writer-${site.id}-${articleRecordId}-${wpStatus}-${extras.scheduledAt || 'now'}`,
 				}),
@@ -1045,7 +1109,7 @@ Respond ONLY with the JSON object described in your instructions.`;
 				scheduledAt: extras.scheduledAt,
 				publishedUrl,
 			})) {
-				const nextArticle = applyPublishedUrlPatch(article, {
+				const nextArticle = applyPublishedUrlPatch(articleForPersist, {
 					publishedUrl,
 					publishedAt,
 					customPrompt: form.customPrompt,
@@ -1059,8 +1123,8 @@ Respond ONLY with the JSON object described in your instructions.`;
 						body: JSON.stringify({
 							published_url: publishedUrl,
 							published_at: publishedAt,
-							featured_image: article.featured_image || '',
-							gallery_images: normalizeGallery(article.gallery_images),
+							featured_image: articleForPersist.featured_image || '',
+							gallery_images: normalizeGallery(articleForPersist.gallery_images),
 							custom_prompt: form.customPrompt || '',
 						}),
 					}).catch(() => null);
@@ -1069,9 +1133,9 @@ Respond ONLY with the JSON object described in your instructions.`;
 					setSavedFingerprint(buildSaveFingerprint(nextArticle, form));
 				}
 			} else {
-				setArticleBaseline(article);
+				setArticleBaseline(articleForPersist);
 				if (shouldClearDirtyAfterPublish({ persistSucceeded: true })) {
-					setSavedFingerprint(buildSaveFingerprint(article, form));
+					setSavedFingerprint(buildSaveFingerprint(articleForPersist, form));
 				}
 			}
 			await loadRecentDrafts();

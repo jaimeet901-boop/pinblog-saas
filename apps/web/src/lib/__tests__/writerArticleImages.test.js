@@ -123,14 +123,15 @@ describe('WriterPage M3-A contracts', () => {
 		assert.match(writerPage, /buildGenerationMediaPreserve/);
 	});
 
-	it('I. attaches images additively; does not overwrite featured/gallery in image block', () => {
-		assert.match(writerPage, /images:\s*imageResult\.images/);
+	it('I. attaches hosted images additively; does not overwrite featured/gallery in image block', () => {
+		assert.match(writerPage, /ensureWriterImagesHosted\(imageResult\.images/);
 		const imageHook = writerPage.slice(
 			writerPage.indexOf('let articleWithImages = next'),
 			writerPage.indexOf('generationSnapshotRef.current = null'),
 		);
 		assert.doesNotMatch(imageHook, /featured_image\s*:/);
 		assert.doesNotMatch(imageHook, /gallery_images\s*:/);
+		assert.match(imageHook, /images:\s*hosted\.images/);
 	});
 
 	it('E. image failures caught so generate can succeed', () => {
